@@ -12,7 +12,7 @@ import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 // A key joins only when its reader's answer for an absent key is a fixed value and its absence is
 // the same in every scope that may write it. Facts that follow from another key's value (a
 // maker from a model id) are not here: the legacy provider composer does not infer them, so
-// dropping one would change meaning (docs/design/readable-config.md#RC-D26).
+// dropping one would change meaning (docs/reference/config/rulings.md#RC-D26).
 
 const (
 	// DefaultNetworkMode is `network.mode` when no flag and no config names one.

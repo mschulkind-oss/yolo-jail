@@ -1,10 +1,10 @@
 package packload
 
 // readablemodels.go carries a model said once into the launch's provider table
-// (docs/design/pack-manifests.md §4, docs/design/readable-config.md RC-D29): the readable rows a
+// (docs/design/pack-manifests.md §4, docs/reference/config/rulings.md#RC-D29): the readable rows a
 // pack's `pack.toml` or a user's config writes (`models.<id>` tables with no `id` field), their
 // provider's `every_model`, `twin_of`, `compact_at`, and the catalog facts a row named without
-// them takes (docs/design/config-user.md §8 C7). The derives read one vocabulary, the alias→wire
+// them takes (docs/reference/config/user-config.md#lines-you-never-write C7). The derives read one vocabulary, the alias→wire
 // map and its flat `model_options` facts, so the rows are lowered into it here, inside the one
 // composition every notch calls (ComposeProviders), and never reach a derive in their own shape.
 //
@@ -25,7 +25,7 @@ import (
 const everyModelKey = "every_model"
 
 // WithModelCatalog hands ComposeProviders the offline catalog's facts by model id: what a readable
-// row named without facts takes (config-user.md §8 C7), beneath its provider's `every_model` and
+// row named without facts takes (docs/reference/config/user-config.md#lines-you-never-write C7), beneath its provider's `every_model` and
 // its own. load runs at most once per composition, and only when the table holds a readable row,
 // so a launch with none never reads a catalog. A legacy alias never takes catalog facts: it
 // composed without them before, and still does.

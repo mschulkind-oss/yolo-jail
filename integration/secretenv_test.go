@@ -22,7 +22,7 @@ func secretMoveAdvice() string {
 	return "Move it to the private set: yolo config secret ZAI_API_KEY --user"
 }
 
-// secret-env-scoping.md §3.4 rows 1, 3 and 4 end to end: a bare shell holds the public set only, the
+// docs/reference/providers.md#the-two-env-sets-public-and-private rows 1, 3 and 4 end to end: a bare shell holds the public set only, the
 // agent whose selected provider claims a private key receives it in its agent env file, and a
 // private name nothing claims is named on stderr and reaches nobody.
 func TestAPrivateKeyReachesOnlyItsClaimingAgent(t *testing.T) {

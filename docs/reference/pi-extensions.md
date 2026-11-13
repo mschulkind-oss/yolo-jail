@@ -526,7 +526,7 @@ as they serve a fork ([OQ-PBR6](patched-forks.md#why-its-this-way)), named by th
 | :--- | :--- |
 | **jail, podman** | yes |
 | **jail, Apple Container** | from the read-only floor up, yes, built as a patched fork is: a capture jail cannot start beside a running jail (INFERRED), so a candidate stays pending and the good build serves. **Below the floor no tree is built**, because `:ro` is ignored there and a build jail's read-only binds would be writable, which the seal does not allow for. A good build already on this machine is still delivered as a per-launch copy; with none, pi starts without the extension and the line names `YOLO_RUNTIME=podman` |
-| **jail, macos-user** | yes, built for darwin by the sealed macos-user build act and copied into the sandbox home through the home overlay ([PPX-D45](#PPX-D45)). UNMEASURED on a Mac: the `macos-user.yml` cells |
+| **jail, macos-user** | yes, built for darwin by the sealed macos-user build act and copied into the sandbox home through the home overlay ([PPX-D45](#PPX-D45)). MEASURED on a GitHub-hosted Mac: the `macos-user.yml` cells passed in [run 43120634525](https://github.com/mschulkind-oss/yolo-jail/actions/runs/43120634525) on 2026-11-11 ([`patched-forks.md` §14](patched-forks.md#14-unbuilt-and-unmeasured)), with a hermetic fixture and no pi loading the tree |
 | **`yolo host`, Linux** | yes ([§8.3](#83-at-the-host)) |
 | **`yolo host`, macOS** | yes, the Linux host's render with a darwin build from the same act ([PPX-D45](#PPX-D45)). UNMEASURED on a Mac |
 | **guest** | unbuilt, as every verb there is |
@@ -623,6 +623,10 @@ names `patched-extensions`.
   `.gitignore` ignores at the base, said once naming `build`. It needs the upstream's `.gitignore` at
   the base, read in the replay's scratch repository.
 - **A host pi keeping the tree it loaded across a move** is INFERRED from pi's loader, UNMEASURED.
+- **A patched extension on macos-user** is measured by fixture only: the `macos-user.yml` cells
+  passed on a GitHub-hosted Mac on 2026-11-11
+  ([`patched-forks.md` §14](patched-forks.md#14-unbuilt-and-unmeasured)), and no pi has loaded a
+  darwin tree yolo built.
 
 ## 17. The pre-launch refresh
 

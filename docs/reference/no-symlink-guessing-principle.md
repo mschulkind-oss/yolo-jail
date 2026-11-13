@@ -54,12 +54,12 @@ not do that work by guessing.
 
 ## Where this came from
 
-- **[RC-D41](../design/readable-config.md#RC-D41) (2026-11-01).** `yolo config migrate` moves a
+- **[RC-D41](config/rulings.md#RC-D41) (2026-11-01).** `yolo config migrate` moves a
   linked config's link to `<name>.pre-migrate` and writes the converted TOML as a regular file. The
   maintainer: *"I did want to write a normal non-linked file, because we can't know how their
   dotfiles work or if it is like mine. just do the dumb thing."* This replaced an earlier reading
   that converted the file inside the dotfiles tree and re-pointed the link.
-- **[RC-D70](../design/readable-config.md#RC-D70) (2026-11-06).** A side-file tool re-created the
+- **[RC-D70](config/rulings.md#RC-D70) (2026-11-06).** A side-file tool re-created the
   moved link after migration, and the launch refused because both formats were present. The fix
   improved the refusal's wording and left the migration as it was. When a link-aware migration was
   proposed (write beside the target and link the new name to it), the maintainer said: *"no I

@@ -159,9 +159,17 @@ func (o *Options) resolveNetModeSource(cfg *jsonx.OrderedMap) (mode, source stri
 //     network helper forwards that address to the host's loopback.
 //
 // Empty means "leave it to svcendpoint's default", which is the gateway name.
+//
+// OrbStack's route is the third answer: on an endpoint identified as an OrbStack machine the
+// gateway name is the machine's own, and the Mac's loopback is orbStackHostName
+// (orbstackroute.go, whose orbStackRoutes the assembler's disposition reads too).
 func (o *Options) advertiseHostFor(rt string, cfg *jsonx.OrderedMap) string {
-	if sharesLauncherNetns(rt, o.resolveNetMode(cfg), o.inContainer()) {
+	mode := o.resolveNetMode(cfg)
+	if sharesLauncherNetns(rt, mode, o.inContainer()) {
 		return "127.0.0.1"
+	}
+	if o.orbStackRoutes(rt, mode) {
+		return orbStackHostName
 	}
 	return ""
 }

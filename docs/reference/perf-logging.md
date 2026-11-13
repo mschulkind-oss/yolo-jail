@@ -1,6 +1,6 @@
 ---
 status: current
-next: "Read the first macos-user breakdown (TestMacosUserTimingRecordsTheBackendsSteps on the macOS runner) into What has been measured; add one relaunch that delivers nothing to the Apple Container delivery test, whose reader now takes the launch.* spans (unrun until the Mac runner runs it)"
+next: "Add one relaunch that delivers nothing to the Apple Container delivery test, whose reader now takes the launch.* spans (unrun until the Mac runner runs it)"
 verified: 2026-09-19
 verified_commit: 16ef96cb
 covers:
@@ -1196,6 +1196,29 @@ PID 1 leaving, and Window A itself — and the instrument built to split that
 stretch had never returned a number, for the reasons in the warning above. The
 111 ms is also the answer to "why are there two yolo lines and a pause between
 them": there is no pause between them. The pause is before both.
+
+And a **macos-user** launch's breakdown, read from `TestMacosUserTimingRecordsTheBackendsSteps`,
+which logs the host perf log of one launch, on GitHub-hosted Macs in the two `macos-user.yml` runs
+of 2026-11-11: [run 42951350259](https://github.com/mschulkind-oss/yolo-jail/actions/runs/42951350259)
+at `a4766cb6b` and [run 43120634525](https://github.com/mschulkind-oss/yolo-jail/actions/runs/43120634525)
+at `2ba463f93`. The test's launch runs no agent, so these price the backend's own steps. Spans under
+0.05 s are left out.
+
+| Span | Run 42951350259 | Run 43120634525 |
+| :--- | ---: | ---: |
+| `launch.macos_user` (the whole backend dispatch) | 4.496 s | 6.217 s |
+| `macos_user.materialize` (the floor's evaluation and build) | 3.622 s | 4.624 s |
+| `macos_user.materialize.skip_eval` | 1.246 s | 1.744 s |
+| `macos_user.materialize.build` | 2.372 s | 2.874 s |
+| `macos_user.stage` | 0.239 s | 0.302 s |
+| `macos_user.bootstrap` | 0.193 s | 0.416 s |
+| `macos_user.provision` | 0.146 s | 0.347 s |
+| `macos_user.agent` | under 0.05 s | 0.106 s |
+| `macos_user.ca_trust` | 0.078 s | 0.115 s |
+| `macos_user.preconditions` | 0.059 s | 0.087 s |
+
+In both runs the floor's materialize is 74 to 81 percent of the backend's time, and every
+other step is under half a second.
 
 ### The linger was the scratch volumes
 

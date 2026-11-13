@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// Wildcard branch and tag grants (docs/design/git-broker.md GB-D25): a grant's name is git's own
+// Wildcard branch and tag grants (docs/reference/git-broker.md GB-D25): a grant's name is git's own
 // refspec pattern, one `*` anywhere in the short name matching any run of characters, `/`
 // included; its repository may be "*"; and a `tag` grant mirrors `branch` under refs/tags/.
 

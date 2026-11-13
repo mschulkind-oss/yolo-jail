@@ -19,7 +19,7 @@ import (
 )
 
 // approvalauthority.go is the host's authority over a push that asks for approval
-// (docs/design/git-broker.md §5, GB-D8 and GB-D16 to GB-D23): what a request for one is, and
+// (docs/reference/git-broker.md, GB-D8 and GB-D16 to GB-D23): what a request for one is, and
 // the check every step of its life re-runs against the launch's live scope file: filing it,
 // deciding it with `yolo approve`, and spending its grant.
 //

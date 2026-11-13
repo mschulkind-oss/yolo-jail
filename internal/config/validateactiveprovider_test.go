@@ -3,7 +3,7 @@ package config
 // validateactiveprovider_test.go pins the launch's validation (ValidateConfig, what the launch
 // preflight and `yolo check` both run) of two readable-config keys at the wrong scope or shape:
 // `active_provider` (OQ-RC14, user-scope only, never beside the legacy `profile` key) and
-// `requests` in an old-format user file (a project's key, docs/design/config-user.md §6).
+// `requests` in an old-format user file (a project's key, docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins).
 
 import (
 	"path/filepath"

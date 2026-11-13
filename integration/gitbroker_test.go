@@ -18,7 +18,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
-// THE GIT BROKER, END TO END (docs/design/git-broker.md, git-broker-plan.md task 7).
+// THE GIT BROKER, END TO END (docs/reference/git-broker.md, docs/reference/git-broker.md).
 //
 // A real jail selecting the `git` pack, whose user config grants read access to every
 // workspace (boundary-broker.md BB-D105, git-broker.md GB-D15), runs the image's real `git fetch`
@@ -270,7 +270,7 @@ func TestGitBrokerWithNoGrantRefusesTheFetch(t *testing.T) {
 	}
 }
 
-// CREATE-BRANCH AND THE WORKING SET, END TO END (git-broker-plan.md task 9). The user's own
+// CREATE-BRANCH AND THE WORKING SET, END TO END (docs/reference/git-broker.md). The user's own
 // config allows the kind, the workspace config names the grant, and both join at the host's
 // `yolo check --accept-config-changes`. A new branch pushed from the jail lands in the bare
 // repository and joins the workspace's working set; a second push lands; the jail restarts (a
@@ -355,7 +355,7 @@ func TestGitBrokerCreateBranch(t *testing.T) {
 	}
 }
 
-// A BRANCH DECLARED IN CONFIG, END TO END (docs/design/git-broker.md GB-D12). The user's own
+// A BRANCH DECLARED IN CONFIG, END TO END (docs/reference/git-broker.md GB-D12). The user's own
 // config allows the kind, the workspace config declares main as a working-set branch, and both
 // join at the host's `yolo check --accept-config-changes`: a jail's push to main lands in the
 // bare repository, audited as the working set, covered by the grant. A second workspace whose
@@ -441,7 +441,7 @@ g rev-parse HEAD | sed 's/^/HEAD=/'`, fx.upstream)
 	}
 }
 
-// ALLOW ONCE, END TO END (docs/design/git-broker.md GB-D16 to GB-D22). Nothing covers main, so
+// ALLOW ONCE, END TO END (docs/reference/git-broker.md GB-D16 to GB-D22). Nothing covers main, so
 // the jail's push files a request, waits, and is refused naming it; the jail writes the refusal
 // into the workspace and waits. The host reads the request id there and runs `yolo approve <id>`
 // while the jail's broker still runs, as a human would, then writes a marker; the jail pushes the

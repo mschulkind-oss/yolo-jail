@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -215,7 +218,7 @@ func runProgramCaptureRequest(cell packload.PrivateProgramEnvPlan, checked map[s
 }
 
 func TestPrivateClientBootstrapExecsOnlyTheBoundVerifiedEntrypoint(t *testing.T) {
-	_, _, checked, err := auditedSemverRun(t, "semver@7.7.2", nil, nil, true)
+	r, _, checked, err := auditedSemverRun(t, "semver@7.7.2", nil, nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,18 +228,32 @@ func TestPrivateClientBootstrapExecsOnlyTheBoundVerifiedEntrypoint(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepared, err := os.ReadFile(r.f.node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum := sha256.Sum256(prepared); b.NodeSHA256 != "sha256:"+hex.EncodeToString(sum[:]) {
+		t.Fatalf("binding names Node %s, not the one the capture was prepared with", b.NodeSHA256)
+	}
+	// A copy of the prepared Node somewhere else on PATH: the bytes decide, not the place.
 	nodeDir := t.TempDir()
-	writeFile(t, filepath.Join(nodeDir, "node"), "#!/bin/sh\n")
-	if err := os.Chmod(filepath.Join(nodeDir, "node"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(nodeDir, "node"), prepared, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", nodeDir)
+	// Loader inputs a jail process can set: none may reach the client's Node.
+	for k, v := range map[string]string{"NODE_OPTIONS": "--require=/tmp/evil.js", "NODE_PATH": "/tmp/evil", "LD_PRELOAD": "/tmp/evil.so",
+		"NIX_LD_LIBRARY_PATH": "/tmp/evil", "OPENSSL_CONF": "/tmp/evil.cnf", "BASH_ENV": "/tmp/evil.sh", "SEMVER_KEEP": "kept"} {
+		t.Setenv(k, v)
+	}
 	oldExec, oldStore := privateClientExec, privateClientStore
 	t.Cleanup(func() { privateClientExec, privateClientStore = oldExec, oldStore })
 	privateClientStore = paths.CapturesDir()
-	var execed []string
-	privateClientExec = func(argv0 string, argv []string, _ []string) error {
-		execed = append([]string{argv0}, argv...)
+	var execed, execEnv []string
+	var execBytes []byte
+	privateClientExec = func(argv0 string, argv []string, environ []string) error {
+		execed, execEnv = append([]string{argv0}, argv...), environ
+		execBytes, _ = os.ReadFile(argv0) // what the kernel would execute, read while the descriptor is open
 		return nil
 	}
 	args := append(entrypoint.PrivateClientArgv(b)[3:], "1.2.3", "-r", ">1")
@@ -249,9 +266,35 @@ func TestPrivateClientBootstrapExecsOnlyTheBoundVerifiedEntrypoint(t *testing.T)
 		t.Fatalf("bound bootstrap refused: rc=%d", rc)
 	}
 	want := filepath.Join(paths.CapturesDir(), "entries", b.CaptureKey, "tree", filepath.FromSlash(b.Entrypoint))
-	if len(execed) != 6 || execed[0] != filepath.Join(nodeDir, "node") || execed[2] != want || strings.Join(execed[3:], " ") != "1.2.3 -r >1" {
+	if len(execed) != 6 || !strings.HasPrefix(execed[0], "/proc/self/fd/") || execed[1] != "node" || execed[2] != want || strings.Join(execed[3:], " ") != "1.2.3 -r >1" {
 		t.Fatalf("bootstrap exec'd %q", execed)
 	}
+	if !bytes.Equal(execBytes, prepared) {
+		t.Fatalf("bootstrap exec'd %d bytes through its descriptor, not the prepared Node", len(execBytes))
+	}
+	kept := false
+	for _, kv := range execEnv {
+		name, _, _ := strings.Cut(kv, "=")
+		if name == "NODE_OPTIONS" || name == "NODE_PATH" || name == "LD_PRELOAD" || name == "NIX_LD_LIBRARY_PATH" || name == "OPENSSL_CONF" || name == "BASH_ENV" {
+			t.Errorf("bootstrap passed loader input %s to the client", kv)
+		}
+		kept = kept || kv == "SEMVER_KEEP=kept"
+	}
+	if !kept {
+		t.Error("bootstrap dropped the client's own environment")
+	}
+	// Another Node first on PATH is refused before anything runs.
+	otherNode := t.TempDir()
+	writeFile(t, filepath.Join(otherNode, "node"), "#!/bin/sh\n")
+	if err := os.Chmod(filepath.Join(otherNode, "node"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", otherNode+string(os.PathListSeparator)+nodeDir)
+	execed = nil
+	if rc := runInternal(append([]string{entrypoint.PrivateClientExecVerb}, args...)); rc == 0 || execed != nil {
+		t.Fatalf("bootstrap ran a Node that is not the prepared one: rc=%d exec=%q", rc, execed)
+	}
+	t.Setenv("PATH", nodeDir)
 	other := b
 	other.Generation = strings.Repeat("b", 32)
 	otherEnv, _ := entrypoint.MarshalPrivateClients([]entrypoint.PrivateClientBinding{other})
@@ -267,7 +310,12 @@ func TestPrivateClientBootstrapExecsOnlyTheBoundVerifiedEntrypoint(t *testing.T)
 			return c
 		}())[3:], "x"), env},
 		"reordered arguments": {append([]string{args[1], args[0]}, args[2:]...), env},
-		"missing separator":   {entrypoint.PrivateClientArgv(b)[3 : len(entrypoint.PrivateClientArgv(b))-1], env},
+		"another Node identity": {append(entrypoint.PrivateClientArgv(func() entrypoint.PrivateClientBinding {
+			c := b
+			c.NodeSHA256 = "sha256:" + strings.Repeat("0", 64)
+			return c
+		}())[3:], "x"), env},
+		"missing separator": {entrypoint.PrivateClientArgv(b)[3 : len(entrypoint.PrivateClientArgv(b))-1], env},
 	} {
 		t.Run(name, func(t *testing.T) {
 			execed = nil

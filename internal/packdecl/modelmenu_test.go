@@ -14,6 +14,25 @@ const validModelMenu = `{"catalog":["debug","models","--bundled"],"list":".x/lis
   "into":".x/menu.json","flag":["-c","catalog={into}"],"entries":"models","id":"slug",
   "order":"priority","name":"display_name","clear":["upgrade"],"set":{"visibility":"list"}}`
 
+// The pack's session homes ride the projected menu, as they ride Refresh, so the launcher can
+// resolve the menu's files in a session's own copy (per-session-profiles.md §7).
+func TestModelMenuCarriesThePacksSessionHomes(t *testing.T) {
+	m, problems := Decode([]byte(`{"session_homes":[{"dir":".x/agent","env":"X_DIR"}],"contributes":[
+	  {"kind":"state","at":".x","scope":"workspace"},
+	  {"kind":"program","bin":"tool","via":"npm","package":"tool","model_menu":` + validModelMenu + `}]}`))
+	if len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	installs := m.InstallContributions()
+	if len(installs) != 1 || installs[0].ModelMenu == nil {
+		t.Fatalf("installs = %+v, want one with a menu", installs)
+	}
+	want := []SessionHome{{Dir: ".x/agent", Env: "X_DIR"}}
+	if got := installs[0].ModelMenu.SessionHomes; !reflect.DeepEqual(got, want) {
+		t.Errorf("ModelMenu.SessionHomes = %+v, want %+v", got, want)
+	}
+}
+
 func TestModelMenuIsProjectedFromAProgramOfAnyVia(t *testing.T) {
 	m, problems := Decode([]byte(`{"contributes":[
 	  {"kind":"program","bin":"codex","via":"installer","url":"https://example.test/i.sh",

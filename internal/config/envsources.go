@@ -81,7 +81,7 @@ func anchorReadableEnvSources(cfg *jsonx.OrderedMap, dir string) {
 			anchorEnvSourceList(env, "files", dir)
 			// The private set's files anchor per declaring file too, beside the public ones: this
 			// is where SE-D1's set bit is "assigned where the entry is read" — the entry keeps its
-			// key, env.secrets.files, through the merge (secret-env-scoping.md#SE-D1).
+			// key, env.secrets.files, through the merge (docs/reference/providers.md#SE-D1).
 			if secretsValue, ok := env.Get("secrets"); ok {
 				if secrets, ok := asMap(secretsValue); ok {
 					anchorEnvSourceList(secrets, "files", dir)
@@ -120,7 +120,7 @@ func anchorEnvSourceList(cfg *jsonx.OrderedMap, key, dir string) {
 
 // envEntry is one entry of the ordered list the env resolver walks, with the config key that
 // spelled it: a dotenv path (a string) or an inline table of assignments, a nil value being a
-// removal. private is the set bit (secret-env-scoping.md#SE-D1): true for an entry the
+// removal. private is the set bit (docs/reference/providers.md#SE-D1): true for an entry the
 // `[env.secrets]` table declared.
 type envEntry struct {
 	key     string
@@ -143,12 +143,11 @@ func (e envEntry) describeInline(m *jsonx.OrderedMap) string {
 //     entry (its readable spelling, LowerEnvSources), all layers' in layer order;
 //  2. every `env.files` path, in order (the readable spelling of its file entries);
 //  3. `env.set` as one inline table, applied after every file — the reading the migrator
-//     converts by (configmigrate.lowerEnvSources) and config-project.md §1 shows;
-//  4. the private set (secret-env-scoping.md#33-the-two-sets): every `env.secrets.files` path,
+//     converts by (configmigrate.lowerEnvSources) and docs/reference/config/project-config.md#the-sections shows;
+//  4. the private set (docs/reference/providers.md#the-two-env-sets-public-and-private): every `env.secrets.files` path,
 //     then `env.secrets.set` as one inline table, each entry carrying the set bit;
 //  5. `env.unset` as one inline table of removals, applied last, so an unset wins over a
-//     set of the same name from any layer (readable-config-plan.md's "unset precedence",
-//     RC-D23), in either set (SE-D4).
+//     set of the same name from any layer (docs/reference/config/rulings.md#RC-D23), in either set (SE-D4).
 //
 // The merge has already joined the layers: `env.files` is the user's entries then the
 // workspace's, `env.set` is later-wins per name, and `env.unset` is their union; the same
@@ -233,7 +232,7 @@ func envEntries(cfg *jsonx.OrderedMap) []envEntry {
 // EnvEntries is envEntries for a reader outside this package that must compare what the
 // launch resolves without reading any file — the migration's equality proof. Each entry is a
 // path string or an inline table whose nil values are removals. Private entries are skipped: a
-// legacy file never has one (secret-env-scoping.md#SE-D6), so the proof compares the public set.
+// legacy file never has one (docs/reference/providers.md#SE-D6), so the proof compares the public set.
 func EnvEntries(cfg *jsonx.OrderedMap) []any {
 	var out []any
 	for _, e := range envEntries(cfg) {

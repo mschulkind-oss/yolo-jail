@@ -1,7 +1,7 @@
 package entrypoint
 
 // packbootchecks.go runs the boot_check hook: a script a pack delivers, run once at boot, whose
-// output is printed as a warning (docs/design/mcp-presets-removal.md, OQ-MP9, ruled 2026-10-23:
+// output is printed as a warning (docs/reference/mcp-configuration.md, OQ-MP9, ruled 2026-10-23:
 // "if the pack discovers at boot for whatever it's trying to wrap … that it's not there, then it
 // should print it … it is just a warning").
 //

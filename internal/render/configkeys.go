@@ -144,8 +144,8 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"built-in host setup, so a table of yours has no meaning at the host notch"},
 	"share_host_fonts": {KeyNotApplicable, "shares the user's font folder into a jail that does " +
 		"not run as them; at the host notch the agent already is the user and reads its own fonts"},
-	"macos_user_shared_tmp": {KeyNotApplicable, "opens the shared /tmp to a run-as-you macos-user " +
-		"launch's profile; `yolo host` runs no profile, so the key has no meaning at the host notch"},
+	"macos_user_shared_tmp": {KeyNotApplicable, "opens the shared /tmp to a macos-user launch's " +
+		"profile, in either mode; `yolo host` runs no profile, so the key has no meaning at the host notch"},
 	"perf_logging": {KeyHonored, "`yolo host --` and `yolo host apply` record their spans when it " +
 		"is on, silently, into the machine-wide host-notch-perf.log (run.HostNotchTimingLog, " +
 		"reading config.PerfLoggingEnabled), as a jail launch records into its workspace's file"},
@@ -197,7 +197,7 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	// `.grants`, is approved at the launch's config-change gate and handed to the broker's scope
 	// file (run's writeScopeFiles). Its user half, `brokered.<source>.sets` and `.grant_kinds`,
 	// names the permission sets a broker runs under and the grant kinds a workspace may name
-	// (docs/design/boundary-broker.md BB-D23, docs/design/git-broker-plan.md ID-10); the user
+	// (docs/design/boundary-broker.md BB-D23, docs/reference/git-broker.md ID-10); the user
 	// scope refuses every other key, so `yolo host apply` has nothing here to render.
 	"brokered": {KeyNotApplicable, "configures a jail's brokers: a workspace's own config lists the " +
 		"repositories and grants its broker admits, and the user config the permission sets the " +

@@ -2,7 +2,7 @@ package config
 
 // convertfirst.go is the one refusal a config-editing feature gives when the file it would write
 // is still in the deprecated JSONC format and what it writes is TOML vocabulary
-// (docs/design/readable-config.md): the owner ruled that "convert your config first" is a
+// (docs/reference/config/rulings.md): the owner ruled that "convert your config first" is a
 // reasonable stop for such a feature, and the happy-path principle makes it name the conversion
 // command and its preview.
 

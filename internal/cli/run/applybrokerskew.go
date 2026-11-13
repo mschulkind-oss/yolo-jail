@@ -25,7 +25,7 @@ import (
 // spellings, internal/config/formerspellings.go), so the exposed direction is an older broker
 // under a newer host yolo, and a relaunch onto an older host yolo is never advised. The note is
 // definite: a launch pins its helpers to the yolo it started with and a restart never runs another
-// build (docs/design/pinned-host-helpers.md section 6, PH-D10), so the brokers do run the older one.
+// build (docs/reference/pinned-host-helpers.md "What stays unpinned", PH-D10), so the brokers do run the older one.
 
 // noteBrokersStartedByAnOlderYolo prints the note, or nothing: silent unless the yolo that
 // started this workspace's brokers is known and this one is provably newer.

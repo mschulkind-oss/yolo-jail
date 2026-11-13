@@ -1,7 +1,7 @@
 package packload
 
 // mcpcompose.go composes the `mcp` contribution kind (packdecl.KindMCP) into yolo's own
-// `mcp_servers` table — docs/design/mcp-presets-removal.md OQ-MP3, ruled 2026-09-20: "a named
+// `mcp_servers` table — docs/reference/mcp-configuration.md OQ-MP3, ruled 2026-09-20: "a named
 // server entry composed into mcp_servers the way the provider kind composes into providers".
 // Every selected pack's entries come first, the user's `mcp_servers` table is merged over them
 // per field, and a user `null` removes one. Every agent pack's derive renders the composed table

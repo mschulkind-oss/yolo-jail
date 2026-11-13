@@ -1,7 +1,7 @@
 package run
 
 // readablemodels_test.go pins the jail notch's CALL SITE for a model said once
-// (docs/design/readable-config.md RC-D29, docs/design/config-user.md §8 C7): composedProviders,
+// (docs/reference/config/rulings.md#RC-D29, docs/reference/config/user-config.md#lines-you-never-write C7): composedProviders,
 // whose table crosses into the jail as YOLO_PROVIDERS, lowers a provider's readable rows and
 // `every_model` and hands the composer the offline catalog, so a row named without facts launches
 // with the catalog's. Delete the WithOfflineModelCatalog argument and the catalog's name and

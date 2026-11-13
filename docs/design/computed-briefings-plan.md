@@ -7,7 +7,7 @@ next: "Resolve OQ-CBP1 and OQ-CBP2; materialize and verify the specified operati
 depends-on:
   - computed-briefings.md
   - pack-manifests.md
-  - readable-config-plan.md
+  - ../reference/config/rulings.md
 tags: [briefing, packs, derive, plan]
 summary: "Current callers, exclusive component fences, proposed interfaces, and remaining API contracts for computed briefings; no implementation authorized from this document yet."
 vantage:
@@ -58,7 +58,7 @@ name overlapping source/API work, not a universal wait for a green base:
 | Prerequisite | Needed by | Exact handoff |
 | :--- | :--- | :--- |
 | Manifest reader/producer representation from [pack manifests](pack-manifests.md) | Unit A | Confirm the landed `Contribution` fields and grouped `[[briefing]]` lowering; reserve `derive` and `reads` without reusing a surface-producer DTO. Current base has neither field. |
-| Approved carrier from [readable config plan](readable-config-plan.md) | Unit C | Transfer raw approved remote names, scope form, repositories, grants, and effective grant-kind eligibility without parsing display labels or rereading requested workspace config. Current predecessor is `ScopeCheck` → `Options.approvedScopes` / `approvedGrants`. |
+| Approved carrier from [readable config plan](../reference/config/rulings.md#how-it-was-built) | Unit C | Transfer raw approved remote names, scope form, repositories, grants, and effective grant-kind eligibility without parsing display labels or rereading requested workspace config. Current predecessor is `ScopeCheck` → `Options.approvedScopes` / `approvedGrants`. |
 | Existing scope/keeper version contracts | Units C–E | Specify backward reads and keeper transport before adding remote-name facts; no credential, host path, or new grant may enter Lua. |
 | Verified red tests at actual callers | Every build unit | Three printed baseline probes were observed as described below; operation recipes below are specified but not materialized or verified. Materialize permanent tests only in an authorized implementation lane and record actual red output before changing production. |
 
@@ -1157,7 +1157,7 @@ review may be explicitly skipped for this planning change; neither that skip nor
 render/link checks is equivalent to a HIGH code review or the separately requested
 whole-document review.
 
-The [roadmap's computed-briefings entry](../plans/roadmap.md#immediate-continuation) routes this
+The [roadmap's computed-briefings entry](../plans/roadmap.md) routes this
 plan's pending [remote projection](#OQ-CBP1) and [snapshot failure](#OQ-CBP2) questions at the
 existing priority position. The accepted design's three original owner rulings remain settled;
 this routing is not plan readiness or authorization to implement.

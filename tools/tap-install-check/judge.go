@@ -375,7 +375,7 @@ var platformDirs = map[string]func(string) error{
 }
 
 // lastReleaseWithoutDarwinHostYolo is the newest published release staged before PH-D2
-// (docs/design/pinned-host-helpers.md) put the host yolo into the bundle's darwin dirs.
+// (docs/reference/pinned-host-helpers.md) put the host yolo into the bundle's darwin dirs.
 // Its archives carry bin/darwin-<arch>/ holding the macos-user guest set alone, so the
 // presence of a darwin dir does not tell such a release from a later one that lost its
 // host yolo; only the version does. A constant, never raised: every release after it is

@@ -2,7 +2,7 @@ package run
 
 // activeprovider_toml_test.go pins the one selection namespace at a launch whose user config is
 // TOML and selects through `active_provider` (config.ConfigActiveSelection, admitted at launch by
-// config.validateActiveProvider; docs/design/config-user.md §5).
+// config.validateActiveProvider; docs/reference/config/user-config.md#which-provider-each-agent-runs-on).
 
 import (
 	"bytes"

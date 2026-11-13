@@ -182,7 +182,7 @@ the entry to put in each project's local config instead.
 | The agent runs | What happens |
 |---|---|
 | `gh pr view 32`, `gh issue list`, `gh run view --log`, `gh workflow list`, `gh repo view`, `gh release list`, `gh api repos/OWNER/REPO/...` and other reads | It runs with your login, and the output comes back as if it ran in the jail |
-| `gh pr create` or `gh issue create` under a `create_pr` or `create_issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32`, `gh issue close 32` and other writes to a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. See [the working set](#the-working-set) |
+| `gh pr create` or `gh issue create` under a `create_pr` or `create_issue` grant, and `gh pr comment 32`, `gh pr edit 32`, `gh pr review 32 --comment`, `gh issue close 32` and other comments and edits on a PR or issue in the project's working set | It runs without asking. What the agent creates joins the working set, and a PR leaves it when it is merged. An approval (`gh pr review 32 --approve`) or a merge still asks. See [the working set](#the-working-set) |
 | `gh workflow run nightly.yml` on the repository's default branch, `gh run rerun <id>` of a run of that workflow on the default branch, and `gh run cancel <id>`, under a `runs` grant naming that workflow | It runs without asking. See [running a workflow](#running-a-workflow) |
 | `gh api -X POST repos/OWNER/REPO/actions/runs/<id>/approve` under an `approve_runs` grant naming the run's triggering actor, for a run from the repository itself | It runs without asking. See [approving a held run](#approving-a-held-run) |
 | `gh pr merge`, and other in-scope writes nothing above covers | A request is filed and the command waits 30 seconds for your answer; unanswered, it is refused with the ways to allow it. `yolo approve <id>` on your machine allows that exact command once; the agent then runs it again. See [one action](approvals.md#one-action-yolo-approve) |
@@ -252,8 +252,14 @@ The project's `yolo-jail.toml` then holds `create_pr = true` under `[requests.gi
 `create_issue` works the same way. `yolo allow github always create_pr` gives every project the
 grant instead, with no request, each project's next prompt still showing it once.
 
+On a PR or issue in the working set, comments and edits run without asking: a comment, a review
+that comments or requests changes, a title or body edit, marking a PR ready or draft, closing and
+reopening. An approval asks, and so does a merge: `yolo approve <id> --for 15m` on an approval
+lets the agent approve that one PR for that long, and nothing else. A review whose verdict is not
+on the command line (a `gh api` body read from `--input`) and any `DELETE` ask too.
+
 `yolo approve` lists each project's working set as `w-<id>` entries; `yolo approve --revoke
-w-<id>` ends one. A merge always asks.
+w-<id>` ends one.
 
 ### Running a workflow
 
@@ -317,9 +323,9 @@ tool. The jail's own copy of `gh` is still there, holding no login: run it with
 ## Coming: finer write grants
 
 > [!NOTE]
-> **Planned, not yet available.** Nothing in this section works today; the design is in review
-> and some of it awaits the owner's confirmation. Today a write to a PR or issue the agent did not create, an
-> approval of a PR, and a merge each ask you, as the table above says.
+> **Planned, not yet available.** Nothing in this section works today beyond what
+> [the working set](#the-working-set) says. Today a write to a PR or issue the agent did not
+> create, an approval of a PR, and a merge each ask you, as the table above says.
 
 The next step is a grant per kind of write, in two tables of the project's `yolo-jail.toml`:
 `[requests.github.working_set]` for the PRs and issues the agent created or was handed, and
@@ -327,7 +333,7 @@ The next step is a grant per kind of write, in two tables of the project's `yolo
 `comment_prs`, `comment_issues`, `edit_prs`, `edit_issues`, `approve_prs` and `merge_prs`, each
 `true` (runs without asking, once your ceiling allows it and you said `y`), `"ask"` (asks here,
 whatever the ceiling says) or `false` (refused here, with nothing to approve). Commenting on and
-editing what the agent created would be on by default. Beside them, opt-in grants for the repository itself: starting a workflow on other
+editing what the agent created is on by default, which is what runs today. Beside them, opt-in grants for the repository itself: starting a workflow on other
 branches, approving a fork's held run, re-running and cancelling runs, drafting and publishing
 releases, labels, and project boards. The agent would ask for a PR or issue it did not create to
 join its working set with one request you answer with `yolo approve`, in place of the removed
@@ -337,10 +343,10 @@ The agent would ask with `yolo request github working-set <number>`, and an item
 working set when it is merged or closed, or when you remove it; nothing expires. These are decided
 but not built
 ([OQ-GW8 to OQ-GW10](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#decision-ledger)).
-Three recommendations still await the owner's confirmation: that a write on a working-set item
-reads only the `working_set` table and any other write only `all`; that whatever `all` grants,
-`working_set` must grant too, or the config is refused; and that `approve_prs` exists in both
-tables ([GW-D57 to GW-D59](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#decision-ledger)).
+A write on a working-set item will read only the `working_set` table and any other write only
+`all`; whatever `all` grants, `working_set` must grant too, or the config is refused; and
+`approve_prs` exists in both tables
+([GW-D57 to GW-D59](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md#decision-ledger)).
 
 The whole design, with every example config and refusal message, is
 [Where the GitHub line is drawn](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/design/github-write-scopes.md).

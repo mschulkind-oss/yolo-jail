@@ -13,6 +13,9 @@
 // Non-obvious edge-case behavior is PRESERVED and noted, never "fixed".
 // Config data flows through *jsonx.OrderedMap everywhere (never a plain Go map):
 // key order is load-bearing for the snapshot bytes.
+//
+// The config files, scopes, merge order and removal spellings, and the rulings behind them:
+// docs/reference/config/README.md.
 package config
 
 import (

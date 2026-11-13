@@ -158,12 +158,30 @@ func mcpShareFromPacks(in LaunchInputContext, packs []*packload.Pack) ([]byte, e
 // agent then reads the one file the broker writes back to. Only a JSON store under
 // proper-lockfile is supported here; flock stores are per-workspace replicas above.
 func onceShare(in LaunchInputContext, packs []*packload.Pack) ([]mcpauth.OnceServer, []mcpauth.Source, error) {
-	if in.SharedCredentialDir == "" || in.UserOnlyMCPServers == nil || in.EffectiveMCPServers == nil {
+	if in.SharedCredentialDir == "" {
 		return nil, nil, nil
 	}
 	home := in.SharedCredentialHome
 	if home == "" {
 		home = paths.GlobalHome()
+	}
+	return onceShareFrom(in, packs, func(pack *packload.Pack, store string) string {
+		dir := sharedStoreDir(pack, store)
+		if dir == "" || filepath.Join(home, filepath.FromSlash(dir)) != in.SharedCredentialDir {
+			return ""
+		}
+		return in.SharedCredentialDir
+	})
+}
+
+// onceShareFrom is onceShare over any placement of the agents' stores: sourceDir is the absolute
+// host directory pack's declared store is adopted from and written back to, "" for a pack whose
+// store this launch does not act on. A jail's is the machine-wide bridged directory (onceShare);
+// `yolo host`'s on Linux is the real home's own (HostOnceSession, ID-21).
+func onceShareFrom(in LaunchInputContext, packs []*packload.Pack,
+	sourceDir func(pack *packload.Pack, store string) string) ([]mcpauth.OnceServer, []mcpauth.Source, error) {
+	if in.UserOnlyMCPServers == nil || in.EffectiveMCPServers == nil {
+		return nil, nil, nil
 	}
 	var sources []mcpauth.Source
 	for _, pack := range packs {
@@ -175,12 +193,12 @@ func onceShare(in LaunchInputContext, packs []*packload.Pack) ([]mcpauth.OnceSer
 			path.Dir(decl.Store) != path.Dir(decl.Lock.Path) {
 			continue
 		}
-		dir := sharedStoreDir(pack, decl.Store)
-		if dir == "" || filepath.Join(home, filepath.FromSlash(dir)) != in.SharedCredentialDir {
+		dir := sourceDir(pack, decl.Store)
+		if dir == "" {
 			continue
 		}
 		sources = append(sources, mcpauth.Source{Pack: pack.Name, DeriveFile: filepath.Join(pack.Root, "derive.lua"),
-			Dir: in.SharedCredentialDir, Store: path.Base(decl.Store), LockDir: path.Base(decl.Lock.Path), Decl: *decl})
+			Dir: dir, Store: path.Base(decl.Store), LockDir: path.Base(decl.Lock.Path), Decl: *decl})
 	}
 	if len(sources) == 0 {
 		return nil, nil, nil

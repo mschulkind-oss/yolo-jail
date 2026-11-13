@@ -2,7 +2,7 @@
 title: "Plan: rebuild macos-user on one deny-by-default profile, run as you by default"
 status: accepted
 stage: DECIDED
-next: "Close the account mode's shared /tmp (MMP-D29, ruled); then slices 11, 12b and 13. Slice 12a is in main, W1b ran on a Mac 2026-11-03 and W1c passed 2026-11-04; OQ-MM10 was ruled 2026-11-03"
+next: "Slices 11, 12b and 13. The account mode's shared /tmp is closed (MMP-D29, MMP-D36) and waits on Mac check W-TMP1; OQ-MM10 was ruled 2026-11-03"
 depends-on:
   - macos-user-model.md
 tags: [macos-user, seatbelt, plan, safehouse, home, parity]
@@ -12,17 +12,19 @@ vantage:
 
 # Plan: rebuild macos-user on one deny-by-default profile, run as you by default
 
-**Status:** 2026-11-04. Slices 1 to 10 and 12a are built and in main. W1 ran on a Mac and
+**Status:** 2026-11-12. Slices 1 to 10 and 12a are built and in main. W1 ran on a Mac and
 failed; its fixes were re-run by witness W1b on 2026-11-03, and W1c, the one W1b left failing (an
 unchanged relaunch keeps its delivered files), passed on 2026-11-04
 ([the lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#13-2026-11-04-w1c-w-su5-claude--p-on-bedrock-and-just-done);
-[Mac checks](#mac-checks)). Next are the account mode's shared `/tmp` ([MMP-D29](#MMP-D29)), then
-11 ([OQ-MM10](macos-user-model.md#OQ-MM10), ruled 2026-11-03), 12b and 13. Loopback and the shared `/tmp` are ruled and
+[Mac checks](#mac-checks)). The account mode's shared `/tmp` is now closed, with the same hatch as
+self mode ([MMP-D29](#MMP-D29), [MMP-D36](#MMP-D36)); Mac check [W-TMP1](#W-TMP1) has not run yet.
+Next are slices 11 ([OQ-MM10](macos-user-model.md#OQ-MM10), ruled 2026-11-03), 12b and 13. Loopback and the shared `/tmp` are ruled and
 built ([MMP-D14](#MMP-D14), [MMP-D18](#MMP-D18)); Homebrew's visibility is the one profile
 parameter still at the prototype's value ([Blockers](#blockers)). With 12a the production default,
 the second account, runs under the deny-by-default profile with a home per workspace, and a second
 workspace launches beside a running session instead of being refused ([MMP-D25](#MMP-D25)). The
-account mode's temp dirs were ruled by the owner on 2026-11-03 ([MMP-D29](#MMP-D29)).
+account mode's temp dirs were ruled by the owner on 2026-11-03 ([MMP-D29](#MMP-D29)), and the shared
+`/tmp` closed for it once W1b and W1c passed.
 
 **Design:** [macos-user's model](macos-user-model.md#7-the-ruled-model-two-modes-one-profile). The
 measured starting point is the
@@ -122,13 +124,14 @@ These are mechanism choices made under the rulings above, not owner rulings. The
 | <a id="MMP-D26"></a>MMP-D26 | **The refusal is rewritten now, and deleted with 12a.** Until 12a lands, the three `accountHome*` texts say what is true: yolo does not yet give the sandbox account a home per workspace, so two workspaces cannot run as it at once, and that is being fixed with no change to the user's config; and they give the no-edit next step: end the other session (`yolo stop` run in that workspace, or quit it) and run `yolo` here again. No config edit, no file name, no runtime or mode switch is offered; the `step` clause (`containerStep`) is dropped from these messages and the `step` parameter from `HoldAccountHome`, `holdAccountHomeIn`, `probeAccountHome`, `Deps.HoldAccountHome` and `PreflightLaunch`. `TestALiveSessionOfAnotherWorkspaceRefusesTheLaunch` and the integration test's `want` list lose `"runtime": "container"` and gain `yolo stop`. | A message is not the fix (the owner, 2026-11-03), so it may not offer the user work; the Happy Path Principle still wants a next step that leads to what they asked for, and ending the other session is the only one that needs no edit and no new runtime. Naming `yolo-jail.jsonc` by hand was already wrong for a TOML workspace. |
 | <a id="MMP-D27"></a>MMP-D27 | **No machine-tier lock in 12a.** Account mode on the model shares its machine root (`SandboxHome()`: the mise store, `.cache`, `Library/Caches`, the shared credential dirs) across concurrent workspaces exactly as self mode shares `<GlobalStorage>/macos-user` today, with no lock. The one known cross-workspace write in that root, the alias manifest sweep ([Open items](#open-items)), is self-only today (`cacheAliasProblems` refuses an alias in account mode) and is fixed for both modes in slice 12c: a launch removes from the machine root only alias links *its own* manifest laid and that no other workspace's manifest still names, with the manifests keyed per workspace. The retired plan's machine-tier lock (its MCWP-D8, a 60-second `flock` around the machine dirs) is not reused. | A lock serializes a write that should not be shared; the defect is the single manifest, and the self-mode open item is the same defect. A `flock` that a wedged bootstrap could hold against every other workspace is a second failure mode for no gain. Reversible: if a Mac run shows a concurrent mise-store write corrupt, the lock is one function. |
 | <a id="MMP-D28"></a>MMP-D28 | **The concurrent-workspaces design and its plan are retired.** Their three ledger rows ([OQ-MCW2](macos-user-model.md#decision-ledger), [OQ-MCW3](macos-user-model.md#decision-ledger), [OQ-MCW4](macos-user-model.md#decision-ledger)) moved verbatim, with dates, into [the model doc's ledger](macos-user-model.md#decision-ledger) as the account mode's concurrency rulings; MCWP-D2 and MCWP-D10 are rows in this table; every inbound link ([`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md), [`macos-user-claude-refresh.md`](macos-user-claude-refresh.md), the roadmap's entry, the model doc's [§2](macos-user-model.md#2-the-three-models) table, this plan's header, the 2026-10-2x lab reports) is repointed at the model doc's ledger or [§7](macos-user-model.md#7-the-ruled-model-two-modes-one-profile); both files are deleted in the same commit. | The concurrent doc said `accepted` and *"Do not build from this doc"* in the same header, which is the status-line drift the design-doc skill names; its rulings are not dead, its *design* is (the model removed the shared account home it worked around). Keeping a superseded doc for its ledger is what the maintainer's delete-after-repointing rule is against; the rows survive in the owning ledger and git keeps the argument. |
-| <a id="MMP-D29"></a>MMP-D29 | **The account mode keeps its temp dirs under the deny-by-default profile, for now.** *Owner's ruling, 2026-11-03, on the implementation decision taken building 12a:* keep it as built, and close the shared `/tmp` for the account mode once [W1b](#mac-checks) passes, as [OQ-MM8](macos-user-model.md#OQ-MM8)'s trial closed it for self mode. Owner: *"agree with /tmp ruling. you acknowledge this risk by using a separate user as your containment."* The account mode keeps `TmpShared` (the shared `/tmp` open, as it was under the `(allow default)` profile), gets no session `TMPDIR` ([MMP-D17](#MMP-D17) stays self-only), and is granted the ACCOUNT's own `DARWIN_USER_TEMP_DIR`, asked through the sudo rule (`sudo -n --user=_yolojail /usr/bin/env /usr/bin/getconf DARWIN_USER_TEMP_DIR`, `AccountUserTempDirArgv`) and resolved to its `/private/var` spelling; the profile's run-as user is the account. The hatch `macos_user_shared_tmp` still means nothing in the account mode. | 12a moves the account mode, which is what macOS users run today until slice 11's flip ships, onto a profile that would otherwise close every temp dir its tools used yesterday. The account's temp dir is not yours, so self mode's `getconf`, run as you, names the wrong one. Closing `/tmp` for the account mode is [OQ-MM8](macos-user-model.md#OQ-MM8)'s trial extended to a mode it was not ruled for, so it is left to a ruling rather than taken here. |
-| <a id="MMP-D30"></a>MMP-D30 | **The account mode's `TMPDIR` is the account's own temp dir.** *Implementation decision, from W1's run of 2026-11-03.* The sandbox environment is a closed list, and only self mode set `TMPDIR` ([MMP-D17](#MMP-D17)), so the account mode ran with none. It now sets `TMPDIR` to the resolved `DarwinUserTempDir` that [MMP-D29](#MMP-D29) already grants (`withAccountTmpEnv`), unless a composed `TMPDIR` is set; an empty resolution sets nothing. No `TMUX_TMPDIR`, `TMPPREFIX` or `OVERMIND_SOCKET`: those are self mode's session-dir variables. | The grant without the variable left every tool to fall back to `/tmp`; `getconf DARWIN_USER_TEMP_DIR` run in the sandbox printing nothing is a separate question for [W1b](#mac-checks). |
+| <a id="MMP-D29"></a>MMP-D29 | **The account mode keeps its temp dirs under the deny-by-default profile, for now.** *Owner's ruling, 2026-11-03, on the implementation decision taken building 12a:* keep it as built, and close the shared `/tmp` for the account mode once [W1b](#mac-checks) passes, as [OQ-MM8](macos-user-model.md#OQ-MM8)'s trial closed it for self mode. Owner: *"agree with /tmp ruling. you acknowledge this risk by using a separate user as your containment."* The account mode keeps `TmpShared` (the shared `/tmp` open, as it was under the `(allow default)` profile), gets no session `TMPDIR` ([MMP-D17](#MMP-D17) stays self-only), and is granted the ACCOUNT's own `DARWIN_USER_TEMP_DIR`, asked through the sudo rule (`sudo -n --user=_yolojail /usr/bin/env /usr/bin/getconf DARWIN_USER_TEMP_DIR`, `AccountUserTempDirArgv`) and resolved to its `/private/var` spelling; the profile's run-as user is the account. The hatch `macos_user_shared_tmp` still means nothing in the account mode. **Built 2026-11-12, the condition met** (W1b ran 2026-11-03, W1c passed 2026-11-04): `denyDefaultProfileParams` no longer sets `TmpShared` for the account mode, so its profile takes the production `TmpPrivate` and renders no `shared-tmp-allow`; the account's `DARWIN_USER_TEMP_DIR` grant (`user-tmp-allow`) and its `TMPDIR` ([MMP-D30](#MMP-D30)) stay, and it still gets no session `TMPDIR`. The hatch now opens the shared `/tmp` in the account mode too ([MMP-D36](#MMP-D36)). | 12a moves the account mode, which is what macOS users run today until slice 11's flip ships, onto a profile that would otherwise close every temp dir its tools used yesterday. The account's temp dir is not yours, so self mode's `getconf`, run as you, names the wrong one. Closing `/tmp` for the account mode is [OQ-MM8](macos-user-model.md#OQ-MM8)'s trial extended to a mode it was not ruled for, so it is left to a ruling rather than taken here. |
+| <a id="MMP-D30"></a>MMP-D30 | **The account mode's `TMPDIR` is the account's own temp dir.** *Implementation decision, from W1's run of 2026-11-03.* The sandbox environment is a closed list, and only self mode set `TMPDIR` ([MMP-D17](#MMP-D17)), so the account mode ran with none. It now sets `TMPDIR` to the resolved `DarwinUserTempDir` that [MMP-D29](#MMP-D29) already grants (`withAccountTmpEnv`), unless a composed `TMPDIR` is set; an empty resolution sets nothing. No `TMUX_TMPDIR`, `TMPPREFIX` or `OVERMIND_SOCKET`: those are self mode's session-dir variables (*amended 2026-11-12 by [MMP-D36](#MMP-D36):* `TMUX_TMPDIR` and `TMPPREFIX` now follow it, since the shared `/tmp` they default to is closed; `OVERMIND_SOCKET` stays unset). | The grant without the variable left every tool to fall back to `/tmp`; `getconf DARWIN_USER_TEMP_DIR` run in the sandbox printing nothing is a separate question for [W1b](#mac-checks). |
 | <a id="MMP-D31"></a>MMP-D31 | **The account mode names the XDG base dirs under the workspace home.** *Implementation decision, from W1's run.* `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` are set to `<ws>/.yolo/home/.config`, `.cache`, `.local/share` and `.local/state` (`withAccountXDGEnv`), each unless composed. | The workspace home is owned by you and the sandbox runs as `_yolojail`, so nix warned *"$HOME … is not owned by you"* on every call and read its user config from `/Users/_yolojail`. Nix consults `getHome()` only for a base dir whose `XDG_*` variable is unset (measured on Linux, nix 2.34.9, with a HOME another uid owns: warning with the variables unset, none with them set). The values are the defaults a tool would derive from HOME anyway. |
 | <a id="MMP-D32"></a>MMP-D32 | **An Apple Container home is refused by name, not adopted.** A macos-user launch whose inherited user-config destination is Apple Container's writable copy (a regular file you own, writable, one link, first line yolo's generated header) refuses before the sandbox (`refuseAppleContainerHome`), naming the file, that Apple Container used this workspace's home, the move that clears it (`mv <ws>/.yolo/home <ws>/.yolo/home.apple-container`), and `YOLO_RUNTIME=container` to keep using Apple Container. Any other occupant keeps the generic refusal. | Since 12a both backends use `<ws>/.yolo/home` with the same dotted layout. Nothing proves Apple Container's writable copy unedited, so adopting it could overwrite the owner's edit, and the rest of that home lacks the account's ACLs and holds container-era links; moving the whole home aside clears every such residue at once and loses nothing. |
 | <a id="MMP-D33"></a>MMP-D33 | **An occupied workspace home is cleared one path at a time.** When the layout's HOME is the workspace home (`DeriveDarwinWorkspaceHome`), its refusal (`occupiedWorkspaceHomeError`) is headed *"In THIS WORKSPACE'S HOME"*, names where each occupied path's link points, and offers `sudo rm -rf` of that path alone. The account layout's refusal is unchanged. | It offered `sudo rm -rf <ws>/.yolo/home` under the pre-12a heading *"the SANDBOX ACCOUNT HOME"*: the workspace's whole home, transcripts included, to clear one directory. |
 | <a id="MMP-D34"></a>MMP-D34 | **An empty `kern.procargs2` environment is an unread one.** Self mode's sandbox-marker reader treats a process whose environment comes back empty as unknown (`procArgs2Env`), so a live one counts as the sandbox's, as the tri-state in `guestprocs.go` already says for an unreadable one. | macOS 26.5 returns a platform binary's arguments and no environment, to its owner too (the W1 run's [§6](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#6-kernprocargs2-hides-a-platform-binarys-environment)), so a sandboxed `/bin/sh` read as known and unmarked and dropped out of the pack-tree holder proof. Every process the sandbox starts carries a marker, so an empty environment never proves *not the sandbox's*; counting one costs disk until the next prune. |
 | <a id="MMP-D35"></a>MMP-D35 | **The home overlay delivers copies on macos-user, in both modes; no `file-link` grant.** *Owner's ruling, 2026-11-03, A.* The guest stops trying `linkat` from the staging root and copies each staged file; an unchanged relaunch keeps a delivered copy whose content still matches the staged file (no rewrite, the inode stays), and replaces one that differs. The deny-by-default profile gets no `(allow file-link …)`. Owner: *"yes, A for your question."* | W1b measured that the profile is the only obstacle to the link and that self mode copies too ([§10](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#10-rerun-witness-w1b-and-the-just-done-fixes-witness)). A hard link is one inode under two names, and Seatbelt checks the path written through: in self mode the sandbox owns the staged file, so it could make it writable and edit a file other workspaces share. Copying a few dozen small files per relaunch costs almost nothing. |
+| <a id="MMP-D36"></a>MMP-D36 | **Closing the account mode's shared `/tmp` ([MMP-D29](#MMP-D29)) brings self mode's hatch and checks with it.** *Implementation decision, 2026-11-12.* (1) `macos_user_shared_tmp = true` opens the shared `/tmp` in the account mode too (`PlanSession.SharedTmp` selects `TmpShared` in either mode; `RunPlan.SharedTmp` and its disclosure line follow). (2) The briefing's `/tmp` line (`macosUserTmpLimit`) is printed in both modes without the hatch, and names `yolo config set macos_user_shared_tmp true --user`. (3) A `TMPDIR` or program temp variable an env layer composes outside the account mode's roots (the workspace, its home, the account's temp dir, and `/tmp` under the hatch) refuses the launch, as [MMP-D20](#MMP-D20) does in self mode; the validation context baked into the launchers carries the same roots. (4) The account mode sets `TMUX_TMPDIR` and `TMPPREFIX` to follow its `TMPDIR`, unless set, and hands its `TMPDIR` to the bootstrap ([MMP-D21](#MMP-D21)); no `OVERMIND_SOCKET`. (5) The account mode's install capture keeps its `(allow default)` profile, which grants `/tmp` and all of `/var/folders`; its validation context names exactly those two. | "As [OQ-MM8](macos-user-model.md#OQ-MM8)'s trial closed it for self mode" includes the hatch: without it, a user whose tool needs `/tmp` has no next step. The `TMPDIR` check exists because a composed `/tmp` value would now fail every temporary file with a bare "Operation not permitted". tmux and zsh ignore `TMPDIR` and default to `/tmp`. `OVERMIND_SOCKET` stays unset because the account's temp dir is shared by every account-mode workspace, and overmind's default socket is in the workspace. The capture runs a vendor installer, not an agent, and has no `TMPDIR` of its own in the account mode; closing `/tmp` there would first need [MMP-D21](#MMP-D21)'s staging `TMPDIR` for the account's staging tree. |
 | <a id="MCWP-D2"></a>MCWP-D2 | **Machine root stays `/Users/_yolojail`** (`macosuser.SandboxHome()`), passed to the bootstrap as the env var `YOLO_DARWIN_MACHINE_HOME` and to every sandbox argv. Absent, or equal to HOME, means today's single-home layout, byte for byte. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | Moves no shared bytes. The directory-service record (`NFSHomeDirectory`) and the bootstrap's identity and scope checks stay on the account. |
 | <a id="MCWP-D10"></a>MCWP-D10 | **Guest yolo judges workspace scope by the account.** `sandboxEnvPairs` emits `YOLO_DARWIN_MACHINE_HOME` (protected) in private mode. `cli.Main` and `cmd/yolo-jaild` call one `paths` helper that, when that variable names a directory owned by the process euid, applies `paths.GuardScopeUnder` to it. The three per-verb copies (bootstrap, log sink, capture materialize) may stay. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | With HOME inside the workspace, every guest verb that creates `.yolo` would otherwise see "workspace CONTAINS your home" and refuse. `yolo-jaild` reaches `nixroots` and `durable`, which create it. Ownership, not the variable, is the identity check, so the host user is unaffected even if it has the variable set. |
 
@@ -1157,7 +1160,9 @@ the colleague who reported the refusal):
   `.npm-global`, `.local` or `go` links into an older workspace: nothing removes them
   ([OQ-MM4](macos-user-model.md#OQ-MM4)), and nothing reads them); in A, `ls ~/.claude` is
   unchanged after B starts; `echo $TMPDIR` names the account's own `/var/folders/…/T/` and
-  `touch "$TMPDIR/x" /tmp/x` succeeds ([MMP-D29](#MMP-D29));
+  `touch "$TMPDIR/x" /tmp/x` succeeds ([MMP-D29](#MMP-D29)) (*note, 2026-11-12:* that was true
+  when W1 ran; since [MMP-D36](#MMP-D36) the `/tmp/x` half is refused without the hatch, and
+  [W-TMP1](#W-TMP1) checks the new behavior);
   `ls ~/.config/yolo-agent-env` lists the agent env files; in a workspace used before 12a, the
   undotted `<ws>/.yolo/home/claude` and `config` are left in place and unused, so a per-workspace
   Claude setting kept there is not carried over (the shared login is); the briefing's **Home**
@@ -1270,6 +1275,53 @@ the colleague who reported the refusal):
   passed with Homebrew's pip, because the sandbox has no working one
   ([lab report, W2's cache line](../lab-reports/2026-11-04-host-workspace-skills-link-and-ssh.md#w2s-cache-line-mmp-d12-run-as-you-mode-shares-host-caches)).
   W1's `claude -p` on the subscription also answered in both of its workspaces.
+- <a id="W-TMP1"></a>**W-TMP1 ([MMP-D29](#MMP-D29), [MMP-D36](#MMP-D36): the account mode's shared
+  `/tmp` is closed, with the hatch):** at the first main commit that contains MMP-D36 (`git log -1
+  --format=%h -S MMP-D36 -- docs/design/macos-user-model-plan.md`) or later. Setup: the installed
+  `yolo` built from that commit, a fresh workspace `/Users/Shared/yolo/tmp1`, and no
+  `macos_user_shared_tmp` key in the user config. In the workspace, with
+  `YOLO_SETUP=seatbelt-yolo-account`, start `yolo -- bash` and run, one at a time:
+
+  ```
+  echo "$TMPDIR"
+  ```
+
+  ```
+  touch "$TMPDIR/x" && echo OK
+  ```
+
+  ```
+  touch /tmp/x
+  ```
+
+  ```
+  echo "$TMUX_TMPDIR $TMPPREFIX"
+  ```
+
+  Expected: the first prints the account's own `/private/var/folders/…/T`; the second prints `OK`;
+  the third fails with `touch: /tmp/x: Operation not permitted`; the fourth prints the same
+  directory, then that directory followed by `/zsh`. The agent briefing (for
+  Claude, `~/.claude/CLAUDE.md`) contains the line starting "The shared `/tmp` (`/private/tmp`) is closed
+  to this sandbox". Exit, then on the host:
+
+  ```
+  yolo config set macos_user_shared_tmp true --user
+  ```
+
+  Relaunch `yolo -- bash` the same way. The launch prints a line starting `tmp: the shared /tmp is
+  open to the sandbox`. Inside, `touch /tmp/x && echo OK` prints `OK`, and the briefing no longer
+  has the closed-`/tmp` line. Then remove the key again (`yolo config unset
+  macos_user_shared_tmp --user`) and delete `/tmp/x` (`sudo -n --user=_yolojail /usr/bin/env
+  /bin/rm -f /tmp/x`). Also run the Mac-only tests this change edited, and paste their result:
+
+  ```
+  YOLO_TEST_MACOS_USER=1 go test -count=1 -timeout 0 -v -run '^(TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox|TestMacosUserCopiesAPackFileMountIntoTheContextDir|TestMacosUserHostFloorIsTheHostUsersAlone)$' ./integration
+  ```
+
+  and `TestMacosUserMacosLogBridgeScopesToTheSandbox` the same way. Report: the
+  four outputs, the refusal text, the launch's `tmp:` line, the test results, and
+  `log show --last 5m --predicate 'sender == "Sandbox"'` lines naming `/private/tmp` if any tool
+  you use failed. It decides whether [MMP-D29](#MMP-D29)'s closing stands for the account mode.
 - **W3 (slice 12c):** two account-mode workspaces with different `cache_relocations` or alias sets
   launched in turn; A's alias links under `/Users/_yolojail/.cache` survive B's launch.
 

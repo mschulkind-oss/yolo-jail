@@ -100,6 +100,10 @@ func (l *HostLaunchLog) RecordContext(c HostLaunchContext) {
 	}
 }
 
+// Record writes line to the log alone, never the terminal: what a resident launch says while
+// the agent holds it (the one-sign-in session's poll, ID-21).
+func (l *HostLaunchLog) Record(line string) { l.record(line) }
+
 // record writes one record line through the block's body (the launch id, the redaction), to the
 // log alone.
 func (l *HostLaunchLog) record(line string) {

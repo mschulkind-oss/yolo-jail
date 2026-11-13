@@ -9,10 +9,11 @@
 # daemon parses it against gh's measured flag grammar, refuses what could print the token or
 # reach the host, checks its repository against the scope the launch approved, and runs the
 # host gh with a canonical argv in an empty directory. A write runs unasked under a create-pr,
-# create-issue, runs or approve-run grant, or on a PR or issue in the workspace's working set (merges excepted);
+# create-issue, runs or approve-run grant, or as a comment or edit on a PR or issue in the workspace's
+# working set (approvals and merges excepted);
 # any other write files a pending request the host answers with `yolo approve`.
 name = "github-broker"
-description = "Run the host's gh login for the jail against this workspace's GitHub repositories, its remotes and any its config names in a [repos.<name>] table, as approved at launch, and only under a read grant in the user config (yolo allow github read; with none, every call is refused): reads run; PR and issue creation under a create-pr or create-issue grant, running or re-running a workflow on the default branch, and cancelling any run, under a runs grant, approving a held workflow run from the repository itself (never a fork) under an approve-run grant naming its triggering actor, and writes to a PR or issue in the workspace's working set (what the agent created, or what a human added before that answer's removal), run unasked, a merge excepted; every other write files a request the host answers with yolo approve (once, or --for a time), and every call is audited on the host (yolo audit)."
+description = "Run the host's gh login for the jail against this workspace's GitHub repositories, its remotes and any its config names in a [repos.<name>] table, as approved at launch, and only under a read grant in the user config (yolo allow github read; with none, every call is refused): reads run; PR and issue creation under a create-pr or create-issue grant, running or re-running a workflow on the default branch, and cancelling any run, under a runs grant, approving a held workflow run from the repository itself (never a fork) under an approve-run grant naming its triggering actor, and comments and edits on a PR or issue in the workspace's working set (what the agent created, or what a human added before that answer's removal), run unasked, an approval and a merge excepted; every other write files a request the host answers with yolo approve (once, or --for a time), and every call is audited on the host (yolo audit)."
 version = 1
 # No switch, and no access by default (boundary-broker.md BB-D104 to BB-D106). A `brokered`
 # loophole runs whenever its pack is selected, so selecting the pack installs the `gh`
@@ -48,7 +49,8 @@ credential_paths = ["$GH_CONFIG_DIR", "$XDG_CONFIG_HOME/gh", "~/.config/gh"]
 # grant of one, within the kinds the user config allows (`allow.github` or the legacy
 # `brokered.github.grant_kinds`), lets the broker create PRs (`create-pr`) or issues
 # (`create-issue`) in the granted repository unasked, and each one it creates joins the
-# workspace's working set, where its later writes run unasked too; a merge still asks. A
+# workspace's working set, where its later comments and edits run unasked too; an approval or a
+# merge still asks. A
 # `runs` grant names a workflow file (or `*`) and lets the broker run `gh workflow run <file>`
 # on the repository's default branch, re-run a run of that workflow whose head is the default
 # branch of the repository itself, and cancel any run in the repository, unasked; any other

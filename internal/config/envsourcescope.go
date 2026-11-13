@@ -80,7 +80,7 @@ func validateEnvSourceScope(config *jsonx.OrderedMap, workspace string, errs *[]
 	if env, ok := envTable(wsCfg); ok {
 		check("env.sources", getListOrNilFalsy(env, "sources"), wsNode.key("env").key("sources"))
 		check("env.files", getListOrNilFalsy(env, "files"), wsNode.key("env").key("files"))
-		// The private set's files obey the same rule (secret-env-scoping.md SE-D5).
+		// The private set's files obey the same rule (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D5).
 		secretsValue, _ := env.Get("secrets")
 		if secrets, ok := asMap(secretsValue); ok {
 			check("env.secrets.files", getListOrNilFalsy(secrets, "files"),
@@ -109,7 +109,7 @@ func envSourceScopeRefusal(key, entry, real, root, userPath string, userTOML boo
 		spelled = fmt.Sprintf("[env.secrets] files = [%q] (`yolo config add env.secrets.files %s --user`)",
 			fix, shquote.Quote(strconv.Quote(fix)))
 	} else if userTOML {
-		// The readable key has a verb that appends to it (docs/design/config-commands.md); a
+		// The readable key has a verb that appends to it (docs/reference/config/editing.md); a
 		// legacy file keeps `env_sources`, beside which that verb's `env.files` is refused.
 		spelled = fmt.Sprintf("[env] files = [%q] (`yolo config add env.files %s --user`)",
 			fix, shquote.Quote(strconv.Quote(fix)))

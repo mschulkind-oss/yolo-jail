@@ -14,7 +14,7 @@ import (
 // brokeredskipped_test.go pins, through the launch's own config read and gate (and so `yolo
 // config apply`'s, which runs both: liveapply.go), that a project broker request outside the
 // user's ceiling is said, with `yolo allow <source> on_request <capability>` alone on its line
-// and `yolo config apply` after it (docs/design/config-user.md §6). Before the fix the owner of
+// and `yolo config apply` after it (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins). Before the fix the owner of
 // this repository approved `requests.github.runs` at the gate, was told nothing,
 // and a later dispatch from the jail still asked.
 

@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -157,6 +158,9 @@ func verifyPrivateClientDelivery(cell packload.PrivateProgramEnvPlan, in npmCapt
 		Compatibility: delivery.Compatibility, Release: record.Resolution.Release, SourceURL: url, SourceIntegrity: integrity,
 		Bootstrap: entrypoint.PrivateClientBootstrap}
 	entry.Binding.Bin = cell.Bin
+	// The interpreter closure: the bootstrap runs only the Node bytes the capture was prepared
+	// with (pack-brokers-http-plan.md, Task 2).
+	entry.Binding.NodeSHA256 = "sha256:" + record.Resolution.Runtime.NodeDigest
 	if err := entry.ValidateDelivery(); err != nil {
 		return zero, privateClientMismatch(cell, err.Error(), privateClientBaselineRepair)
 	}
@@ -183,7 +187,7 @@ func verifyPrivateClientDelivery(cell packload.PrivateProgramEnvPlan, in npmCapt
 		return zero, privateClientMismatch(cell, "the captured package is not release "+selector, privateClientBaselineRepair)
 	}
 	entry.Binding = entrypoint.PrivateClientBinding{Bin: cell.Bin, Generation: strings.Repeat("0", 32), CaptureKey: admitted.Key,
-		RuntimeRoot: runtimeRoot, Entrypoint: path.Join(installed, record.Resolution.BinPath)}
+		RuntimeRoot: runtimeRoot, Entrypoint: path.Join(installed, record.Resolution.BinPath), NodeSHA256: entry.Binding.NodeSHA256}
 	if entry.Binding.EntrypointSHA256, err = entrypoint.PrivateClientFileDigest(filepath.Join(tree, filepath.FromSlash(entry.Binding.Entrypoint))); err != nil {
 		return zero, privateClientMismatch(cell, "its captured entrypoint "+record.Resolution.BinPath+" is not a regular file", privateClientBaselineRepair)
 	}
@@ -209,6 +213,11 @@ var (
 // private-client-exec`): it accepts exactly the bound argv, requires the jail's own binding of the
 // bin to be the same one, re-verifies the entrypoint and runtime files in the read-only capture
 // store, and execs Node on the verified entrypoint. It installs, refreshes and mints nothing.
+//
+// The interpreter closure is sealed (pack-brokers-http-plan.md, Task 2): PATH only locates a
+// candidate Node, which runs only when its bytes are the bound NodeSHA256 and then through the
+// verified descriptor, never by path; and the environment drops every variable that can change
+// what Node loads (entrypoint.PrivateClientEnviron), NODE_OPTIONS and NODE_PATH among them.
 func runPrivateClientExec(args []string, getenv func(string) string) int {
 	refuse := func(msg string) int {
 		fmt.Fprintln(os.Stderr, "yolo: private client: "+msg+" — stop the jail and rerun `yolo` to reprepare it")
@@ -235,11 +244,19 @@ func runPrivateClientExec(args []string, getenv func(string) string) int {
 	if err != nil {
 		return refuse(err.Error())
 	}
-	node, err := exec.LookPath("node")
+	candidate, err := exec.LookPath("node")
 	if err != nil {
 		return refuse("no Node runtime is on PATH")
 	}
-	if err := privateClientExec(node, append([]string{"node", entry}, rest...), os.Environ()); err != nil {
+	node, err := entrypoint.OpenPrivateClientNode(candidate, b.NodeSHA256)
+	if err != nil {
+		return refuse(err.Error())
+	}
+	defer node.Close()
+	// The descriptor is close-on-exec: the kernel opens the executable through it before closing
+	// it, and Node then reads its own path from /proc/self/exe, the real file.
+	self := "/proc/self/fd/" + strconv.Itoa(int(node.Fd()))
+	if err := privateClientExec(self, append([]string{"node", entry}, rest...), entrypoint.PrivateClientEnviron(os.Environ())); err != nil {
 		return refuse(errors.Join(errors.New("exec failed"), err).Error())
 	}
 	return 0

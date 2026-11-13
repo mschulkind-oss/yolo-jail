@@ -26,7 +26,7 @@ var briefingContent string
 
 // workspacePointerHead is the whole of what `yolo init` writes: three comment lines and no key.
 // A project with no file runs on defaults, so the file exists only to say where settings go
-// (docs/design/config-project.md §2, convention C5). It names the docs and the one command that
+// (docs/reference/config/project-config.md#no-file-at-all, convention C5). It names the docs and the one command that
 // adds a key, which is what a reader opening an empty config wants to know.
 const workspacePointerHead = "# yolo-jail: this project needs no settings; with none, yolo runs on its defaults.\n" +
 	"# What can go here: https://docs.yolo-jail.mschulkind.dev, or `yolo config-ref` for every key.\n" +

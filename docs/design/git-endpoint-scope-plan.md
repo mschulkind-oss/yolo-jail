@@ -6,7 +6,7 @@ depends-on: []
 ---
 # Item18 — narrow SSH endpoint scope repair
 
-Written against 662d9103b677594de38e6f96f7a07ec693fbf28a, 2026-10-29. Owner's item18 ruling supersedes exact-string-only matching in [`git-broker-plan.md`](./git-broker-plan.md) ID-2. Behavior ruling → actual tree → this plan. This is a candidate handoff, not Main acceptance.
+Written against 662d9103b677594de38e6f96f7a07ec693fbf28a, 2026-10-29. Owner's item18 ruling supersedes exact-string-only matching in [ID-2](../reference/git-broker.md#ID-2). Behavior ruling → actual tree → this plan. This is a candidate handoff, not Main acceptance.
 
 ## Settled (do not reopen)
 One approved `git@github.com:mschulkind/dotfiles` permits requests `ssh://git@github.com/mschulkind/dotfiles` and `git+ssh://git@github.com/mschulkind/dotfiles`. Keep original request URL in remote helper, upstream argv path, and audit. No grant/remotes/approval changes. Never use gitproto.Identity as endpoint approval: it drops username/transport and collapses paths.
@@ -20,8 +20,8 @@ SSH scheme aliases (`ssh`, `git+ssh`, `ssh+git`) may match when existing parseSS
 | internal/gitbroker/broker.go | only three slices.Contains checks and three ValidateCurrent calls; remove slices import if unused |
 | internal/brokerscope/file.go | Preserve ValidateCurrent; optional explicitly supplied remote matcher variant shares SAME freshness/identity/corruption checks |
 | internal/brokerscope/remote_match_test.go (new) | default other-source matching remains exact; freshness unchanged |
-| docs/design/git-broker.md | scope paragraphs only, precise narrow equivalence |
-| docs/design/git-broker-plan.md | ID-2 matching statement only, original URL preserved |
+| docs/design/git-broker.md | scope paragraphs only, precise narrow equivalence (since graduated into the reference) |
+| docs/design/git-broker-plan.md | ID-2 matching statement only, original URL preserved (ID-2 now lives in the reference) |
 | docs/research/git-broker-url-coverage.md | boundary/table precise current limits, preserve historical RED/QA anatomy |
 | internal/completiondata/** (only generated census output if changed) | completion-census generation only |
 

@@ -1,7 +1,7 @@
 package cli
 
 // allow.go is `yolo allow`, the named verb for a broker ceiling in the user config
-// (docs/design/config-commands.md §4, RC-D17; the `allow` section is config-user.md §6). It
+// (docs/reference/config/editing.md#the-commands, RC-D17; the `allow` section is docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins). It
 // is sugar over `yolo config add allow.<source>.<list> <capability>`, plus the two things a
 // text edit cannot do: it validates the capability against what the selected packs declare,
 // and it chains the write into the workspace approval that makes it live, through the same
@@ -220,7 +220,7 @@ func allowConvertFirst(target config.ResolvedEditTarget) string {
 
 // findDeclaredBroker is the broker declaration a verb names, or the refusal that lists what is
 // declared. A selected pack with settings but no broker gets the generic verb, since a pack
-// cannot ship a named one (config-commands.md §4).
+// cannot ship a named one (docs/reference/config/editing.md#the-commands).
 func findDeclaredBroker(verb, source string, brokers []config.ReadableBrokerDeclaration,
 	packSettings []config.ReadablePackDeclaration, errw io.Writer) (config.ReadableBrokerDeclaration, int) {
 	var sources []string

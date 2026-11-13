@@ -54,14 +54,14 @@ import (
 //
 // # User grants, in two layers
 //
-// BB-D96 (docs/design/git-broker-plan.md ID-10): the user's own config lists the kinds of grant
+// BB-D96 (docs/reference/git-broker.md ID-10): the user's own config lists the kinds of grant
 // a workspace may hold, `brokered.<source>.grant_kinds`, and the workspace config names each
 // grant and the repository it covers, `brokered.<source>.grants`:
 //
 //	"brokered": { "git": { "grants": [{"kind": "create-branch", "repo": "github.com/o/r"}] } }
 //
 // A `branch` grant names its branch too, `"branch": "main"`: a working-set branch declared in
-// config (docs/design/git-broker.md GB-D12, GB-D13), and a `tag` grant its tag, `"tag": "v*"`;
+// config (docs/reference/git-broker.md GB-D12, GB-D13), and a `tag` grant its tag, `"tag": "v*"`;
 // either may be git's refspec pattern with one `*`, and either may name "*" for its repository
 // (GB-D25). No other kind takes either key. A grant joins only at the config-change gate, as a
 // line of its source's scope block recorded under `<source>.grants` (scopeapproval.go), and only
@@ -74,7 +74,7 @@ const (
 	brokeredRootsKey      = "roots"
 	brokeredSetsKey       = "sets"
 	// brokeredGrantsKey and brokeredGrantKindsKey are the two layers of a user grant
-	// (docs/design/boundary-broker.md BB-D96; docs/design/git-broker-plan.md ID-10): the user's own
+	// (docs/design/boundary-broker.md BB-D96; docs/reference/git-broker.md ID-10): the user's own
 	// config lists the kinds a workspace may hold (`grant_kinds`, user scope only), and the
 	// workspace config names each grant and its repository (`grants`, workspace scope only), which
 	// joins only at the config-change gate and only within the user's kinds.
@@ -335,7 +335,7 @@ func BrokerGrantAdvice(source string) string {
 // user config that is TOML (or that does not exist yet, which a first write makes TOML) takes
 // the grant in the readable form, the source's read capability under `allow.<source>`, so the
 // next step is the verb that writes it, `yolo allow <source> <capability>`
-// (docs/design/config-commands.md §4), not a `brokered.<source>.grants` entry.
+// (docs/reference/config/editing.md#the-commands), not a `brokered.<source>.grants` entry.
 func BrokerGrantAdviceFor(b loopholedecl.Brokered) string {
 	return brokerReadGrantAdvice(b.Source, b.ReadCapability)
 }
@@ -346,7 +346,7 @@ func BrokerGrantAdviceFor(b loopholedecl.Brokered) string {
 // advice whatever the user config's format. A user config still in legacy JSONC gets the same
 // verb behind the conversion that makes it usable, `yolo config migrate` (the verb does not
 // write a legacy file), never a hand edit of the legacy `brokered.<source>.grants` list
-// (docs/design/config-commands.md §4).
+// (docs/reference/config/editing.md#the-commands).
 func brokerReadGrantAdvice(source, readCapability string) string {
 	if readCapability == "" {
 		return BrokerGrantAdvice(source)
@@ -1193,7 +1193,7 @@ func validateBrokeredUserScope(errs, warns *[]string, edit ...*editValidationCon
 // A `repos` entry for a source a known loophole brokers on any host (`remote_host: "*"`) is
 // refused, through the resolver and never by the source's name: that source's scope is every
 // remote URL, matched exactly, so a git remote joins with `git remote add` and reaches the gate as
-// a new remote (docs/design/git-broker-plan.md ID-2).
+// a new remote (docs/reference/git-broker.md ID-2).
 //
 // Each `brokered.<source>.grants` entry is checked too (brokeredGrantProblems): its shape, a
 // kind the source defines (through the resolver) and the user's own config allows.
@@ -1374,7 +1374,7 @@ func BrokerKindAllowCommand(source, capability string) string {
 // advice names a verb, not a file to hand-edit): the `yolo allow` verb for the capability the
 // declaration maps kind to, or for read the source's read capability under `always`, followed by
 // `yolo config apply`. A user config still in legacy JSONC gets the verb behind `yolo config
-// migrate`, which it needs first (docs/design/config-commands.md §4). With no declared
+// migrate`, which it needs first (docs/reference/config/editing.md#the-commands). With no declared
 // capability there is no verb to name, so it is the legacy key.
 func grantKindAllowAdvice(declaration loopholedecl.Brokered, source, kind string) string {
 	command, lead := "", "Allow it with "
@@ -1669,7 +1669,7 @@ func UngrantedBrokerNotes(resolver LoopholeResolver, workspace string) []string 
 		}
 		source := info.Brokered.Source
 		// The readable form of the same grant is the source's read capability under
-		// `allow.<source>` (docs/design/config-user.md §6): `always` grants it, and `on_request`
+		// `allow.<source>` (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins): `always` grants it, and `on_request`
 		// leaves it to each workspace as `grant_kinds` does.
 		if len(userGrantsOf(user, source)) > 0 || inList(grantKindsOf(user, source), readGrantKind) ||
 			readableUserAllowsEither(user, source, info.Brokered.ReadCapability) {

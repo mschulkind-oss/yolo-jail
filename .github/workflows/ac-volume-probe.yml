@@ -1,0 +1,235 @@
+name: Apple Container volume probe
+
+# §5 of docs/research/apple-container-file-cost.md: the planned probe that fixes the shape of
+# VM-local volumes (docs/design/vm-local-volumes.md) before that design is built. It answers six
+# questions with bare `container` commands and no agent and no yolo launch:
+#
+#   1. does a named volume mount NESTED under a shared host folder, and does the Mac see its files
+#   2. how many named volumes one VM takes
+#   3. what one volume in two running containers does
+#   4. fs.js on the nested volume
+#   5. a container's `git status` right after the Mac's, and the Mac's right after the container's
+#   6. the runtime comparison's wl.sh with only the virtualenv and Postgres on volumes
+#
+# DISPATCH ONLY, BY THE MAINTAINER, ONCE THE RUNNER'S `container` IS 1.5.0 OR LATER (the doc's
+# "When it runs"; the first step refuses an older one rather than measure the wrong version):
+#
+#   gh workflow run ac-volume-probe.yml --repo mschulkind-oss/yolo-jail --ref <reviewed-branch>
+#   gh run watch
+#
+# The answers land in the run's summary and in the `ac-volume-probe` artifact; they go into §5.
+#
+# WHAT IT TOUCHES ON THE MAC. It stops `yolo-ac-builder`, yolo's nix builder VM, first (if it was
+# running) and starts it again at the end through scripts/mac-ac-linux-builder.sh, so the probe's
+# VMs do not share the machine with it. Everything else it makes is named `acprobe-<run id>-…`
+# (containers, volumes, the image tag) and removed by the last step, which runs on failure too.
+# The scripts it runs are not copied in here: fs.js and imp.py are extracted from the file-cost
+# doc's appendices, and the Containerfile and wl.sh from the runtime comparison's Appendix A, so
+# the probe measures exactly what those docs print.
+#
+# FORK SAFETY is the trigger list and the repository guard, as in apple-container.yml;
+# integration/selfhostedtriggers_test.go pins both.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  BUILDER: yolo-ac-builder
+
+jobs:
+  probe:
+    if: github.repository == 'mschulkind-oss/yolo-jail'
+    runs-on: [self-hosted, apple-container]
+    name: Volume probe (self-hosted arm64 Mac)
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          set-safe-directory: false
+
+      - name: Name this run's objects, and require container 1.5.0 or later
+        run: |
+          set -euo pipefail
+          P="acprobe-${GITHUB_RUN_ID}"
+          {
+            echo "P=$P"
+            echo "IMG=localhost/$P:1"
+            echo "B=$RUNNER_TEMP/$P"
+          } >> "$GITHUB_ENV"
+          v=$(container --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          echo "container CLI $v"
+          if [ "$(printf '%s\n%s\n' 1.5.0 "$v" | sort -V | head -n 1)" != 1.5.0 ]; then
+            echo "::error::container $v is older than 1.5.0, and §5's answers are meant to hold there. Upgrade the runner's container (brew upgrade container, then container system stop and start), then dispatch again."
+            exit 1
+          fi
+          container system status >/dev/null || { echo "::error::container's services are not running; run container system start on the runner"; exit 1; }
+
+      - name: Stop the nix builder VM for the probe
+        run: |
+          set -euo pipefail
+          if container inspect "$BUILDER" 2>/dev/null | grep -q '"running"'; then
+            echo "BUILDER_WAS_RUNNING=1" >> "$GITHUB_ENV"
+            container stop "$BUILDER"
+            echo "stopped $BUILDER; the last step starts it again"
+          else
+            echo "$BUILDER is not running; the last step leaves it stopped"
+          fi
+
+      - name: Extract the scripts from the docs and build the image
+        run: |
+          set -euo pipefail
+          mkdir -p "$B/share" "$B/results"
+          # extract <doc> <exact heading line>: the first fenced block after that heading.
+          extract() {
+            awk -v h="$2" '$0 == h { f = 1; next } f && /^```/ { if (b) exit; b = 1; next } b { print }' "$1"
+          }
+          extract docs/research/apple-container-file-cost.md '## Appendix: fs.js' > "$B/fs.js"
+          extract docs/research/apple-container-file-cost.md '## Appendix: imp.py' > "$B/imp.py"
+          extract docs/research/macos-vm-runtime-comparison.md '### `Containerfile`' > "$B/Containerfile"
+          extract docs/research/macos-vm-runtime-comparison.md '### `wl.sh`' > "$B/wl.sh"
+          for f in fs.js imp.py Containerfile wl.sh; do
+            test -s "$B/$f" || { echo "::error::extracted an empty $f: its heading or fence moved in the doc"; exit 1; }
+          done
+          # Question 5 needs git in the image; nothing else differs from the comparison's image.
+          echo 'RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*' >> "$B/Containerfile"
+          # Question 6: the same wl.sh, with the virtualenv and the Postgres data directory movable.
+          sed -e 's#\$W/venv#${VENV_ROOT:-$W}/venv#g' -e 's#\$W/pg#${PG_ROOT:-$W}/pg#g' "$B/wl.sh" > "$B/wl-mixed.sh"
+          chmod +x "$B/wl.sh" "$B/wl-mixed.sh"
+          container build -t "$IMG" -f "$B/Containerfile" "$B"
+
+      - name: "1. A volume nested under a shared folder"
+        run: |
+          set +e -uo pipefail
+          R="$B/results/answers.tsv"
+          mkdir -p "$B/share/.venv"
+          container volume create "$P-nest" >/dev/null
+          out=$(container run --rm --name "$P-nest" -v "$B/share:/workspace" -v "$P-nest:/workspace/.venv" "$IMG" \
+            sh -c 'touch /workspace/.venv/from-volume /workspace/beside && stat -f -c %T /workspace/.venv /workspace' 2>&1)
+          rc=$?
+          printf 'nest_rc\t%s\n' "$rc" >> "$R"
+          printf 'nest_fs_types\t%s\n' "$(echo "$out" | tr '\n' ' ')" >> "$R"
+          if [ -e "$B/share/.venv/from-volume" ]; then printf 'nest_mac_sees_volume_file\tyes\n' >> "$R"; else printf 'nest_mac_sees_volume_file\tno\n' >> "$R"; fi
+          if [ -e "$B/share/beside" ]; then printf 'nest_mac_sees_shared_file\tyes\n' >> "$R"; else printf 'nest_mac_sees_shared_file\tno\n' >> "$R"; fi
+          cat "$R"
+
+      - name: "2. How many volumes one VM takes"
+        run: |
+          set +e -uo pipefail
+          R="$B/results/answers.tsv"
+          for i in $(seq 1 32); do container volume create "$P-n$i" >/dev/null || break; done
+          max=0 err=
+          for k in 1 2 4 8 12 16 20 24 28 32; do
+            args=()
+            for i in $(seq 1 "$k"); do args+=(-v "$P-n$i:/v$i"); done
+            if out=$(container run --rm --name "$P-count" "${args[@]}" "$IMG" true 2>&1); then
+              max=$k
+            else
+              err=$(echo "$out" | tail -n 1); break
+            fi
+          done
+          printf 'volumes_one_vm_max_tried_ok\t%s\n' "$max" >> "$R"
+          printf 'volumes_one_vm_first_error\t%s\n' "${err:-none up to 32}" >> "$R"
+          tail -n 2 "$R"
+
+      - name: "3. One volume in two running containers"
+        run: |
+          set +e -uo pipefail
+          R="$B/results/answers.tsv"
+          container volume create "$P-two" >/dev/null
+          container run -d --name "$P-two-a" -v "$P-two:/v" "$IMG" sleep 600 >/dev/null
+          if out=$(container run --rm --name "$P-two-b" -v "$P-two:/v" "$IMG" sh -c 'touch /v/b && ls /v' 2>&1); then
+            printf 'one_volume_two_containers\tsecond started: %s\n' "$(echo "$out" | tr '\n' ' ')" >> "$R"
+          else
+            printf 'one_volume_two_containers\tsecond refused: %s\n' "$(echo "$out" | tail -n 1)" >> "$R"
+          fi
+          container rm -f "$P-two-a" >/dev/null 2>&1 || true
+          tail -n 1 "$R"
+
+      - name: "4. fs.js on the nested volume, and on the shared folder beside it"
+        run: |
+          set +e -uo pipefail
+          container run --rm --name "$P-fs" --cpus 5 --memory 8g -v "$B:/b" -v "$B/share:/workspace" -v "$P-nest:/workspace/.venv" "$IMG" \
+            sh -c 'node /b/fs.js /workspace/.venv nested-volume; node /b/fs.js /workspace shared' \
+            | tee "$B/results/fsjs.tsv"
+
+      - name: "5. git status: the Mac, then the container, then the Mac"
+        run: |
+          set +e -uo pipefail
+          R="$B/results/answers.tsv"
+          git clone --quiet --no-hardlinks "$GITHUB_WORKSPACE" "$B/share/repo"
+          mac() { bash -c 'TIMEFORMAT=%R; { time git -C "$1" status --porcelain >/dev/null; } 2>&1' _ "$B/share/repo"; }
+          jail() { container run --rm --name "$P-git" -v "$B/share:/workspace" "$IMG" \
+            bash -c 'TIMEFORMAT=%R; { time git -c safe.directory="*" -C /workspace/repo status --porcelain >/dev/null; } 2>&1'; }
+          printf 'git_status_mac_first_s\t%s\n' "$(mac)" >> "$R"
+          printf 'git_status_mac_warm_s\t%s\n' "$(mac)" >> "$R"
+          printf 'git_status_container_after_mac_s\t%s\n' "$(jail)" >> "$R"
+          printf 'git_status_container_again_s\t%s\n' "$(jail)" >> "$R"
+          printf 'git_status_mac_after_container_s\t%s\n' "$(mac)" >> "$R"
+          printf 'git_status_files\t%s\n' "$(git -C "$B/share/repo" ls-files | wc -l | tr -d ' ')" >> "$R"
+          tail -n 6 "$R"
+
+      - name: "6. wl.sh: all shared, all on a volume, and only the virtualenv and Postgres on volumes"
+        run: |
+          set +e -uo pipefail
+          for v in wl wlvenv wlpg; do container volume create "$P-$v" >/dev/null; done
+          run() {
+            container run --rm --name "$P-wl" --cpus 5 --memory 8g -e WHEELS=/wheels -e PG_USER=postgres "$@"
+          }
+          run -v "$B:/b" -v "$B/share:/share" "$IMG" /b/wl.sh /share container-share \
+            | tee "$B/results/wl-share.tsv"
+          run -v "$B:/b" -v "$P-wl:/vol" "$IMG" /b/wl.sh /vol container-vol \
+            | tee "$B/results/wl-vol.tsv"
+          run -v "$B:/b" -v "$B/share:/share" -v "$P-wlvenv:/vvenv" -v "$P-wlpg:/vpg" \
+            -e VENV_ROOT=/vvenv -e PG_ROOT=/vpg "$IMG" \
+            bash -c 'chown postgres /vvenv /vpg && exec /b/wl-mixed.sh /share container-mixed' \
+            | tee "$B/results/wl-mixed.tsv"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo '## Apple Container volume probe'
+            echo
+            echo "container: $(container --version 2>&1)"
+            for f in "$B"/results/*.tsv; do
+              [ -f "$f" ] || continue
+              echo
+              echo "### $(basename "$f")"
+              echo
+              echo '```'
+              cat "$f"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: ac-volume-probe
+          path: ${{ env.B }}/results
+          if-no-files-found: warn
+
+      - name: Remove what this run made, and restart the builder
+        if: always()
+        run: |
+          set -u
+          if [ -n "${P:-}" ]; then
+            for c in $(container ls --all --quiet 2>/dev/null | grep "^$P-" || true); do container rm -f "$c" || true; done
+            for v in $(container volume ls --quiet 2>/dev/null | grep "^$P-" || true); do container volume rm "$v" || true; done
+            container image rm "$IMG" 2>/dev/null || true
+            rm -rf "$B"
+            echo "left over (should be empty):"
+            container ls --all --quiet 2>/dev/null | grep "^$P-" || true
+            container volume ls --quiet 2>/dev/null | grep "^$P-" || true
+          fi
+          if [ "${BUILDER_WAS_RUNNING:-}" = 1 ]; then
+            scripts/mac-ac-linux-builder.sh >/dev/null && echo "restarted $BUILDER"
+          fi

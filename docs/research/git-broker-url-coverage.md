@@ -11,7 +11,7 @@ summary: "Grounded audit and bounded repair of Git URL forms crossing the host b
 
 **Finding at that audit:** `git@[::1]:o/r.git` was rewritten by the shipped `git@` rule, but the broker split at the first colon inside `[::1]` and refused it. Git's `git+ssh://` and `ssh+git://` URL schemes are valid SSH aliases, but neither was rewritten or accepted. At that audit the owner's reported SSH failure was unidentifiable because no URL or error had been supplied. The later owner-provided approved/request URL pair identified a separate literal-scope mismatch; ITEM18's narrow endpoint matcher is recorded below, without changing the earlier parser RED or QA history.
 
-**Boundary:** SSH requests still need a live approved remote endpoint and read grant. Exact URLs match as before; additionally, Git's broker accepts SSH scheme aliases only when parsed destination, explicit port and effective path match, and the exact `git@github.com` no-port two-segment relative scp path may match the corresponding absolute SSH URL path, and for that same GitHub user and no-port form a single trailing `.git` on the repository segment is equivalent in either spelling. Host case/aliases, user, port, generic relative/absolute paths, other suffixes and HTTPS remain distinct. The original request URL remains in the remote helper, upstream SSH argv and audit. Repository identity groups grants; it does not itself approve another spelling. The existing anonymous public HTTPS fetch exception remains unchanged. This document supplements [`git-broker.md`](../design/git-broker.md) and [`git-broker-plan.md`](../design/git-broker-plan.md); it does not widen their trust boundary.
+**Boundary:** SSH requests still need a live approved remote endpoint and read grant. Exact URLs match as before; additionally, Git's broker accepts SSH scheme aliases only when parsed destination, explicit port and effective path match, and the exact `git@github.com` no-port two-segment relative scp path may match the corresponding absolute SSH URL path, and for that same GitHub user and no-port form a single trailing `.git` on the repository segment is equivalent in either spelling. Host case/aliases, user, port, generic relative/absolute paths, other suffixes and HTTPS remain distinct. The original request URL remains in the remote helper, upstream SSH argv and audit. Repository identity groups grants; it does not itself approve another spelling. The existing anonymous public HTTPS fetch exception remains unchanged. This document supplements [`git-broker.md`](../reference/git-broker.md) and [`git-broker.md`](../reference/git-broker.md#the-builds-implementation-decisions); it does not widen their trust boundary.
 
 ## URL coverage
 
@@ -59,7 +59,7 @@ Changed implementation seams: `internal/gitproto.Identity` now recognizes only t
 
 ## Sources
 
-- [`git-broker.md`](../design/git-broker.md) — exact URL scope, credential boundary, and SSH/HTTPS transport policy.
-- [`git-broker-plan.md`](../design/git-broker-plan.md) — pack rewrite and broker implementation choices.
+- [`git-broker.md`](../reference/git-broker.md) — exact URL scope, credential boundary, and SSH/HTTPS transport policy.
+- [`git-broker.md`](../reference/git-broker.md#the-builds-implementation-decisions) — pack rewrite and broker implementation choices.
 - [`packs/git/pack.toml`](../../packs/git/pack.toml) — shipped URL rewrite rules; the real-Git test reads this manifest contribution directly.
 - `internal/gitproto.Identity`, `internal/gitbroker.transportOf` — implementation and refusal seams verified by the tests named above.

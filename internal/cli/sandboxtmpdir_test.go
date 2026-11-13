@@ -78,11 +78,10 @@ func newSandboxTmpdirLaunchWithMode(t *testing.T, shippedClaude, includeContext,
 	if err := os.MkdirAll(userTmp, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// The temp dir of the user the sandbox runs as, in either mode: the account mode's plan bakes
+	// the account's own into this context (MMP-D36), as self mode bakes yours.
 	contextData := macosuser.SandboxTmpdirValidationContext{
-		Mode: mode, Workspace: workspace, Home: home,
-	}
-	if mode == macosuser.ModeSelf {
-		contextData.DarwinUserTempDir = userTmp
+		Mode: mode, Workspace: workspace, Home: home, DarwinUserTempDir: userTmp,
 	}
 	context, err := macosuser.MarshalSandboxTmpdirValidationContext(contextData)
 	if err != nil {
@@ -180,15 +179,22 @@ func (h *sandboxTmpdirLaunch) run(t *testing.T, name string, env map[string]stri
 	return values, out, err
 }
 
+// MMP-D36: an account-mode nested launch keeps the account's TMPDIR, which its profile grants, and
+// its program follower follows it; a TMPDIR outside the account mode's roots is refused, since the
+// profile now closes the shared /tmp there too (MMP-D29).
 func TestAccountNestedTempFollowerPreservesAccountTMPDIR(t *testing.T) {
 	h := newSandboxTmpdirLaunchWithMode(t, true, true, true, macosuser.ModeAccount)
-	accountTmp := "/account/sandbox/tmp"
+	accountTmp := filepath.Join(h.home, "user temp")
 	got, out, err := h.run(t, "claude", map[string]string{"TMPDIR": accountTmp})
 	if err != nil {
 		t.Fatalf("account nested Claude launch failed: %v\n%s", err, out)
 	}
 	if got["TMPDIR"] != accountTmp || got["CLAUDE_CODE_TMPDIR"] != accountTmp {
 		t.Errorf("account nested Claude env = %#v, want actual execution with both temp variables %q", got, accountTmp)
+	}
+	if _, out, err := h.run(t, "claude", map[string]string{"TMPDIR": "/tmp/elsewhere"}); err == nil ||
+		!strings.Contains(string(out), "TMPDIR=/tmp/elsewhere") {
+		t.Errorf("account nested Claude launch accepted a TMPDIR its profile does not grant: %v\n%s", err, out)
 	}
 }
 

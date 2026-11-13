@@ -57,7 +57,7 @@ func TestMacosUserMacosLogBridgeScopesToTheSandbox(t *testing.T) {
 		`echo "=== SHOW ==="`,
 		`yolo-log show --last 10m --predicate 'eventMessage CONTAINS "` + token + `"'; echo "SHOW_RC=$?"`,
 		`echo "=== STREAM ==="`,
-		`f=$(mktemp /tmp/yolo-it-ylog.XXXXXX)`,
+		`f=$(mktemp "$TMPDIR/yolo-it-ylog.XXXXXX")`, // the shared /tmp is closed (MMP-D29)
 		`yolo-log stream --predicate 'eventMessage CONTAINS "` + token + `"' >"$f" 2>&1 & p=$!`,
 		`sleep 5`, // the client dials the bridge and the bridge starts `log stream` first
 		`/usr/bin/perl -MSys::Syslog -e 'openlog("yolo-it", "pid", "user"); syslog("notice", "%s", $ARGV[0]); closelog(); sleep 6' ` + token + `-live & q=$!`,

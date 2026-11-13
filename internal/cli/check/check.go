@@ -149,7 +149,7 @@ func Check(opts Options) int {
 		// silently and differently per directory (internal/reporoot).
 		via := " (via " + rr.Source.Describe() + ")"
 		if o.PathExists(filepath.Join(rr.Root, "flake.nix")) {
-			r.ok("flake.nix found: " + filepath.Join(rr.Root, "flake.nix") + via)
+			r.okPath("flake.nix found: ", filepath.Join(rr.Root, "flake.nix"), via)
 		} else {
 			r.warn("flake.nix not found at "+filepath.Join(rr.Root, "flake.nix")+via, flakeMissingNote(rr))
 		}
@@ -532,7 +532,7 @@ func (o *Options) sectionGlobalStorage(r *reporter) {
 	}
 	for _, e := range entries {
 		if o.PathExists(e.path) {
-			r.ok(e.name + ": " + e.path)
+			r.okPath(e.name+": ", e.path, "")
 		} else {
 			r.warn(e.name+" directory missing: "+e.path, missingNote)
 		}
@@ -603,9 +603,9 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 		r.fail(msg, note)
 		failed = true
 	} else if o.PathExists(userPath) {
-		r.ok("Parsed user config: " + userPath)
+		r.okPath("Parsed user config: ", userPath, "")
 	} else {
-		r.ok("No user config found: " + userPath)
+		r.okPath("No user config found: ", userPath, "")
 	}
 
 	// LoadWorkspaceConfig, NOT LoadJSONCWithIncludes on yolo-jail.jsonc alone —
@@ -662,7 +662,7 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 }
 
 // configReadFailure is the FAIL line and note for a config scope that could not be read. A
-// config name that is there but cannot be read (RC-D59, docs/design/readable-config.md#RC-D59)
+// config name that is there but cannot be read (RC-D59, docs/reference/config/rulings.md#RC-D59)
 // FAILs with the launch's own sentence of fact, and its next step is the note; anything else is
 // named in the file it names.
 func configReadFailure(err error, again string) (msg, note string) {
@@ -697,10 +697,10 @@ func (o *Options) reportWorkspaceFile(r *reporter, workspace string) {
 		return
 	}
 	if s := wf.Switches(); s != "" {
-		r.ok("Parsed per-workspace file: " + wf.Path + " (" + s + ")")
+		r.okPath("Parsed per-workspace file: ", wf.Path, " ("+s+")")
 		return
 	}
-	r.ok("Parsed per-workspace file: " + wf.Path + " (no switches)")
+	r.okPath("Parsed per-workspace file: ", wf.Path, " (no switches)")
 }
 
 // sectionMergedConfig runs the Merged Configuration block. Returns true when
@@ -1042,7 +1042,8 @@ func (o *Options) sectionRunningJails(r *reporter, detectedRuntime string) {
 			marker = " " + r.style("("+reason+")", ansiRed)
 			orphans = append(orphans, orphan{c.name, c.runningFor, cws, reason})
 		}
-		r.line("    " + c.name + " -> " + cws + marker)
+		// The workspace tail is dim so the jail name is what the eye lands on (cli-visual-polish.md).
+		r.line("    " + c.name + r.style(" -> "+cws, ansiDim) + marker)
 	}
 	if len(orphans) > 0 {
 		// A terminal is asked, and its yes does the removal below. Anything else (a pipe, or a

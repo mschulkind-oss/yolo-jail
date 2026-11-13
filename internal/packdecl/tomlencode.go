@@ -47,7 +47,7 @@ import (
 // TOMLLine is one line the encoder writes, with the legacy JSON path it came from. Source is
 // nil for a line no legacy key produced (a blank separator, a closing bracket). A migration
 // uses Source to put each legacy comment before the next line written from a key that follows
-// it in the old file (docs/design/readable-config-plan.md §6, comment migration).
+// it in the old file (docs/design/config-migration.md#4-what-yolo-config-migrate-does, comment migration).
 type TOMLLine struct {
 	Text   string
 	Source []configdoc.Step

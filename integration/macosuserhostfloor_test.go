@@ -90,8 +90,11 @@ func TestMacosUserHostFloorIsTheHostUsersAlone(t *testing.T) {
 		}
 	}
 
-	// END TO END: from inside a macos-user launch, the agent's own view. The config is emptied first,
-	// so the launch stages no pack; the floor stays, since only `yolo host apply --assert` removes an
+	// END TO END: from inside a macos-user launch, the agent's own view. Since MMP-D29 the session
+	// profile closes the shared /tmp in the account mode too, so the floor under /private/tmp is
+	// refused there before its own mode is asked; the control above is what measures the mode. The
+	// config is emptied first, so the launch stages no pack; the floor stays, since only
+	// `yolo host apply --assert` removes an
 	// entry. /bin/ls and /bin/cat by path, so neither the sandbox's PATH nor the generated rc's `ls`
 	// alias decides what runs.
 	if err := os.WriteFile(filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), []byte("{}"), 0o644); err != nil {

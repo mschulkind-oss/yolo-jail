@@ -1,7 +1,7 @@
 package packdecl
 
 // selectionnames.go is the names a provider declaration answers to in a selection
-// (docs/design/readable-config.md RC-D68, RC-D69): a provider's `alias`, a string or a list of
+// (docs/reference/config/rulings.md#RC-D68, RC-D69): a provider's `alias`, a string or a list of
 // names for exactly the provider's own configuration; a variant's `name`, which replaces the
 // `<provider>/<variant>` spelling, and its `alias`, names for exactly the variant's configuration.
 // A provider's own `name` is the user's to write, never a pack's (RC-D68), so a pack's

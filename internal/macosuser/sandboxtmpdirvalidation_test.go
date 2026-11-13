@@ -42,25 +42,35 @@ func TestSandboxTmpdirValidationSharesTheDirectRunPlanPolicy(t *testing.T) {
 		})
 	}
 
+	// The account mode checks the same predicate against its own roots (MMP-D36): its profile
+	// closes the shared /tmp too (MMP-D29), so the launcher-time check matches the plan's.
 	account := ctx
 	account.Mode = ModeAccount
-	if got := SandboxTmpdirValidationProblem(account, "CLAUDE_CODE_TMPDIR", "/Users/you/tmp"); got != "" {
-		t.Errorf("account mode acquired a new temp refusal absent from direct run-plan semantics: %q", got)
+	account.SharedTmp = false
+	account.DarwinUserTempDir = "/private/var/folders/zz/acct/T"
+	for _, tc := range []struct {
+		variable, value string
+		shared, wantBad bool
+	}{
+		{"TMPDIR", "/private/var/folders/zz/acct/T", false, false},
+		{"CLAUDE_CODE_TMPDIR", "/Users/you/code/alpha/.claude-tmp", false, false},
+		{"CLAUDE_CODE_TMPDIR", "/Users/you/tmp", false, true},
+		{"TMPDIR", "/tmp/x", false, true},
+		{"TMPDIR", "/tmp/x", true, false},
+	} {
+		account.SharedTmp = tc.shared
+		if got := SandboxTmpdirValidationProblem(account, tc.variable, tc.value); (got != "") != tc.wantBad {
+			t.Errorf("account mode %s=%q hatch %v: problem %q, want bad=%v", tc.variable, tc.value, tc.shared, got, tc.wantBad)
+		}
 	}
-	accountTMPDIR := "/account/sandbox/tmp"
-	if got := SandboxTmpdirValidationProblem(account, "TMPDIR", accountTMPDIR); got != "" {
-		t.Errorf("account mode must preserve its inherited TMPDIR: %q", got)
-	}
-	if got := SandboxTmpdirValidationProblem(account, "CLAUDE_CODE_TMPDIR", "/outside/claude"); got != "" {
-		t.Errorf("account mode must not validate program-specific temp overrides: %q", got)
-	}
+	account.SharedTmp = false
 	if err := ValidateSandboxTmpdirEnv(account, []string{"CLAUDE_CODE_TMPDIR"}, func(k string) string {
 		if k == "CLAUDE_CODE_TMPDIR" {
 			return "/outside/claude"
 		}
-		return accountTMPDIR
-	}); err != nil {
-		t.Errorf("account mode added temp validation absent from direct run-plan semantics: %v", err)
+		return account.DarwinUserTempDir
+	}); err == nil {
+		t.Error("account mode's launcher did not refuse a program temp override its profile does not grant")
 	}
 }
 
@@ -89,7 +99,9 @@ func TestSandboxTmpdirValidationFailsClosedForMissingOrMalformedMetadata(t *test
 	}
 }
 
-func TestAccountRunPlanDoesNotInventUserTempValidationRoots(t *testing.T) {
+// MMP-D36: the account-mode plan carries the account's own temp dir and the user's hatch into
+// its launchers' validation context, the roots its profile grants; never the invoking user's.
+func TestAccountRunPlanCarriesItsProfilesTempValidationRoots(t *testing.T) {
 	const workspace = "/Users/Shared/yolo/proj"
 	plan := BuildRunPlanWithDaemons(workspace, jsonx.NewOrderedMap(), nil, []string{"bash"},
 		"/usr/local/bin/yolo", stagedShippedClaudePack(t), HomeOverlay{}, HostContext{},
@@ -108,8 +120,8 @@ func TestAccountRunPlanDoesNotInventUserTempValidationRoots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parsing the account-mode context: %v", err)
 	}
-	if ctx.Mode != ModeAccount || ctx.DarwinUserTempDir != "" || ctx.SharedTmp {
-		t.Errorf("account context invented user-temp authority: %+v", ctx)
+	if ctx.Mode != ModeAccount || ctx.DarwinUserTempDir != "/var/folders/ab/xyz/T" || !ctx.SharedTmp {
+		t.Errorf("account context lacks the roots its profile grants: %+v", ctx)
 	}
 }
 

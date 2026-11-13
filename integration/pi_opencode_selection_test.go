@@ -31,7 +31,7 @@ import (
 // pack renders its surfaces and installs no CLI, so no vendor install happens in this test
 // (providers_test.go TestProvidersRenderInTheAgentsOwnVocabulary is the same trick). zai's key
 // rides [env.secrets], the one channel that reaches pi and opencode in a jail: a provider's key
-// lives in the private set, which only a TOML user config has (secret-env-scoping.md), so this is
+// lives in the private set, which only a TOML user config has (docs/reference/providers.md#the-two-env-sets-public-and-private), so this is
 // config.toml text for writeUserTOML.
 const piAndOpencodePacks = "packs = [\"pi\", \"opencode\", \"zai\", \"llamacpp\"]\n\n" +
 	"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n"

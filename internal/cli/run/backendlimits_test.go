@@ -349,22 +349,22 @@ func TestBackendLimitsNameNoPackageStoreOnTheShippedPacks(t *testing.T) {
 	}
 }
 
-// OQ-MM8 (MMP-D18): a run-as-you launch's briefing tells the agent the shared /tmp is closed and
-// to use $TMPDIR, the next step Seatbelt's bare refusal cannot name. The account mode and the
-// hatch say nothing. Read through the composed briefing, so deleting the call in
-// refreshJailBriefings fails this as surely as deleting the line.
-func TestMacosUserSelfModeBriefingSaysTheSharedTmpIsClosed(t *testing.T) {
-	self := macosUserBriefingWith(t, appliedTestConfig(), func(o *Options) { o.MacosUserMode = macosuser.ModeSelf })
-	if !strings.Contains(self, "The shared `/tmp` (`/private/tmp`) is closed") || !strings.Contains(self, "Use `$TMPDIR`") {
-		t.Errorf("the run-as-you briefing does not say the shared /tmp is closed:\n%s", self)
-	}
-	account := macosUserBriefingWith(t, appliedTestConfig(), nil)
-	hatch := macosUserBriefingWith(t, appliedTestConfig(), func(o *Options) {
-		o.MacosUserMode, o.MacosUserSharedTmp = macosuser.ModeSelf, true
-	})
-	for name, b := range map[string]string{"account": account, "hatch": hatch} {
-		if strings.Contains(b, "is closed to this sandbox") {
-			t.Errorf("the %s briefing says the shared /tmp is closed", name)
+// OQ-MM8 (MMP-D18), and MMP-D29 for the account mode: a macos-user launch's briefing, in either
+// mode, tells the agent the shared /tmp is closed and to use $TMPDIR, the next step Seatbelt's
+// bare refusal cannot name. The hatch says nothing (MMP-D36). Read through the composed
+// briefing, so deleting the call in refreshJailBriefings fails this as surely as deleting the line.
+func TestMacosUserBriefingSaysTheSharedTmpIsClosed(t *testing.T) {
+	for name, mode := range map[string]macosuser.Mode{"self": macosuser.ModeSelf, "account": macosuser.ModeAccount} {
+		closed := macosUserBriefingWith(t, appliedTestConfig(), func(o *Options) { o.MacosUserMode = mode })
+		if !strings.Contains(closed, "The shared `/tmp` (`/private/tmp`) is closed") || !strings.Contains(closed, "Use `$TMPDIR`") ||
+			!strings.Contains(closed, "yolo config set macos_user_shared_tmp true --user") {
+			t.Errorf("the %s briefing does not say the shared /tmp is closed and how to open it:\n%s", name, closed)
+		}
+		hatch := macosUserBriefingWith(t, appliedTestConfig(), func(o *Options) {
+			o.MacosUserMode, o.MacosUserSharedTmp = mode, true
+		})
+		if strings.Contains(hatch, "is closed to this sandbox") {
+			t.Errorf("the %s briefing with the hatch says the shared /tmp is closed", name)
 		}
 	}
 }

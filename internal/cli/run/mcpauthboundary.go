@@ -11,7 +11,8 @@ package run
 //     lock over the VM file share is unmeasured, so nothing runs while the jail does.
 //   - SESSION-LONG (ID-20), on macos-user: one kernel, so Claude's lock directory holds between
 //     the host and the agent (§10, *Live sync*); the launcher lives exactly as long as the
-//     session, and runs the daemon's poll for that long, then one last pass.
+//     session, and runs the daemon's poll for that long, then one last pass. `yolo host` on
+//     Linux runs the same session (OnceSession, HostOnceSession; ID-21) on the real home's store.
 //
 // The composition is the launch's frozen one (frozenLaunchMCP), with the same provenance rule a
 // broker's share has: only a server the user's own config declares, not one a workspace
@@ -20,6 +21,8 @@ package run
 
 import (
 	"context"
+	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -44,8 +47,9 @@ const (
 // onceTierGOOS is the host OS the mode reads, a variable so a test can stand in for a Mac.
 var onceTierGOOS = runtime.GOOS
 
-// onceTierMode is how the launcher itself keeps a sign_in = "once" server on backend rt, or ""
-// where a broker does (Linux podman) or nothing can (`yolo host`, OQ-MA10).
+// onceTierMode is how a jail launcher itself keeps a sign_in = "once" server on backend rt, or
+// "" where a broker does (Linux podman). `yolo host` is no backend here: on Linux it keeps the
+// tier through HostOnceSession (ID-21).
 func onceTierMode(rt string) string {
 	switch {
 	case rt == "container", rt == "podman" && onceTierGOOS != "linux": // parity: HonoredBy — no broker is admitted, so the launcher keeps the tier at the launch boundary (ID-19)
@@ -82,7 +86,7 @@ func hasOnceServer(cfg *jsonx.OrderedMap) bool {
 }
 
 // OnceServerNames is the sign_in = "once" servers cfg declares, in config order: what `yolo host`
-// names when it says it does not keep them (OQ-MA10).
+// on a Mac names when it says it does not keep them (OQ-MA10).
 func OnceServerNames(cfg *jsonx.OrderedMap) []string {
 	servers := cfgMap(cfg, "mcp_servers")
 	if servers == nil {
@@ -182,17 +186,54 @@ func (o *Options) startOnceSession(rt, cname string, packs []*packload.Pack) (st
 	}
 	o.pr(o.Stderr).print("MCP one sign-in: " + onceNames(share) + " signs in once for every session on this machine. yolo refreshes its sign-in itself " +
 		onceTierWhen(rt) + ". Follow it with yolo audit --service mcp-auth.")
+	session := &OnceSession{share: share, log: func(line string) { o.logRecord("mcp-auth: %s", line) },
+		endFailed: func(err error) {
+			o.pr(o.Stderr).print("MCP one sign-in: the pass at this session's end did not finish (" + richtext.Escape(err.Error()) +
+				"); the next session tries again. yolo audit --service mcp-auth shows what was done.")
+		}}
+	return session.Start()
+}
+
+// OnceSession is the one-sign-in tier kept for the length of one session by the process that
+// lives exactly as long as it: a macos-user launcher (ID-20) or `yolo host` on Linux (ID-21). Both
+// run the one poll below, the daemon's own (mcpauthdaemon.ServeOnce), never a second loop.
+type OnceSession struct {
+	share mcpauth.Share
+	// log takes the lines of the poll and of the last pass, which must never reach the terminal
+	// the agent holds; endFailed says, on the terminal once the agent is gone, that the last pass
+	// did not finish.
+	log       func(string)
+	endFailed func(error)
+}
+
+// Names is the session's one-sign-in servers, comma-separated, for its launch line.
+func (s *OnceSession) Names() string { return onceNames(s.share) }
+
+// Stores is the store files the session adopts from and writes back to, for its launch line.
+func (s *OnceSession) Stores() []string {
+	out := make([]string, 0, len(s.share.Sources))
+	for _, src := range s.share.Sources {
+		out = append(out, filepath.Join(src.Dir, src.Store))
+	}
+	return out
+}
+
+// Start runs the daemon's poll from now until the returned stop, which ends the poll, runs one
+// last pass, and returns.
+func (s *OnceSession) Start() (stop func()) {
 	var mu sync.Mutex
 	logLine := func(line string) {
 		mu.Lock()
 		defer mu.Unlock()
-		o.logRecord("mcp-auth: %s", line)
+		if s.log != nil {
+			s.log(line)
+		}
 	}
 	state := loopholes.StateDirFor(selectedMCPHostService)
 	quit, done := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
-		if err := onceServe(state, share, logLine, quit); err != nil {
+		if err := onceServe(state, s.share, logLine, quit); err != nil {
 			logLine("the session's one-sign-in poll did not start: " + err.Error())
 		}
 	}()
@@ -201,11 +242,46 @@ func (o *Options) startOnceSession(rt, cname string, packs []*packload.Pack) (st
 		<-done
 		ctx, cancel := context.WithTimeout(context.Background(), onceBoundaryBudget)
 		defer cancel()
-		if err := onceBoundaryPass(ctx, state, share, logLine); err != nil {
-			o.pr(o.Stderr).print("MCP one sign-in: the pass at this session's end did not finish (" + richtext.Escape(err.Error()) +
-				"); the next session tries again. yolo audit --service mcp-auth shows what was done.")
+		if err := onceBoundaryPass(ctx, state, s.share, logLine); err != nil && s.endFailed != nil {
+			s.endFailed(err)
 		}
 	}
+}
+
+// HostOnceJail is the jail name a `yolo host` session's share and audit events carry: it runs in
+// no jail, and the name says so.
+const HostOnceJail = "host"
+
+// HostOnceSession is the tier for one `yolo host` session on Linux (ID-21, OQ-MA10): the user's
+// own sign_in = "once" servers, adopted from and written back to the real home's store of the
+// launched program's own pack (agent; ~/.claude/.credentials.json for Claude), so the record's
+// source_dir names that store (ID-18). cfg and packs are the host launch's user-scope config and
+// selection: at `yolo host` every server composed is the user's (mcp-auth-sharing.md §6). nil,
+// nil when there is nothing to keep: no such server, or a pack whose store is not a supported
+// JSON store under proper-lockfile. log and endFailed are OnceSession's.
+func HostOnceSession(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent *packload.Pack, home, workspace string,
+	log func(string), endFailed func(error)) (*OnceSession, error) {
+	if agent == nil || !hasOnceServer(cfg) {
+		return nil, nil
+	}
+	servers := packload.ComposeMCPServers(cfgMap(cfg, "mcp_servers"), packs, home)
+	in := LaunchInputContext{Workspace: workspace, Container: HostOnceJail, EffectiveMCPServers: servers,
+		UserOnlyMCPServers: servers, MCPScopes: packload.MCPServerScopes(servers, servers), MCPProven: true}
+	once, sources, err := onceShareFrom(in, packs, func(pack *packload.Pack, store string) string {
+		if pack != agent {
+			return ""
+		}
+		return filepath.Join(home, filepath.FromSlash(path.Dir(store)))
+	})
+	if err != nil || len(once) == 0 {
+		return nil, err
+	}
+	share := mcpauth.Share{Version: 1, Jail: HostOnceJail, Workspace: workspace, WrittenAt: time.Now().UTC(),
+		Replicas: []mcpauth.Replica{}, Once: once, Sources: sources}
+	if err := share.Validate(); err != nil {
+		return nil, err
+	}
+	return &OnceSession{share: share, log: log, endFailed: endFailed}, nil
 }
 
 // backendLabel is a backend's name in a launch line.

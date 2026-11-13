@@ -163,13 +163,13 @@ func PrintStatus(deps CLIDeps, name string) int {
 			// launched uses the copy; whether a jail an older yolo launched still does is not
 			// something status can see, so it is said as the condition for the stop.
 			out.printf("  host-wide, left by an older yolo: pid %s, socket %s, %s",
-				pidList(i.PIDs), i.Socket, mark)
+				pidList(i.PIDs), socketValue(i.Socket), mark)
 			out.print("    [dim]Jails this yolo launches do not use it; only a jail an older yolo " +
 				"launched can. Once no such jail is running, this ends it:[/dim]")
-			out.print("      " + StopHostWideCommand(i.Name))
+			out.print("      [cyan]" + richtext.Escape(StopHostWideCommand(i.Name)) + "[/cyan]")
 			continue
 		}
-		out.printf("  jail %s: pid %s, socket %s, %s", i.Jail, pidList(i.PIDs), i.Socket, mark)
+		out.printf("  jail %s: pid %s, socket %s, %s", i.Jail, pidList(i.PIDs), socketValue(i.Socket), mark)
 		if !i.Accepting {
 			out.printf("    [yellow]Its daemon died, or its jail ended without stopping it. If that "+
 				"jail is still running, its %s requests fail: leave the jail and launch it again, "+
@@ -179,6 +179,13 @@ func PrintStatus(deps CLIDeps, name string) int {
 		}
 	}
 	return rc
+}
+
+// socketValue renders a status line's socket path as its value: cyan, so the label/value split
+// is visible (docs/plans/cli-visual-polish.md, Group C), and escaped, since the path is not text
+// yolo wrote. Stripped, it is the path.
+func socketValue(socket string) string {
+	return "[cyan]" + richtext.Escape(socket) + "[/cyan]"
 }
 
 // pidList renders pids for a status line, "unknown" when none could be found.

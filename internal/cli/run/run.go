@@ -327,7 +327,7 @@ func Run(opts Options) (rc int) {
 			"nothing.[/dim]")
 		return 1
 	}
-	// THE PIN (pinnedexec.go, docs/design/pinned-host-helpers.md section 3.2, PH-D3): every launch
+	// THE PIN (pinnedexec.go, docs/reference/pinned-host-helpers.md "When it is resolved", PH-D3): every launch
 	// that will start a host helper (a container launch always starts a keeper; macos-user starts its
 	// own) resolves the host yolo it execs them from, once, here, before anything is spawned. An
 	// attach starts nothing the keeper holds, but its own context injector self-execs, so it needs one
@@ -3778,14 +3778,27 @@ func (o *Options) containerLaunchRecord(cname string, packs []*packload.Pack) ru
 			names = append(names, p.Name)
 		}
 	}
-	v := version.Binary("")
-	if v == "unknown" {
-		v = ""
-	}
 	return runtime.LaunchRecord{
 		Name: cname, Setup: o.Setup.Name, Confinement: o.Setup.Confinement, RunAs: o.Setup.RunAs,
-		Workspace: resolvePath(o.Workspace), Started: now(), Packs: names, YoloVersion: v,
+		Workspace: resolvePath(o.Workspace), Started: now(), Packs: names, YoloVersion: launchYoloVersion(),
 	}
+}
+
+// launchYoloVersion is the version a launch record names: the launcher's own build
+// (version.Binary), never a YOLO_VERSION override, and "" when it is not known.
+func launchYoloVersion() string {
+	if v := version.Binary(""); v != "unknown" {
+		return v
+	}
+	return ""
+}
+
+// now is o.Now, or the wall clock when it is unset.
+func (o *Options) now() time.Time {
+	if o.Now != nil {
+		return o.Now()
+	}
+	return time.Now()
 }
 
 // emitLaunchBanner writes the launch line to stderr (audit §B#4), continuing the

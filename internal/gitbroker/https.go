@@ -23,8 +23,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// https.go is the HTTPS upstream (docs/design/git-broker-plan.md ID-8, docs/design/git-broker.md
-// §4.3): smart HTTP. HTTPS fetch always tries anonymously first. The broker may try a URL
+// https.go is the HTTPS upstream (docs/reference/git-broker.md ID-8,
+// "The upstream leg"): smart HTTP. HTTPS fetch always tries anonymously first. The broker may try a URL
 // outside scope only without credentials; host credentials are filled only while the live scope
 // approves that exact URL and its read grant.
 //
@@ -388,7 +388,7 @@ func (h *httpsLeg) credentialRunOutput(action string, c *credential) ([]byte, er
 // PATH, HOME and the session bus a keyring helper needs, plus what keeps it from asking anyone.
 // GIT_ASKPASS set empty stops git falling back to core.askPass or SSH_ASKPASS, and
 // GCM_INTERACTIVE=never stops Git Credential Manager opening a login, so a helper with nothing
-// stored answers nothing (git-broker.md §6: the broker never prompts and never starts a login).
+// stored answers nothing (git-broker.md, "Failure paths": the broker never prompts and never starts a login).
 func credentialEnv(getenv func(string) string, dir string) []string {
 	env := []string{"PATH=" + getenv("PATH"), "HOME=" + getenv("HOME")}
 	if v := getenv("DBUS_SESSION_BUS_ADDRESS"); v != "" {

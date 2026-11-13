@@ -36,11 +36,13 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 // servicesSession is one macos-user session's own host-services dir and the lock that says the
@@ -81,7 +83,8 @@ func (o *Options) openServicesSession(cname, notch string) (*servicesSession, er
 	if err != nil {
 		return nil, err
 	}
-	rec := runtime.SessionRecord{Notch: notch, Workspace: o.Workspace, Name: cname}
+	rec := runtime.SessionRecord{Notch: notch, Workspace: o.Workspace, Name: cname, Setup: o.Setup.Name,
+		Started: o.now().UTC().Format(time.RFC3339), YoloVersion: launchYoloVersion()}
 	if notch == hostNotchRuntime {
 		// The agent's pid: an exec keeps it, and a resident launch lives as long as its agent.
 		// A listing reads the session as gone once it exits, whatever its descendants still hold
@@ -120,14 +123,16 @@ type HostSession struct {
 // session open does. An error is the caller's to warn about: the record is what lists the
 // agent, never a reason to refuse its launch (openServicesSession's record write is not fatal
 // either).
-func OpenHostSession(workspace string, isMacOS bool, stderr io.Writer) (*HostSession, error) {
-	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: isMacOS}
+//
+// s is the launch's setup, which the record names so `yolo ps` lists the row under it.
+func OpenHostSession(workspace string, s setup.Setup, isMacOS bool, stderr io.Writer) (*HostSession, error) {
+	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: isMacOS, Setup: s}
 	fillDefaults(o)
-	s, err := o.openServicesSession(runtime.FromWorkspace(workspace), hostNotchRuntime)
+	ss, err := o.openServicesSession(runtime.FromWorkspace(workspace), hostNotchRuntime)
 	if err != nil {
 		return nil, err
 	}
-	return &HostSession{s: s}, nil
+	return &HostSession{s: ss}, nil
 }
 
 // End removes the session's dir, then lets its lock go, in the order every session ends in

@@ -1,6 +1,6 @@
 package run
 
-// macosuserpin_test.go pins docs/design/pinned-host-helpers.md section 3.3 and 3.4 for the macos-user
+// macosuserpin_test.go pins docs/reference/pinned-host-helpers.md ("Who execs it", "The check before every exec") for the macos-user
 // arm: every launch-owned service and doorway it starts carries the launch's pin, the jail label
 // its helpers log, and the stop step a give-up names; and the backend stages the pin's yolo.
 

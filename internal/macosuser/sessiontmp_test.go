@@ -193,47 +193,57 @@ func TestASelfModeLaunchDisclosesTheSharedTmpHatch(t *testing.T) {
 	}
 }
 
-// OQ-MM8 (MMP-D18): a run-as-you plan closes the shared /tmp, and the user's hatch
-// (PlanSession.SharedTmp) opens it and is disclosed. The account mode ignores the hatch.
-// Removing the hatch in selfProfileParams, or its disclosure, fails this.
-func TestSelfModePlanClosesTheSharedTmpUnlessTheHatchIsSet(t *testing.T) {
-	closed := sessionTmpPlan(t, ModeSelf, nil)
-	if strings.Contains(closed.Seatbelt, SharedTmpAllowID) || closed.SharedTmp || sharedTmpDisclosure(closed) != "" {
-		t.Errorf("a plan with no hatch opens or discloses the shared /tmp")
-	}
-	if !strings.Contains(closed.Seatbelt, "#seatbelt-test-id:"+UserTmpAllowID+"#") {
-		t.Error("the run-as-you plan lost the user's DARWIN_USER_TEMP_DIR grant")
-	}
-	open := sessionTmpPlanWith(t, ModeSelf, nil, func(s *PlanSession) { s.SharedTmp = true })
-	if !strings.Contains(open.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") || !open.SharedTmp {
-		t.Error("the hatch did not open the shared /tmp in the profile")
-	}
-	if line := sharedTmpDisclosure(open); !strings.Contains(line, "macos_user_shared_tmp") {
-		t.Errorf("the hatch is not disclosed: %q", line)
-	}
-	if account := sessionTmpPlanWith(t, ModeAccount, nil, func(s *PlanSession) { s.SharedTmp = true }); account.SharedTmp {
-		t.Error("the account mode took the run-as-you hatch")
+// OQ-MM8 (MMP-D18), and MMP-D29 for the account mode: a plan in EITHER mode closes the shared
+// /tmp, and the user's hatch (PlanSession.SharedTmp) opens it and is disclosed (MMP-D36).
+// Removing the hatch in denyDefaultProfileParams, its disclosure, or putting TmpShared back for
+// the account mode fails this.
+func TestThePlanClosesTheSharedTmpUnlessTheHatchIsSet(t *testing.T) {
+	for _, mode := range []Mode{ModeSelf, ModeAccount} {
+		closed := sessionTmpPlan(t, mode, nil)
+		if strings.Contains(closed.Seatbelt, SharedTmpAllowID) || closed.SharedTmp || sharedTmpDisclosure(closed) != "" {
+			t.Errorf("%s: a plan with no hatch opens or discloses the shared /tmp", mode)
+		}
+		if !strings.Contains(closed.Seatbelt, "#seatbelt-test-id:"+UserTmpAllowID+"#") {
+			t.Errorf("%s: the plan lost the running user's DARWIN_USER_TEMP_DIR grant", mode)
+		}
+		open := sessionTmpPlanWith(t, mode, nil, func(s *PlanSession) { s.SharedTmp = true })
+		if !strings.Contains(open.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") || !open.SharedTmp {
+			t.Errorf("%s: the hatch did not open the shared /tmp in the profile", mode)
+		}
+		if !strings.Contains(open.Seatbelt, "#seatbelt-test-id:"+UserTmpAllowID+"#") {
+			t.Errorf("%s: the hatch dropped the running user's DARWIN_USER_TEMP_DIR grant", mode)
+		}
+		if line := sharedTmpDisclosure(open); !strings.Contains(line, "macos_user_shared_tmp") {
+			t.Errorf("%s: the hatch is not disclosed: %q", mode, line)
+		}
 	}
 }
 
-// The account mode keeps its temp dirs (MMP-D29): no session TMPDIR, the shared /tmp open in the
-// deny-default profile it now runs under (MMP-D25), and the account's own DARWIN_USER_TEMP_DIR
-// granted, the profile's RunAsUser the account. Like every deny-default profile it carries the
-// services grant, since its jail daemons' endpoints are under that dir.
-func TestAccountModeKeepsItsTmpAndCarriesTheServicesGrant(t *testing.T) {
+// The account mode's temp dirs (MMP-D29, MMP-D30, MMP-D36): no session TMPDIR (MMP-D17 stays
+// self-only), the shared /tmp CLOSED in the deny-default profile it runs under (MMP-D25), and the
+// account's own DARWIN_USER_TEMP_DIR granted, the profile's RunAsUser the account; tmux and zsh,
+// which ignore TMPDIR and default to the closed /tmp, follow TMPDIR. Like every deny-default
+// profile it carries the services grant, since its jail daemons' endpoints are under that dir.
+func TestAccountModeClosesTheSharedTmpAndKeepsItsOwnTempDir(t *testing.T) {
 	plan := sessionTmpPlan(t, ModeAccount, nil)
 	if plan.SessionTmpDir != "" || len(plan.SessionTmpRemoveCommands) != 0 {
 		t.Errorf("the account mode got a session TMPDIR: %q %v", plan.SessionTmpDir, plan.SessionTmpRemoveCommands)
 	}
 	// MMP-D30: TMPDIR names the account's own temp dir, the one the profile grants (the Mac run
-	// of 2026-11-03 found it empty); the session-only followers stay unset.
+	// of 2026-11-03 found it empty).
 	if got, ok := sandboxEnvFileValue(plan.EnvFileContent, "TMPDIR"); !ok || got != testAccountTmp {
 		t.Errorf("the account mode's TMPDIR = %q (set %v), want the account's own %q", got, ok, testAccountTmp)
 	}
-	for _, key := range []string{"TMUX_TMPDIR", "TMPPREFIX", "OVERMIND_SOCKET"} {
-		if _, ok := sandboxEnvFileValue(plan.EnvFileContent, key); ok {
-			t.Errorf("the account mode's env file sets %s", key)
+	// MMP-D36: tmux and zsh follow it, since their own default is the /tmp now closed. No
+	// OVERMIND_SOCKET: the account's temp dir is every account-mode workspace's, and overmind's
+	// own default is in the workspace.
+	for key, want := range map[string]string{"TMUX_TMPDIR": testAccountTmp, "TMPPREFIX": testAccountTmp + "/zsh"} {
+		if got, ok := sandboxEnvFileValue(plan.EnvFileContent, key); !ok || got != want {
+			t.Errorf("the account mode's env file sets %s=%q (set %v), want %q", key, got, ok, want)
 		}
+	}
+	if _, ok := sandboxEnvFileValue(plan.EnvFileContent, "OVERMIND_SOCKET"); ok {
+		t.Error("the account mode's env file sets OVERMIND_SOCKET")
 	}
 	composed := jsonx.NewOrderedMap()
 	composed.Set("TMPDIR", "/Users/Shared/mytmp")
@@ -241,11 +251,13 @@ func TestAccountModeKeepsItsTmpAndCarriesTheServicesGrant(t *testing.T) {
 		t.Errorf("a composed TMPDIR was replaced in the account mode: %q", got)
 	}
 	unknown := sessionTmpPlanWith(t, ModeAccount, nil, func(s *PlanSession) { s.DarwinUserTempDir = "" })
-	if _, ok := sandboxEnvFileValue(unknown.EnvFileContent, "TMPDIR"); ok {
-		t.Error("the account mode set a TMPDIR it could not resolve")
+	for _, key := range []string{"TMPDIR", "TMUX_TMPDIR", "TMPPREFIX"} {
+		if _, ok := sandboxEnvFileValue(unknown.EnvFileContent, key); ok {
+			t.Errorf("the account mode set %s from a temp dir it could not resolve", key)
+		}
 	}
-	if !strings.Contains(plan.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") {
-		t.Error("the account mode's profile closed the shared /tmp its tools use (MMP-D29)")
+	if strings.Contains(plan.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") {
+		t.Error("the account mode's profile opens the shared /tmp with no hatch (MMP-D29)")
 	}
 	if !strings.Contains(plan.Seatbelt, "#seatbelt-test-id:"+UserTmpAllowID+"#") ||
 		!strings.Contains(plan.Seatbelt, sbplStr(testAccountTmp)) {
@@ -258,7 +270,7 @@ func TestAccountModeKeepsItsTmpAndCarriesTheServicesGrant(t *testing.T) {
 		t.Error("the account mode's profile lacks the services grant")
 	}
 	if plan.SharedTmp {
-		t.Error("the account mode's open /tmp is reported as the run-as-you hatch")
+		t.Error("the account mode reports the hatch it was not given")
 	}
 }
 
@@ -297,24 +309,39 @@ func TestTheAccountModeGrantsTheAccountsOwnTempDir(t *testing.T) {
 		t.Errorf("the account-mode launch's profile does not grant the account's temp dir %s:\n%s",
 			testAccountTmp, profileBlock(plan.Seatbelt, UserTmpAllowID))
 	}
+	// MMP-D29: the account-mode launch closes the shared /tmp, and the user's hatch, handed in
+	// through Options.SharedTmp as cli hands it, opens it (MMP-D36).
+	if strings.Contains(plan.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") || plan.SharedTmp {
+		t.Error("the account-mode launch's profile opens the shared /tmp with no hatch (MMP-D29)")
+	}
+	hatch := newOpts("/Users/Shared/proj")
+	hatch.SharedTmp = true
+	if opened := buildPlan(d, hatch, nil); !strings.Contains(opened.Seatbelt, "#seatbelt-test-id:"+SharedTmpAllowID+"#") ||
+		!opened.SharedTmp {
+		t.Error("the hatch did not reach the account-mode launch's profile (MMP-D36)")
+	}
 }
 
-// MMP-D21: the self-mode bootstrap is told the session's TMPDIR, since its env is `env -i`'s
-// closed list and the profile closes the shared /tmp. The account mode's bootstrap is today's.
-func TestSelfModeBootstrapGetsTheSessionTmpdir(t *testing.T) {
+// MMP-D21: the bootstrap is told the sandbox's TMPDIR, since its env is `env -i`'s closed list
+// and the profile it runs under closes the shared /tmp: the session's in self mode, the account's
+// own temp dir in the account mode (MMP-D36), none when the account's could not be resolved.
+func TestTheBootstrapGetsTheSandboxTmpdir(t *testing.T) {
 	if plan := sessionTmpPlan(t, ModeSelf, nil); !containsArg(plan.BootstrapArgv, "TMPDIR="+testSessionTmp) {
 		t.Errorf("the self-mode bootstrap is not given TMPDIR=%s: %v", testSessionTmp, plan.BootstrapArgv)
 	}
-	if plan := sessionTmpPlan(t, ModeAccount, nil); slices.ContainsFunc(plan.BootstrapArgv,
-		func(w string) bool { return strings.HasPrefix(w, "TMPDIR=") }) {
-		t.Error("the account-mode bootstrap was given a TMPDIR")
+	if plan := sessionTmpPlan(t, ModeAccount, nil); !containsArg(plan.BootstrapArgv, "TMPDIR="+testAccountTmp) {
+		t.Errorf("the account-mode bootstrap is not given TMPDIR=%s: %v", testAccountTmp, plan.BootstrapArgv)
+	}
+	unknown := sessionTmpPlanWith(t, ModeAccount, nil, func(s *PlanSession) { s.DarwinUserTempDir = "" })
+	if slices.ContainsFunc(unknown.BootstrapArgv, func(w string) bool { return strings.HasPrefix(w, "TMPDIR=") }) {
+		t.Error("the account-mode bootstrap was given a TMPDIR it could not resolve")
 	}
 }
 
-// MMP-D20: a TMPDIR the user's env composes outside every root the run-as-you profile grants
+// MMP-D20: a TMPDIR the user's env composes outside every root the profile grants
 // refuses the launch, naming the fix; one inside a root, or under /tmp with the hatch, does not.
 // Deleting the refusal from PlanInvariants fails this.
-func TestSelfModeRefusesAComposedTmpdirTheProfileDoesNotGrant(t *testing.T) {
+func TestThePlanRefusesAComposedTmpdirTheProfileDoesNotGrant(t *testing.T) {
 	plan := func(tmpdir string, hatch bool) RunPlan {
 		env := jsonx.NewOrderedMap()
 		env.Set("TMPDIR", tmpdir)
@@ -346,10 +373,28 @@ func TestSelfModeRefusesAComposedTmpdirTheProfileDoesNotGrant(t *testing.T) {
 			t.Errorf("TMPDIR=%s hatch %v: refusal %q, want one containing %q", tc.tmpdir, tc.hatch, got, tc.want)
 		}
 	}
-	// The account mode composes no session TMPDIR and checks none.
-	env := jsonx.NewOrderedMap()
-	env.Set("TMPDIR", "/Users/you/tmp")
-	if p := sessionTmpPlan(t, ModeAccount, env); p.TmpdirProblem != "" {
-		t.Errorf("the account mode refused a TMPDIR: %q", p.TmpdirProblem)
+	// The account mode checks the same way against its own roots (MMP-D36): its profile closes
+	// the shared /tmp too (MMP-D29), so a composed TMPDIR there would fail every temp file.
+	accountPlan := func(tmpdir string, hatch bool) RunPlan {
+		env := jsonx.NewOrderedMap()
+		env.Set("TMPDIR", tmpdir)
+		return sessionTmpPlanWith(t, ModeAccount, env, func(s *PlanSession) { s.SharedTmp = hatch })
+	}
+	for _, tc := range []struct {
+		tmpdir string
+		hatch  bool
+		want   string
+	}{
+		{"/Users/you/code/alpha/.tmp", false, ""},
+		{testAccountTmp + "/mine", false, ""},
+		{"/tmp/mine", true, ""},
+		{"/Users/you/tmp", false, "Remove the TMPDIR override"},
+		{testUserTmp + "/mine", false, "Remove the TMPDIR override"},
+		{"/tmp/mine", false, "`yolo config set macos_user_shared_tmp true --user`"},
+	} {
+		got := refused(accountPlan(tc.tmpdir, tc.hatch))
+		if (tc.want == "") != (got == "") || !strings.Contains(got, tc.want) {
+			t.Errorf("account mode TMPDIR=%s hatch %v: refusal %q, want one containing %q", tc.tmpdir, tc.hatch, got, tc.want)
+		}
 	}
 }

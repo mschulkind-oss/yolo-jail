@@ -226,7 +226,7 @@ func TestTheMarkerIsAnArtifactNotADirectory(t *testing.T) {
 			marks: true,
 		},
 		{
-			// The readable-config workspace file (docs/design/config-project.md §1): the
+			// The readable-config workspace file (docs/reference/config/project-config.md#the-sections): the
 			// format-aware loader reads it first, so a TOML-only workspace is one yolo launches in.
 			name: "the TOML workspace config",
 			seed: func(t *testing.T, dir string) {

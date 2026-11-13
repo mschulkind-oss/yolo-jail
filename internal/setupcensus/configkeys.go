@@ -588,8 +588,8 @@ var configKeys = map[string]Entry{
 		PodmanMac:      notApplicable("ignored: not this backend; only the macos-user backend reads it"),
 		AppleContainer: notApplicable("ignored: not this backend; only the macos-user backend reads it"),
 		MacosUser: honored("macosUserRun (cli/commands.go) reads it from the user config (config.MacosUserSharedTmp) " +
-			"and hands it to the backend (macosuser.Options.SharedTmp), whose run-as-you profile then grants " +
-			"the shared /tmp (TmpShared)"),
+			"and hands it to the backend (macosuser.Options.SharedTmp), whose profile then grants the shared " +
+			"/tmp (TmpShared) in either mode, run-as-you or the second account (MMP-D36)"),
 		Guide: []string{"`macos_user_shared_tmp`"},
 	},
 	"share_host_fonts": {

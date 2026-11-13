@@ -47,7 +47,7 @@ type Deps struct {
 	SandboxUserExists func() bool
 	// SelfExe returns the path to the yolo binary staged into the host-owned staging root for the sandbox to self-exec as the
 	// bootstrap (J2 §3), and the one the launch's helpers exec. A LAUNCH's is its pinned yolo
-	// (PinnedSelfExe, docs/design/pinned-host-helpers.md), "" when that is gone; a command that
+	// (PinnedSelfExe, docs/reference/pinned-host-helpers.md), "" when that is gone; a command that
 	// serves no launch gets the running binary (selfExeReal).
 	SelfExe func() string
 	// GitConfig reads a host git config value best-effort ("" + false if unset).
@@ -347,7 +347,7 @@ type Options struct {
 	HostHome string
 	HostUser string
 	// SharedTmp is the user-scope `macos_user_shared_tmp` hatch (OQ-MM8, MMP-D18), read by cli;
-	// the run-as-you profile then grants the shared /tmp. The account mode ignores it.
+	// the profile then grants the shared /tmp, in either mode (MMP-D36).
 	SharedTmp bool
 	// ShareHostFonts is the user-scope `share_host_fonts` opt-in (OQ-NX9), read by cli: in the
 	// account mode it lists your ~/Library/Fonts in the session's fonts.conf and grants the
@@ -1326,6 +1326,10 @@ func RunMacosUser(deps Deps, opts Options) int {
 	defer release()
 
 	out.print("[dim]Setting up the sandbox (Seatbelt profile + bootstrap).[/dim]")
+	// A DISCLOSURE, every launch (docs/research/agent-safehouse.md §8.3): the Seatbelt profile
+	// IS this backend's trust boundary, so a launch names it, and prints it whole under
+	// --verbose (docs/reference/report-tiers.md, tier 4: never suppressed).
+	out.print(seatbeltDisclosure(plan, deps.Getenv != nil && deps.Getenv(paths.VerboseEnv) != ""))
 
 	// 1.5 THIS SESSION'S LIVENESS RECORD, THEN THE SWEEP (sessionfiles.go), before the first
 	// per-launch write. The record is held until this function returns and ended LAST, after
@@ -1556,7 +1560,23 @@ func loopbackDisclosure(plan RunPlan) string {
 		"network would [dim](OQ-MM7)[/dim]"
 }
 
-// sharedTmpDisclosure is the line a run-as-you launch prints when the user's
+// seatbeltDisclosure is the line naming this session's Seatbelt profile: its path, whether it
+// denies or allows by default, and its size; with verbose, the profile itself follows. The path
+// is the file sandbox-exec reads for this session, removed when the session ends.
+func seatbeltDisclosure(plan RunPlan, verbose bool) string {
+	posture := "allow-default with targeted denies"
+	if strings.Contains(plan.Seatbelt, "(deny default)") {
+		posture = "deny-default"
+	}
+	lines := strings.Count(strings.TrimRight(plan.Seatbelt, "\n"), "\n") + 1
+	line := fmt.Sprintf("sandbox: Seatbelt profile %s (%s, %d lines) ", richtext.Escape(plan.ProfilePath), posture, lines)
+	if !verbose {
+		return line + "[dim](--verbose prints it in full)[/dim]"
+	}
+	return line + "[dim]follows:[/dim]\n" + richtext.Escape(strings.TrimRight(plan.Seatbelt, "\n"))
+}
+
+// sharedTmpDisclosure is the line a launch, in either mode, prints when the user's
 // `macos_user_shared_tmp` hatch opened the shared /tmp (OQ-MM8, MMP-D18), "" otherwise.
 func sharedTmpDisclosure(plan RunPlan) string {
 	if !plan.SharedTmp {

@@ -531,7 +531,7 @@ func applyLegacyReadableUserAllowance(user *jsonx.OrderedMap, declarations []Rea
 }
 
 // LegacyUserAllowance is the `allow.<source>` table a legacy user config's `brokered.<source>`
-// entry says, through the broker's own declaration (config-user.md §6, appendix A.6): the user
+// entry says, through the broker's own declaration (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins, appendix A.6): the user
 // read grant `{"kind": "read", "repo": "*"}` becomes the source's read capability under `always`,
 // and each `grant_kinds` entry the declaration maps becomes its capability under `on_request`, in
 // the declaration's order. A kind the declaration does not map is left out; an empty table means

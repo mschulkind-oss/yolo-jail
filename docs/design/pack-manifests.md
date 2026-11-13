@@ -12,8 +12,8 @@ summary: "Each of the maintainer's twelve packs, before and after: a manifest-le
 
 **Status:** accepted 2026-10-25 (the maintainer, after reading every document: *"it all sounds
 good and I want to move forward"*). Built by 2026-10-30, and every shipped pack is a `pack.toml`, a model said once
-(`every_model`, `twin_of`, `compact_at`) included ([RC-D29](readable-config.md#RC-D29)), and the shipped loophole
-manifests are `loophole.toml` since `9839d26d3` ([RC-D28](readable-config.md#RC-D28)); the [ledger](readable-config.md#decision-ledger) names each. A legacy
+(`every_model`, `twin_of`, `compact_at`) included ([RC-D29](../reference/config/rulings.md#RC-D29)), and the shipped loophole
+manifests are `loophole.toml` since `9839d26d3` ([RC-D28](../reference/config/rulings.md#RC-D28)); the [ledger](../reference/config/rulings.md#decision-ledger) names each. A legacy
 `pack.json` is still read for a few releases, and `yolo pack migrate` converts one. The "today"
 manifests are the maintainer's twelve
 packs, read on 2026-10-24. MEASURED (2026-11-12, in the tree): no `pack.json` and no loophole
@@ -21,13 +21,13 @@ packs, read on 2026-10-24. MEASURED (2026-11-12, in the tree): no `pack.json` an
 
 **How to read this.** [§1](#1-a-small-pack-luna-worker) to [§4](#4-flags-that-add-and-a-model-said-once)
 are the shape, pack by pack; [§5](#5-the-migration) is when it lands. Every section is approved;
-the rulings are in the [ledger](readable-config.md#decision-ledger).
+the rulings are in the [ledger](../reference/config/rulings.md#decision-ledger).
 
 > **In short.** A pack's folders say what it is; the manifest says only what a folder cannot.
 > Four of the twelve packs need no manifest at all, and the two big ones lose four-fifths of
 > their lines without losing a fact.
 
-**Reads with:** [`readable-config.md`](readable-config.md) (front door and ledger),
+**Reads with:** [`config/rulings.md`](../reference/config/rulings.md) (front door and ledger),
 [`config-migration.md`](config-migration.md) (`yolo pack migrate` and the release order),
 [`pack-conventions.md`](pack-conventions.md) (whose questions this takes over), and
 [§7](#7-the-manifest-language-principles-alternatives-and-rulings) (the manifest-language analysis
@@ -104,7 +104,7 @@ set.fileSuggestion = { type = "command", command = "~/.claude/bin/file-suggestio
 
 ## 3. No manifest at all
 
-Approved 2026-10-25 as convention C6 ([`config-user.md` §8](config-user.md#8-lines-you-never-write)).
+Approved 2026-10-25 as convention C6 ([`config/user-config.md`](../reference/config/user-config.md#lines-you-never-write)).
 Folders say what they are; `pack.toml` is for what a folder cannot say: a program to install, a
 source to fetch and patch, a build, a model.
 
@@ -160,14 +160,14 @@ price = { input = 0.1, output = 0.2, cache_read = 0.002, cache_write = 0 }
 `twin_of` takes every fact of the named row and sends its id on the wire; each agent's render
 writes its own file from these rows.
 
-Approved 2026-10-25, all six levers ([OQ-RC19](readable-config.md#decision-ledger)): *"the four
+Approved 2026-10-25, all six levers ([OQ-RC19](../reference/config/rulings.md#OQ-RC19)): *"the four
 smallest packs become folders, and the two largest keep every fact in a fifth of the lines."* The
 install hint was settled in the same round (*"what does all mean here?"* … *"I like default, not
 all, and then also have it just default to the bin name if not given"*): the package name is the
 bin name unless written; `install = "ripgrep"` names it for every manager, and a table names only
 the managers that differ, with `default` for the rest. `false` is "no hint": `install = false` for a
 program no manager packages, `install = { default = false, brew = "…" }` for one only some do
-([RC-D25](readable-config.md#RC-D25)). The same `false` declares a provider option with no default
+([RC-D25](../reference/config/rulings.md#RC-D25)). The same `false` declares a provider option with no default
 (`options.pin_model = false`), and a config surface row lists the keys its `managed` patch deletes
 as `unset = ["/tui/notice"]`.
 
@@ -177,10 +177,10 @@ as `unset = ["/tui/notice"]`.
 moves plain-copy `files` entries into `home/` or a pi package folder, and uses `git mv` in a
 checkout, so history follows. A local pack in the old format is refused naming the command; a
 fetched one is refused once the old reader is gone, naming the author's migration and the fork
-([OQ-RC8](readable-config.md#decision-ledger)). A yolo of 0.11.1 or earlier refuses any new
+([OQ-RC8](../reference/config/rulings.md#OQ-RC8)). A yolo of 0.11.1 or earlier refuses any new
 manifest field outright, so a new manifest shape is a new file name however it is done.
 
-Ruled 2026-10-25 ([OQ-RC5](readable-config.md#decision-ledger)): together with the configs. *"one
+Ruled 2026-10-25 ([OQ-RC5](../reference/config/rulings.md#OQ-RC5)): together with the configs. *"one
 break, and the migrate command does the moving; packs are the bigger files and the same rules
 apply."* The next release reads both formats of config and manifest, `yolo pack migrate` runs
 beside `yolo config migrate`, and a later release reads only the new ones
@@ -198,7 +198,7 @@ beside `yolo config migrate`, and a later release reads only the new ones
    extension; `scope = "workspace"` and `run = bin` as defaults. Shipped packs keep the
    per-manager form, which keeps the test that every shipped hint cites its source.
 6. **A pack is named by where it comes from**, never by its manifest
-   ([`config-user.md` §4](config-user.md#4-naming-a-pack-that-is-not-shipped)).
+   ([`config/user-config.md`](../reference/config/user-config.md#packs-and-naming-a-pack-that-is-not-shipped)).
 
 ## 7. The manifest language: principles, alternatives and rulings
 
@@ -256,7 +256,7 @@ an empty pack and refuses defaults built as omissions
 ([`pack-conventions.md` §2](pack-conventions.md#2-what-an-older-yolo-does-with-a-convention)),
 which is why a new manifest shape is a new file name ([§5](#5-the-migration)). That conflicted with
 the premise the analysis began from, the owner's *"We don't need transitions"* (2026-09-20), while
-hosts run different yolos; [OQ-RC5](readable-config.md#decision-ledger)'s one break with a migrate
+hosts run different yolos; [OQ-RC5](../reference/config/rulings.md#OQ-RC5)'s one break with a migrate
 command is the answer. The same review
 handed this question a fourth lever, a posture naming a surface instead of restating it
 ([`pack-conventions.md` §7](pack-conventions.md#7-considered-and-not-proposed)); the ruling took the
@@ -266,11 +266,11 @@ TOML overlay form of [§3](#3-no-manifest-at-all) and [§4](#4-flags-that-add-an
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| <a id="OQ-M1"></a>[OQ-M1](#OQ-M1) | **Yes: grouped by kind, the pack's identity stated once, in the same break as the configs.** Ruled as lever P3 of [OQ-RC19](readable-config.md#decision-ledger), landing under [OQ-RC5](readable-config.md#decision-ledger); the `exposes` split is not the break it waits for | 2026-10-25 | [§4](#4-flags-that-add-and-a-model-said-once) | ✅ by 2026-10-30: every shipped pack manifest is a `pack.toml` |
-| <a id="OQ-M2"></a>[OQ-M2](#OQ-M2) | **TOML, with the model change.** Ruled by [OQ-RC2](readable-config.md#decision-ledger) for every file a person writes, manifests included; option E was no fix on its own, and the model change ([OQ-M1](#OQ-M1)) rides with it | 2026-10-25 | [§7.3](#73-alternatives-weighed) | ✅ by 2026-10-30 |
+| <a id="OQ-M1"></a>[OQ-M1](#OQ-M1) | **Yes: grouped by kind, the pack's identity stated once, in the same break as the configs.** Ruled as lever P3 of [OQ-RC19](../reference/config/rulings.md#OQ-RC19), landing under [OQ-RC5](../reference/config/rulings.md#OQ-RC5); the `exposes` split is not the break it waits for | 2026-10-25 | [§4](#4-flags-that-add-and-a-model-said-once) | ✅ by 2026-10-30: every shipped pack manifest is a `pack.toml` |
+| <a id="OQ-M2"></a>[OQ-M2](#OQ-M2) | **TOML, with the model change.** Ruled by [OQ-RC2](../reference/config/rulings.md#OQ-RC2) for every file a person writes, manifests included; option E was no fix on its own, and the model change ([OQ-M1](#OQ-M1)) rides with it | 2026-10-25 | [§7.3](#73-alternatives-weighed) | ✅ by 2026-10-30 |
 | <a id="OQ-M3"></a>[OQ-M3](#OQ-M3) | **Moot: a manifest is a literal TOML file, so nothing is executed to be read.** It mattered only if [OQ-M2](#OQ-M2) picked a code syntax. A code syntax proposed again reopens it, with [M5](#71-principles-m1-to-m5) as the condition | 2026-10-25 | [§7.1](#71-principles-m1-to-m5) | nothing to build |
 | <a id="OQ-M4"></a>[OQ-M4](#OQ-M4) | **No: the user and workspace config keep JSONC whatever [OQ-M2](#OQ-M2) rules.** Decided as an implementation choice, [MN-D1](#MN-D1). Reversed with it on 2026-10-25 | 2026-09-30 | [§7.5](#75-decision-ledger) | nothing to build |
-| <a id="MN-D1"></a>MN-D1 | *Implementation decision, [OQ-M4](#OQ-M4).* **The user and workspace config keep JSONC, whatever [OQ-M2](#OQ-M2) rules for manifests**: they are settings with no claims to enumerate, so M2 does not reach them, and yolo had already deleted its one scripted user config, `config.lua` ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). **Reversed 2026-10-25:** the configs move to TOML ([OQ-RC2](readable-config.md#decision-ledger)) | 2026-09-30 | [§7.5](#75-decision-ledger) | nothing to build |
+| <a id="MN-D1"></a>MN-D1 | *Implementation decision, [OQ-M4](#OQ-M4).* **The user and workspace config keep JSONC, whatever [OQ-M2](#OQ-M2) rules for manifests**: they are settings with no claims to enumerate, so M2 does not reach them, and yolo had already deleted its one scripted user config, `config.lua` ([`OQ-LT1`](../reference/pack-system.md#oq-lt1)). **Reversed 2026-10-25:** the configs move to TOML ([OQ-RC2](../reference/config/rulings.md#OQ-RC2)) | 2026-09-30 | [§7.5](#75-decision-ledger) | nothing to build |
 
 ## Appendix: evidence
 
@@ -328,14 +328,14 @@ written more than once, and a compressed size that stays flat.
 ### A.4 What this takes over
 
 [OQ-M1](#OQ-M1) and [OQ-M2](#OQ-M2) by
-[OQ-RC5](readable-config.md#decision-ledger) and [OQ-RC2](readable-config.md#decision-ledger), ruled TOML; [OQ-M3](#OQ-M3)
+[OQ-RC5](../reference/config/rulings.md#OQ-RC5) and [OQ-RC2](../reference/config/rulings.md#OQ-RC2), ruled TOML; [OQ-M3](#OQ-M3)
 is moot ([§7.5](#75-decision-ledger)). [OQ-PC1](pack-conventions.md#OQ-PC1) to [OQ-PC3](pack-conventions.md#OQ-PC3) by the
 `home/` folder. [`pack-conventions.md`](pack-conventions.md#appendix-a-counts) counted ten
 single-file `files` entries in `matt` on 2026-10-05 and found about five lines saved; that count
 covered pi-path entries only, where this one covers every copy-only entry across his packs, 39.
 Its rejections of a one-value `install_hints` and of a provider implying its profile were its own
 verdicts, not the maintainer's rulings; the second is now ruled the other way
-([`config-user.md` §5](config-user.md#5-which-setup-each-agent-runs-on)).
+([`config/user-config.md`](../reference/config/user-config.md#which-provider-each-agent-runs-on)).
 
 ### A.5 The 2026-09 measurements
 

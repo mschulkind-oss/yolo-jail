@@ -15,7 +15,7 @@ import (
 // A legacy `packs` entry may be a filesystem path ("~/packs/mine", "/abs/mine", file://…) or a git
 // address ("git+https://host/owner/repo?ref=main", with "//sub" for a subdirectory). The TOML
 // `packs` list takes neither: a pack yolo does not ship is named by its source (OQ-RC15,
-// config-user.md §4), so the conversion writes the spellings that ruling gives (RC-D43):
+// docs/reference/config/user-config.md#packs-and-naming-a-pack-that-is-not-shipped), so the conversion writes the spellings that ruling gives (RC-D43):
 //
 //   - a directory under ~/.config/yolo-jail/packs is local/<name>;
 //   - any other directory's parent becomes a `pack_sources` entry and the pack <source>/<name>;

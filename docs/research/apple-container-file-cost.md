@@ -3,7 +3,7 @@ title: "Why file work is slow in an Apple Container jail, and what it means for 
 date: 2026-10-03
 status: accepted
 stage: DECIDED
-next: "Write §5's Mac-runner probe workflow for the maintainer to push and dispatch, and record its results in §5 (the design in docs/design/vm-local-volumes.md waits on its first two answers); draft a Feedback Assistant report asking for a cache policy on VZ's virtio-fs, led by the runtime comparison's run without yolo with OrbStack's row as the control, and a comment for apple/container discussion #1516, for the maintainer to file"
+next: "The maintainer pushes §5's probe workflow (.github/workflows/ac-volume-probe.yml) and dispatches it once the runner's container is 1.5.0; record its results in §5 (the design in docs/design/vm-local-volumes.md waits on its first two answers); draft a Feedback Assistant report asking for a cache policy on VZ's virtio-fs, led by the runtime comparison's run without yolo with OrbStack's row as the control, and a comment for apple/container discussion #1516, for the maintainer to file"
 tags: [research, macos, apple-container, virtiofs, performance, python, postgres]
 summary: "A follow-up to the macOS backend benchmark. File work in an Apple Container jail is slow because every file costs a round trip to the Mac through virtiofs, not because bytes move slowly: 20,000 small files take 12 to 115 times as long to create, stat, read or delete on the shared workspace as on the VM's own ext4 disk, which beats even native APFS. A large Python and Django monorepo keeps its virtualenv, node_modules and build caches in the workspace, so it pays that cost on every import and every test run. The fix that the numbers point to is keeping those trees on a VM-local disk; yolo has no key for that today."
 vantage:
@@ -184,7 +184,8 @@ nothing there.
 
 ## 5. A planned probe on the Mac runner
 
-Planned, not run. It fixes the shape of [§4](#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)'s
+Written 2026-11-12 as
+[`ac-volume-probe.yml`](../../.github/workflows/ac-volume-probe.yml); not run. It fixes the shape of [§4](#4-a-design-sketch-vm-local-volumes-for-chosen-workspace-folders)'s
 VM-local volumes before the design is written, and its results go in this section.
 
 - **Action:** a dispatch-only workflow on the self-hosted Apple Container runner, running bare
@@ -203,7 +204,20 @@ VM-local volumes before the design is written, and its results go in this sectio
   [`assemble_parts.go`](../../internal/cli/run/assemble_parts.go#L72-L80) declines to repeat it.
   Nobody has nested a volume under the workspace or measured that mixed placement.
 - **When it runs:** the maintainer pushes the workflow and dispatches it once, after the runner's
-  `container` is upgraded to 1.5.0, so that its answers hold there.
+  `container` is upgraded to 1.5.0, so that its answers hold there. Its first step refuses an
+  older `container`.
+- **How it is built** (decisions made while writing it, none ruled):
+  - It extracts `fs.js` and `imp.py` from this doc's appendices, and the `Containerfile` and
+    `wl.sh` from the runtime comparison's Appendix A, at run time, so it runs exactly what the
+    docs print. It adds one line to the image, installing `git` for the `git status` question.
+  - The mixed run is `wl.sh` with its `$W/venv` and `$W/pg` paths rewritten to
+    `${VENV_ROOT:-$W}` and `${PG_ROOT:-$W}`, each pointed at its own volume. It also runs `wl.sh`
+    whole on the shared folder and whole on a volume, as the comparison's two endpoints.
+  - The volume count tries 1, 2, 4, 8 and then every 4 up to 32 volumes in one `container run`, and
+    records the largest that started and the first refusal. Thirty-two is a ceiling on the probe,
+    not a finding.
+  - Everything it creates is named `acprobe-<run id>-…` and removed in a step that runs on failure
+    too. It restarts the builder VM only if it found it running.
 
 ## Appendix: fs.js
 

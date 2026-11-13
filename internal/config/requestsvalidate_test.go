@@ -2,7 +2,7 @@ package config
 
 // requestsvalidate_test.go pins that the launch's validation (ValidateConfig, what the launch
 // preflight and `yolo check` both run) accepts a TOML project's `[requests.<source>]` table, the
-// key docs/design/readable-config.md RC-D12 gives a project for asking past the user's `always`.
+// key docs/reference/config/rulings.md#RC-D12 gives a project for asking past the user's `always`.
 // The edit path already accepted it (reportUnknownKeysWithReadableFG); the launch path refused it
 // as `config.requests: unknown key`, so every `yolo request` was followed by a failing check.
 

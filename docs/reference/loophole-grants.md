@@ -48,8 +48,8 @@ leans on; [§5](#5-every-stop-and-its-next-step) is every message a user meets;
 
 **Reads with:** [`loophole-system.md`](loophole-system.md) (what a loophole is, its trust model
 and its manifest), [`boundary-broker.md`](../design/boundary-broker.md) (the brokers, whose grant
-model this generalizes, BB-D104 to BB-D110), [`config-user.md`](../design/config-user.md) (the
-`allow` table), [`config-project.md`](../design/config-project.md) (the `requests` table),
+model this generalizes, BB-D104 to BB-D110), [`config/user-config.md`](config/user-config.md) (the
+`allow` table), [`config/project-config.md`](config/project-config.md) (the `requests` table),
 [`pack-system.md`](pack-system.md#loophole) (the manifest keys).
 
 ---
@@ -75,7 +75,7 @@ Terms the rest of the document leans on:
 - **Valued kind** *(coined here)* — a grant kind whose grant carries a value the project supplies:
   `devices = ["/dev/ttyUSB*"]`, `view = ["postgres"]`, git's `push = ["main"]`. The value is approved
   line by line at the gate.
-- **Ceiling** and **request** — [`config-user.md`](../design/config-user.md#3-principles)'s words,
+- **Ceiling** and **request** — [`config/README.md`](config/README.md#principles)'s words,
   principle 6: `allow` says what every project gets (`always`) and what one may ask for
   (`on_request`); `requests` in a project is the ask. A request outside the ceiling is skipped and
   reported, never an error.
@@ -481,7 +481,7 @@ Each drives a production entry point, so deleting the call site fails it.
 - **The pack-level per-workspace `off`** ([LG-D9](#LG-D9)): a pack turned off for one workspace
   would run none of its loophole machinery there and hold no grant there. It lands with the
   readable-config redesign's `off`, whose mechanism is
-  [`config-project.md`](../design/config-project.md#3-the-local-file-and-turning-something-off)'s.
+  [`config/project-config.md`](config/project-config.md#the-local-file-and-turning-something-off)'s.
   The half for a pack that ships an off-switch loophole is built: `[requests.<pack>] off = true`
   ([LC-D15](../design/legacy-config-compat.md#LC-D15)). For a grant-declaring pack a legacy
   `enabled: false` in a project file converts to nothing: an absent request asks for nothing,

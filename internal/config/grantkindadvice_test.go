@@ -72,7 +72,7 @@ func TestGrantKindAllowedThroughTheAllowVerbPasses(t *testing.T) {
 }
 
 // A user config still in legacy JSONC gets the same verb behind `yolo config migrate`, which
-// the verb needs first (docs/design/config-commands.md §4).
+// the verb needs first (docs/reference/config/editing.md#the-commands).
 func TestGrantKindRefusalNamesMigrateThenAllowToAJSONCUser(t *testing.T) {
 	h := newBrokeredHost(t)
 	write(t, h.userCfg, `{"brokered": {"git": {"grant_kinds": ["create-branch"]}}}`)

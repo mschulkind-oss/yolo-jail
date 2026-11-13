@@ -488,7 +488,7 @@ func TestHostWrapperSpellingAndTheChatRouteRunThroughTheBridge(t *testing.T) {
 	assertServiceGone(t, l)
 
 	// CEREBRAS_API_KEY is the cerebras provider's key, so it lives in the private set
-	// (secret-env-scoping.md).
+	// (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	cerebras := `packs = ["claude", "cerebras"]
 
 [providers.cerebras.endpoints.openai]

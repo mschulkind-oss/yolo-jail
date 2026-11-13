@@ -498,7 +498,7 @@ func UndeclaredProfileMessage(name string, declared, shippedBy []string) string 
 }
 
 // PackAddCommand is the step that selects a pack, in backquotes: `yolo pack add <name>`, the verb
-// that writes it into the user config's `packs` list (docs/design/config-commands.md).
+// that writes it into the user config's `packs` list (docs/reference/config/editing.md).
 func PackAddCommand(pack string) string {
 	return "`yolo pack add " + shquote.Quote(pack) + "`"
 }

@@ -70,7 +70,7 @@ func LoadLSPServers(e *Env) *jsonx.OrderedMap {
 // LoadMCPServers is YOLO_MCP_SERVERS — the composed table, the selected packs' `mcp`
 // entries under the user's own (additions, overrides, null-removals) — then requires_env
 // gating. Core names no server of its own: the `mcp_presets` key that did retired 2026-10-23
-// (docs/design/mcp-presets-removal.md §13 step 3).
+// (docs/reference/mcp-configuration.md, the retired mcp_presets key).
 // Returns an OrderedMap whose key order follows insertion order.
 //
 // NO ${VAR} INTERPOLATION HAPPENS HERE. This line used to claim it did; the

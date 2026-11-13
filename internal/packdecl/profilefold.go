@@ -1,7 +1,7 @@
 package packdecl
 
 // profilefold.go is what `yolo pack migrate` turns a pack's legacy `[[profile]]` into
-// (docs/design/readable-config.md RC-D69, retiring `[[profile]]` in a pack.toml): a profile that
+// (docs/reference/config/rulings.md#RC-D69, retiring `[[profile]]` in a pack.toml): a profile that
 // only names its provider under another name becomes that provider's `alias`, the same settings
 // under another name (RC-D68), and one that changes a setting (its `via`, its `enforce_models`)
 // becomes a variant with that `name`, a version with different settings. Only a profile whose

@@ -11,7 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// The provider-level keys config-user.md §5 rules (a provider's starting `model`, its `alias`,
+// The provider-level keys docs/reference/config/user-config.md#which-provider-each-agent-runs-on rules (a provider's starting `model`, its `alias`,
 // `via` and `variants`) are what `yolo config migrate` writes for an old profile (RC-D32), and
 // `yolo config set` accepts them. The launch's validator refused them as unknown keys, so a
 // migrated user config was refused at the very next launch.

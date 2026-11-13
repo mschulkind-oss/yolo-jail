@@ -252,7 +252,7 @@ type Options struct {
 	// kernel's death signal, and its self-execs run its own binary.
 	keeperMode bool
 	// helperPin is the host yolo this launch execs every helper that serves its jail from
-	// (pinnedexec.go, docs/design/pinned-host-helpers.md): resolved once at pre-flight by Run, handed
+	// (pinnedexec.go, docs/reference/pinned-host-helpers.md): resolved once at pre-flight by Run, handed
 	// to the keeper through its plan, nil only on a dry run or a test that never execs. A self-exec
 	// with none is refused, never run from os.Executable().
 	helperPin *helperpin.Pin
@@ -344,7 +344,7 @@ type Options struct {
 	// frontedHost are the FRONTED HOST LOOPHOLES (loopholes.FrontedHostNames: a host daemon this
 	// launch starts and fronts over loopback-TLS), recorded beside jailBound so servedDaemons
 	// serves their names: a pack env pointer `served_by` one (packs/git's GIT_CONFIG_* rewrite)
-	// reaches the jail only where its loophole is on (docs/design/git-broker-plan.md ID-6). nil on
+	// reaches the jail only where its loophole is on (docs/reference/git-broker.md ID-6). nil on
 	// Apple Container, which runs no host services, and when none is enabled.
 	frontedHost []string
 	// frontedWhy is why each fronted-shape loophole frontedHost leaves out is not served
@@ -389,7 +389,7 @@ type Options struct {
 	// in-memory result; the spawn writes each one to the launch's scope file.
 	approvedScopes map[string][]config.ScopeRepo
 	// approvedGrants are the user grants the same gate approved, per brokered loophole name
-	// (config.ScopeCheck.ApprovedGrants; docs/design/git-broker-plan.md ID-10), set beside
+	// (config.ScopeCheck.ApprovedGrants; docs/reference/git-broker.md ID-10), set beside
 	// approvedScopes and written to the same scope files.
 	approvedGrants map[string][]brokerscope.Grant
 	// readWithoutScope are the brokered loopholes whose read grant the same gate found applying
@@ -560,6 +560,10 @@ type Options struct {
 	// later podman fact on the launch path reads it. nil until the gate answered, and on
 	// every backend the gate does not cover.
 	podmanFacts *podmanFacts
+	// orbStackPodman is the macOS patient one-shot's answer naming a rootless OrbStack
+	// endpoint (orbstackroute.go), or a keeper's plan carrying its launch's route. False on
+	// every other launch.
+	orbStackPodman bool
 	// readiness is the gate's whole result, success or not, for the refusal's exit code and
 	// the machine-wide launch line. nil when no gate ran.
 	readiness *runtime.ReadyResult
@@ -617,7 +621,8 @@ type Options struct {
 	MacosUserMode     macosuser.Mode
 	MacosUserHostHome string
 	// MacosUserSharedTmp is the user-scope `macos_user_shared_tmp` hatch (OQ-MM8, MMP-D18): a
-	// run-as-you profile then grants the shared /tmp, and the briefing drops its /tmp line.
+	// macos-user profile, in either mode (MMP-D36), then grants the shared /tmp, and the briefing
+	// drops its /tmp line.
 	MacosUserSharedTmp bool
 	// macosHostCASPlatform overrides the host platform the macos-user package-cache alias
 	// compares against the sandbox's ("" = hostcas.HostPlatform()), so a Linux test can state

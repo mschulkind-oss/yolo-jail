@@ -223,7 +223,7 @@ var inheritCensus = map[string]keyDisposition{
 	"perf_logging": {nested: true, reason: "an inner launcher times the launches it makes"},
 	// `macos_user_shared_tmp` is the same backend's shared-/tmp hatch (OQ-MM8), not inherited for
 	// the same reason.
-	"macos_user_shared_tmp": {reason: "opens the shared /tmp to a run-as-you macos-user launch on a macOS host; a nested jail is Linux and has no macos-user backend"},
+	"macos_user_shared_tmp": {reason: "opens the shared /tmp to a macos-user launch on a macOS host; a nested jail is Linux and has no macos-user backend"},
 	"network":               {nested: true, reason: "the network mode an inner launcher gives its container"},
 	// `env_sources` is nested-only for a measured reason, not a judgement: its string
 	// entries are HOST FILE PATHS, and resolving them in-jail emits "dotenv file not
@@ -361,7 +361,7 @@ var inheritCensus = map[string]keyDisposition{
 	// `macos_log` joined them on 2026-10-09, for the same reason: the unified log is the
 	// `macos-log` loophole's now (packs/macos-log/README.md).
 	"macos_log": {reason: "RETIRED — the log moved to the macos-log loophole; emitting it would re-trigger the retirement error"},
-	// `mcp_presets` joined them on 2026-10-23 (docs/design/mcp-presets-removal.md §13 step 3):
+	// `mcp_presets` joined them on 2026-10-23 (docs/reference/mcp-configuration.md, the retired mcp_presets key):
 	// the browser is the chrome-devtools pack, and sequential-thinking is deleted.
 	"mcp_presets": {reason: "RETIRED — the browser is the chrome-devtools pack; emitting it would re-trigger the retirement error"},
 	// The three keys named setups replace joined them (docs/design/named-setups.md §10): the
@@ -417,27 +417,28 @@ var readableInheritCensus = map[string]readableInheritDisposition{
 		reason: "per field: resources, ports and forward as resources/network (nested only); gpu as gpu (neither)"}},
 	"env": {projected: true, keyDisposition: keyDisposition{nested: true,
 		reason: "per field: files, set and unset go where env_sources goes (nested only)"}},
-	// `active_provider` is `profile` renamed (readable-config.md RC-D1, OQ-RC14: the
+	// `active_provider` is `profile` renamed (docs/reference/config/rulings.md#RC-D1, OQ-RC14: the
 	// agent-to-setup selection keeps its job under the new name). It names `providers`, which
 	// cross both files, and is user scope only, which an inherited file is by construction.
 	"active_provider": {keyDisposition: keyDisposition{preflight: true, nested: true,
 		reason: "profile under its readable name: the provider each agent runs on, for this jail's readers and nested launches"}},
 	// `pack_sources` is the source half of what legacy `packs` entries carried inline
-	// (config-user.md §4): `packs = ["acme/tools"]` names a source declared here. `packs`
+	// (docs/reference/config/user-config.md#packs-and-naming-a-pack-that-is-not-shipped): `packs = ["acme/tools"]` names a source declared here. `packs`
 	// crosses both files, and a jail reading it without the sources it names could not
 	// resolve the entry at all. Its local paths are host paths, exactly as a legacy path
 	// entry in `packs` was; nothing in-jail stats them (packsrc.ParseSourceDefinitions).
 	"pack_sources": {keyDisposition: keyDisposition{preflight: true, nested: true,
 		reason: "the sources packs entries name; packs crosses both files and cannot be resolved without them"}},
 	// `allow` is the user's ceiling over what a project may be granted — the readable form of
-	// brokered's user-scope grants (config-user.md §3 rule 6; A.4: "`allow` is user scope
-	// only"; A.2: the jail's copy omits the broker grants). brokered crosses into neither file,
+	// brokered's user-scope grants (docs/reference/config/README.md#principles rule 6; `allow` is user scope only,
+	// docs/reference/config/project-config.md#what-a-project-file-may-not-say; the jail's copy
+	// omits the broker grants). brokered crosses into neither file,
 	// and a ceiling inherited as a nested launch's user scope would let a jail's own projects
-	// request host access with no human at the host approving it (readable-config-plan.md:
-	// nested inheritance has "no service authority widening").
+	// request host access with no human at the host approving it (docs/reference/config/rulings.md#how-it-was-built:
+	// a nested launch inherits no service authority).
 	"allow": {keyDisposition: keyDisposition{
 		reason: "the user's ceiling on host access a project may request; like brokered's grants, never inherited by a jail"}},
-	// `requests` is project scope only (config-user.md §3 rule 6: "`requests` in a project is
+	// `requests` is project scope only (docs/reference/config/README.md#principles rule 6: "`requests` in a project is
 	// the request"), the readable form of brokered's per-workspace repos. It reaches this
 	// filter only from the launching workspace's own file; inherited as user scope it would
 	// apply to every workspace an inner launch opens (brokered's reason), and the user-scope

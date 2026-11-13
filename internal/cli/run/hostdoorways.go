@@ -52,6 +52,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -82,10 +83,20 @@ type HostDoorways struct {
 	pin      *helperpin.Pin
 	jail     string
 	stopStep string
+	// setup is the launch's setup, which the session Start opens names (ForSetup).
+	setup setup.Setup
+}
+
+// ForSetup names the launch's setup, which the session Start opens records, so `yolo ps` lists
+// the launch under it (named-setups.md SU-D11). Called before Start.
+func (d *HostDoorways) ForSetup(s setup.Setup) {
+	if d != nil {
+		d.setup = s
+	}
 }
 
 // PinnedTo hands the doorways' host services the launch's pinned yolo
-// (docs/design/pinned-host-helpers.md): they run from it, a restart that finds it replaced gives up
+// (docs/reference/pinned-host-helpers.md): they run from it, a restart that finds it replaced gives up
 // naming stopStep, and jail labels them in their start lines. Called before Start; a launch that
 // pins none leaves them to refuse to start, never to run another build.
 func (d *HostDoorways) PinnedTo(pin *helperpin.Pin, jail, stopStep string) {
@@ -380,7 +391,7 @@ func HostOpenAIServiceOn(cfg *jsonx.OrderedMap, packs []*packload.Pack) bool {
 }
 
 // HostFrontedWhy is why a `yolo host` launch of packs serves none of their FRONTED HOST
-// LOOPHOLES (loopholes.Set.FrontedHostWhy at the host notch; docs/design/git-broker-plan.md
+// LOOPHOLES (loopholes.Set.FrontedHostWhy at the host notch; docs/reference/git-broker.md
 // ID-6), keyed by loophole name: packs/git's rewrite is withheld there because the agent's git
 // already runs on the host, which the host notch's doorway clause would not say.
 func HostFrontedWhy(cfg *jsonx.OrderedMap, packs []*packload.Pack) map[string]string {
@@ -472,7 +483,7 @@ func (d *HostDoorways) Start(cfg *jsonx.OrderedMap, workspace, agent string, std
 		return nil, stop, nil, nil
 	}
 	o := &Options{Stdout: stderr, Stderr: stderr, Workspace: workspace, IsMacOS: paths.IsMacOS,
-		reachSubject: agent, mountsNoWorkspace: true, helperPin: d.pin, keeperJailName: d.jail, helperStopRemedy: d.stopStep}
+		reachSubject: agent, mountsNoWorkspace: true, helperPin: d.pin, keeperJailName: d.jail, helperStopRemedy: d.stopStep, Setup: d.setup}
 	fillDefaults(o)
 	allow := func(name string) bool { return slices.Contains(launchservice.Names(d.plans), name) }
 	if err := o.refusePlacementOfDoorways(d.set, doorwayRefsOf(d.plans)); err != nil {

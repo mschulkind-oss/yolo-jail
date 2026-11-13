@@ -5,7 +5,7 @@ status: accepted
 tags: [research, macos, seatbelt, macos-user, packs, threat-model, comparison]
 summary: "Agent Safehouse confines an agent that runs AS YOU, by enumerating what it may touch; yolo-jail gives the agent a different machine and a different identity, so there is nothing of yours to enumerate. On the one axis where they build the same artifact — the macos-user Seatbelt profile — theirs is decisively tighter and ours is barely tested, and that is the adoption surface. Their per-agent prose is the better human artifact and the worse machine one: measured on their own repo, the enforced half moved 106 commits to the documented half's 3, and their opencode investigation documents a program three major versions and one whole reimplementation behind the profile that ships beside it."
 stage: DECIDED
-next: "Every question is ruled (OQ-AS1 to OQ-AS3, 2026-10-29). The one adoption left unbuilt is §8.3, disclosing the Seatbelt profile on a live launch"
+next: "Read §8.3's disclosure on a real macos-user launch (built 2026-11-12, unit-tested on Linux, not yet seen on a Mac). Every question is ruled (OQ-AS1 to OQ-AS3, 2026-10-29)"
 vantage:
   status-chip: true
 ---
@@ -26,7 +26,7 @@ incremental denies, and [§8.4](#84-pin-the-agent-launch-argv--tiny-cost-real-bu
 [§3.1](#31-the-base-posture-is-inverted) moved with them. **Re-checked 2026-09-24:** the [§8.1](#81-a-policy-assertion-suite-for-macos-user--highest-value-moderate-cost)
 suite has since executed on a macOS runner, and all fifteen cases pass.
 
-**Ruled 2026-10-29:** [OQ-AS1](#OQ-AS1) (account mode keeps `(allow default)`; self mode has been deny-default since `a84a18ca3`), [OQ-AS2](#OQ-AS2) (no per-agent investigation series yet), [OQ-AS3](#OQ-AS3) (a workspace env file must resolve inside the workspace, built in `a244c9e90`). [§8.3](#83-disclose-the-profile-on-a-real-launch--small-cost-clear-ruling-behind-it) is not built.
+**Ruled 2026-10-29:** [OQ-AS1](#OQ-AS1) (account mode keeps `(allow default)`; self mode has been deny-default since `a84a18ca3`), [OQ-AS2](#OQ-AS2) (no per-agent investigation series yet), [OQ-AS3](#OQ-AS3) (a workspace env file must resolve inside the workspace, built in `a244c9e90`). [§8.3](#83-disclose-the-profile-on-a-real-launch--small-cost-clear-ruling-behind-it) was built 2026-11-12, the last adoption; no Mac has shown it yet.
 
 **Reads with — Claude Code's built-in sandbox**, the other neighbor (bubblewrap on Linux,
 Seatbelt on macOS, wrapped around Bash commands only). It denies listed operations and leaves the
@@ -749,6 +749,16 @@ written about — and it is the one thing a launch does not name.
 **The seam.** `orchestrator.go`'s launch stream, beside the existing
 *"Setting up the sandbox"* line; the stream already tees to `<workspace>/.yolo/launch.log`.
 
+**Built 2026-11-12.** Every live launch prints one line after *"Setting up the sandbox"*:
+`sandbox: Seatbelt profile <path> (<posture>, <n> lines)`, the posture being `deny-default` or
+`allow-default with targeted denies`, followed by a dim pointer to `--verbose`. Under `--verbose`
+(`YOLO_VERBOSE`) the line is followed by the whole profile. Both are markup-escaped, so an SBPL
+bracket is printed as written. `seatbeltDisclosure` in
+[`orchestrator.go`](../../internal/macosuser/orchestrator.go);
+[`seatbeltdisclosure_test.go`](../../internal/macosuser/seatbeltdisclosure_test.go) drives it through
+`RunMacosUser`, asserting the line names the profile file the launch writes and that the profile
+body appears only under `--verbose`. Not yet seen on a Mac.
+
 ### 8.4 Pin the agent launch argv — **tiny cost, real bug class**
 
 > **SHIPPED 2026-09-18** (`ba340c7f`). `PlanInvariants` now requires
@@ -851,7 +861,7 @@ equivalent logic is already Go and already tested.
 *([OQ-AS3](#OQ-AS3) was opened 2026-09-18 by the maintainer while reading this comparison's trust-boundary
 section, and verified against `internal/config` before filing.)*
 
-*Paired 2026-09-25 with a trust design, since retired into [RC-D24's background](../design/readable-config.md#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace), which
+*Paired 2026-09-25 with a trust design, since retired into [RC-D24's background](../reference/config/rulings.md#a-writable-mount-from-a-workspace), which
 adds a third answer — grants allowed in the local file only against a host-side trust record —
 and argues that [§9](#9-negative-space--what-not-to-adopt) item 1's scope rule holds against the repo author but not against the in-jail
 agent, who can write the local file.*

@@ -19,8 +19,8 @@ import (
 )
 
 // upstream.go is the leg from the broker to the remote: which transports it carries, the
-// host ssh it runs and the environment it runs it in (docs/design/git-broker-plan.md ID-7,
-// docs/design/git-broker.md §4.3). Credentialed HTTPS uses an exact URL in live scope; SSH
+// host ssh it runs and the environment it runs it in (docs/reference/git-broker.md ID-7,
+// docs/reference/git-broker.md). Credentialed HTTPS uses an exact URL in live scope; SSH
 // uses the Git source's narrow SSH comparison in scope_endpoint.go. The original upstream URL
 // is preserved. The broker may also try an HTTPS fetch anonymously outside scope, without
 // credential helper access.

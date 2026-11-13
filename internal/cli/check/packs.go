@@ -221,7 +221,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// r.configWarn, so a second read would grade and count every malformed entry twice.
 	//
 	// Each reader resolves against the launch's ONE SELECTION NAMESPACE
-	// (config.SelectableProfiles, config-user.md §5): the declarations plus an implied profile per
+	// (config.SelectableProfiles, docs/reference/config/user-config.md#which-provider-each-agent-runs-on): the declarations plus an implied profile per
 	// provider name, alias and `<provider>/<variant>` the pack set declares, so a provider
 	// selected by its own name is predicted as the launch resolves it rather than as undeclared.
 	// The closure reads it over the set it is handed; the readers below, over `loaded`.
@@ -448,7 +448,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	for _, w := range overrideWarns {
 		r.warn(w.msg, w.note)
 	}
-	// The env-set refusals and lines the launch prints, over the same gate (secret-env-scoping.md
+	// The env-set refusals and lines the launch prints, over the same gate (docs/reference/providers.md#the-two-env-sets-public-and-private
 	// §3.5-§3.7). The hydration is read again on r.configWarn, which prints a message once, so a
 	// file overrideScope already reported unreadable is not reported twice.
 	secretFails, secretWarns := secretEnvGap(scope, config.ResolveEnv(o.Workspace, merged, r.configWarn), o.Workspace)

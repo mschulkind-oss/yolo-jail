@@ -43,9 +43,9 @@ func TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox(t *testing.T) {
 	// the slave's path, and the gate accepts it (runMacosUser passes --accept-config-changes).
 	writeUserTOML(t, "packs = [\"serial\"]\n\n[allow.serial]\non_request = [\"devices\"]\n")
 	ws := macosUserWorkspaceTOML(t, fmt.Sprintf("[requests.serial]\ndevices = [%q]\n", slave))
-	out := fmt.Sprintf("/private/tmp/yolo-it-serial-pty-%d.out", os.Getpid())
-	// The sandbox account writes it, in sticky /private/tmp, so only that account removes it.
-	t.Cleanup(func() { _ = runAsSandboxQuiet(time.Minute, "/bin/rm", "-f", "--", out) })
+	// The sandbox writes it in its own $TMPDIR, the account's temp dir: the shared /tmp is closed to
+	// the account mode (MMP-D29). The script removes it after reading it.
+	out := fmt.Sprintf(`"$TMPDIR/yolo-it-serial-pty-%d.out"`, os.Getpid())
 	r := macosUserRunProbe(t, "serial", ws, strings.Join([]string{
 		`echo "=== CLIENT ==="`,
 		`command -v yolo-serial || echo MISSING`,
@@ -60,7 +60,7 @@ func TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox(t *testing.T) {
 		`sleep 5; kill "$p" 2>/dev/null`,
 		`for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$p" 2>/dev/null || break; sleep 1; done`,
 		`if kill -0 "$p" 2>/dev/null; then echo PTY_SURVIVED_SIGTERM; kill -9 "$p" 2>/dev/null; fi`,
-		`wait "$p" 2>/dev/null; cat ` + out,
+		`wait "$p" 2>/dev/null; cat ` + out + `; rm -f ` + out,
 		`echo "=== END ==="`,
 	}, "\n"))
 	diag := func() string {

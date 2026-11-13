@@ -164,6 +164,8 @@ const (
 	changeMountRemove                   // detach one context mount
 	changeScope                         // replace one loophole's live scope files' repositories
 	changeGrants                        // rewrite one loophole's live grant files (liveapplygrants.go)
+	changeResources                     // change one cgroup limit with podman update (liveapplyresources.go)
+	changeForward                       // start, replace or stop one in-jail forward (liveapplyforwards.go)
 )
 
 // applyChange is one entry of the plan, and later of the result.
@@ -187,6 +189,12 @@ type applyChange struct {
 	// grant is the loophole whose grant files a changeGrants step rewrites, grantFiles those files.
 	grant      grantDelta
 	grantFiles []loopholegrant.LiveFile
+	// resourceFlag and resourceValue are the `podman update` flag a changeResources step passes.
+	resourceFlag, resourceValue string
+	// fwdLocal is the jail port a changeForward step changes; fwdHost the host port it then
+	// dials, 0 when the change removes the forward; fwdHad says the jail had one there.
+	fwdLocal, fwdHost int
+	fwdHad            bool
 }
 
 // line is the change's outcome line, in plain text: `+ /ctx/datasets (read-only): applied now`.
@@ -215,7 +223,7 @@ func renderApplyChanges(plan []applyChange) []string {
 type scopeDelta struct {
 	label, source string
 	desired       []string
-	// desiredGrants are the user grants the gate approves (docs/design/git-broker-plan.md ID-10),
+	// desiredGrants are the user grants the gate approves (docs/reference/git-broker.md ID-10),
 	// compared with each live file's own.
 	desiredGrants []brokerscope.Grant
 	files         []liveScopeFile
@@ -316,6 +324,18 @@ type applyPlanInput struct {
 	// channel and installs a changed mise table on a session's pass (jailTakesSessionInputs,
 	// docs/design/live-config-apply.md LA-S4a), so a change to one reaches its next session.
 	sessionInputs bool
+	// resourcesLive says `podman update` can change this jail's limits (resourcesLiveFor),
+	// resourcesReason why not; resourceLimits are the flags the composed config would launch
+	// with now (appliedResourceLimits), the values a resources step passes.
+	resourcesLive   bool
+	resourcesReason string
+	resourceLimits  []resourceLimit
+	// forwardsLive says the jail can take a forward change in place (forwardsLiveFor),
+	// forwardsReason why not; forwardElsewhere are the local ports something other than the
+	// workspace's machine.forward forwards (liveapplyforwards.go).
+	forwardsLive     bool
+	forwardsReason   string
+	forwardElsewhere map[int]bool
 }
 
 // liveMountRefusal is why the injector cannot reach the mount at dest from source, "" when it
@@ -483,6 +503,12 @@ func buildApplyPlan(in applyPlanInput) []applyChange {
 		if k == "mounts" || k == "brokered" || k == "requests" {
 			continue
 		}
+		if k == "resources" {
+			bv, _ := applyMapGet(in.boot, k)
+			cv, _ := applyMapGet(in.current, k)
+			plan = append(plan, resourceChanges(in, k, bv, cv)...)
+			continue
+		}
 		if projectedRoots[k] {
 			plan = append(plan, projectedChanges(in, k)...)
 			continue
@@ -525,6 +551,18 @@ func projectedChanges(in applyPlanInput, k string) []applyChange {
 	for _, sub := range changedKeys(bm, cm) {
 		path := k + "." + sub
 		timingKey := config.LegacyKeyForReadablePath(path)
+		if path == "machine.forward" {
+			bs, _ := applyMapGet(bm, sub)
+			cs, _ := applyMapGet(cm, sub)
+			out = append(out, forwardChanges(in, path, bs, cs)...)
+			continue
+		}
+		if timingKey == "resources" {
+			bs, _ := applyMapGet(bm, sub)
+			cs, _ := applyMapGet(cm, sub)
+			out = append(out, resourceChanges(in, path, bs, cs)...)
+			continue
+		}
 		if timingKey == "" {
 			timingKey = path
 		}

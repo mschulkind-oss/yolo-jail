@@ -266,7 +266,7 @@ func TestApplyTargetedDefaultsWorkspaceOnlyEditToProjectWhenLocalWins(t *testing
 func TestApplyTargetedEmptyListRemovalUsesFormatSpecificMergeSemantics(t *testing.T) {
 	// Splicing is shared across formats; an empty list is not. Format 1 JSONC keeps legacy list
 	// union, while format 2 TOML uses the documented empty-list reset. See config-migration.md §2–3
-	// and config-project.md §1; do not let either behavior stand in for the other.
+	// and docs/reference/config/project-config.md#the-sections; do not let either behavior stand in for the other.
 	for _, tc := range []struct {
 		name, userName, projectName, localName string
 		format                                 configdoc.Format

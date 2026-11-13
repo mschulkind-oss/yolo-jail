@@ -160,7 +160,8 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    *In yolo:* `yolo init` names the next command (`Tell them to run: yolo -- claude`), and
    `yolo init-user-config` ends with the line that selects an agent, `yolo check`, and the
    command that launches it. A successful `yolo host apply --assert` ends at its verdict and
-   counts and names no next command. Adding one waits on a ruling: its
+   counts and names no next command. Adding one waits on a ruling,
+   [OQ-RO10](report-tiers.md#OQ-RO10): its
    [verdict block](report-tiers.md#the-verdict-block) is the verdict line and the counts, and
    "Only the dry run has a footer", so an `--assert` ends at its counts.
 3. **Advice must be specific and verified.** Give the exact package name, flag or path for the

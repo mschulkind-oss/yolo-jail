@@ -72,7 +72,7 @@ func TestMacosUserRunsTheWireBridgeHostHalfForABridgedProfile(t *testing.T) {
 	stubAddr := fmt.Sprintf("127.0.0.1:%d", ln.Addr().(*net.TCPAddr).Port)
 
 	// CEREBRAS_API_KEY is the cerebras provider's key, so it rides [env.secrets], the private
-	// set (secret-env-scoping.md).
+	// set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	writeUserTOML(t, `packs = ["claude", "cerebras"]
 
 [active_provider]

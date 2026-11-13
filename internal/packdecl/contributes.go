@@ -802,7 +802,7 @@ type Contribution struct {
 	// two names is two contributions, which is the ordinary multi-provider pack.
 	//
 	// A pack.toml writes it as the TABLE KEY, `[providers.<id>]`, the same shape as a user's
-	// config (docs/design/readable-config.md RC-D69); a `name` key in that table is refused,
+	// config (docs/reference/config/rulings.md#RC-D69); a `name` key in that table is refused,
 	// since there `name` is the user's selection name (RC-D68). `[[provider]] name = "<id>"`
 	// is the legacy spelling, read for a few releases (Manifest.LegacySpellings, noted by
 	// `yolo check`); one id declared both ways is refused naming `yolo pack migrate <path>`,
@@ -1556,6 +1556,11 @@ func (m *Manifest) InstallContributions() []Install {
 				}
 			}
 			in.ModelMenu = &m
+		}
+		// The pack's session homes with it, so the menu's files resolve in the session's own copy
+		// (ModelMenu.SessionHomes). Outside the block above, whose `m` is the menu.
+		if in.ModelMenu != nil {
+			in.ModelMenu.SessionHomes = m.SessionHomes()
 		}
 		// The launch selection too, for the model menu's reason, and copied for Refresh's.
 		in.LaunchSelection = c.LaunchSelection.clone()

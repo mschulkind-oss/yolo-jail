@@ -72,19 +72,28 @@ func withSessionTmpEnv(env *jsonx.OrderedMap, dir string) *jsonx.OrderedMap {
 }
 
 // withAccountTmpEnv sets TMPDIR to dir, the account's own DARWIN_USER_TEMP_DIR (MMP-D29, MMP-D30),
-// unless an env layer already set one. Only TMPDIR: tmux's and zsh's defaults are the shared /tmp,
-// which the account mode keeps open. "" sets nothing.
+// unless an env layer already set one, and points tmux (TMUX_TMPDIR) and zsh (TMPPREFIX), which
+// ignore TMPDIR and default to the shared /tmp the profile closes, at the final TMPDIR, each
+// unless set (MMP-D36). No OVERMIND_SOCKET: the account's temp dir is every account-mode
+// workspace's, and overmind's own default is in the workspace. "" with no composed TMPDIR sets
+// nothing.
 func withAccountTmpEnv(env *jsonx.OrderedMap, dir string) *jsonx.OrderedMap {
 	dir = strings.TrimRight(dir, "/")
+	if env != nil {
+		if v, ok := env.Get("TMPDIR"); ok && asStr(v) != "" {
+			dir = strings.TrimRight(asStr(v), "/")
+		}
+	}
 	if dir == "" {
 		return env
 	}
-	if env != nil {
-		if v, ok := env.Get("TMPDIR"); ok && asStr(v) != "" {
-			return env
+	env = withEnvVar(env, "TMPDIR", dir)
+	for _, kv := range [][2]string{{"TMUX_TMPDIR", dir}, {"TMPPREFIX", dir + "/zsh"}} {
+		if old, ok := env.Get(kv[0]); !ok || asStr(old) == "" {
+			env = withEnvVar(env, kv[0], kv[1])
 		}
 	}
-	return withEnvVar(env, "TMPDIR", dir)
+	return env
 }
 
 // withAccountXDGEnv names the four XDG base dirs at their default spellings under home, each one
@@ -206,8 +215,8 @@ func composedTmpdirEnvProblem(variable, tmpdir string, roots []string, sharedTmp
 			}
 		}
 	}
-	msg := fmt.Sprintf("%s=%s, set by your env config, is outside everything the run-as-you sandbox "+
-		"may write (the workspace, its home and your own temp folder), so every temporary file would fail "+
+	msg := fmt.Sprintf("%s=%s, set by your env config, is outside everything the macos-user sandbox "+
+		"may write (the workspace, its home and the temp folder of the user it runs as), so every temporary file would fail "+
 		"with \"Operation not permitted\". Remove the %s override so the session uses its own temp "+
 		"dir, or point it inside the workspace", variable, tmpdir, variable)
 	if t == "/private/tmp" || strings.HasPrefix(t, "/private/tmp/") {

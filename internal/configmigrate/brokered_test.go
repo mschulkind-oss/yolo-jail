@@ -78,7 +78,7 @@ func launchBrokerAnswer(t *testing.T, source string) brokerAnswer {
 }
 
 // TestUserBrokeredConvertsToAllow is the owner's user config: a user-scope brokered table
-// converts to the ruled [allow.<source>] tables (config-user.md §6, appendix A.6), the plan
+// converts to the ruled [allow.<source>] tables (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins, appendix A.6), the plan
 // proves equal, and after Apply the brokers read the same grants they read before.
 func TestUserBrokeredConvertsToAllow(t *testing.T) {
 	home := env(t)

@@ -1,7 +1,7 @@
 package packload
 
 // modelrows.go composes a provider's readable model rows (docs/design/pack-manifests.md §4, "a
-// model said once"): catalog facts (config-user.md §8 C7), then `every_model`, then the row's
+// model said once"): catalog facts (docs/reference/config/user-config.md#lines-you-never-write C7), then `every_model`, then the row's
 // own, with `twin_of` inheriting a row whole and `compact_at` the window an agent compacts at.
 // It lives here, beside ComposeProviders, because the launch's one provider composition lowers
 // those rows into the table every derive reads (lowerReadableModels); internal/config's
@@ -122,14 +122,14 @@ func ComposeProviderModels(provider packdecl.ProviderContribution, catalog map[s
 // every layer composes exactly as ComposeProviderModels composes it, but a fact no layer states
 // stays unstated rather than refusing the launch. The table carries every provider, selected or
 // not, and a legacy alias may omit its maker and price too; the derives already read an absent
-// fact as unsaid (docs/design/readable-config.md RC-D29).
+// fact as unsaid (docs/reference/config/rulings.md#RC-D29).
 func composeLaunchModels(provider packdecl.ProviderContribution, catalog map[string]packdecl.ProviderModel) (ReadableModels, error) {
 	return composeProviderModels(provider, catalog, false)
 }
 
 // ModelGap is one fact a composed model leaves unsaid that ComposeProviderModels refuses and the
 // launch's composition (composeLaunchModels) leaves unsaid: an unknown maker or an incomplete
-// price (docs/design/readable-config.md RC-D29 (6)).
+// price (docs/reference/config/rulings.md#RC-D29 (6)).
 type ModelGap struct {
 	Model   string
 	Problem string

@@ -1,5 +1,7 @@
 package check
 
+// configcheck.go is `yolo config check`: docs/reference/config/validation.md.
+
 import (
 	"errors"
 	"fmt"

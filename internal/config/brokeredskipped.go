@@ -1,7 +1,7 @@
 package config
 
 // brokeredskipped.go reports a project's broker request that the user's ceiling leaves out
-// (docs/design/config-user.md §6; docs/design/github-write-scopes.md §5): a
+// (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins; docs/design/github-write-scopes.md §5): a
 // `requests.<source>.<capability>` a selected broker pack declares, with neither
 // `allow.<source>.always` nor `allow.<source>.on_request` naming the capability. Such a request is
 // skipped, never refused (RC-D12), and the skip is said where the human looks: `yolo check`, every

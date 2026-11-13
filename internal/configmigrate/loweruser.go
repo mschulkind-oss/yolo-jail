@@ -566,7 +566,7 @@ func lowerProfiles(value any, ctx loweringContext, out *lowered, skip func([]str
 }
 
 // lowerProfileSelection converts the agent-to-profile map to active_provider. `*` is `default`,
-// a null is "native" (left to the agent's own login, config-user.md §5), a name resolves through
+// a null is "native" (left to the agent's own login, docs/reference/config/user-config.md#which-provider-each-agent-runs-on), a name resolves through
 // placeProfile.
 func lowerProfileSelection(value any, ctx loweringContext, place func([]string, any, []string) bool, skip func([]string, any, string)) {
 	view := ctx.view()

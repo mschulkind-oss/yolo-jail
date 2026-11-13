@@ -1,6 +1,6 @@
 package check
 
-// packnudge.go is the pack-switch nudge (docs/design/config-user.md §7): `packs` is the only
+// packnudge.go is the pack-switch nudge (docs/reference/config/user-config.md#one-switch-packs): `packs` is the only
 // switch, so an `allow.<pack>` table naming a pack `packs` does not list selects nothing. The
 // check offers the fix first (`yolo pack add`, run in-process), and declined, or with nobody to
 // ask, it fails and names the command. The same tables are refused at launch through

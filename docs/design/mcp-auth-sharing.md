@@ -3,7 +3,7 @@ title: "One sign-in per user-level MCP server: a host broker that shares the ent
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Build the one sign-in at Linux yolo host (OQ-MA10); take the Mac checks for the launcher-run one-sign-in modes; resolve the Codex native-origin proof gap before fresh sign-in harvest; Tasks 13–15 and native runtime witnesses remain separate."
+next: "Take the Mac checks for the launcher-run one-sign-in modes; resolve the Codex native-origin proof gap before fresh sign-in harvest; Tasks 13–15 and native runtime witnesses remain separate."
 depends-on: []
 tags: [design, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "No agent can split its MCP token store per server, so yolo shares user-level sign-ins through a host broker that copies individual entries between one machine-wide canonical store and each workspace's store, under each agent's own lock, and is the only refresher of every shared entry. Agent packs declare their store's shape; core names no agent. Opted in, the broker adopts one agent's sign-in (for Slack, Claude Code's plugin) and hands its access token to every other agent. Prerequisite: a remote (url) form of mcp_servers."
@@ -15,7 +15,7 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 Codex's native key hashes empty headers, its native match returns only name and stored URL, and its stored entry has no sign-in header provenance. Unknown native entries are therefore preserved but never promoted or shared; fresh native sign-in harvest remains unsupported until native-origin proof exists. Empty SAVE/LOAD headers and client-ID metadata do not prove origin. No native B1/B2, rootless, macOS, or cross-backend behavior is claimed. Tasks 13–15 remain separate; the accepted design and decision ledger below are unchanged.
 
-**Built since (2026-11-06):** the [plan](mcp-auth-sharing-plan.md)'s first phase D slice, Claude adoption for `sign_in = "once"`, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (the plan's ID-19 and ID-20; `30e7bf16d`). [OQ-MA9](#OQ-MA9) and [OQ-MA10](#OQ-MA10) were ruled on 2026-11-09; the one sign-in at Linux `yolo host` (the plan's ID-21) and the header route are not built.
+**Built since (2026-11-06):** the [plan](mcp-auth-sharing-plan.md)'s first phase D slice, Claude adoption for `sign_in = "once"`, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (the plan's ID-19 and ID-20; `30e7bf16d`). [OQ-MA9](#OQ-MA9) and [OQ-MA10](#OQ-MA10) were ruled on 2026-11-09. **Built since (2026-11-12):** the one sign-in at Linux `yolo host` (the plan's [ID-21](mcp-auth-sharing-plan.md#id-21)); it has unit tests only, and its run on a real host is the owner's check. The header route is not built.
 
 **Earlier blocked candidate (superseded):** The first detached Task 12 candidate could promote a workspace-only sign-in into user scope. Its source was not integrated. This record is historical; current source boundary is stated above.
 
@@ -738,8 +738,8 @@ changes.
 - **`yolo host` on a Mac does not keep it.** Host Claude on macOS keeps its login and MCP sign-ins
   in the Keychain (INFERRED, as in [§9.3](#93-adopting-a-sign-in-an-agent-already-has)), which yolo cannot read or write
   ([`keychain-from-a-jail.md`](keychain-from-a-jail.md)); the launch says the tier is not kept
-  there and names `yolo -- claude`. A design for the Keychain case is on the
-  [roadmap](../plans/roadmap.md).
+  there and names `yolo -- claude`. The design for the Keychain case is
+  [`claude-keychain-at-host.md`](claude-keychain-at-host.md).
 
 ## 11. Existing state on the day it ships
 

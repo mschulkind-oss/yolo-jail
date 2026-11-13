@@ -129,8 +129,11 @@ func TestCapturePlanCompatibilityOwnsItsResolvedContext(t *testing.T) {
 					ctx.Workspace != plan.StagingRoot || ctx.Home != plan.StagingHome {
 					t.Fatalf("capture-owned bootstrap/driver context missing or unequal: %q %q %v", raw, session, ctxErr)
 				}
-				if tc.mode == ModeAccount && (ctx.DarwinUserTempDir != "" || ctx.SharedTmp) {
-					t.Fatal("account capture invented owner temp roots")
+				// The account capture's (allow default) profile grants /tmp and all of
+				// /var/folders (SeatbeltCaptureProfile); its context names exactly those, never
+				// the owner's temp dir (MMP-D36).
+				if tc.mode == ModeAccount && (ctx.DarwinUserTempDir != accountCaptureTempRoot || !ctx.SharedTmp) {
+					t.Fatalf("account capture context does not name its profile's temp grants: %+v", ctx)
 				}
 				if tc.mode == ModeSelf && (ctx.DarwinUserTempDir != opts.DarwinUserTempDir || ctx.SharedTmp != opts.SharedTmp) {
 					t.Fatalf("self capture context omitted profile-granted temp roots: %+v", ctx)

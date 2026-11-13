@@ -22,7 +22,7 @@ import (
 
 // esGrantConfig is the design's measured setup (§3.1): packs claude, pi and zai, and
 // env_sources carrying zai's key beside an unclaimed PORT. ZAI_API_KEY is the zai provider's
-// key, so it lives in the private set (secret-env-scoping.md); PORT stays public.
+// key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private); PORT stays public.
 const esGrantConfig = `packs = ["claude", "pi", "zai"]
 
 [env]
@@ -453,7 +453,7 @@ func TestHostGrantWithheldLineTypesTheProfilesEntryForALegacyUserConfig(t *testi
 
 // A user profile over a provider with no profile of its own name was spelled only in the legacy
 // file, which has no private set (SE-D6), so its key could only be public, and a public key a
-// composed provider claims now refuses (secret-env-scoping.md §3.5). The remedy's ordering of user
+// composed provider claims now refuses (docs/reference/providers.md#the-two-env-sets-public-and-private). The remedy's ordering of user
 // profiles is TestRemedyProfilePrefersTheProvidersOwnName's; what a legacy file gets here is the
 // refusal, naming the migration first (SEP-D18) and the key the file spells.
 func TestHostRefusesALegacyPublicKeyNamingMigrateFirst(t *testing.T) {
@@ -635,7 +635,7 @@ const esUseProfilesBash = `{"packs": ["claude", "pi", "zai"], "profile": {"bash"
 	`"env_sources": [{"PORT": "8080"}]}`
 
 // esUseProfilesBashClean is the same selection without the entry, holding zai's key where a
-// provider's key lives, the private set (secret-env-scoping.md), for the cells where it delivers.
+// provider's key lives, the private set (docs/reference/providers.md#the-two-env-sets-public-and-private), for the cells where it delivers.
 const esUseProfilesBashClean = `packs = ["claude", "pi", "zai"]
 
 [env]
