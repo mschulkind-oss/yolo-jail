@@ -7,7 +7,8 @@
   var LINK_DEAD = "This link was used or expired: press Enter in the queue's terminal for a new one.";
   var LINK_RACE = "This link was already used by something else on this machine. Every session was ended: treat this as a possible intruder, and press Enter in the queue's terminal for a new link once you have found the cause.";
   var BANNER_CLASS = { 'live': 'live', 'stale': 'stale', 'never-loaded': 'never' };
-  var REVEAL = {}; // "request id#index" -> true while one masked value is shown
+  var REVEAL = {}; // "p:<request id>#index" (pending) or "h:<request id>#index" (history) -> true while one masked value is shown
+  var OPEN = {}; // history entry key -> true while its last-seen request is expanded
   var current = null;
   var lastKey = '';
   var remainingSpans = {};
@@ -91,25 +92,31 @@
     return m > 0 ? m + ' min ' + (s % 60) + ' s left' : s + ' s left';
   }
 
-  function pendingCard(p) {
+  // requestCard renders one request: a pending one, or (past === true) a history entry's
+  // request as last seen. Both take the same masking; a past request's reveal keys are
+  // prefixed so a Show on one never reveals the other.
+  function requestCard(p, past) {
     var card = el('section', 'card');
     card.appendChild(el('h3', '', p.headline));
     var dl = el('dl');
     row(dl, 'Request', p.id);
-    row(dl, 'State', p.state);
+    row(dl, past ? 'State when last seen' : 'State', p.state);
     row(dl, 'Source', p.source + (p.source_status ? ' (' + p.source_status + ')' : ''));
     row(dl, 'Authority', p.authority);
     row(dl, 'Jail', p.jail);
     row(dl, 'Workspace', p.workspace);
-    row(dl, 'Reach', 'A grant from this request is held by the workspace above: every jail of that workspace may use it.');
+    if (!past) row(dl, 'Reach', 'A grant from this request is held by the workspace above: every jail of that workspace may use it.');
     row(dl, 'Set', p.set);
     row(dl, 'Repository', p.repo);
     row(dl, 'Action', p.action);
     row(dl, 'Target', p.target);
     row(dl, 'Filed', p.filed);
     row(dl, 'Expires', p.expires);
-    var rem = row(dl, 'Time left', remainingText(p.remaining_s));
-    if (rem) { remainingSpans[p.id] = rem; }
+    row(dl, 'Decided', p.decided);
+    if (!past) {
+      var rem = row(dl, 'Time left', remainingText(p.remaining_s));
+      if (rem) { remainingSpans[p.id] = rem; }
+    }
     lines(dl, 'Needs approval for', p.needs_approval);
     row(dl, 'Hook failure', p.hook_failure);
     row(dl, 'Command digest', p.command_digest);
@@ -117,7 +124,7 @@
     row(dl, 'Command (masked)', p.command);
     card.appendChild(dl);
     card.appendChild(el('h3', '', 'Arguments, one per line'));
-    card.appendChild(argvList(p.id, p.argv));
+    card.appendChild(argvList((past ? 'h:' : 'p:') + p.id, p.argv));
     var agent = el('div', 'agent');
     agent.appendChild(el('div', 'label', 'Agent-supplied text (written or influenced by the agent; do not trust it)'));
     var adl = el('dl');
@@ -179,7 +186,7 @@
         ? 'No pending requests.'
         : 'The list is empty, but the state is stale: do not read this as "nothing pending".'));
     }
-    m.pending.forEach(function (p) { root.appendChild(pendingCard(p)); });
+    m.pending.forEach(function (p) { root.appendChild(requestCard(p, false)); });
 
     root.appendChild(el('h2', '', 'Live grants (' + m.grants.length + ')'));
     root.appendChild(el('p', 'note', 'A grant belongs to its workspace: every jail of that workspace may use it.'));
@@ -221,6 +228,21 @@
     } else {
       root.appendChild(table(['Time', 'Kind', 'Source', 'Workspace', 'Jail', 'What', 'Outcome', 'Id'],
         m.history.entries.map(function (e) { return [e.time, e.kind, e.source, e.workspace, e.jail, e.label, e.outcome, e.key]; })));
+      var past = m.history.entries.filter(function (e) { return e.request; });
+      if (past.length > 0) {
+        root.appendChild(el('h3', '', 'Requests as last seen (' + past.length + ')'));
+        root.appendChild(el('p', 'note', 'Each request as this queue last saw it, masked as pending requests are. The outcome is the one in the table above.'));
+        past.forEach(function (e) {
+          var d = el('details');
+          d.open = OPEN[e.key] === true;
+          d.addEventListener('toggle', function () {
+            if (d.open) { OPEN[e.key] = true; } else { delete OPEN[e.key]; }
+          });
+          d.appendChild(el('summary', '', e.time + '  ' + e.label + '  ' + e.outcome + '  ' + e.key));
+          d.appendChild(requestCard(e.request, true));
+          root.appendChild(d);
+        });
+      }
     }
     if (m.malformed_lines > 0) {
       root.appendChild(el('p', 'note', 'Unreadable watch lines discarded since start: ' + m.malformed_lines));

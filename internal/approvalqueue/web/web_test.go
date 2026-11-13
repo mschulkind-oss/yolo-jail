@@ -108,3 +108,18 @@ func TestTheRaceMessageSendsThePersonToEnterNotToANewLink(t *testing.T) {
 		t.Errorf("LINK_RACE does not say how to get a new link: %q", m[1])
 	}
 }
+
+// History's last-seen requests (request-history-and-privacy.md §6.2) are drawn by the same
+// card as pending ones, so they take the same per-value masking, and under their own reveal
+// keys, so a Show on a pending value never reveals the same value in history.
+func TestHistoryRequestsUseThePendingCardAndTheirOwnRevealKeys(t *testing.T) {
+	js := read(t, "app.js")
+	for _, want := range []string{"requestCard(e.request, true)", "requestCard(p, false)", "argvList((past ? 'h:' : 'p:') + p.id, p.argv)"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js lacks %q", want)
+		}
+	}
+	if strings.Contains(js, "pendingCard(") {
+		t.Error("a second card function would let pending and history masking drift apart")
+	}
+}

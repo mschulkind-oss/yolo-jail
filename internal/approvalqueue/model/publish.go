@@ -81,6 +81,7 @@ type PendingOut struct {
 	StdinDigest      string     `json:"stdin_digest"`
 	Filed            string     `json:"filed"`
 	Expires          string     `json:"expires"`
+	Decided          string     `json:"decided,omitempty"` // a history entry's request, once yolo reported its decision
 	RemainingSeconds int        `json:"remaining_s"`
 	State            string     `json:"state"`
 	HookFailure      string     `json:"hook_failure"`
@@ -144,6 +145,9 @@ type HistoryOut struct {
 	Outcome   string `json:"outcome"`
 	Observed  bool   `json:"observed"`
 	Time      string `json:"time"`
+	// Request is a request entry's request as last seen, masked exactly as a pending request
+	// is (request-history-and-privacy.md §6.2); absent for a grant.
+	Request *PendingOut `json:"request,omitempty"`
 }
 
 // HistoryBlock is the observed history with its honest labels.
@@ -275,20 +279,7 @@ func Publish(m Model, now time.Time, o Options) Published {
 	}
 	p.Diagnostics = append(p.Diagnostics, visAll(m.State.Diagnostics)...)
 	for _, r := range m.State.Requests {
-		auth := authority[r.Source]
-		if auth == "" {
-			auth = "unknown (source not listed)"
-		}
-		p.Pending = append(p.Pending, PendingOut{
-			ID: Visible(r.ID), Source: Visible(r.Source), SourceStatus: Visible(r.SourceStatus), Authority: Visible(auth),
-			Jail: Visible(r.Jail), Workspace: Visible(r.Workspace), Set: Visible(r.Set),
-			Argv: MaskArgv(r.Argv), Command: MaskedCommand(r.Argv), Repo: Visible(r.Repo),
-			CommandDigest: Visible(r.CommandDigest), StdinDigest: Visible(r.StdinDigest),
-			Filed: stamp(r.Filed, loc), Expires: stamp(r.Expires, loc), RemainingSeconds: int(r.Expires.Sub(now).Seconds()),
-			State: Visible(r.State), HookFailure: Visible(r.HookFailure), HookOutput: Visible(r.HookOutput),
-			NeedsApproval: visAll(r.NeedsApproval), Action: Visible(r.Action), Target: Visible(r.Target),
-			Headline: Visible(r.Headline), Title: Visible(r.Title), Refs: visAll(r.Refs), Description: Visible(r.Description),
-		})
+		p.Pending = append(p.Pending, requestOut(r, authority, now, loc))
 	}
 	for _, g := range m.State.Grants {
 		p.Grants = append(p.Grants, GrantOut{
@@ -327,11 +318,41 @@ func Publish(m Model, now time.Time, o Options) Published {
 	}
 	for i := len(m.History) - 1; i >= 0; i-- {
 		e := m.History[i]
-		h.Entries = append(h.Entries, HistoryOut{
+		out := HistoryOut{
 			Key: Visible(e.Key), Kind: e.Kind, Source: Visible(e.Source), Workspace: Visible(e.Workspace), Jail: Visible(e.Jail), Label: Visible(e.Label),
 			Outcome: Visible(e.Describe()), Observed: e.Observed, Time: clock(e.Time, loc),
-		})
+		}
+		if e.Request != nil {
+			ro := requestOut(*e.Request, authority, now, loc)
+			ro.RemainingSeconds = 0 // a past request has no time left to show
+			out.Request = &ro
+		}
+		h.Entries = append(h.Entries, out)
 	}
 	p.History = h
 	return p
+}
+
+// requestOut is one request with every RequestView field made safe to render and the values
+// after secret-bearing flags masked. Pending requests and history's last-seen requests both
+// go through it, so the two are never masked differently.
+func requestOut(r RequestView, authority map[string]string, now time.Time, loc *time.Location) PendingOut {
+	auth := authority[r.Source]
+	if auth == "" {
+		auth = "unknown (source not listed)"
+	}
+	decided := ""
+	if r.Decided != nil {
+		decided = stamp(*r.Decided, loc)
+	}
+	return PendingOut{
+		ID: Visible(r.ID), Source: Visible(r.Source), SourceStatus: Visible(r.SourceStatus), Authority: Visible(auth),
+		Jail: Visible(r.Jail), Workspace: Visible(r.Workspace), Set: Visible(r.Set),
+		Argv: MaskArgv(r.Argv), Command: MaskedCommand(r.Argv), Repo: Visible(r.Repo),
+		CommandDigest: Visible(r.CommandDigest), StdinDigest: Visible(r.StdinDigest),
+		Filed: stamp(r.Filed, loc), Expires: stamp(r.Expires, loc), Decided: decided, RemainingSeconds: int(r.Expires.Sub(now).Seconds()),
+		State: Visible(r.State), HookFailure: Visible(r.HookFailure), HookOutput: Visible(r.HookOutput),
+		NeedsApproval: visAll(r.NeedsApproval), Action: Visible(r.Action), Target: Visible(r.Target),
+		Headline: Visible(r.Headline), Title: Visible(r.Title), Refs: visAll(r.Refs), Description: Visible(r.Description),
+	}
 }
