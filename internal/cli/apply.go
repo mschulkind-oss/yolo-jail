@@ -1489,7 +1489,7 @@ func reportInferredDestinations(pr richtext.Printer, d packload.Destinations,
 	delivery entrypoint.HostDelivery, vocab map[string]bool) (int, []string) {
 	// withheld reports whether c, one of this pack's briefing contributions, delivers nothing
 	// at the host (see above). Asked only of a delivery that resolved somewhere.
-	// A skills tree is gated the same way (hostskills.WithheldKinds, briefing-diet.md BD-D3).
+	// A skills tree is gated the same way (hostskills.WithheldKinds, agent-briefings.md BD-D3).
 	withheld := func(c packdecl.Contribution) bool {
 		if c.Kind == packdecl.KindSkills {
 			return len(hostskills.WithheldKinds(d.Pack, c, delivery.Delivers)) > 0

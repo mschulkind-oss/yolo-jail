@@ -1,7 +1,7 @@
 package packdecl
 
 // warnsabovechars.go validates the `warns_above_chars` field of a briefing destination. The
-// field's semantics are in Contribution.WarnsAboveChars (docs/design/briefing-diet.md BD-D9).
+// field's semantics are in Contribution.WarnsAboveChars (docs/reference/agent-briefings.md BD-D9).
 
 import "fmt"
 

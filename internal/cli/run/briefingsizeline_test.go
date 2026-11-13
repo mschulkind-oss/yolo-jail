@@ -10,7 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 )
 
-// THE LAUNCH'S SIZE LINE (docs/design/briefing-diet.md BD-D9), driven through the jail's
+// THE LAUNCH'S SIZE LINE (docs/reference/agent-briefings.md BD-D9), driven through the jail's
 // production staging and briefing write: a destination whose composed file passes its agent's
 // declared warns_above_chars gets one warning line, and the file is written whole. Deleting the
 // call in refreshJailBriefingsMode fails the over-limit case.

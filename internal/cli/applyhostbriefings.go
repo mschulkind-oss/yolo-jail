@@ -136,7 +136,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// THE HOST NOTCH'S BASE (docs/plans/notch-convergence.md item 26): the confinement header
 		// that tells a host agent it is on the real machine, opening yolo's block as a jail's
 		// BriefingContent does. The USER-SCOPE agents_md_extra is user prose, in the user block
-		// ahead of it (docs/design/briefing-diet.md §7, BD-D8).
+		// ahead of it (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, BD-D8).
 		Base:  jailcontent.HostBriefingBase(paths.IsMacOS),
 		Extra: config.AgentsMDExtraUser(),
 		// The `describes` gate's census (BB-D69), the one the notch line above was printed from.
@@ -368,7 +368,7 @@ func reportBriefingOverlays(pr richtext.Printer, dests []entrypoint.HostBriefing
 // because its governor `describes` a kind of its pack's own that the host does not deliver
 // (entrypoint.HostWithheldKinds over hostDelivery's census, docs/design/boundary-broker.md
 // BB-D69): the pack, the pack-relative file, and those kinds. A skills tree withheld the same way
-// (briefing-diet.md BD-D3) is one too, its rel the tree's directory with a trailing slash.
+// (agent-briefings.md BD-D3) is one too, its rel the tree's directory with a trailing slash.
 type withheldBriefing struct {
 	pack  string
 	rel   string
@@ -396,7 +396,7 @@ func withheldBriefings(loaded []*packload.Pack, delivery entrypoint.HostDelivery
 			}
 		}
 		// A skills tree is withheld by the same census (hostskills.ComposeHostSkillsFor,
-		// briefing-diet.md BD-D3), and named the same way, as its directory.
+		// agent-briefings.md BD-D3), and named the same way, as its directory.
 		trees, _ := p.GovernedSources(packdecl.KindSkills)
 		for _, s := range trees {
 			if kinds := entrypoint.HostWithheldKinds(delivery, p.Name, s); len(kinds) > 0 {

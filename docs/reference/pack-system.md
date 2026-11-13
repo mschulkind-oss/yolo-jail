@@ -1707,8 +1707,9 @@ Naming `briefing/pi.md` the same way narrows that one file and leaves the rest b
 order of the `contributes` list never changes which files are delivered, or where.
 
 **A shipped agent pack addresses its own prose to its own agent.** The claude and pi packs each
-ship `briefing/worktrees.md` as `{"kind": "briefing", "from": "briefing/worktrees.md", "agents":
-["claude"]}` (`["pi"]` for pi), because the file is about that agent's own tool: named by no
+ship one pointer, `briefing/claude.md` as `{"kind": "briefing", "from": "briefing/claude.md",
+"agents": ["claude"]}` (`briefing/pi.md` and `["pi"]` for pi), and an addressed `skills` line for
+the `yolo-claude` or `yolo-pi` skill it points at, because both are about that agent's own tools: named by no
 line it would broadcast to every agent, and a content `into` narrows only at the host notch
 ([below](#briefing-non-goals)). Their destination lines keep `into` and take no `agents`, and
 content in an agent pack may name only that pack's own agent; `TestShippedAgentPacksKeepIntoForSkew`
@@ -1758,13 +1759,36 @@ the outcome the apply's notch line prints for each: prose about a loophole with 
 the host is withheld, though a loophole with one is delivered at launch. A pack whose every file
 in a destination it only borrowed is withheld is not that destination's owner at the host.
 A `skills` content contribution takes `describes` with the same meaning
-([BD-D3](../design/briefing-diet.md#decision-ledger)): the git and github packs' `yolo-git` and
+([BD-D3](agent-briefings.md#BD-D3)): the git and github packs' `yolo-git` and
 `yolo-gh` skills declare `describes = ["intercept"]`, so `yolo host apply` composes neither tree
 into a real home's skills directory and names it in the same notch line
 (`github: skills/ describes intercept`). `describes` is refused off briefing and skills content,
 on a destination, naming `briefing`, and, on the strict path only, naming an unknown kind or one
 the manifest does not declare. `yolo pack lint` names the gate on the file's or tree's delivery
 line.
+
+<a id="warns-above-chars"></a>**A briefing destination may say how long a file its agent warns
+about is**, with `warns_above_chars`, a positive integer of characters
+([BD-D9](agent-briefings.md#BD-D9)). When the destination's composed file is longer, the launch
+prints one warning line naming the file, its largest parts and the next step; it never refuses
+and never trims ([the size line](agent-briefings.md#budgets-and-the-size-line)). Only a measured
+value is declared: the claude pack's `.claude/CLAUDE.md` carries Claude Code's 40,000 and no other
+shipped pack declares one ([BD-D10](agent-briefings.md#BD-D10);
+`TestOnlyTheClaudePackDeclaresAMeasuredBriefingLimit`). It is refused on a briefing entry
+without `into`, on any other kind, and at zero or below, each naming the fix; the semantics
+are `packdecl.Contribution.WarnsAboveChars`'s doc comment. v0.17.1 does not know the field and
+skips the whole destination, a break `knownReleaseBreaks` lists with its attach guard.
+
+<a id="the-shipped-pack-prose-budget"></a>**A shipped pack's always-loaded prose is a pointer**
+([BD-D2](agent-briefings.md#BD-D2), [BD-D4](agent-briefings.md#BD-D4)): at most 250 bytes per
+destination it reaches, saying what the pack changes and which of the pack's own skills holds the
+rest, and each of a shipped pack's skills has a `description` of at most 200 bytes. The manual
+itself is a skill the pack ships under `skills/yolo-<subject>/`, a prefix that keeps it clear of
+a user's own skill of the plain name. `TestEveryShippedPacksProseFitsItsBudgetPerDestination` and
+`TestEveryShippedPacksSkillDescriptionFitsItsBudget` hold both, and their failures name moving
+text into the skill. **The budget binds shipped packs only**: a local or fetched pack's prose is
+the user's, and yolo composes it whole, in the user block, at both notches
+(`TestAUserPacksLongProseIsComposedWhole`; [the two blocks](agent-briefings.md#what-a-composed-briefing-contains)).
 
 <a id="briefing-lint-listing"></a>**`yolo pack lint` lists every delivery before any launch**
 ([P6 (briefing defaults)](#briefing-p6)). Under a `delivers:` header it prints each `briefing`

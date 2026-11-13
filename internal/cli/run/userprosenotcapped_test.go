@@ -11,7 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// THE PACK BUDGET BINDS SHIPPED PACKS ONLY (docs/design/briefing-diet.md BD-D4, §6). A user's
+// THE PACK BUDGET BINDS SHIPPED PACKS ONLY (docs/reference/agent-briefings.md BD-D4). A user's
 // local pack and a fetched pack are user prose: yolo does not cap, trim or summarize it, however
 // far past the 250 bytes a shipped pack may spend it runs (packload's
 // TestEveryShippedPacksProseFitsItsBudgetPerDestination is the shipped half). Driven through the

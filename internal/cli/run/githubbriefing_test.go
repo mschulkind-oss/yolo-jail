@@ -14,7 +14,7 @@ import (
 // BB-D68), so an agent does not learn each rule by failing once: `gh` is a forwarder at
 // ~/.yolo/bin/block/gh and not a blocker, filters work, an in-scope write waits for one exact
 // host Allow-once decision, raw GraphQL is refused while gh's own commands work, and a branch
-// with a slash goes into a `gh api` path. Since the briefing diet (docs/design/briefing-diet.md
+// with a slash goes into a `gh api` path. Since the briefing diet (docs/reference/agent-briefings.md
 // BD-D2) the manual is the pack's `yolo-gh` skill and the briefing is a pointer naming it.
 // Driven through the production staging, briefing and skills paths, so deleting either file or
 // the contribution that delivers it fails here.

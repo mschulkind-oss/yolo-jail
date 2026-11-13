@@ -1,7 +1,7 @@
 package jailcontent
 
 // briefingcore.go renders the CORE of a jail's briefing (a term coined in
-// docs/design/briefing-diet.md §1): the part of yolo's body every agent loads at session start.
+// docs/reference/agent-briefings.md#what-a-composed-briefing-contains): the part of yolo's body every agent loads at session start.
 // It builds a model and does not instruct a procedure (P1): a line stays here only if an agent
 // that never read it would do damage or waste a turn before it had a reason to look anything up.
 // The rest is in the topic files (briefingtopics.go), which the closing pointer names.
@@ -20,7 +20,7 @@ import (
 )
 
 // corePortListMax is how many port entries the core's network line lists before it gives the
-// count instead (docs/design/briefing-diet.md §8: past four, a jail's ports must not grow the
+// count instead (docs/reference/agent-briefings.md#budgets-and-the-size-line: past four, a jail's ports must not grow the
 // core by one entry each). The network topic lists every one.
 const corePortListMax = 4
 

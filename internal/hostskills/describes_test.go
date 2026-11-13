@@ -1,7 +1,7 @@
 package hostskills
 
 // describes_test.go pins the host half of `describes` on a `skills` contribution
-// (docs/design/briefing-diet.md BD-D3, packdecl.Contribution.Describes): a skills tree about a
+// (docs/reference/agent-briefings.md BD-D3, packdecl.Contribution.Describes): a skills tree about a
 // kind of its pack that the host notch does not deliver is left out of every host skills
 // destination, as a briefing file about one is left out of every host briefing.
 

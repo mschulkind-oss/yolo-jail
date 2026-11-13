@@ -4,6 +4,11 @@ verified: 2026-09-23
 verified_commit: 7ad8358c
 covers:
   - internal/jailcontent/briefing.go
+  - internal/jailcontent/briefingcore.go
+  - internal/jailcontent/briefingtopics.go
+  - internal/jailcontent/briefingsize.go
+  - internal/cli/run/briefingsizeline.go
+  - internal/cli/applyhostbriefings.go
   - internal/jailcontent/skills.go
   - internal/jailcontent/workspaceskills.go
   - internal/cli/run/workspaceskills.go
@@ -19,7 +24,7 @@ covers:
   - internal/packload/agentaudience.go
   - internal/packload/mergedest.go
 tags: [briefings, skills, packs, agents-md, staging, audiences]
-summary: "Where the text an in-jail agent reads at session start comes from: the four composition parts, the audience model that decides what varies per destination (the agent/agents fields, the fatal unknown-name gate, one owner per agent name), the per-destination staging file and its injective name, the read-only mount that makes an in-jail edit fail, and the inode-preserving refresh that lets a live jail see host edits."
+summary: "Where the text an in-jail agent reads at session start comes from: the two blocks (the user's prose first, then yolo's budgeted core and shipped packs' pointers), the launch's size line, the audience model that decides what varies per destination (the agent/agents fields, the fatal unknown-name gate, one owner per agent name), the per-destination staging file and its injective name, the read-only mount that makes an in-jail edit fail, and the inode-preserving refresh that lets a live jail see host edits."
 ---
 
 # Agent briefings — the text an agent reads at session start
@@ -36,7 +41,12 @@ stub was deleted; that host half was removed on 2026-11-07 by the owner's ruling
 [the host has no workspace skills layer](#the-host-has-no-workspace-skills-layer). UNMEASURED: no observed launch is recorded;
 `TestWorkspaceSkillsReachAContainerJail` and, on a Mac,
 `TestMacosUserWorkspaceSkillsArriveThroughTheComposedTree` are the instruments. The Storage classes item and part 4's shipped-pack prose were brought up to date on
-2026-09-29 with the code that changed them.
+2026-09-29 with the code that changed them. [What a composed briefing contains](#what-a-composed-briefing-contains)
+was rewritten on 2026-11-13, checked against `cf97ab226`, when the briefing-diet design and its
+plan graduated: the two blocks, the core, the topic files, the budgets and the launch's size line,
+with that design's ledger, [BD-D1](#BD-D1) to [BD-D11](#BD-D11), under
+[Why it's this way](#why-its-this-way). UNMEASURED: no launch with the new shape is recorded
+beyond the unit and staging tests, and the agy cut is an owner observation not yet made.
 
 Every coding agent reads an instruction file at session start. yolo **composes one per
 destination**, host-side, on every invocation (on an attach, from the packs the running jail
@@ -50,15 +60,18 @@ here too.
 
 | Component | Lives in |
 | :--- | :--- |
-| Composition of the jail-managed body | `internal/jailcontent` (`BriefingContent`, `BriefingInput`, `confinementHeader`, `enforcementLines`) |
-| The three composition steps around it | `internal/jailcontent` (`ComposeBriefing`, `ComposePackBriefings`, `PrependHostBriefing`) |
+| Composition of the jail-managed body | `internal/jailcontent` (`BriefingContent`, `BriefingInput`, `setupHeader`, `enforcementLines`) |
+| The core and its pointer | `internal/jailcontent` (`coreLines`, `corePointer`, in `briefingcore.go`) |
+| The topic files, and the inline fallback | `internal/jailcontent` (`BriefingTopics`, `BriefingTopic`, `BriefingInput.InlineTopics`, in `briefingtopics.go`) |
+| The two-block composition, at both notches | `internal/jailcontent` (`ComposeBriefingFile`, `BriefingParts`, `ComposeBriefingSections`, `ComposePackBriefings`, `ReadHostBriefing`, `HostBriefingBase`) |
+| The launch's size line | `internal/jailcontent` (`BriefingSizeWarning`, `BriefingChars`); `internal/cli/run` (`noteBriefingSize`) |
 | The inode-preserving write | `internal/jailcontent` (`WriteBriefing`) |
 | Skills staging and its layering | `internal/jailcontent` (`PrepareSkills`, `SkillPlan`, `SetPackSkillDirs`, `SetPackSkillTargets`, `SkillStagingName`, `PackSkillSource`, `SkillTarget`); the pack layers' writer is `hostskills.ComposeInto`, and the launch's collision pre-flight is `internal/cli/run/jailskills.go` |
 | The per-invocation refresh, and what it feeds the composer | `internal/cli/run` (`refreshJailBriefings`, `briefingPortsFor`, `briefedResourceLimits`, `briefingLoopholes`) |
 | The one enumeration of destinations and staging names | `internal/cli/run` (`briefingDestinations`, `briefingStagingName`, `briefingDest`) |
 | A pack's prose entries | `internal/cli/run` (`packBriefingProses`) |
 | The in-jail read-back refusal on the host prepend | `internal/cli/run` (`mayPrependHostBriefing`) |
-| The launch line for a host prepend that is there and cannot be read | `internal/cli/run` (`prependHostBriefing`, `unreadHostSource`); the link-chain walk is `entrypoint.FindDanglingLink` |
+| The launch line for a host prepend that is there and cannot be read | `internal/cli/run` (`readHostBriefing`, `unreadHostSource`); the link-chain walk is `entrypoint.FindDanglingLink` |
 | The audience fields and their validation | `internal/packdecl` (`Contribution.Agent`, `Contribution.Agents`) |
 | The unknown-name skip, and the agent vocabulary | `internal/packload` (`AgentAudienceSkips`, `AgentNames`, `AgentVocabulary`) |
 | One owner per agent name | `internal/packload` (`AgentNameCollisions`) |
@@ -91,16 +104,51 @@ briefing follows from which packs are selected, and nothing is selected by defau
 
 ## What a composed briefing contains
 
-Four parts, in the order they appear in the finished file:
+**Two blocks, the user's first** ([BD-D11](#BD-D11)). Every destination's file, at both notches,
+is composed by one function, `jailcontent.ComposeBriefingFile`, from the parts
+`jailcontent.BriefingParts` names:
 
-**1. The host user's own briefing, prepended — and only if it *is* the user's.** Driven by
-the declaring contribution's `after: "host:<path>"`. If that host file exists **and yolo did
-not compose it itself**, its content comes first, separated from the rest by a `---` rule.
-This is how a user's global instructions reach every jail *on a machine where the host notch
-has never run*. The mapping is filename-exact: a `CLAUDE.md` destination reads `CLAUDE.md`,
-and variants like `CLAUDE.local.md` are not picked up. An absent host file is the normal case and
-says nothing. One that is there and cannot be read is left out with one launch line naming it, and
-the briefing composes without it: a symlink to nothing (the file's own link or a link on a
+- **The user block**: the host file the destination's `after` names (when it is the user's),
+  then `agents_md_extra`, then the prose of every selected pack that is not shipped with yolo,
+  in config order.
+- **yolo's block**: the jail-managed body (the header, any alert, and the core), then each
+  shipped pack's prose in config order.
+
+A `---` rule separates the two when both are non-empty. With no user prose the file is yolo's
+block alone, with no rule; with no selected pack there is no briefing at all. yolo's block comes
+last so that an agent that cuts a long file from the end loses yolo's text before any of the
+user's. The terms, each coined in the briefing-diet design that built this shape:
+
+- **User prose**: briefing text the user wrote or chose: the `after` host file,
+  `agents_md_extra`, and every non-shipped pack's prose. A shipped pack the user has forked is no
+  longer shipped, so its prose is user prose too.
+- **Core**: the part of yolo's jail-managed body that every agent loads at session start, a
+  budgeted page of facts ([below](#the-core)). Not the whole file.
+- **Topic file**: one file in the generated `jail-mechanics` skill's `topics/` that covers one
+  subject of this jail ([the mechanics reference](jail-mechanics-skill.md#topic-files)).
+- **Alert**: one of the three conditional sections that report an event rather than describe the
+  jail: provisioning failed, the attach-skew notice, and the handoff.
+
+**Shipped means `packload.Pack.Official`**, carried into the composer as
+`jailcontent.PackBriefing.Shipped`. An attach composes over the running jail's pack tree, whose
+record does not carry a pack's origin, so `run.markOfficialFromLayout` marks a pack under the
+tree's `_official/` directory as shipped; without it, every attach would move yolo's pack prose
+into the user block (`TestAnAttachReadsEachPacksOriginBackFromTheTree`). The order is pinned at
+the jail by `TestTheUsersProsePrecedesYolosCoreInTheJail` and `TestAForkedShippedPackIsUserProse`,
+and at the host by `TestApplyHostPutsTheUsersProseBeforeYolosBlock` and
+`TestApplyHostWithNoUserProseHasNoRule`.
+
+### The user block
+
+**1. The host user's own briefing, and only if it *is* the user's.** Driven by the declaring
+contribution's `after: "host:<path>"`. If that host file exists **and yolo did not compose it
+itself**, its content opens the user block (`jailcontent.ReadHostBriefing`). This is how a user's
+global instructions reach every jail *on a machine where the host notch has never run*. The
+mapping is filename-exact: a `CLAUDE.md` destination reads `CLAUDE.md`, and variants like
+`CLAUDE.local.md` are not picked up. An absent host file is the normal case and says nothing, and
+one that holds only whitespace composes as no user prose, so it adds no rule. One that is there
+and cannot be read is left out with one launch line naming it, and the briefing composes without
+it: a symlink to nothing (the file's own link or a link on a
 directory above it, named with its target), something that is not a regular file, or a read that
 fails ([agent-directory-map.md §4.2](../design/agent-directory-map.md#42-each-verb)).
 
@@ -108,14 +156,14 @@ fails ([agent-directory-map.md §4.2](../design/agent-directory-map.md#42-each-v
 > **The jail must not read yolo's own host output back in.** Once `yolo host apply` made the
 > host destination a file yolo composes *wholesale*, `after: "host:.claude/CLAUDE.md"` named
 > yolo's own output: the jail prepended a file already holding every pack's prose and then
-> composed the same packs again at part 4, so each pack section appeared **twice**,
+> composed the same packs again, so each pack section appeared **twice**,
 > byte-identical. The prepend is gated on **ownership proved from a record** —
 > `GeneratedHostBriefings`, reading the same manifest `yolo host apply` writes — never
 > inferred from content, because a file that merely *looks* composed is still the user's. It
 > **fails open**: an absent or unreadable record prepends as before, because dropping the
 > user's instructions from their jail is a worse failure than repeating a pack's prose. On a
 > machine that *has* run the host notch, the user's prose arrives through the conventional
-> local pack at part 4 instead — the same route the skills half took.
+> local pack, as user prose, instead — the same route the skills half took.
 >
 > **Inside a jail the record is not enough.** There, "home" is the outer jail's home, and every
 > briefing destination in it is a read-only bind of the *outer* launch's staged file. That is
@@ -133,7 +181,7 @@ fails ([agent-directory-map.md §4.2](../design/agent-directory-map.md#42-each-v
 
 `after: "host:…"` is **honored at the host too, where it names the user's own file**
 ([DP-B26](../design/declaration-parity.md#54-the-host-notch-and-the-entry-point)): `yolo host
-apply` opens the destination with it, above the same `---`, in the jail's bytes. It is not read
+apply` opens the user block with it, through the same composer as the jail. It is not read
 when it names yolo's own output — a destination the apply composes, which is what every shipped
 agent pack's `after` names (its own `into`), or a file the briefing record lists as yolo's, by
 its path or as the same file through a link — and it is never opened when it cannot be read as
@@ -142,94 +190,223 @@ without it. A prepended file is named once in the report; a skip as yolo's outpu
 only, since every shipped pack reaches it. It is no longer origin-gated — a fetched pack's
 `after` is honored like anyone else's.
 
-**2. The jail-managed body** — one document describing this specific jail, deliberately
-limited to what an agent *cannot* discover through its own mechanisms, with inline manuals
-replaced by pointers (`yolo --help`, `yolo config-ref`, `yolo-cglimit --help`) and
-conditional sections that appear only when their data exists. Emission order, from
-`BriefingContent`:
+**2. `agents_md_extra`**, verbatim — a config key for injecting arbitrary extra instructions
+into every generated briefing, legal at user or workspace scope. `yolo host apply` reads the
+user-scope value only, and passes it as `HostBriefingRequest.Extra`, never inside yolo's base: a
+workspace config is agent-editable, and what it says reaches a jail's briefing and never a file in
+the real home.
+
+**3. Each selected non-shipped pack's prose that this destination's audience admits**, in config
+order, **unlabelled** — one blank line between packs and nothing else. Within a pack its files are
+ordered by pack-relative path, byte-wise, and joined with the same one blank line, so a pack's
+prose reads as one section. Empty prose is skipped rather than emitting an empty section. What a
+pack ships is its `briefing/` directory and any file a contribution names with `from` — never a
+root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, which is the pack repository's own
+([`pack-system.md`](pack-system.md#what-a-pack-is-on-disk)). **yolo does not cap, trim or reorder
+user prose**: the shipped-pack budget binds shipped packs only, and a local or fetched pack's
+long prose is composed whole at both notches (`TestAUserPacksLongProseIsComposedWhole`).
+
+### yolo's block
+
+Emission order, from `BriefingContent` and then the composer:
 
 1. **The confinement header** — see [Confinement](#confinement).
-2. **⚠ Provisioning failed** — conditional, when the provisioning log records a failure.
-   Refreshed every invocation, so it appears on the next attach after a failed boot.
-3. **⚠ This session runs in a jail that could not take what started it** — conditional, and
-   only in the briefing an attach refreshes when it went ahead under `YOLO_ALLOW_ATTACH_SKEW`
-   into a jail that could not receive what the entry delivers: the version the jail was
-   launched with, each contract tag it lacks, what else differs, what was withheld (names only)
-   and the restart that ends it. The next entry's refresh drops it
-   ([`SK-D15`](attach-skew.md#why-its-this-way)). An Apple
-   Container jail never shows it, since its briefing is the copy its launch made.
-4. **Handoff** — conditional, when a fresh handover pointer is carried this launch.
-5. **Environment** — workspace, home, OS, the network paragraph, the two port sections, and
-   the resource limits the backend actually imposes.
-6. **The `rg --replace` trap** warning.
-7. **Storage classes** — leads with the launch's durable dir, `$YOLO_DURABLE_DIR`, as the
-   place for work that must survive a restart and for `--lock`ed worktrees, or says why this
-   launch has none ([`jail-home.md`](jail-home.md#storage-classes-and-the-durable-dir)). On a
-   container backend the jail's storage classes follow (per launch, per workspace, every
-   workspace on the machine, the workspace itself), each with its paths, what it survives, who
-   shares it and what yolo cleans up, rendered from the launch's persistence map (see below).
-   The map's two backend facts pick the wording, never the backend's name: a per-launch set in
-   RAM (Apple Container, or podman under `ephemeral_storage: "tmpfs"`) is gone when the jail
-   stops and uses the jail's memory; after the class bullets, a read-only home (podman) gets a
-   bullet for its read-only rest, and a whole-home bind (Apple Container) one for the files yolo
-   rewrites at each launch instead. The Secrets line comes last on both.
-   On `macos-user` the section is the durable dir and one line about the Mac's shared `/tmp`.
-   At the host notch it is absent, and the confinement header says in one sentence what the
-   machine's `/tmp` survives.
-8. **What this environment does NOT do for you** — conditional, the backend's own
-   limitations. Placed **before** the capability sections deliberately: these are
-   constraints that change how everything below them should be read, and a constraint
-   discovered after the capability it qualifies has already been read too late.
-9. **Loopholes** — conditional, the actual active set by name rather than an instruction to
-   enumerate.
-10. **Blocked Tools** — conditional, from the blocked-tool config merged with what packs
-   contribute.
-11. **Additional Context Mounts** — conditional, and filtered to the mounts the backend will
-   actually bind (`run.briefedCtxMounts`): config `mounts` entries and pack `mount` grants, each
-   labelled read-only or read-write, a grant with its pack, under a line naming what
-   `$YOLO_CONTEXT_DIR` is on this backend. On macos-user a pack's single-file `mount` is a copy,
-   and its entry says "copied at launch; host edits arrive at the next launch"
-   ([`context-mounts.md` CX-D25](context-mounts.md#CX-D25)).
-12. **Limitations**, **Packages & Resource Limits**, **Skills** — the three standing
-    sections. On a backend with no container the middle one is **Packages**: it offers no
-    resource cap and says outright that `resources` is not enforced there.
+2. **The alerts**, each conditional and outside the core's budget ([BD-D5](#BD-D5)): each appears
+   only after its event, and each is something the agent must see without asking. They sit at
+   the top of yolo's block, not above the user block: an alert is yolo's text, and the ruling puts
+   the user's rules first.
+   - **⚠ Provisioning failed**, when the provisioning log records a failure. Refreshed every
+     invocation, so it appears on the next attach after a failed boot.
+   - **⚠ This session runs in a jail that could not take what started it**, only in the briefing
+     an attach refreshes when it went ahead under `YOLO_ALLOW_ATTACH_SKEW` into a jail that could
+     not receive what the entry delivers: the version the jail was launched with, each contract
+     tag it lacks, what else differs, what was withheld (names only) and the restart that ends
+     it. The next entry's refresh drops it ([`SK-D15`](attach-skew.md#why-its-this-way)). An
+     Apple Container jail never shows it, since its briefing is the copy its launch made.
+   - **Handoff**, when a fresh handover pointer is carried this launch.
+3. **The core** ([below](#the-core)), ending in the pointer to the `jail-mechanics` skill.
+4. **The topics inline**, only when this entry did not write them
+   ([below](#the-inline-fallback)).
+5. **Each selected shipped pack's prose** for this destination, in config order, composed like a
+   user pack's. Each is a **pointer** *(a term coined in the briefing-diet design)*: at most 250
+   bytes that say what the pack changes and which of the pack's own skills holds the rest
+   ([BD-D2](#BD-D2); [`pack-system.md`](pack-system.md#the-shipped-pack-prose-budget)). The git
+   and github packs point at `yolo-git` and `yolo-gh`. The claude and pi packs, each addressed to
+   its own agent alone, say how that harness starts the background `yolo wait` and point at
+   `yolo-claude` and `yolo-pi`, which carry where the agent's own workflow tools put worktrees
+   ([DS-D33](jail-home.md#DS-D33)).
 
 There is no tool inventory and no MCP listing: agents read their own generated config.
 
-**At the host notch the body is the confinement header alone.** Every section after it describes
-a launch — the `/workspace` bind, the network the launch applied, the mounts, the shims, the
-jail's limitations — and `yolo host apply` launches nothing, so each would be a false sentence to
-an agent on the real machine. What the header says is the one thing a host agent must know: it
-is on the human's real machine, nothing is disposable, nothing enforces a boundary, and
-permission prompts stay on. `yolo host apply` composes it into every briefing destination a
-selected pack declares, with or without pack prose, so yolo owns each of those files for as long
-as a selected pack declares it.
+#### The core
 
-**3. `agents_md_extra`**, appended verbatim — a config key for injecting arbitrary extra
-instructions into every generated briefing, legal at user or workspace scope. `yolo host apply`
-reads the user-scope value only: a workspace config is agent-editable, and what it says reaches a
-jail's briefing and never a file in the real home.
+The core builds a model; it does not instruct a procedure. A line stays in it only if an agent
+that never read it would do damage or waste a turn *before* it had a reason to look anything up.
+A refusal already carries its own next step, so the core does not restate what a refusal prints.
+Its bullets, from `jailcontent.coreLines`, are each conditional on the fact they state:
 
-**4. Each selected pack's prose that this destination's audience admits**, appended last, in
-config order, **unlabelled** — one blank line between packs and nothing else. Within a pack its
-files are ordered by pack-relative path, byte-wise, and joined with the same one blank line, so a
-pack's prose reads as one section. Empty prose is skipped rather than emitting an empty section.
-What a pack ships is its `briefing/` directory and any file a contribution names with `from` —
-never a root `AGENTS.md`, `CLAUDE.md` or `GEMINI.md`, which is the pack repository's own
-([`pack-system.md`](pack-system.md#what-a-pack-is-on-disk)). Two shipped agent packs carry
-prose of their own, each addressed to its own agent alone: the claude and pi packs say where
-their agent's own workflow tools put worktrees
-([DS-D33](jail-home.md#DS-D33)).
+| Bullet | What goes wrong without it |
+| :--- | :--- |
+| **Workspace**: `/workspace` is the host directory, bind-mounted live (on a native backend, the real path, and that no `/workspace` exists) | Agents invent a sync step, or treat `/workspace` as a copy they may rewrite |
+| **What survives a restart**: the workspace and `$YOLO_DURABLE_DIR`; `/tmp` does not; most of home is read-only; never move or delete `.yolo`, never `git clean -x` the workspace | Work put in `/tmp` is lost at the restart, and a `git clean -x` deletes the jail's own state; neither announces itself beforehand |
+| **Network**: `localhost` is the jail's own, the host's name, the forwarded and published ports | `localhost` silently reaches the wrong machine; no refusal follows, only a connection error |
+| **Not in here**: the host's credentials, sudo, the host's home, and where shared host directories are | Agents spend turns hunting for `~/.ssh` or trying `sudo` |
+| **Asking the human**: relay a refusal's whole menu, each command alone in a code block, `yolo wait` in the background, which commands are the human's, and `yolo host-run` | A refusal prints the menu; it cannot make the agent relay it |
+| **Blocked here**, only when a selected pack blocks a tool | Names each block's replacement and groups the guards by kind; the `rg -r` trap is stated only when a replacement is `rg` ([BD-D7](#BD-D7)) |
 
-**At the host notch, prose about a jail-only kind is left out.** A contribution that declares
-`describes` reaches a destination only where every kind it names applies
+**The pointer** closes the core (`jailcontent.corePointer`): read the `jail-mechanics` skill
+before editing config, asking for a restart, or diagnosing a refusal, then the topic files this
+jail has, by name. It names the skill file of the agent the destination belongs to, home-relative
+(`~/.claude/skills/jail-mechanics/SKILL.md` for Claude), so an agent with no skill mechanism can
+still read it; a destination with no skills directory of the same agent identity gets the
+sentence without the path ([BD-D6](#BD-D6); `TestThePointerNamesTheDestinationsSkillPath`). The
+run pipeline sets it per destination (`BriefingInput.MechanicsSkillPath`).
+
+**Unbounded facts have a fixed cost.** Past four entries (`corePortListMax`), the network bullet
+gives the port count and names the network topic instead of listing them
+(`TestTheCoreDoesNotGrowWithEveryPort`). The macos-user core is the same bullets, tighter: a
+one-line autonomy sentence in the header, the context directory as `$YOLO_CONTEXT_DIR`, and the
+durable directory spelled from the workspace.
+
+**The jail header lost its tooling line** (`yolo --help`, `yolo config-ref`) to the
+`jail-mechanics` index, so the core spends no bytes on what the index carries; the host notch's
+header keeps it (`TestBriefingHeaderStatesTheToolingLineOnce`).
+
+#### Where the rest went
+
+Everything the body carried before the core existed is a topic file, rendered from the same
+`BriefingInput` by one renderer, `jailcontent.BriefingTopics`, and staged in the generated
+`jail-mechanics` skill ([BD-D1](#BD-D1); the files, the index and the refresh are in
+[the mechanics reference](jail-mechanics-skill.md#topic-files)). A topic exists only when its
+subject does.
+
+| Former body section | Topic file |
+| :--- | :--- |
+| Environment's workspace and home lines; Storage classes | `topics/storage.md` |
+| The network paragraph, both port sections | `topics/network.md` |
+| Additional Context Mounts | `topics/mounts.md` |
+| Running a command on the host | `topics/host-requests.md` |
+| Loopholes | `topics/loopholes.md` |
+| Blocked Tools, with each message | `topics/blocked-tools.md` |
+| Limitations, Packages & Resource Limits, What this environment does NOT do for you, nix | `topics/limits.md` |
+| Skills; the tooling line | The skill's index |
+
+What the topics hold that a maintainer could otherwise break:
+
+- **Storage** leads with the launch's durable dir, `$YOLO_DURABLE_DIR`, as the place for work
+  that must survive a restart and for `--lock`ed worktrees, or says why this launch has none
+  ([`jail-home.md`](jail-home.md#storage-classes-and-the-durable-dir)). On a container backend
+  the jail's storage classes follow (per launch, per workspace, every workspace on the machine,
+  the workspace itself), each with its paths, what it survives, who shares it and what yolo
+  cleans up, rendered from the launch's persistence map (see below). The map's two backend facts
+  pick the wording, never the backend's name: a per-launch set in RAM (Apple Container, or podman
+  under `ephemeral_storage: "tmpfs"`) is gone when the jail stops and uses the jail's memory;
+  after the class bullets, a read-only home (podman) gets a bullet for its read-only rest, and a
+  whole-home bind (Apple Container) one for the files yolo rewrites at each launch instead. The
+  Secrets line comes last on both. On `macos-user` the topic opens with the home sentences, then
+  the durable dir and one line about the Mac's shared `/tmp`.
+- **Mounts** are filtered to the mounts the backend will actually bind (`run.briefedCtxMounts`):
+  config `mounts` entries and pack `mount` grants, each labelled read-only or read-write, a grant
+  with its pack, under a line naming what `$YOLO_CONTEXT_DIR` is on this backend. On macos-user a
+  pack's single-file `mount` is a copy, and its entry says "copied at launch; host edits arrive
+  at the next launch" ([`context-mounts.md` CX-D25](context-mounts.md#CX-D25)).
+- **Loopholes** name the actual active set rather than an instruction to enumerate it; `yolo
+  loopholes list` stays the live answer.
+- **Limits** carries the OS, the credential boundary, the resource limits the backend actually
+  imposes, the disk I/O priority and the host nix line, then the backend's own limitations under
+  their old heading. On a backend with no container it offers no resource cap and says outright
+  that `resources` is not enforced there.
+
+#### The inline fallback
+
+**The core never points at a topic file this entry did not write.** An attach refreshes a running
+jail's briefing and its mechanics files in two places, so the run pipeline decides per entry.
+When no fact sheet reached it (a legacy attach keeps the prior skill byte for byte), or the skill
+render failed and left the prior tree, it sets `BriefingInput.InlineTopics`: the topics are
+appended to the briefing under `##` headings, followed by the old Skills section, and the pointer
+names no file and says the sections below hold the rest. Both forms read `BriefingTopics`, so the
+skill file and the inline text cannot disagree (`TestInlinedTopicsCarryEveryFactAndNameNoFile`).
+
+### Budgets, and the size line
+
+Every bound is a test, and none is a config key: the number is yolo's
+([BD-D4](#BD-D4)). A failure names the bytes over and the longest lines, and its fix is moving
+text into a topic file or a pack's skill, never raising the number.
+
+| Bound | Limit | Held by |
+| :--- | ---: | :--- |
+| The jail body (header and core, no alert) for one reference fact sheet per jail setup: `podman-self`, `apple-container-self`, `seatbelt-self`, `seatbelt-yolo-account` | 1,800 bytes | `TestTheCoreFitsItsBudget` (`coreBudget`) |
+| yolo's block for Claude with `claude`, `git`, `github` and `guardrails` selected, composed through the launch's own staging | 2,600 bytes | `TestYolosBlockAloneHasNoRuleAndFitsItsBudget` (`yoloBlockBudget`) |
+| One shipped pack's prose for one destination | 250 bytes | `TestEveryShippedPacksProseFitsItsBudgetPerDestination` |
+| The `description` of a skill yolo ships: the built-in suite and the generated index | 200 bytes | `TestShippedSkillDescriptionsFitTheirBudget` |
+| The `description` of a shipped pack's skill | 200 bytes | `TestEveryShippedPacksSkillDescriptionFitsItsBudget` |
+
+The reference fact sheets are fixtures, not a live jail: each has the facts that add lines (a
+forwarded port, a context mount, a durable dir, the guardrails blocks, a loophole).
+
+**A launch says when a composed file is longer than its agent warns at**
+([BD-D9](#BD-D9)). A briefing destination may declare `warns_above_chars`
+([`pack-system.md`](pack-system.md#warns-above-chars)). When a composed file passes it, the launch
+prints one yellow `Warning:` line on stderr (`run.noteBriefingSize`, worded by
+`jailcontent.BriefingSizeWarning`): the file, its length, the limit and who warns at it, the
+largest three parts (each pack's prose that reached the file, and the rest: yolo's text,
+`agents_md_extra` and any host file), and the next step: move a section of the largest pack's
+prose into a skill in that pack, or, with no pack prose, a section of the file into a skill. It
+never refuses and never trims, and a launch has no quiet mode to hide it.
+
+- **Characters are UTF-16 code units** (`jailcontent.BriefingChars`), what a JavaScript string's
+  length counts, since Claude Code is a Node program; for ASCII prose that is the byte count.
+- **Over means strictly longer**: a file of exactly the limit gets no line.
+- **The file is measured at its final point**, after every part is composed and just before it
+  is written to staging, from the write loop in `refreshJailBriefingsMode`. Pinned through the
+  production staging by `TestALaunchWarnsWhenClaudesBriefingPassesItsMeasuredLimit`, which fails
+  when the call is deleted.
+- **Jail notch only.** `yolo host apply` composes the host notch's files on its own path and
+  prints no size line.
+- **Only a measured value is declared** ([BD-D10](#BD-D10)): today that is Claude Code's 40,000,
+  on the claude pack's `.claude/CLAUDE.md` destination, and
+  `TestOnlyTheClaudePackDeclaresAMeasuredBriefingLimit` fails if any other shipped pack declares
+  one.
+
+What each agent was measured to do with a long file, on 2026-11-13:
+
+| Agent | Finding | Status |
+| :--- | :--- | :--- |
+| Claude Code 2.1.323 | Warns "Large … will impact performance" when one instruction file is longer than `max(40,000, context window × 0.05 × a per-model factor)` characters, and when the files together pass `max(120,000, that)` | Read from the binary's source text; the per-model factor was not read. At a 200,000-token window the floor of 40,000 applies |
+| agy 1.2.9 | The maintainer reports that it silently drops the end of the file | UNMEASURED. The binary's strings name no limit |
+| codex, copilot, opencode, pi, omp, muse | No limit recorded | UNMEASURED |
+
+An unmeasured cap is not designed around: putting the user's prose first protects it from a cut
+from the end, and nothing claims any agent then reads the whole file. The agy observation is the
+maintainer's, since no automated test may start an agent: a unique word on the last line of a
+personal pack's briefing, agy started in a jail and asked for the word. Its result belongs in the
+table above, and a measured limit becomes that agent pack's `warns_above_chars`.
+
+### At the host notch
+
+**The body is the confinement header alone.** Every topic describes a launch — the `/workspace`
+bind, the network the launch applied, the mounts, the shims, the jail's limitations — and `yolo
+host apply` launches nothing, so each would be a false sentence to an agent on the real machine.
+What the header says is the one thing a host agent must know: it is on the human's real machine,
+nothing is disposable, nothing enforces a boundary, and permission prompts stay on. `yolo host
+apply` composes the same two blocks in the same order ([BD-D8](#BD-D8)), through
+`jailcontent.ComposeBriefingFile` with `jailcontent.HostBriefingBase` as yolo's base, into every
+briefing destination a selected pack declares, with or without pack prose, so yolo owns each of
+those files for as long as a selected pack declares it.
+
+**Prose about a jail-only kind is left out.** A contribution that declares `describes` reaches a
+destination only where every kind it names applies
 ([`pack-system.md`](pack-system.md#briefing-describes)). The github pack's `briefing/gh.md`
 describes its `intercept`, the jail's `gh` forwarder, so `yolo host apply` composes it into no
 file in a real home and says so once in its notch line, while every jail that selects the pack
-still delivers it.
+still delivers it. A `skills` contribution takes the same field ([BD-D3](#BD-D3)), so the
+`yolo-git` and `yolo-gh` skills are withheld at the host the same way.
+
+### Provenance labels
 
 **`briefing_provenance: true` labels each pack's section** with `<!-- from pack: NAME -->`, once
-per section however many files it joins, as a debugging aid. It is off by default, for two measured reasons:
+per section however many files it joins, in either block, as a debugging aid. It is off by
+default, for two measured reasons:
 
 - **The label worked against the prose.** A pack's briefing is the user's own rules for every
   repository, and an agent that sees "from pack: X" reads it as someone else's, scoped to
@@ -303,10 +480,11 @@ asserting a container that may not be there.
 > profile is read for exactly this reason, and a caller that has not resolved a backend must
 > not be handed a header that guesses a stronger boundary than it has.
 
-The jail notch's own header bytes are **byte-identical to their historical form** and pinned by
-test, deliberately: every jail that boots today renders it, so adding detail there would move a
-rendered surface for every existing user to say something the next two lines already say. The
-derived enforcement tail is appended on the guest, host and unrecognized paths only.
+A container jail's header is the title, the setup sentence and "You are running inside a
+container." and nothing more: it counts against the core's budget, and the core's bullets say the
+rest. The derived enforcement tail is appended on the guest, host, no-container jail and
+unrecognized paths only, in a one-line autonomy form on all but the host notch, whose body the
+core does not replace.
 
 ### Audiences: what varies per destination
 
@@ -1012,10 +1190,10 @@ gated on at least one briefing having actually been written. See
 
 > [!WARNING]
 > **`BriefingContent` is not golden-pinned.** No test asserts its full output — the tests cover
-> the helpers, plus the jail-notch header bytes and a few individual sections. So a section can
-> be added or removed without regenerating a golden, and any claim that "the briefing bytes are
-> pinned" is true only of the confinement header. Do not rely on a golden that is not there; if
-> a change must not move the rendered surface, pin the section it touches.
+> the helpers, the header's lines, the core's size, and individual topics and facts. So a line
+> can be added or removed without regenerating a golden, and only the budget tests notice growth.
+> Do not rely on a golden that is not there; if a change must not move the rendered surface, pin
+> the line it touches.
 
 ## What this does not license
 
@@ -1027,6 +1205,11 @@ gated on at least one briefing having actually been written. See
 - **Not** a fourth skills layer that reads a generated destination.
 - **Not** an inline manual. Anything a `--help` or `yolo config-ref` answers is a pointer, not
   a copy.
+- **Not** a cap, trim or reorder of user prose, and **not** a config key for any budget. The
+  budgets bind yolo's own text, and a test owns each number.
+- **Not** a declared size limit for an agent whose limit was not measured.
+- **Not** a `yolo guide` or `yolo docs` command: it would be a second renderer of the topic files'
+  facts, from a binary frozen at launch while the skill refreshes at each attach.
 - **Not** per-project scoping. A rule that matters in one repository belongs in that
   repository's own instruction file, which needs nothing from yolo.
 - **Not** an audience for `agents_md_extra`. It is the user's own config key; prose that should
@@ -1040,7 +1223,8 @@ gated on at least one briefing having actually been written. See
 
 ## Current values
 
-Verified at `7ad8358c`. The prose above explains what each of these is for; this table is the
+Verified at `7ad8358c`; the separator, extra-prose, budget, port-list and size-limit rows at
+`cf97ab226`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -1052,9 +1236,12 @@ only place the values themselves are stated.
 | Ownership record gating the prepend | the host-briefing manifest under the user's config dir | `entrypoint.HostBriefingManifestPath`, `HostBriefingOwner` |
 | Pack prose sources | every `*.md` directly inside a pack's `briefing/`, plus any file a `from` names; one governing contribution each | `packload.GovernedSources`, `run.packBriefingProses` |
 | Per-pack label (off by default) | `<!-- from pack: NAME -->`, when `briefing_provenance: true` | `jailcontent.ComposeBriefingSections` (both notches); `config.BriefingProvenance` |
-| Host base body | the host confinement header, then the user-scope `agents_md_extra` | `jailcontent.HostBriefingBase`, `config.AgentsMDExtraUser` |
-| Host/jail separator | `---` between the prepended host prose and the rest | `jailcontent.PrependHostBriefing` |
-| Extra-prose config key | `agents_md_extra` (string; user or workspace scope) | `jailcontent.ComposeBriefing`; `yolo config-ref` |
+| Host base body | the host confinement header alone; the user-scope `agents_md_extra` goes in the user block | `jailcontent.HostBriefingBase`, `config.AgentsMDExtraUser` |
+| Block separator | `---` between the user block and yolo's block, only when both are non-empty | `jailcontent.ComposeBriefingFile` |
+| Extra-prose config key | `agents_md_extra` (string; user or workspace scope) | `jailcontent.ComposeBriefingFile` (`BriefingParts.Extra`); `yolo config-ref` |
+| Budgets | core 1,800 bytes; yolo's Claude reference block 2,600; shipped pack prose 250 per destination; shipped skill descriptions 200 | `coreBudget`, `yoloBlockBudget`, `shippedProseBudget`, `skillDescriptionBudget`, `shippedSkillDescriptionBudget` (tests) |
+| Core port list | at most four entries, then a count | `jailcontent.corePortListMax` |
+| Declared size limit | `warns_above_chars = 40000` on the claude pack's `.claude/CLAUDE.md` destination, and no other | `packs/claude/pack.toml` |
 | Built-in skills | one embedded suite | `internal/jailcontent/builtinskills` (`FS`) |
 | yolo's own LSP plugin | written last into every skills destination when `lsp_servers` is non-empty | `jailcontent.LSPPluginDir`, `writeLSPPlugin` |
 | Audience fields | `agent` (a destination's identity), `agents` (a contribution's audience); accepted on `briefing`, `skills` and `files` only | `packdecl.Contribution` |
@@ -1097,3 +1284,49 @@ their own rules. The audience model's principles `P1`–`P5` are in the body, un
 | [`OQ-PB2`](pack-system.md#oq-pb2) | `AGENTS.md`, `CLAUDE.md` and `GEMINI.md` are never a pack-prose source, at any depth (mirrored here; the ruling is pack-system.md's) | Agent tools read those names as a repository's own instructions, and a pack is usually a repository. Shipping one gave a single file two readers who wanted different things from it. |
 | <a id="c2"></a>[`C2`](#c2) | The confinement header derives its enforcement vector from the notch's profile | A header that claims a container for a notch that has none is the dangerous falsehood — an agent treats its home as disposable. Deriving keeps it true for a notch nobody has enumerated yet. |
 | <a id="oq-tp9"></a>[`OQ-TP9`](#oq-tp9) | A `briefing` contribution's `after: "host:…"` is **not** origin-gated | A fetched pack's `after` is honored like anyone else's; the gate was removed rather than extended. Prepending the user's own file is not a credential crossing. |
+
+### The briefing diet
+
+Before the diet, yolo's always-loaded text was a manual composed ahead of the user's own rules.
+Measured on 2026-11-13 in the maintainer's jail, his Claude briefing was 42,386 bytes, of which
+26,867 were yolo's (the jail-managed body and the shipped packs' prose) and 15,519 his, starting
+at byte 25,717. An agent that cut a long file from the end cut his rules, and Claude Code warned
+about the file's size at every session. The rows below are the briefing-diet design's ledger,
+carried here when it graduated; BD-D11 is the owner's ruling, the rest are implementation
+decisions the design seat took, each reversible.
+
+| ID | Decision | Pinned by |
+| :--- | :--- | :--- |
+| <a id="BD-D1"></a>[`BD-D1`](#BD-D1) | The on-demand store is the generated `jail-mechanics` skill with topic files; no new `yolo` command | `TestTheMechanicsSkillHoldsTheTopicsItsIndexLists`, `TestTheCorePointsAtExactlyTheTopicsTheJailHas` |
+| <a id="BD-D2"></a>[`BD-D2`](#BD-D2) | A shipped pack's manual is that pack's own skill, named `yolo-<subject>`; its briefing prose is a pointer | `packs/{git,github,claude,pi}/skills/yolo-*`; `TestEveryShippedPacksProseFitsItsBudgetPerDestination` |
+| <a id="BD-D3"></a>[`BD-D3`](#BD-D3) | `describes` is accepted on a `skills` contribution, with the meaning it has on `briefing` | `hostskills.ComposeHostSkillsFor`; `TestASkillsTreeAboutAJailOnlyKindIsNotComposedAtTheHost` |
+| <a id="BD-D4"></a>[`BD-D4`](#BD-D4) | Budgets: core 1,800 bytes; shipped pack prose 250 per destination; Claude's reference block 2,600; skill descriptions 200. Shipped content only | the tests in [Budgets, and the size line](#budgets-and-the-size-line) |
+| <a id="BD-D5"></a>[`BD-D5`](#BD-D5) | Alerts stay always-loaded, at the top of yolo's block, outside the budget | `jailcontent.briefingAlerts` |
+| <a id="BD-D6"></a>[`BD-D6`](#BD-D6) | The pointer names the skill file's path for the destination's own agent | `TestThePointerNamesTheDestinationsSkillPath` |
+| <a id="BD-D7"></a>[`BD-D7`](#BD-D7) | The `rg -r` warning is rendered only when a block names `rg` as a replacement | `TestTheRgWarningNeedsAnRgBlock` |
+| <a id="BD-D8"></a>[`BD-D8`](#BD-D8) | `agents_md_extra` and non-shipped packs' prose form the user block with the host file; the host notch composes the same two blocks | `jailcontent.ComposeBriefingFile` at both notches; `TestApplyHostPutsTheUsersProseBeforeYolosBlock`, `TestAForkedShippedPackIsUserProse` |
+| <a id="BD-D9"></a>[`BD-D9`](#BD-D9) | An over-long composed file is disclosed at launch against a pack-declared, measured value; never refused, never trimmed | `packdecl.Contribution.WarnsAboveChars`, `jailcontent.BriefingSizeWarning`, `run.noteBriefingSize`; `TestALaunchWarnsWhenClaudesBriefingPassesItsMeasuredLimit` |
+| <a id="BD-D10"></a>[`BD-D10`](#BD-D10) | No size limit is declared for an agent whose limit was not measured; agy's is an owner observation | `TestOnlyTheClaudePackDeclaresAMeasuredBriefingLimit` |
+| <a id="BD-D11"></a><a id="OQ-BD1"></a>[`BD-D11`](#BD-D11) | **Owner ruling** (it settled [`OQ-BD1`](#OQ-BD1)): the user block comes first and yolo's block last, so a cut from the end removes yolo's text first (the owner, 2026-11-13: *"yes, put my rules first"*) | `TestTheUsersProsePrecedesYolosCoreInTheJail`, `TestYolosBlockAloneHasNoRuleAndFitsItsBudget` |
+
+Alternatives the design weighed and rejected:
+
+| Alternative | Why not |
+| :--- | :--- |
+| Move the user's prose first and leave yolo's body as it was | It fixes the cut and leaves about 27 KB of yolo's text in every context, with Claude's warning in place |
+| No always-loaded core; everything in the skill | An agent that has not opened the skill does not know `/tmp` is lost or that `localhost` is not the host, and neither mistake produces a refusal that would send it there |
+| A `yolo guide <topic>` command instead of topic files | A second renderer of the same facts, from a binary frozen at launch |
+| Topic files for `git` and `gh` inside `jail-mechanics` | Core would have to know two packs by name |
+| A briefing contribution marked on-demand, staged by yolo into a skill | A pack can already ship a skill; a new kind earns its place when a user pack needs it |
+| One static skill instead of the generated one | The removed text is per-jail fact: paths, ports, the active loopholes |
+
+Risks the design named, and what answers each:
+
+| Risk | Answer |
+| :--- | :--- |
+| An agent does not open the skill and misses a rule that used to be always-loaded | The core keeps every rule whose breach is silent; the rest sit behind a refusal that names its own next step |
+| An agent with no skill mechanism cannot find the topics | The pointer gives the file's path |
+| A running jail attached by a newer yolo gets a core that points at topics its skill tree lacks | [The inline fallback](#the-inline-fallback) |
+| The budget is met by deleting facts | Every former body section has a topic file, and a budget failure names moving text, not cutting it |
+| A user pack ships a skill named `yolo-git` | The skill-name collision refusal names both packs and the two remedies |
+| An older yolo reads a pack with `describes` on `skills` or `warns_above_chars` | v0.17.1 refuses the first and skips the claude briefing destination for the second; both are listed in `knownReleaseBreaks` (`packs/releasedecode_test.go`) with the attach guard that keeps an older jail on its own staged tree |

@@ -1,17 +1,17 @@
 package jailcontent
 
-// briefingtopics.go renders the TOPIC FILES of the briefing diet (docs/design/briefing-diet.md §5,
+// briefingtopics.go renders the TOPIC FILES of the briefing diet (docs/reference/jail-mechanics-skill.md#topic-files,
 // BD-D1): one Markdown file per subject of this jail, in the generated jail-mechanics skill's
 // `topics/`, rendered from the same BriefingInput as the core. Every section the jail-managed body
 // carried before the diet is here, verbatim or tightened; the core (briefingcore.go) keeps only
 // the facts whose breach is silent, and points here.
 //
-// ONE RENDERER PER FACT (the design's P4). A topic is written to `topics/<file>` by the mechanics
+// ONE RENDERER PER FACT. A topic is written to `topics/<file>` by the mechanics
 // renderer when this entry stages the skill, and appended to the briefing itself when it does
 // not (BriefingInput.InlineTopics); both read BriefingTopics, so the two can never say different
 // things.
 //
-// A topic exists only when its subject does (§5): no context mount, no mounts topic; no loophole,
+// A topic exists only when its subject does: no context mount, no mounts topic; no loophole,
 // no loopholes topic. The host notch has none.
 
 import (
@@ -28,7 +28,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
-// BriefingTopic is one topic file (a term coined in docs/design/briefing-diet.md §1).
+// BriefingTopic is one topic file (a term coined in docs/reference/agent-briefings.md#what-a-composed-briefing-contains).
 type BriefingTopic struct {
 	// File is the file name under the skill's `topics/`.
 	File string

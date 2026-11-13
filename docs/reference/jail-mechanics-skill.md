@@ -11,6 +11,7 @@ covers:
   - internal/cli/run/prepare.go
   - internal/cli/run/run.go
   - internal/jailcontent/briefing.go
+  - internal/jailcontent/briefingtopics.go
   - internal/jailcontent/builtinskills/
   - internal/jailcontent/mechanicsfacts.go
   - internal/jailcontent/mechanicsrender.go
@@ -30,7 +31,8 @@ The [native and real-rootless verification plan](../plans/jail-mechanics-verific
 those observations.
 
 Jail mechanics is yolo-generated guidance about the environment an entry actually created. It
-contains a short index, a host-path map, and only the change recipes relevant to that entry. The
+contains a short index, a host-path map, a topic file per subject of the jail, and only the change
+recipes relevant to that entry. The
 same applied facts inform the jail-managed briefing and the other built-in skills. The host notch renders its host-specific suite from host facts; it does not invent jail paths or
 restart steps.
 
@@ -75,6 +77,48 @@ A recipe is one generated file of ordered steps for a kind of change. Recipe pre
 facts are selected from the current sheet: absent host or jail capabilities do not produce a
 conditional branch that asks the agent to decide what might apply.
 
+## Topic files
+
+A **topic file** *(a term coined in the briefing-diet design)* is one file under the skill's
+`topics/` that says how one part of this jail works. It is not a recipe: a recipe says what to do
+after a change, a topic file describes the environment that holds. The topics are what the
+jail-managed body used to say in full; the briefing now carries only a budgeted core, which names
+this skill and the topics the jail has
+([agent briefings](agent-briefings.md#the-core); [BD-D1](agent-briefings.md#BD-D1)).
+
+| File | Subject |
+| :--- | :--- |
+| `topics/storage.md` | The workspace, the home, the durable dir and the storage classes |
+| `topics/network.md` | The network mode, the host's name, published and forwarded ports |
+| `topics/mounts.md` | Additional context mounts, beside `host-map.md` |
+| `topics/host-requests.md` | Asking the human: the three rules, the approval menu, `yolo wait`, `yolo host-run` |
+| `topics/loopholes.md` | The active loopholes, by name |
+| `topics/blocked-tools.md` | Each blocked or guarded tool, with its message |
+| `topics/limits.md` | The OS, the credential boundary, resource limits, I/O priority, nix, the backend's own limitations |
+
+- **One renderer.** `jailcontent.BriefingTopics` renders every topic from the briefing's own
+  `BriefingInput`, which is in the fact sheet, so a topic and the core cannot disagree about a
+  path. The same output is the inline form below.
+- **A topic exists only when its subject does** ([JM-P1](#JM-P1)): no context mount, no
+  `topics/mounts.md` and no index line for it; no loophole, no loopholes topic; no blocked tool,
+  no blocked-tools topic. The host notch has none.
+- **The index lists them.** Its Topics list sits above Recipes, one line per file this jail has,
+  and its `description` names the subjects so an agent's skill listing matches a storage, network,
+  approval or refusal question to it. The description is held to 200 bytes
+  (`TestShippedSkillDescriptionsFitTheirBudget`). The index also took the tooling line
+  (`yolo --help`, `yolo config-ref`) and the pointers to the other two built-in skills, which the
+  briefing used to carry. Pinned by `TestTheMechanicsSkillHoldsTheTopicsItsIndexLists`.
+- **The inline fallback.** An entry never writes a core that points at a topic file it did not
+  write. When no fact sheet reached it (a legacy attach, which keeps the prior tree), or the skill
+  render failed and left the prior tree, the run pipeline sets `BriefingInput.InlineTopics` and
+  the topics are appended to the briefing itself under `##` headings, with a pointer that names no
+  file ([agent briefings](agent-briefings.md#the-inline-fallback);
+  `TestInlinedTopicsCarryEveryFactAndNameNoFile`).
+- **No `yolo` command prints them.** It would be a second renderer of the same facts, from a
+  binary frozen at launch, while the skill refreshes at each attach. The skill names the commands
+  that answer live questions instead, such as `yolo loopholes list`, `yolo config drift` and
+  `yolo wait`.
+
 ## Lifecycle
 
 ### Fresh entry
@@ -111,8 +155,10 @@ applied snapshot or refresh the guidance. Pending, record-only, unknown-runtime 
 leave the running suite alone.
 
 When an effective change qualifies, the host updates the authenticated snapshot and replaces the
-mechanics index and host map files individually, using a temporary file and rename for each. This
-is not one transaction across the snapshot and both skill files. If rendering or a later file
+mechanics index, the host map and every topic file individually, using a temporary file and
+rename for each (`jailcontent.RefreshMechanicsFiles`). After a target's writes it removes each
+topic file the facts no longer render, so a removed context mount takes `topics/mounts.md` with
+it, and a later failure restores the removed files with the rest. This is not one transaction across the snapshot and the skill files. If rendering or a later file
 replacement fails, it attempts to roll back files already replaced and restore the prior snapshot.
 A warning names a failed recovery or says the guidance still describes the prior applied state.
 This is a guidance refresh, not a jail restart.
@@ -163,6 +209,7 @@ application).
 | :--- | :--- | :--- |
 | Jail skill index | `jail-mechanics/SKILL.md` | `jailcontent.RenderBuiltinSkills` |
 | Generated host-path map | `jail-mechanics/host-map.md` | `jailcontent.RenderMechanicsIndexAndMap` |
+| Topic files | `jail-mechanics/topics/<subject>.md`, one per subject this jail has | `jailcontent.BriefingTopics` |
 | Container applied-snapshot file | `mechanics.json`, outside jail binds beside the context-mount record | `run.mechanicsRecordFile` |
 | Running-jail apply entry point | `yolo config apply` | `run.ConfigApply` |
 | Host rendering entry point | `yolo host apply` | `cli.applyHostSkills` |
@@ -197,7 +244,7 @@ undo a boundary that keeps generated guidance accurate and discoverable.
 | JM-D1 | Keep the `jail-mechanics` name and its static skill-selection description; the generated body is situation-specific. | 2026-10-23 | [Skill precedence](#skill-precedence-and-delivery) |
 | JM-D2 | Fact-backed generated `jail-mechanics` overrides a same-named pack or workspace skill and reports the collision; no lower layer contains the launch facts. | 2026-10-23 | [Skill precedence](#skill-precedence-and-delivery) |
 | JM-D3 | Attach reads the token-authenticated running snapshot, not desired config. | 2026-10-23 | [Attach](#attach) |
-| JM-D4 | A settled effective live apply refreshes the on-demand mechanics index and host map; it does not rebuild the briefing or restart the jail. | 2026-10-23 | [Live config apply](#live-config-apply) |
+| JM-D4 | A settled effective live apply refreshes the on-demand mechanics index and host map (and, since the briefing diet, the topic files); it does not rebuild the briefing or restart the jail. | 2026-10-23 | [Live config apply](#live-config-apply) |
 | JM-D5 | The recipe states its expected outcome and treats the host command's report as authoritative; the renderer cannot see per-run probes. | 2026-10-23 | [The applied fact sheet](#the-applied-fact-sheet) |
 | JM-D6 | Do not render a pending-change list; direct the agent to the live drift command. | 2026-10-23 | [What this does not change](#what-this-does-not-change) |
 | JM-D7 | Apple Container keeps its launch's staged copy and does not refresh it on re-entry. | 2026-10-23 | [Skill precedence](#skill-precedence-and-delivery) |

@@ -10,7 +10,7 @@ import (
 
 // RenderMechanicsIndexAndMap returns the applied-state files that may be refreshed after an
 // effective live apply: the index, the host map, and the topic files, which carry the applied
-// facts the briefing's core points at (docs/design/briefing-diet.md §5). It does not render
+// facts the briefing's core points at (docs/reference/jail-mechanics-skill.md#topic-files). It does not render
 // recipes or any other built-in content.
 func RenderMechanicsIndexAndMap(facts FactSheet) (map[string][]byte, error) {
 	return renderMechanicsIndexAndMap(facts)

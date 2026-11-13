@@ -46,11 +46,7 @@ needs a ruling or a Mac sits in the others.
      its nested two-jail replay test.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
 
-3. [The briefing diet](../design/briefing-diet-plan.md)'s last three tasks, for 0.18.0: the two-block order with your
-   rules first ([BD-D11](../design/briefing-diet.md#BD-D11)), the launch's size line, and the reference documents.
-   Tasks 1 and 3, which cut yolo's share to a tenth, are built.
-
-4. Smaller builds no ruling holds:
+3. Smaller builds no ruling holds:
    - [LC-D4](../reference/config/rulings.md#LC-D4)'s `yolo check` half: `yolo check` does not yet render what is
      passed into the jail.
    - [The color pass](cli-visual-polish.md)'s cross-cutting passes and startup banner; Group C is done, and the

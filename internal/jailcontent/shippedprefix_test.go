@@ -99,7 +99,7 @@ func TestAPackSkillOverridesAPrefixedBuiltinByEitherName(t *testing.T) {
 }
 
 // The briefing and the jail-mechanics index it points at name each built-in skill as it is
-// delivered: the core names jail-mechanics, and the index the other two (briefing-diet.md §5).
+// delivered: the core names jail-mechanics, and the index the other two (jail-mechanics-skill.md#topic-files).
 func TestTheBriefingNamesBuiltinSkillsUnderTheShippedSkillPrefix(t *testing.T) {
 	for _, tc := range []struct{ prefix, want string }{{"", ""}, {"yolo", "yolo-"}} {
 		in := BriefingInput{ShippedSkillPrefix: tc.prefix}

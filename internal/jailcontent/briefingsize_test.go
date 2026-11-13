@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// docs/design/briefing-diet.md BD-D9: the launch's size line, its wording and when it is absent.
+// docs/reference/agent-briefings.md BD-D9: the launch's size line, its wording and when it is absent.
 func TestBriefingSizeWarningNamesTheFileTheLimitAndTheNextStep(t *testing.T) {
 	big := strings.Repeat("m", 41000)
 	packs := []PackBriefing{

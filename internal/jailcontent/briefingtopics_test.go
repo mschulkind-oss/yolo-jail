@@ -11,7 +11,7 @@ import (
 // reachable is everything a jail's agent can read about its jail without asking anyone: the core
 // in its briefing, and every topic file of the jail-mechanics skill it points at. A test that
 // pinned a sentence of the pre-diet body pins it here, which still fails when the fact stops
-// reaching the agent (docs/design/briefing-diet.md §9: every sentence has a destination). Each
+// reaching the agent (docs/reference/agent-briefings.md#where-the-rest-went: every sentence has a destination). Each
 // topic is headed `## <Title>`, as the inlined fallback heads it, so a test anchored on a pre-diet
 // section heading measures the same section.
 func reachable(in BriefingInput) string {
@@ -34,7 +34,7 @@ func topicText(in BriefingInput, file string) string {
 }
 
 // The core points at the topics the skill holds, by the names the index lists, and never at one
-// the jail has not got: a topic exists only when its subject does (§5).
+// the jail has not got: a topic exists only when its subject does.
 func TestTheCorePointsAtExactlyTheTopicsTheJailHas(t *testing.T) {
 	bare := BriefingInput{Workspace: "/w"}
 	files := map[string]bool{}

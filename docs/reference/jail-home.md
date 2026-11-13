@@ -1238,8 +1238,9 @@ tool must be pointed at the dir, **its own pack does it**, never core:
 - **codex** and **opencode** keep their workspace-durable defaults; copilot, agy and omp have no
   workflow worktree tool yet.
 
-The claude and pi prose is one file in each pack, `briefing/worktrees.md`, as a content line
-addressed to that agent alone (`"agents": ["claude"]`, `["pi"]`), since an unaddressed `briefing/`
+The claude and pi worktree text is each pack's own skill, `yolo-claude` and `yolo-pi`, named by a
+pointer in the pack's `briefing/` ([BD-D2](agent-briefings.md#BD-D2)); both are addressed to that
+agent alone (`"agents": ["claude"]`, `["pi"]`), since an unaddressed `briefing/`
 file broadcasts to every agent and would hand one agent's tool facts to all of them
 ([DS-D33](#DS-D33)). Each text holds at both notches and in a launch with no durable dir: it names
 a path under `$YOLO_DURABLE_DIR` only in a sentence conditioned on the variable being set, tells

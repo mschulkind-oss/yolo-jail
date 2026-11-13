@@ -1,7 +1,7 @@
 package packload
 
 // shippedprosebudget_test.go holds the shipped packs to the briefing diet's pack budgets
-// (docs/design/briefing-diet.md BD-D4, §8): a shipped pack's always-loaded prose is at most 250
+// (docs/reference/agent-briefings.md BD-D4): a shipped pack's always-loaded prose is at most 250
 // bytes for any one destination it reaches, and the `description` of each skill a shipped pack
 // ships is at most 200 bytes. Shipped content only: a user's or a fetched pack is user prose, which
 // yolo never caps or trims (run.TestAUserPacksLongProseIsComposedWhole pins that half).
@@ -112,7 +112,7 @@ func TestEveryShippedPacksProseFitsItsBudgetPerDestination(t *testing.T) {
 					files = append(files, s.Rel)
 				}
 				t.Errorf("shipped pack %s puts %d bytes of prose into ~/%s (%s), %d over the "+
-					"%d-byte budget (docs/design/briefing-diet.md BD-D4). Move the text into a "+
+					"%d-byte budget (docs/reference/agent-briefings.md BD-D4). Move the text into a "+
 					"skill the pack ships (packs/%s/skills/yolo-<subject>/SKILL.md) and leave a "+
 					"pointer naming it; do not raise the budget. Longest lines:\n%s",
 					p.Name, len(prose), d.into, strings.Join(files, ", "), over,
@@ -176,14 +176,14 @@ func TestEveryShippedPacksSkillDescriptionFitsItsBudget(t *testing.T) {
 				// skill of the subject's bare name.
 				if !strings.HasPrefix(e.Name(), "yolo-") {
 					t.Errorf("packs/%s/%s/%s: a shipped pack's skill is named yolo-<subject> "+
-						"(docs/design/briefing-diet.md BD-D2)", p.Name, s.Rel, e.Name())
+						"(docs/reference/agent-briefings.md BD-D2)", p.Name, s.Rel, e.Name())
 				}
 				if fm.Description == "" {
 					t.Errorf("packs/%s/%s/%s: no description", p.Name, s.Rel, e.Name())
 				}
 				if over := len(fm.Description) - shippedSkillDescriptionBudget; over > 0 {
 					t.Errorf("packs/%s/%s/%s: description is %d bytes, %d over the %d-byte "+
-						"budget (docs/design/briefing-diet.md BD-D4). Name the subjects an agent "+
+						"budget (docs/reference/agent-briefings.md BD-D4). Name the subjects an agent "+
 						"would search for and move the rest into the skill's body; do not raise "+
 						"the budget:\n    %s", p.Name, s.Rel, e.Name(), len(fm.Description), over,
 						shippedSkillDescriptionBudget, fm.Description)

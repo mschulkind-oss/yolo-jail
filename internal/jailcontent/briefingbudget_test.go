@@ -1,6 +1,6 @@
 package jailcontent
 
-// The briefing diet's budgets (docs/design/briefing-diet.md §8, BD-D4), as tests: a budget that is
+// The briefing diet's budgets (docs/reference/agent-briefings.md#budgets-and-the-size-line, BD-D4), as tests: a budget that is
 // not tested is a wish (P5). A failure names the bytes over and the longest lines, and the fix it
 // names is moving text to a topic file, not raising the number.
 
@@ -34,7 +34,7 @@ func referenceGuardrails() []BlockedTool {
 }
 
 // referenceFactSheets are one briefing input per built-in jail setup, carrying the facts that add
-// lines to the core (§8): one forwarded port, one context mount, a durable dir, the guardrails
+// lines to the core (agent-briefings.md#budgets-and-the-size-line): one forwarded port, one context mount, a durable dir, the guardrails
 // blocks, and a loophole. A realistic workspace path, and the Claude destination's skill path.
 func referenceFactSheets() map[string]BriefingInput {
 	common := func(name string) BriefingInput {
@@ -88,7 +88,7 @@ func overBudget(what string, text string, budget int) string {
 	for _, l := range lines[:min(3, len(lines))] {
 		longest = append(longest, fmt.Sprintf("  %4d bytes: %s", len(l), l))
 	}
-	return fmt.Sprintf("%s is %d bytes, %d over its %d-byte budget (docs/design/briefing-diet.md §8). "+
+	return fmt.Sprintf("%s is %d bytes, %d over its %d-byte budget (docs/reference/agent-briefings.md#budgets-and-the-size-line). "+
 		"Move text to a topic file of the jail-mechanics skill (briefingtopics.go), and leave the core "+
 		"the one line an agent needs before it would look; do not raise the number. Longest lines:\n%s\n\n%s",
 		what, len(text), len(text)-budget, budget, strings.Join(longest, "\n"), text)
@@ -110,7 +110,7 @@ func TestTheCoreFitsItsBudget(t *testing.T) {
 }
 
 // The budget binds an unbounded fact at a fixed cost: twenty forwarded ports do not grow the core
-// by twenty entries (§8).
+// by twenty entries.
 func TestTheCoreDoesNotGrowWithEveryPort(t *testing.T) {
 	in := referenceFactSheets()["podman-self"]
 	var many []any
@@ -161,7 +161,7 @@ func TestShippedSkillDescriptionsFitTheirBudget(t *testing.T) {
 			t.Errorf("%s has no description line", p)
 		}
 		if len(d) > skillDescriptionBudget {
-			t.Errorf("%s: description is %d bytes, %d over its %d-byte budget (docs/design/briefing-diet.md §8). "+
+			t.Errorf("%s: description is %d bytes, %d over its %d-byte budget (docs/reference/agent-briefings.md#budgets-and-the-size-line). "+
 				"Name the subjects an agent would ask about and move the rest into the skill's body:\n%s",
 				p, len(d), len(d)-skillDescriptionBudget, skillDescriptionBudget, d)
 		}

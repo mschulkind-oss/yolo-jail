@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// THE HOST NOTCH COMPOSES THE SAME TWO BLOCKS IN THE SAME ORDER (docs/design/briefing-diet.md §7,
+// THE HOST NOTCH COMPOSES THE SAME TWO BLOCKS IN THE SAME ORDER (docs/reference/agent-briefings.md#what-a-composed-briefing-contains,
 // BD-D8 and the owner's ruling BD-D11): the user's agents_md_extra and non-shipped packs' prose,
 // then a `---` rule, then yolo's host header and the shipped packs' pointers. Driven through
 // `yolo host apply` itself, so the CLI's request (which hands the user-scope agents_md_extra to the

@@ -454,7 +454,7 @@ func TestAppleContainerBriefingAdvertisesNoLoopholes(t *testing.T) {
 	}
 	inertLine := strings.Contains(res.combined(), "loophole claude-oauth-broker is inert on this backend")
 	// The loopholes topic file of the jail-mechanics skill, read beside the briefing that
-	// points at it (docs/design/briefing-diet.md).
+	// points at it (docs/reference/agent-briefings.md).
 	const heading = "# Loopholes — host capabilities wired into this jail"
 	if i := strings.Index(briefing, heading); i >= 0 {
 		acParityRecord(t, fix, false, "the delivered briefing advertises loopholes on a backend "+

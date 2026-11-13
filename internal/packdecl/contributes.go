@@ -511,7 +511,7 @@ type Contribution struct {
 	// DESTINATION warns that the file is too long. `briefing` destinations only (an entry with
 	// `into`), a positive count, refused anywhere else (warnsAboveCharsProblems).
 	//
-	// # What it drives (docs/design/briefing-diet.md BD-D9)
+	// # What it drives (docs/reference/agent-briefings.md BD-D9)
 	//
 	// One launch line. When the composed file at this destination is longer than the count, the
 	// launch prints a warning naming the file, its length, the count, its largest parts, and the
@@ -592,7 +592,7 @@ type Contribution struct {
 	// jail-only daemon serves), and prose about the pack's own loophole is withheld when that
 	// loophole is the undelivered shape, as the apply's notch line says it is.
 	//
-	// `skills` CONTENT takes it with the same meaning (docs/design/briefing-diet.md BD-D3): a
+	// `skills` CONTENT takes it with the same meaning (docs/reference/agent-briefings.md BD-D3): a
 	// skills tree whose governor describes a kind the host notch does not deliver for the pack is
 	// left out of every host skills destination (hostskills.ComposeHostSkillsFor), so the git
 	// pack's `yolo-git` skill, about its jail-only forwarder, reaches every agent in a jail and
