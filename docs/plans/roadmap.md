@@ -70,9 +70,8 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    refresh replaces yours; and [a leftover `mcp-adapter.json` at the host](../reference/mcp-configuration.md#OQ-MC2),
    which host apply never deletes and pi keeps loading, with [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1). Also
    [whether your own briefing prose is composed ahead of yolo's](../design/briefing-diet.md#OQ-BD1): a personal
-   pack's rules start 25 KB into every briefing today, where an agent that cuts a long file drops them. The
-   [plan's](../design/briefing-diet-plan.md) other two 0.18.0 tasks, which cut yolo's share to a tenth, wait on
-   no ruling.
+   pack's rules still follow yolo's block, and this ruling holds the
+   [plan's](../design/briefing-diet-plan.md) Task 2. Tasks 1 and 3, which cut yolo's share to a tenth, are built.
 
 3. Calls filed 2026-11-12, each holding a build: [OQ-GW16](../design/github-write-scopes.md#OQ-GW16), on REST deletes,
    holds [the GitHub work-kinds plan](../design/github-write-scopes-plan.md)'s Task 2 (Task 1 is built);
