@@ -99,7 +99,29 @@ func appliedBriefing(t *testing.T, o *Options, rt string, cfg *jsonx.OrderedMap)
 	if err != nil {
 		t.Fatalf("no briefing was written for the claude pack: %v", err)
 	}
-	return string(body)
+	return string(body) + stagedTopics(t, staging)
+}
+
+// stagedTopics is the jail-mechanics topic files staged for the claude pack, each headed `## `
+// as the inlined fallback heads it: the facts the briefing's core points at
+// (docs/design/briefing-diet.md), read from the files the agent opens, so a fact that left
+// the briefing is still pinned where it now reaches the agent.
+func stagedTopics(t *testing.T, staging string) string {
+	t.Helper()
+	dir := filepath.Join(staging, "skills-claude", "jail-mechanics", "topics")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("no jail-mechanics topics were staged for the claude pack: %v", err)
+	}
+	var b strings.Builder
+	for _, e := range entries {
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.WriteString("\n#" + string(data))
+	}
+	return b.String()
 }
 
 func TestNativeCooperativeCPUResourceGuidanceComesFromProductionStaging(t *testing.T) {
@@ -113,8 +135,8 @@ func TestNativeCooperativeCPUResourceGuidanceComesFromProductionStaging(t *testi
 	cfg := appliedTestConfig("resources", resources)
 
 	briefing := appliedBriefing(t, o, "macos-user", cfg)
-	if !strings.Contains(briefing, "Before editing the workspace config, asking for a restart, or relying on a file from the host: read **jail-mechanics**.") {
-		t.Fatal("production native briefing is missing the jail-mechanics pointer")
+	if !strings.Contains(briefing, "Read the **jail-mechanics** skill (`~/.claude/skills/jail-mechanics/SKILL.md`) before you edit config") {
+		t.Fatalf("production native briefing does not point at the claude destination's own jail-mechanics skill:\n%s", briefing)
 	}
 	recipe := appliedMechanicsRecipe(t, o, "macos-user", cfg, "workspace-config.md")
 	for _, want := range append(append([]string(nil), macosuser.CooperativeCPUVars...), "cooperative parallelism defaults", "do not enforce a CPU cap") {
@@ -132,14 +154,16 @@ func appliedArgv(t *testing.T, o *Options, rt string, cfg *jsonx.OrderedMap, wsS
 	return o.assembleRunCmd(in)
 }
 
-// networkParagraph returns the briefing's "- **Network**:" line.
+// networkParagraph returns the network topic's "- **Network**:" paragraph: the last such line,
+// after the core's one-line summary of it.
 func networkParagraph(briefing string) string {
+	found := ""
 	for _, line := range strings.Split(briefing, "\n") {
 		if strings.HasPrefix(line, "- **Network**:") {
-			return line
+			found = line
 		}
 	}
-	return ""
+	return found
 }
 
 // THE CALL-SITE PIN for the network half. Both consumers must resolve the mode through
@@ -483,12 +507,12 @@ func macosUserBriefingWith(t *testing.T, cfg *jsonx.OrderedMap, tweak func(*Opti
 	return appliedBriefing(t, o, "macos-user", cfg)
 }
 
-// briefingHeaderOf returns everything before "## Environment" — the confinement header.
+// briefingHeaderOf returns everything before the core's first bullet — the confinement header.
 func briefingHeaderOf(t *testing.T, briefing string) string {
 	t.Helper()
-	i := strings.Index(briefing, "## Environment")
+	i := strings.Index(briefing, "- **Workspace**")
 	if i < 0 {
-		t.Fatalf("briefing has no ## Environment section:\n%s", briefing)
+		t.Fatalf("briefing has no core:\n%s", briefing)
 	}
 	return briefing[:i]
 }
@@ -665,7 +689,10 @@ func TestMacosUserBriefingHeaderDescribesSeatbeltNotNamespaces(t *testing.T) {
 				"is no container:\n%s", not, header)
 		}
 	}
-	if n := strings.Count(header, "Jail tooling:"); n != 1 {
-		t.Errorf("the `Jail tooling` line appears %d times, want 1:\n%s", n, header)
+	// Since the briefing diet the tooling line is the jail-mechanics index's, never the header's
+	// (docs/design/briefing-diet.md §5); jailcontent's TestBriefingHeaderStatesTheToolingLineOnce
+	// pins the index's one copy.
+	if n := strings.Count(header, "Jail tooling:"); n != 0 {
+		t.Errorf("the `Jail tooling` line appears %d times in the header, want 0:\n%s", n, header)
 	}
 }

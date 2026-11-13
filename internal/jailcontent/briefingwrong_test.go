@@ -26,7 +26,7 @@ func TestProvisioningFailedNamesTheLogWhereThisBackendHasIt(t *testing.T) {
 // The Limitations section said authenticated git fails without jail-local credentials, which is
 // false when a broker runs git or gh with the host's credentials.
 func TestLimitationsDoNotDenyTheBrokers(t *testing.T) {
-	out := BriefingContent(BriefingInput{Workspace: "/host/proj", Mechanism: "podman"})
+	out := topicText(BriefingInput{Workspace: "/host/proj", Mechanism: "podman"}, "limits.md")
 	if strings.Contains(out, "Only without") {
 		t.Errorf("the Limitations section still says only jail-local credentials authenticate:\n%s", out)
 	}

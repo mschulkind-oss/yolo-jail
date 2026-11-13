@@ -274,6 +274,11 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	// callers without a sheet retain the embedded compatibility output.
 	var staging string
 	var wsSkills *jailcontent.WorkspaceSkillsReport
+	// THE CORE NEVER POINTS AT A TOPIC FILE THIS ENTRY DID NOT WRITE (docs/design/briefing-diet.md,
+	// the plan's Task 1). The topics are rendered from the fact sheet into the jail-mechanics
+	// skill, so a caller with no sheet (a legacy attach), or a render that failed and left the
+	// prior skill tree in place, gets them inline in the briefing instead.
+	topicsStaged := false
 	if facts != nil {
 		facts.Switches = mechanicsSwitchFacts(in.Loopholes)
 		if len(facts.Switches) > 0 {
@@ -367,6 +372,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 			if err != nil {
 				return "", err
 			}
+			topicsStaged = true
 		}
 	} else {
 		var err error
@@ -380,8 +386,20 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		}
 	}
 	o.noteWorkspaceSkills(wsSkills)
-	briefingBody := jailcontent.BriefingContent(in)
-	briefingBody = jailcontent.ComposeBriefing(briefingBody, extra)
+	in.InlineTopics = !topicsStaged
+	// Each destination's core names its own agent's jail-mechanics SKILL.md (BD-D6): the skills
+	// destination the same identity declared. A destination with none gets the sentence alone.
+	mechanicsPaths := map[string]string{}
+	for _, target := range packSkillTargets(loadedPacks) {
+		if _, seen := mechanicsPaths[target.Agent]; target.Agent != "" && !seen {
+			mechanicsPaths[target.Agent] = jailcontent.MechanicsSkillPath(target.Dest, in.ShippedSkillPrefix)
+		}
+	}
+	briefingBodyFor := func(agent string) string {
+		destIn := in
+		destIn.MechanicsSkillPath = mechanicsPaths[agent]
+		return jailcontent.ComposeBriefing(jailcontent.BriefingContent(destIn), extra)
+	}
 
 	// Write one briefing per PACK-DECLARED briefing DESTINATION. The pack says where its
 	// prose goes; core composes that destination's content and writes it to the matching
@@ -416,7 +434,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		// identity. Each pack's section is labelled with its name only when the user's
 		// `briefing_provenance` asks for it — unlabelled by default, because the label made
 		// agents treat the user's every-repository rules as foreign (config.BriefingProvenance).
-		content := jailcontent.ComposePackBriefings(briefingBody, packBriefings, d.Agent,
+		content := jailcontent.ComposePackBriefings(briefingBodyFor(d.Agent), packBriefings, d.Agent,
 			config.BriefingProvenance(cfg))
 		// Not under the seal (seal.go): a fork build reads no file of the host's home.
 		if hostOverlay := briefingHostOverlay(d.After); hostOverlay != "" && !o.Sealed {
@@ -579,6 +597,10 @@ func blockedToolRecords(blocked []any) []jailcontent.BlockedTool {
 			Name:       mapStr(m, "name"),
 			Message:    mapStr(m, "message"),
 			Suggestion: mapStr(m, "suggestion"),
+			// The core's blocked line names the replacement and groups the guards by kind,
+			// and says the `rg -r` trap only where the replacement is rg (BD-D7).
+			Replacement: mapStr(m, "replacement"),
+			Guard:       mapStr(m, "guard"),
 		})
 	}
 	return out

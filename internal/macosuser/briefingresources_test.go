@@ -15,7 +15,7 @@ func TestTheMacosUserBriefingNamesEveryCooperativeCPUVar(t *testing.T) {
 		Mechanism: "macos-user",
 		Home:      "/Users/" + SandboxUser,
 	})
-	if !strings.Contains(body, "Before editing the workspace config, asking for a restart, or relying on a file from the host: read **jail-mechanics**.") {
+	if !strings.Contains(body, "Read the **jail-mechanics** skill before") {
 		t.Fatal("macos-user briefing omits the jail-mechanics pointer")
 	}
 	for _, name := range CooperativeCPUVars {

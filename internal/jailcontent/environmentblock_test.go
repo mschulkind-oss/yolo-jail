@@ -19,7 +19,7 @@ import (
 // agent learns that those 25 references mean its own path, which is why the ⚠ is asserted
 // here and not merely the path.
 func TestTheEnvironmentBlockDescribesTheBackendItActuallyRanOn(t *testing.T) {
-	native := BriefingContent(BriefingInput{
+	native := reachable(BriefingInput{
 		Workspace: "/Users/Shared/yolo/proj",
 		Mechanism: "macos-user",
 		Home:      "/Users/_yolojail",
@@ -59,7 +59,7 @@ func TestTheEnvironmentBlockDescribesTheBackendItActuallyRanOn(t *testing.T) {
 // Mechanism means "the caller has not resolved a backend" and must render as a container.
 func TestTheContainerEnvironmentBlockIsUntouched(t *testing.T) {
 	for _, mech := range []string{"podman", "container", ""} {
-		out := BriefingContent(BriefingInput{Workspace: "/host/proj", Mechanism: mech})
+		out := reachable(BriefingInput{Workspace: "/host/proj", Mechanism: mech})
 		if !strings.Contains(out, "`/workspace` is the host directory `/host/proj`") {
 			t.Errorf("mechanism %q lost the workspace alias paragraph:\n%s",
 				mech, environmentBlockOf(t, out))
@@ -95,8 +95,8 @@ func TestBriefingDelegatesLifecycleGuidanceToMechanicsSkill(t *testing.T) {
 		{Workspace: "/Users/Shared/yolo/proj", Mechanism: "macos-user"},
 		{Workspace: "/host/proj", Mechanism: "podman"},
 	} {
-		out := BriefingContent(in)
-		if !strings.Contains(out, "read **jail-mechanics**") {
+		out := reachable(in)
+		if !strings.Contains(out, "Read the **jail-mechanics** skill") {
 			t.Error("briefing lacks the jail-mechanics pointer")
 		}
 		for _, stale := range []string{"## Packages", "container-limit change", "Please restart the jail"} {

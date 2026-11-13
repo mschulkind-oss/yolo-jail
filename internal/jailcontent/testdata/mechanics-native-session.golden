@@ -182,7 +182,7 @@ Instead:
 ===== jail-mechanics/SKILL.md =====
 ---
 name: jail-mechanics
-description: "How this environment is wired and what to do after a change: confinement, host paths, what survives a restart, and exact next steps."
+description: "This environment's facts, a file per topic: storage and what survives a restart, network and ports, mounts, asking the human, loopholes, blocked tools, limits; and next steps after a change."
 ---
 
 # This jail
@@ -194,6 +194,15 @@ description: "How this environment is wired and what to do after a change: confi
 
 Run `yolo config drift` to see what is pending now. The command's own result is authoritative if runtime probes narrow an expected outcome.
 
+## Topics
+
+How each part of this jail works. Open the one your question is about.
+
+- Storage: the workspace, your home and what survives a restart → `topics/storage.md`
+- Network → `topics/network.md`
+- Running a command on the host → `topics/host-requests.md`
+- Limitations → `topics/limits.md`
+
 ## Recipes
 - Workspace config → `recipes/workspace-config.md`
 - User-scope config → `recipes/user-config.md`
@@ -202,6 +211,14 @@ Run `yolo config drift` to see what is pending now. The command's own result is 
 - Tools → `recipes/tools.md`
 - Restart → `recipes/restart.md`
 - Host yolo update → `recipes/yolo-update.md`
+
+## Tooling and other skills
+
+Jail tooling: `yolo --help`; config reference: `yolo config-ref`.
+
+User-level skills dirs (`~/.<agent>/skills/`) are **read-only** in-jail (kernel-enforced); workspace-level ones (`/Users/test/project/.<agent>/skills/`) are writable — develop there, then ask the human to promote to the host.
+
+Read **configuring-the-jail** before editing `yolo-jail.jsonc`, and **diagnosing-the-jail** when a command misbehaves. Their bodies load only when invoked.
 
 ===== jail-mechanics/host-map.md =====
 # Paths in this environment
@@ -264,3 +281,113 @@ For a permanent tool, update its environment config, validate with `yolo check`,
 1. Ask the human to update the host yolo launcher.
 2. End this session.
 3. Run `yolo` in `/Users/test/project` again.
+
+===== jail-mechanics/topics/host-requests.md =====
+# Running a command on the host
+
+Three rules whenever the human must do something on the host:
+
+- **Approvals are not host-run.** `yolo approve`, `yolo config apply` and `yolo allow` are the
+  human's own answers: they run them directly in a host terminal, never through `yolo host-run`.
+- **Each command for the human goes alone on its own line in a fenced code block**, one per
+  line, never inline in prose: it is copied, not read.
+- **Start the waiter in the background in the same turn** as you hand the human something, so
+  its exit re-invokes you: `yolo wait r-<id>` for an approval request, `yolo wait <label>` for a
+  host-run line. Exit 0: retry the refused command exactly once. Exit 75: give the human the
+  commands again and stop. Any other exit: report what it printed, and do not retry.
+
+A git or gh write that needs approval is refused with a menu of every path that answers it.
+Relay the whole menu, and recommend one path: the project request and then `yolo config apply`
+for a branch you will push again; `yolo approve r-<id>` alone for a one-off.
+Never report a host capability as impossible: the refusal names a path. A refusal's menu
+reads like this:
+
+```text
+Request r-<id> needs the human's approval. Relay every path below. A (host) command
+is the human's, run in any host terminal, directly, not through `yolo host-run`; a (here)
+command is yours, run in this jail.
+
+Once, now (host):
+
+    yolo approve r-<id>
+
+For 15 minutes (host):
+
+    yolo approve r-<id> --for 15m
+
+For good, in the project: request it (here):
+
+    yolo request git push <branch>
+
+then the human approves the project's change (host):
+
+    yolo config apply
+
+Or do it on the host instead, in this workspace (host):
+
+    git push
+
+After relaying them, in the same turn, start this (here) in the background, so that its
+exit wakes you:
+
+    yolo wait r-<id>
+
+Exit 0: allowed; run the refused command again, once. Exit 75: still unanswered at the timeout; give
+the human the commands again and stop. Any other exit (denied, expired, closed, already
+used): report what it printed, and do not retry.
+```
+
+If you have no background task whose exit wakes you, run `yolo wait --timeout <less than your
+tool's timeout> r-<id>` once in the foreground. On exit 75, give the human the command and stop;
+when they say they are done, run `yolo wait r-<id>` again. Never wait in a loop. A bare
+`yolo wait` lists the requests still waiting on you, after a restart too.
+
+When you need something only the host can do, write ONE line for the human to run in a host
+terminal, and the output comes back to you; nothing needs to run here first:
+
+```
+yolo host-run -C <value of $YOLO_HOST_DIR> --name <fresh-label> -- <command>
+```
+
+Then start `yolo wait <fresh-label>` in the background (run it again if it exits 75), or ask
+the human to say "done" and run `yolo host-run show --name <fresh-label>`. Start the line
+with bare `yolo host-run`; no `;`, `&&`, `|`, `>` or `$(`; single-quote words with shell
+characters; keep it under 300 characters (long text goes in a workspace file the command
+reads). Typing the line here prints it ready to paste. If the host's yolo has no `host-run`,
+ask the human to run the command and paste the output.
+
+===== jail-mechanics/topics/limits.md =====
+# Limitations
+
+- **OS**: macOS, Seatbelt-confined (no container, no systemd, no sudo)
+- Host credentials are not propagated into the jail: the host's `~/.ssh`,
+  `~/.gitconfig`, and cloud/gh tokens are invisible here. This is a credential
+  boundary, not a network block — outbound SSH and HTTPS work normally, so git
+  push/pull and API calls succeed whenever the jail has its own credentials
+  (e.g. a workspace-specific deploy key or a token in `.env`), or when a pack
+  says `git` or `gh` runs through the host's own credentials. Without
+  either, authenticated operations fail.
+- No sudo/root.
+
+===== jail-mechanics/topics/network.md =====
+# Network
+
+- **Network**: Host networking — this environment shares the host's network stack. `localhost` / `127.0.0.1` resolves directly to the host. No port mapping needed.
+- **Shared network**: This jail shares the host's network, so the host's loopback services are reachable from it; agent autonomy stays on, because what confines the agent is the filesystem boundary, which a shared network does not remove.
+
+===== jail-mechanics/topics/storage.md =====
+# Storage: the workspace, your home and what survives a restart
+
+- **Workspace**: `/Users/test/project` — the host directory itself, not a
+  copy and not a mount. Edits here ARE the host's; there is never a git
+  pull/push, fetch, or any sync step for this directory.
+  ⚠ There is no `/workspace` on this backend. Skills and docs that name
+  `/workspace` — including the built-in ones — mean the path above.
+- **Home**: `/Users/test/project/.yolo/setups/seatbelt-self/home` (this workspace's own; its links to shared logins and
+  caches reach state shared by every workspace on this machine)
+
+Your home is THIS workspace's own (`.yolo/setups/<setup>/home`) and it PERSISTS between
+launches; another workspace has its own. Only its links to machine-wide state, the
+logins and caches your packs declare at `scope: machine`, reach directories that
+are shared by every workspace on this machine. Your own session is in that home: never
+move, rename or delete `.yolo` or anything in it but your own files in `.yolo/durable`.

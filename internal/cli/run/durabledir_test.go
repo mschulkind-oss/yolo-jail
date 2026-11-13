@@ -17,7 +17,7 @@ import (
 )
 
 // durableBriefing is the claude briefing refreshJailBriefings wrote, and its storage-classes
-// section.
+// section. With no fact sheet the entry writes no topic files, so the topics are inline in it.
 func durableBriefing(t *testing.T, o *Options, rt string) (body, section string) {
 	t.Helper()
 	cfg, packs := persistenceFixture(t, "")
@@ -120,8 +120,9 @@ func TestALinkedYoloGivesNoDurableDirAndSaysWhy(t *testing.T) {
 func jailcontentSection(t *testing.T, d *jailcontent.DurableDir) []string {
 	t.Helper()
 	cfg, packs := persistenceFixture(t, "")
+	// The briefing with its topics inline, as an entry that stages no topic files writes it.
 	out := jailcontent.BriefingContent(jailcontent.BriefingInput{Workspace: "/w", Mechanism: "podman",
-		Persistence: persistenceMapFor("podman", cfg, packs, "/w", false), Durable: d})
+		Persistence: persistenceMapFor("podman", cfg, packs, "/w", false), Durable: d, InlineTopics: true})
 	return strings.Split(sectionOf(out, "## Storage classes: what survives a restart"), "\n")
 }
 

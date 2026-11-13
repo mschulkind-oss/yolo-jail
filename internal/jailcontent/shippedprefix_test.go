@@ -98,10 +98,20 @@ func TestAPackSkillOverridesAPrefixedBuiltinByEitherName(t *testing.T) {
 	}
 }
 
-// The briefing names each built-in skill as it is delivered.
+// The briefing and the jail-mechanics index it points at name each built-in skill as it is
+// delivered: the core names jail-mechanics, and the index the other two (briefing-diet.md §5).
 func TestTheBriefingNamesBuiltinSkillsUnderTheShippedSkillPrefix(t *testing.T) {
 	for _, tc := range []struct{ prefix, want string }{{"", ""}, {"yolo", "yolo-"}} {
-		body := BriefingContent(BriefingInput{ShippedSkillPrefix: tc.prefix})
+		in := BriefingInput{ShippedSkillPrefix: tc.prefix}
+		files, err := RenderBuiltinSkills(FactSheet{Briefing: in, WorkspacePath: "/workspace"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = PrefixBuiltinSkillFiles(files, tc.prefix)
+		body := BriefingContent(in) + string(files[BuiltinSkillName(tc.prefix, mechanicsSkill)+"/SKILL.md"])
+		if !strings.Contains(BriefingContent(in), "**"+tc.want+mechanicsSkill+"**") {
+			t.Errorf("prefix %q: the core does not point at **%s%s**", tc.prefix, tc.want, mechanicsSkill)
+		}
 		for _, bare := range builtinSkillBareNames {
 			if !strings.Contains(body, "**"+tc.want+bare+"**") {
 				t.Errorf("prefix %q: the briefing does not name **%s%s**:\n%s", tc.prefix, tc.want, bare, body)

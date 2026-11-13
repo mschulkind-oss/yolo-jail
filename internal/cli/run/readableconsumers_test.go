@@ -92,7 +92,8 @@ priority = "idle"
 	if err != nil {
 		t.Fatalf("public Run did not stage its claude briefing: %v", err)
 	}
-	briefing := string(briefingBytes)
+	// With the jail-mechanics topic files the core points at, which carry the limits.
+	briefing := string(briefingBytes) + stagedTopics(t, filepath.Dir(briefingPath))
 	if !strings.Contains(resourceLine(briefing), "memory=2g") || !strings.Contains(resourceLine(briefing), "cpus=2") {
 		t.Errorf("public Run briefing omitted canonical resource limits: %q", resourceLine(briefing))
 	}

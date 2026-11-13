@@ -3,7 +3,7 @@ title: "Plan: the briefing diet"
 date: 2026-11-13
 status: draft
 stage: SKETCH
-next: "Planner: complete Tasks 1 and 3 against the tree; Task 2 after OQ-BD1 is ruled"
+next: "Task 1 built (its section records the files and decisions); Task 3 against the tree; Task 2 after OQ-BD1 is ruled"
 depends-on: [briefing-diet.md#OQ-BD1]
 tags: [briefing, skills, packs, plan]
 summary: "Seed of the build hand-off for the briefing diet: a provisional map and task slices from the files read during design, to be completed by a planner against the tree."
@@ -54,6 +54,46 @@ the release, slice 1 ships Tasks 1 and 3: yolo's share then falls from 26,867 by
 | `packs/git/pack.toml`, `packs/github/pack.toml` | A `[[skills]]` contribution with `describes = ["intercept"]` | 3 |
 | `internal/packdecl/contributes.go` (`describesProblems`, ~`:3231`) | Accept `describes` on `skills` | 3 |
 | `packs/claude/briefing/*.md`, `packs/pi/briefing/*.md`, both `pack.toml` | One pointer each, at most 250 bytes; pi's 2,012-byte worktree text moves to a skill the pack ships | 3 |
+
+## Task 1: the core and the topic files
+
+Built in the lane that follows this plan; the rows below replace the map's Task 1 rows. The
+**core** and **topic file** are the design's terms
+([§1](briefing-diet.md#1-defined-terms), [§5](briefing-diet.md#5-where-the-rest-lives)).
+
+| Path | What it holds now |
+| :--- | :--- |
+| `internal/jailcontent/briefingcore.go` (new) | The core's bullets and pointer: workspace, what survives a restart, network, what is not in here, asking the human, the blocked line, then the pointer to the skill |
+| `internal/jailcontent/briefingtopics.go` (new) | `BriefingTopics(in)`, the one renderer of every topic, in index order: storage, network, mounts, host requests, loopholes, blocked tools, limits. A topic is rendered only when its subject exists: no mount, no `mounts.md` |
+| `internal/jailcontent/briefing.go` | `BriefingContent` is the header, then the alerts, then the core; with `InlineTopics`, the topics follow it in full. The jail headers lose the tooling line; the host notch's header keeps it |
+| `internal/jailcontent/mechanicsrender.go`, `templates/index.tmpl` | The skill holds `topics/<file>`, and its index lists them above the recipes, with the tooling line and the other two built-in skills |
+| `internal/jailcontent/mechanicsstage.go` | `RefreshMechanicsFiles` writes every topic, and removes a topic file the facts no longer render, after every write has landed |
+| `internal/cli/run/prepare.go` | Sets `InlineTopics` when this entry did not write the topics. Renders the core per destination, naming that agent's own `SKILL.md`. Passes each block's replacement and guard through |
+| `internal/jailcontent/briefingbudget_test.go`, `briefingtopics_test.go` (new) | The budgets, and the topic, pointer and inline-fallback tests |
+
+Decisions made while building, each the only answer the design left:
+
+- **The alerts stay right after the header**, as today. The design's order of blocks is
+  Task 2's.
+- **Inline fallback.** When no fact sheet reached the entry (a legacy attach), or the skill
+  render failed and left the prior tree, the topics are appended to the briefing under `##`
+  headings, and the pointer names no file. This is the trap below, closed.
+- **A topic's text is one renderer's output** for both the skill file and the inline form, so
+  the two cannot disagree.
+- **The macos-user core is the same bullets, tighter**: a one-line autonomy sentence, the
+  context dir as `$YOLO_CONTEXT_DIR`, and the durable dir relative to the workspace. Without
+  that, the seatbelt fixtures measured 2,089 and 2,126 bytes.
+- **A native runtime's topics describe host networking** whatever mode the caller resolved,
+  since the launcher applies host networking to every native runtime. A native launch with no
+  applied home gets no `/home/agent`.
+- **The bridge paragraph's macOS-podman clause about `unknown`** is rendered only on a macOS
+  podman launch; elsewhere it says that `unknown` means the launcher did not ask.
+- **The credentials sentence** says "when a pack says" where it said "when a section below
+  says", since the sections it meant are no longer below it.
+- **`BlockedTool` gained `Replacement` and `Guard`**, so the core's blocked line names a
+  replacement per tool, groups the guards by kind, and states the `rg -r` trap only when a
+  replacement is `rg` (BD-D7 in the [Decision Ledger](briefing-diet.md#decision-ledger)).
+- **The core lists more than four ports as a count** and points to the network topic.
 
 ## Seed notes for the planner
 

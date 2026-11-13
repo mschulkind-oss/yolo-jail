@@ -145,13 +145,13 @@ func TestComposePackBriefingsSkipsEmpty(t *testing.T) {
 // The selected setup, not a raw confinement marker, names the briefing header.
 func TestBriefingSetupHeader(t *testing.T) {
 	podman := setup.MustBuiltIn("podman-self")
-	jail := BriefingContent(BriefingInput{Workspace: "/home/me/proj", Setup: podman})
+	jail := reachable(BriefingInput{Workspace: "/home/me/proj", Setup: podman})
 	if !contains(jail, "setup **podman-self**") || !contains(jail, "inside a container") {
 		t.Errorf("podman setup briefing must name the setup and container:\n%s", jail)
 	}
 
 	hostSetup := setup.MustBuiltIn("host-self")
-	host := firstParagraph(BriefingContent(BriefingInput{Workspace: "/home/me/proj", Setup: hostSetup}))
+	host := firstParagraph(reachable(BriefingInput{Workspace: "/home/me/proj", Setup: hostSetup}))
 	for _, want := range []string{"setup **host-self**", "real machine", "NOT disposable"} {
 		if !contains(host, want) {
 			t.Errorf("host setup briefing header must name it and warn it is not disposable (missing %q):\n%s", want, host)
@@ -162,7 +162,7 @@ func TestBriefingSetupHeader(t *testing.T) {
 	}
 
 	guestSetup := setup.MustBuiltIn("seatbelt-self")
-	guest := firstParagraph(BriefingContent(BriefingInput{Workspace: "/home/me/proj", Setup: guestSetup, Mechanism: "macos-user", IsMacOS: true}))
+	guest := firstParagraph(reachable(BriefingInput{Workspace: "/home/me/proj", Setup: guestSetup, Mechanism: "macos-user", IsMacOS: true}))
 	if !contains(guest, "setup **seatbelt-self**") || contains(guest, "inside a container") {
 		t.Errorf("Seatbelt setup briefing must name it and avoid a container claim:\n%s", guest)
 	}
@@ -178,7 +178,7 @@ func TestBriefingSetupHeader(t *testing.T) {
 // internal/cli/run/consumehandoff_test.go, which drives refreshJailBriefings — a test at
 // this level cannot fail when the call site is deleted.
 func TestBriefingContentHandoff(t *testing.T) {
-	withHandoff := BriefingContent(BriefingInput{
+	withHandoff := reachable(BriefingInput{
 		Workspace: "/home/me/proj",
 		Handoff:   "Task: wire the OAuth broker. Context: docs/handoff/oauth.md",
 	})
@@ -194,7 +194,7 @@ func TestBriefingContentHandoff(t *testing.T) {
 	}
 	// Without a handoff: no section. No standing line either — the default "wait for the
 	// user" is the whole story, and an always-present line would move the pinned jail header.
-	noHandoff := BriefingContent(BriefingInput{Workspace: "/home/me/proj"})
+	noHandoff := reachable(BriefingInput{Workspace: "/home/me/proj"})
 	if contains(noHandoff, "## Handoff") {
 		t.Errorf("no handoff must not emit a Handoff section:\n%s", noHandoff)
 	}
@@ -223,7 +223,7 @@ func index(s, sub string) int {
 // THE SEATBELT SETUP RUNS WITHOUT A CONTAINER. Its selected setup and backend determine the
 // briefing; the setup name stays explicit and the profile describes the real boundary.
 func TestJailBriefingDoesNotClaimAContainerWhenThereIsNone(t *testing.T) {
-	got := BriefingContent(BriefingInput{
+	got := reachable(BriefingInput{
 		Workspace: "/Users/Shared/yolo/proj",
 		Setup:     setup.MustBuiltIn("seatbelt-self"),
 		Mechanism: "macos-user",
@@ -246,7 +246,7 @@ func TestJailBriefingDoesNotClaimAContainerWhenThereIsNone(t *testing.T) {
 // Container setup briefings identify the selected setup and do not revive the old generic
 // confinement-header wording.
 func TestJailBriefingStillClaimsAContainerWhenThereIsOne(t *testing.T) {
-	got := BriefingContent(BriefingInput{
+	got := reachable(BriefingInput{
 		Workspace: "/workspace",
 		Setup:     setup.MustBuiltIn("podman-self"),
 	})
@@ -286,7 +286,7 @@ func TestPrependHostBriefingReportsAReadFailureButNotAbsence(t *testing.T) {
 // host, and its example menu is byte for byte what the one renderer the brokers' refusals use
 // prints, in a fenced block. It names no harness: a pack that installs one adds that line.
 func TestTheJailBriefingCarriesTheHandOffRules(t *testing.T) {
-	jail := BriefingContent(BriefingInput{Workspace: "/w"})
+	jail := reachable(BriefingInput{Workspace: "/w"})
 	for _, want := range []string{
 		"**Approvals are not host-run.**",
 		"never through `yolo host-run`",
@@ -333,7 +333,7 @@ func hostRunSectionText() string { return strings.Join(hostRunSection(), "\n") }
 // notch's base does not, since there is no jail to deliver to. A locked config's briefing
 // carries no host-run line for the check's output, only the mechanics pointer.
 func TestTheJailBriefingTeachesHostRun(t *testing.T) {
-	jail := BriefingContent(BriefingInput{Workspace: "/w"})
+	jail := reachable(BriefingInput{Workspace: "/w"})
 	for _, want := range []string{"## Running a command on the host", "Then start `yolo wait <fresh-label>` in the background",
 		"\nyolo host-run -C <value of $YOLO_HOST_DIR> --name <fresh-label> -- <command>\n"} {
 		if !strings.Contains(jail, want) {
@@ -343,7 +343,7 @@ func TestTheJailBriefingTeachesHostRun(t *testing.T) {
 	if host := HostBriefingBase("", false); strings.Contains(host, "## Running a command on the host") {
 		t.Error("the host notch's briefing teaches host-run")
 	}
-	locked := BriefingContent(BriefingInput{Workspace: "/w", ConfigLocked: true})
+	locked := reachable(BriefingInput{Workspace: "/w", ConfigLocked: true})
 	if strings.Contains(locked, "yolo host-run -C <value of $YOLO_HOST_DIR> -- yolo check") {
 		t.Error("the briefing still carries config-edit instructions instead of the mechanics pointer")
 	}

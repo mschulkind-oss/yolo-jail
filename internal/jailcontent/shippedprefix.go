@@ -32,6 +32,12 @@ const mechanicsSkill = "jail-mechanics"
 // itself when prefix is "".
 func BuiltinSkillName(prefix, name string) string { return packname.Delivered(prefix, name) }
 
+// MechanicsSkillPath is where an agent whose skills destination is dest (home-relative) reads
+// the jail-mechanics index, spelled from its home: the path the briefing's core names (BD-D6).
+func MechanicsSkillPath(dest, prefix string) string {
+	return "~/" + strings.Trim(dest, "/") + "/" + BuiltinSkillName(prefix, mechanicsSkill) + "/SKILL.md"
+}
+
 // PrefixBuiltinSkillFiles is files, a built-in suite keyed by slash path under its skill
 // directories, delivered under prefix: each built-in skill's directory and its SKILL.md `name` are
 // BuiltinSkillName, and each `**<skill>**` reference to a built-in skill in any file names the

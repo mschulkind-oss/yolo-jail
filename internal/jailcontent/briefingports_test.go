@@ -16,7 +16,7 @@ import (
 )
 
 func TestBriefingPublishedPortsNameHostAndJailSides(t *testing.T) {
-	got := BriefingContent(BriefingInput{
+	got := reachable(BriefingInput{
 		Workspace:    "/w",
 		PublishPorts: []any{"8000:3000", 9090, "127.0.0.1:5000:5000", "8080:80/tcp"},
 	})
@@ -47,7 +47,7 @@ func TestBriefingPublishedPortsNameHostAndJailSides(t *testing.T) {
 }
 
 func TestBriefingForwardedPortsNameHostAndJailSides(t *testing.T) {
-	got := BriefingContent(BriefingInput{
+	got := reachable(BriefingInput{
 		Workspace:        "/w",
 		ForwardHostPorts: []any{"5432:3306", 6379},
 	})
@@ -71,7 +71,7 @@ func TestBriefingForwardedPortsNameHostAndJailSides(t *testing.T) {
 // TestBriefingPortSectionsAbsentWhenUnconfigured keeps the briefing quiet for the
 // common case: neither key set means neither section.
 func TestBriefingPortSectionsAbsentWhenUnconfigured(t *testing.T) {
-	got := BriefingContent(BriefingInput{Workspace: "/w"})
+	got := reachable(BriefingInput{Workspace: "/w"})
 	for _, absent := range []string{"Published Ports", "Forwarded Host Ports"} {
 		if strings.Contains(got, absent) {
 			t.Errorf("%q rendered with no ports configured", absent)
@@ -83,7 +83,7 @@ func TestBriefingPortSectionsAbsentWhenUnconfigured(t *testing.T) {
 // is nothing to map, and both keys are ignored at launch. Saying otherwise in the
 // briefing would describe forwarding that is not happening.
 func TestBriefingPortSectionsSuppressedInHostMode(t *testing.T) {
-	got := BriefingContent(BriefingInput{
+	got := reachable(BriefingInput{
 		Workspace:        "/w",
 		NetMode:          "host",
 		PublishPorts:     []any{"8000:3000"},

@@ -20,7 +20,7 @@ func TestNoBriefingCallsTheHomePersistent(t *testing.T) {
 		{Workspace: "/Users/Shared/yolo/p", Mechanism: "macos-user", Home: "/Users/_yolojail"},
 		{Setup: setup.MustBuiltIn("host-self")},
 	} {
-		if out := BriefingContent(in); strings.Contains(out, "persistent across sessions") {
+		if out := reachable(in); strings.Contains(out, "persistent across sessions") {
 			t.Errorf("mechanism %q, setup %q: the briefing still calls the home persistent:\n%s",
 				in.Mechanism, in.Setup.Name, environmentBlockOf(t, out))
 		}
@@ -32,7 +32,7 @@ func TestNoBriefingCallsTheHomePersistent(t *testing.T) {
 // to machine-wide state are shared. It said "one account home, shared by every workspace" until
 // the Mac run of 2026-11-03 found that text in a 12a briefing. Its section is a later slice.
 func TestTheMacosUserHomeLineSaysItIsTheWorkspacesOwn(t *testing.T) {
-	out := BriefingContent(BriefingInput{Workspace: "/Users/Shared/yolo/p", Mechanism: "macos-user",
+	out := reachable(BriefingInput{Workspace: "/Users/Shared/yolo/p", Mechanism: "macos-user",
 		Home: "/Users/Shared/yolo/p/.yolo/home"})
 	env := environmentBlockOf(t, out)
 	if !strings.Contains(env, "`/Users/Shared/yolo/p/.yolo/home` (this workspace's own") ||
@@ -51,13 +51,13 @@ func TestTheMacosUserHomeLineSaysItIsTheWorkspacesOwn(t *testing.T) {
 // A class with no members renders no bullet, and a nil map renders no section at all.
 func TestThePersistenceSectionDropsEmptyClasses(t *testing.T) {
 	m := &PersistenceMap{Paths: []PersistentPath{{"/workspace", PathProject}, {"/tmp", PathPerLaunch}}}
-	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/w", Persistence: m}))
+	sec := persistenceSectionOf(t, reachable(BriefingInput{Workspace: "/w", Persistence: m}))
 	for _, gone := range []string{"**Every workspace on this machine**", "**Per workspace**"} {
 		if strings.Contains(sec, gone) {
 			t.Errorf("an empty class rendered a bullet %q:\n%s", gone, sec)
 		}
 	}
-	if out := BriefingContent(BriefingInput{Workspace: "/w"}); strings.Contains(out, "Storage classes") {
+	if out := reachable(BriefingInput{Workspace: "/w"}); strings.Contains(out, "Storage classes") {
 		t.Errorf("a nil map rendered the section, or the Home line pointed at one:\n%s", out)
 	}
 }
@@ -69,7 +69,7 @@ func TestThePersistenceSectionForAWritableHome(t *testing.T) {
 		{"/workspace", PathProject}, {"/home/agent", PathWorkspaceDurable},
 		{"/home/agent/.cache", PathMachineDurable}, {"/tmp", PathPerLaunch},
 	}}
-	out := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "container", Persistence: m})
+	out := reachable(BriefingInput{Workspace: "/w", Mechanism: "container", Persistence: m})
 	sec := persistenceSectionOf(t, out)
 	for _, want := range []string{"all of `/home/agent` outside the other classes", "- **Per launch** (in RAM)"} {
 		if !strings.Contains(sec, want) {

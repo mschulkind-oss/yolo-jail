@@ -443,7 +443,7 @@ func TestAppleContainerBriefingAdvertisesNoLoopholes(t *testing.T) {
 	const fix = "#8"
 	dir := appleContainerWorkspace(t)
 	res := acParityRun(t, fix, dir, strings.Join([]string{
-		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md 2>&1`,
+		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md ~/.claude/skills/jail-mechanics/topics/*.md 2>&1`,
 		`echo "=== END ==="`,
 	}, "\n"))
 	briefing := section(res.stdout, "=== BRIEFING ===", "=== END ===")
@@ -453,7 +453,9 @@ func TestAppleContainerBriefingAdvertisesNoLoopholes(t *testing.T) {
 			"defect of its own):\n%s", acParityTag, fix, lastLines(briefing, 30))
 	}
 	inertLine := strings.Contains(res.combined(), "loophole claude-oauth-broker is inert on this backend")
-	const heading = "## Loopholes — host capabilities wired into this jail"
+	// The loopholes topic file of the jail-mechanics skill, read beside the briefing that
+	// points at it (docs/design/briefing-diet.md).
+	const heading = "# Loopholes — host capabilities wired into this jail"
 	if i := strings.Index(briefing, heading); i >= 0 {
 		acParityRecord(t, fix, false, "the delivered briefing advertises loopholes on a backend "+
 			"that starts none the jail can reach — the defect #8 fixed",

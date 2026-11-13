@@ -108,7 +108,9 @@ func TestLegacyAttachRefreshPreservesPriorMechanicsAndDoesNotPromoteDesiredInput
 				}
 			}
 			if tc.appliedSnapshot {
-				briefing := claudeBriefingOf(t, cname)
+				// The briefing and the topic files its core points at: the applied mount is in
+				// topics/mounts.md (docs/design/briefing-diet.md).
+				briefing := claudeBriefingOf(t, cname) + stagedTopics(t, filepath.Join(paths.AgentsDir(), cname))
 				for _, want := range []string{"APPLIED_LAUNCH_GUIDANCE", "/ctx/applied"} {
 					if !strings.Contains(briefing, want) {
 						t.Errorf("authenticated attach briefing omitted applied value %q:\n%s", want, briefing)

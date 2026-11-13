@@ -452,13 +452,69 @@ func TestRefreshMechanicsFilesRestoresBothFilesWhenSecondWriteFails(t *testing.T
 	}
 }
 
-func TestRenderMechanicsIndexAndMapReturnsOnlyTwoFiles(t *testing.T) {
+// The refreshable set is the index, the host map and, in a jail, its topic files: no recipe.
+func TestRenderMechanicsIndexAndMapReturnsTheAppliedStateFilesOnly(t *testing.T) {
 	files, err := RenderMechanicsIndexAndMap(FactSheet{Host: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(files) != 2 || len(files["jail-mechanics/SKILL.md"]) == 0 || len(files["jail-mechanics/host-map.md"]) == 0 {
-		t.Fatalf("unexpected mechanics file set: %v", files)
+		t.Fatalf("unexpected host mechanics file set: %v", files)
+	}
+	in := BriefingInput{Workspace: "/w"}
+	jail, err := RenderMechanicsIndexAndMap(FactSheet{Briefing: in, WorkspacePath: "/workspace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := 2 + len(BriefingTopics(in)); len(jail) != want {
+		t.Errorf("a jail's refreshable set has %d files, want the index, the map and %d topics", len(jail), want-2)
+	}
+	for name := range jail {
+		if strings.Contains(name, "/recipes/") {
+			t.Errorf("the refreshable set holds a recipe %s", name)
+		}
+	}
+}
+
+// A live apply refreshes the topic files the core points at: it writes the ones the facts now
+// render and removes the one a removed mount took away; a failed write removes nothing, since
+// a stale topic goes only after every write has landed.
+func TestRefreshMechanicsFilesKeepsTheTopicsInStepWithTheFacts(t *testing.T) {
+	target := t.TempDir()
+	topics := filepath.Join(target, "jail-mechanics", "topics")
+	if err := os.MkdirAll(topics, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(topics, "mounts.md"), []byte("old mounts"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	in := BriefingInput{Workspace: "/w", HostNix: true}
+	if err := RefreshMechanicsFiles([]string{target}, FactSheet{Briefing: in, WorkspacePath: "/workspace"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(topics, "mounts.md")); !os.IsNotExist(err) {
+		t.Errorf("the topic of a mount no longer bound survived the refresh (err=%v)", err)
+	}
+	limits, err := os.ReadFile(filepath.Join(topics, "limits.md"))
+	if err != nil || string(limits) != topicText(in, "limits.md") {
+		t.Errorf("the refresh did not write the facts' limits topic: %q, %v", limits, err)
+	}
+
+	// A topic it cannot write fails the refresh before it removes anything.
+	if err := os.WriteFile(filepath.Join(topics, "mounts.md"), []byte("old mounts"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(topics, "storage.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(topics, "storage.md"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := RefreshMechanicsFiles([]string{target}, FactSheet{Briefing: in, WorkspacePath: "/workspace"}); err == nil {
+		t.Fatal("a topic path that is a directory must fail the refresh")
+	}
+	if got, err := os.ReadFile(filepath.Join(topics, "mounts.md")); err != nil || string(got) != "old mounts" {
+		t.Errorf("the failed refresh did not leave the old topic in place: %q, %v", got, err)
 	}
 }
 
@@ -494,9 +550,9 @@ func TestPrepareSkillsRenderFailurePreservesPreviousSuite(t *testing.T) {
 
 func TestRenderBuiltinSkillsGoldenFixtures(t *testing.T) {
 	fixtures := map[string]FactSheet{
-		"rootless-container": {HostWorkspace: "/home/test/project", WorkspacePath: "/workspace", ConfigPath: "/workspace/yolo-jail.jsonc", WorkspaceConfigPresent: true, UserConfigPath: "/home/test/.config/yolo-jail/config.jsonc", RestartCommand: "yolo stop", LogPath: "/home/test/project/.yolo/startup.log", PackageDelivery: "baked image", SkillsDelivery: "live read-only bind", Packs: []string{"claude"}, Briefing: BriefingInput{Mechanism: "podman", Loopholes: []Loophole{{Name: "audio"}}}, Paths: []PathFact{{Path: "/workspace", HostSource: "/home/test/project", Mode: "read-write", Lifetime: "kept", Delivery: "live bind"}}, Timing: []changetiming.Row{{Key: "mounts", Outcome: changetiming.AppliedNow, Reason: "live bind is applied now"}}},
-		"copy-container":     {HostWorkspace: "/home/test/project", WorkspacePath: "/workspace", ConfigPath: "/workspace/yolo-jail.jsonc", WorkspaceConfigPresent: true, UserConfigPath: "/home/test/.config/yolo-jail/config.jsonc", RestartCommand: "yolo stop", LogPath: "/home/test/project/.yolo/startup.log", PackageDelivery: "baked image", SkillsDelivery: "read-only copy at next launch", Packs: []string{"claude"}, Briefing: BriefingInput{Mechanism: "container"}, Paths: []PathFact{{Path: "/workspace/ctx", HostSource: "/home/test/shared", Mode: "read-only", Lifetime: "kept", Delivery: "copy at launch"}}, Timing: []changetiming.Row{{Key: "mounts", Outcome: changetiming.AtNextRestart, Reason: "copy delivery is fixed at launch"}}},
-		"native-session":     {HostWorkspace: "/Users/test/project", WorkspacePath: "/Users/test/project", ConfigPath: "/Users/test/project/yolo-jail.jsonc", WorkspaceConfigPresent: true, UserConfigPath: "/Users/test/.config/yolo-jail/config.jsonc", RestartCommand: "yolo", LogPath: "/Users/test/project/.yolo/startup.log", PackageDelivery: "native tools", SkillsDelivery: "live filesystem", Briefing: BriefingInput{Mechanism: "macos-user"}, Paths: []PathFact{{Path: "/Users/test/project", HostSource: "/Users/test/project", Mode: "read-write", Lifetime: "kept", Delivery: "native"}}, Timing: []changetiming.Row{{Key: "mounts", Outcome: changetiming.NextSession, Reason: "takes effect in the next session"}}},
+		"rootless-container": {HostWorkspace: "/home/test/project", WorkspacePath: "/workspace", ConfigPath: "/workspace/yolo-jail.jsonc", WorkspaceConfigPresent: true, UserConfigPath: "/home/test/.config/yolo-jail/config.jsonc", RestartCommand: "yolo stop", LogPath: "/home/test/project/.yolo/startup.log", PackageDelivery: "baked image", SkillsDelivery: "live read-only bind", Packs: []string{"claude"}, Briefing: BriefingInput{Workspace: "/home/test/project", Mechanism: "podman", Loopholes: []Loophole{{Name: "audio"}}}, Paths: []PathFact{{Path: "/workspace", HostSource: "/home/test/project", Mode: "read-write", Lifetime: "kept", Delivery: "live bind"}}, Timing: []changetiming.Row{{Key: "mounts", Outcome: changetiming.AppliedNow, Reason: "live bind is applied now"}}},
+		"copy-container":     {HostWorkspace: "/home/test/project", WorkspacePath: "/workspace", ConfigPath: "/workspace/yolo-jail.jsonc", WorkspaceConfigPresent: true, UserConfigPath: "/home/test/.config/yolo-jail/config.jsonc", RestartCommand: "yolo stop", LogPath: "/home/test/project/.yolo/startup.log", PackageDelivery: "baked image", SkillsDelivery: "read-only copy at next launch", Packs: []string{"claude"}, Briefing: BriefingInput{Workspace: "/home/test/project", Mechanism: "container"}, Paths: []PathFact{{Path: "/workspace/ctx", HostSource: "/home/test/shared", Mode: "read-only", Lifetime: "kept", Delivery: "copy at launch"}}, Timing: []changetiming.Row{{Key: "mounts", Outcome: changetiming.AtNextRestart, Reason: "copy delivery is fixed at launch"}}},
+		"native-session":     {HostWorkspace: "/Users/test/project", WorkspacePath: "/Users/test/project", ConfigPath: "/Users/test/project/yolo-jail.jsonc", WorkspaceConfigPresent: true, UserConfigPath: "/Users/test/.config/yolo-jail/config.jsonc", RestartCommand: "yolo", LogPath: "/Users/test/project/.yolo/startup.log", PackageDelivery: "native tools", SkillsDelivery: "live filesystem", Briefing: BriefingInput{Workspace: "/Users/test/project", Home: "/Users/test/project/.yolo/setups/seatbelt-self/home", Mechanism: "macos-user"}, Paths: []PathFact{{Path: "/Users/test/project", HostSource: "/Users/test/project", Mode: "read-write", Lifetime: "kept", Delivery: "native"}}, Timing: []changetiming.Row{{Key: "mounts", Outcome: changetiming.NextSession, Reason: "takes effect in the next session"}}},
 		"host":               {Host: true, HostWorkspace: "/home/test/project", UserConfigPath: "/home/test/.config/yolo-jail/config.jsonc", LogPath: "/home/test/.local/share/yolo-jail/host-apply.log", PackageDelivery: "host package manager", Paths: []PathFact{{Path: "/home/test/project", HostSource: "/home/test/project", Mode: "read-write", Lifetime: "kept", Delivery: "native"}}},
 	}
 	for name, facts := range fixtures {
@@ -548,8 +604,15 @@ func TestRenderBuiltinSkillsGoldenFixtures(t *testing.T) {
 				}
 			}
 			if facts.Briefing.Mechanism == "macos-user" {
+				// The storage topic is the one file that names `/workspace`, to say there is none
+				// and that a doc naming it means the real path (RULED 2026-09-13; storageTopic).
+				storage := strings.ToLower(string(got["jail-mechanics/topics/storage.md"]))
+				if !strings.Contains(storage, "there is no `/workspace` on this backend") {
+					t.Errorf("the native storage topic does not name the absence of `/workspace`:\n%s", storage)
+				}
+				elsewhere := strings.Replace(flat, storage, "", 1)
 				for _, forbidden := range []string{"`/workspace`", "`/home/agent`", "host.containers.internal", "image", "yolo stop"} {
-					if strings.Contains(flat, forbidden) {
+					if strings.Contains(elsewhere, forbidden) {
 						t.Errorf("native golden contains non-applied fact %q", forbidden)
 					}
 				}

@@ -94,7 +94,7 @@ func TestAppleContainerBriefingCarriesItsStorageClasses(t *testing.T) {
 	const fix = "storage-classes"
 	dir := appleContainerWorkspace(t)
 	res := acParityRun(t, fix, dir, strings.Join([]string{
-		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md 2>&1`,
+		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md ~/.claude/skills/jail-mechanics/topics/*.md 2>&1`,
 		`echo "=== DURABLE ==="`,
 		`echo "dir|${` + durable.EnvVar + `-UNSET}"`,
 		`if [ -n "${` + durable.EnvVar + `-}" ] && touch "$` + durable.EnvVar + `/.yolo-it-probe" 2>/dev/null; then rm -f "$` + durable.EnvVar + `/.yolo-it-probe"; echo "write|ALLOWED"; else echo "write|DENIED"; fi`,

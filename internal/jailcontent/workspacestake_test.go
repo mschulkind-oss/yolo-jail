@@ -27,7 +27,7 @@ func TestTheSectionSaysTheAgentsSessionIsInDotYolo(t *testing.T) {
 		{"Apple Container", "container", appleContainerShapedMap(), "That home holds your own session too: never " +
 			"move, rename or delete `/workspace/.yolo` or anything in it but your own files in `$YOLO_DURABLE_DIR`."},
 	} {
-		sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/w", Mechanism: c.mechanism,
+		sec := persistenceSectionOf(t, reachable(BriefingInput{Workspace: "/w", Mechanism: c.mechanism,
 			Persistence: c.m, Durable: &DurableDir{Path: durable.ContainerJailPath}}))
 		bullets := map[string]string{}
 		for _, l := range strings.Split(sec, "\n") {
@@ -51,7 +51,7 @@ func TestTheSectionSaysTheAgentsSessionIsInDotYolo(t *testing.T) {
 
 // Without a durable dir there is no exception to offer: the stake forbids moving all of `.yolo`.
 func TestTheStakeOffersNoDurableExceptionWithoutADurableDir(t *testing.T) {
-	sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman",
+	sec := persistenceSectionOf(t, reachable(BriefingInput{Workspace: "/w", Mechanism: "podman",
 		Persistence: podmanShapedMap(), Durable: &DurableDir{Unavailable: "x"}}))
 	if !strings.Contains(sec, "never move, rename or delete `/workspace/.yolo` or anything in it.") {
 		t.Errorf("the stake without a durable dir is not a plain prohibition:\n%s", sec)
@@ -83,7 +83,7 @@ func TestTheStakeNamesTheHomeTheLaunchBound(t *testing.T) {
 		{"podman fresh home", "podman", podman(hostWS + "/.yolo/setups/work/home.fresh-20261108T101500Z"),
 			"`/workspace/.yolo/setups/work/home.fresh-20261108T101500Z`:", "setups/<setup>/home`"},
 	} {
-		sec := persistenceSectionOf(t, BriefingContent(BriefingInput{Workspace: hostWS, Mechanism: c.mechanism,
+		sec := persistenceSectionOf(t, reachable(BriefingInput{Workspace: hostWS, Mechanism: c.mechanism,
 			Persistence: c.m, Durable: &DurableDir{Path: durable.ContainerJailPath}}))
 		if !strings.Contains(sec, c.want) || strings.Contains(sec, c.notWant) {
 			t.Errorf("%s: the section does not name the bound home as %q (or still says %q):\n%s", c.name, c.want, c.notWant, sec)
@@ -96,7 +96,7 @@ func TestTheStakeNamesTheHomeTheLaunchBound(t *testing.T) {
 // belong there either.
 func TestTheMacosUserBriefingSaysTheAgentsSessionIsInDotYolo(t *testing.T) {
 	ws := "/Users/Shared/yolo/p"
-	out := BriefingContent(BriefingInput{Workspace: ws, Mechanism: "macos-user",
+	out := reachable(BriefingInput{Workspace: ws, Mechanism: "macos-user",
 		Home: "/Users/_yolojail", Durable: &DurableDir{Path: ws + "/.yolo/durable"}})
 	const stake = "Your own session is in that home: never move, rename or delete `.yolo` or anything in it " +
 		"but your own files in `.yolo/durable`."

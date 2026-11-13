@@ -31,7 +31,7 @@ Run `yolo host apply` from `/home/test/project` and read its report for the exac
 ===== jail-mechanics/SKILL.md =====
 ---
 name: jail-mechanics
-description: "How this environment is wired and what to do after a change: confinement, host paths, what survives a restart, and exact next steps."
+description: "How this environment is wired and what to do after a change: host paths, config, and exact next steps."
 ---
 
 # This host
@@ -44,6 +44,12 @@ After editing host configuration, run `yolo host apply` from the host workspace.
 - User-scope config → `recipes/user-config.md`
 - Host files → `recipes/host-files.md`
 - Tools → `recipes/tools.md`
+
+## Tooling and other skills
+
+Jail tooling: `yolo --help`; config reference: `yolo config-ref`.
+
+Read **configuring-the-jail** before editing `the workspace config file`, and **diagnosing-the-jail** when a command misbehaves. Their bodies load only when invoked.
 
 ===== jail-mechanics/host-map.md =====
 # Paths in this environment

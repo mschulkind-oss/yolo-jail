@@ -15,17 +15,12 @@ package jailcontent
 // mount depends on.
 
 import (
-	"fmt"
 	"os"
 	"slices"
-	"sort"
 	"strings"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/approvalwait"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
-	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
-	"github.com/mschulkind-oss/yolo-jail/internal/nixroots"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
@@ -37,6 +32,12 @@ type BlockedTool struct {
 	Name       string
 	Message    string
 	Suggestion string
+	// Replacement is the tool a block points to instead (`rg` for `grep`), "" for none. The core
+	// names it, and the `rg -r` warning is rendered only when it is `rg` (BD-D7).
+	Replacement string `json:",omitempty"`
+	// Guard is the guard kind of an entry that refuses only some arguments rather than blocking
+	// the tool (`workspace-state`), "" for a block.
+	Guard string `json:",omitempty"`
 }
 
 // Loophole is a (name, description) pair for the loopholes section.
@@ -230,6 +231,20 @@ type BriefingInput struct {
 	// (docs/reference/pack-system.md PN-D13). Empty names them bare, as before. The caller reads
 	// it, as it reads the provisioning log: this function reads no file.
 	ShippedSkillPrefix string
+
+	// InlineTopics is true when this entry did NOT write the jail-mechanics skill's `topics/`
+	// from this input: no fact sheet (a legacy attach keeps the prior skill byte for byte), or a
+	// render that failed. The topics are then appended to the body in full, so the core never
+	// points at a topic file that is not there (docs/design/briefing-diet.md §5, the trap in
+	// briefing-diet-plan.md). The run pipeline decides it per entry; it is never carried over from
+	// an applied snapshot.
+	InlineTopics bool `json:"-"`
+
+	// MechanicsSkillPath is the jail-mechanics SKILL.md of the agent this destination belongs to,
+	// home-relative with a leading `~/` (BD-D6), or "" for a destination with no skills directory
+	// of the same identity: the pointer then names the skill without a path. The run pipeline sets
+	// it per destination.
+	MechanicsSkillPath string `json:"-"`
 }
 
 // configName is the workspace config file name the briefing names (BriefingInput.ConfigName).
@@ -239,14 +254,6 @@ func (in BriefingInput) configName() string {
 	}
 	return config.WorkspaceConfigName
 }
-
-// BriefingContent renders the jail-managed briefing body (before any host-level
-// user content is prepended and before agents_md_extra is appended). The body
-// is assembled from BriefingInput — the briefing lines joined with "\n" plus a
-// trailing newline. NOTE: this is NOT golden-pinned; no test asserts the full
-// output (briefing_test.go covers only the helpers), so sections can be added
-// or removed without regenerating a golden. The network mode is AppliedNetMode
-// when set, else NetMode, else "bridge".
 
 // ConfinementProfile is the (notch, mechanism, platform) → primitive vector lookup that
 // BOTH printing surfaces read: this package's briefing header, for the agent, and
@@ -339,14 +346,16 @@ func MechanismHasNoContainer(mechanism string) bool {
 	return slices.Contains(paths.NativeRuntimes, mechanism)
 }
 
-// macosUserHomeLines are the macos-user header's home sentence, at either notch. Since slice 12a
-// HOME is THIS workspace's own sidecar (its setup's home, `<ws>/.yolo/setups/<setup>/home`,
-// named-setups.md §9) in both modes, run as the second
-// account or as you (macos-user-model-plan.md MMP-D5, MMP-D25), so a second workspace has a home
-// of its own; what every workspace shares is the machine-wide state its links reach. Until the
-// Mac run of 2026-11-03 this said the account home was shared by every workspace, which stopped
-// being true with 12a. The last sentence is SD-D2's stake: a `mv` of `.yolo` moves this home,
-// and the session reading this with it.
+// macosUserHomeLines are the macos-user home sentences. Since slice 12a HOME is THIS workspace's
+// own sidecar (its setup's home, `<ws>/.yolo/setups/<setup>/home`, named-setups.md §9) in both
+// modes, run as the second account or as you (macos-user-model-plan.md MMP-D5, MMP-D25), so a
+// second workspace has a home of its own; what every workspace shares is the machine-wide state its
+// links reach. Until the Mac run of 2026-11-03 this said the account home was shared by every
+// workspace, which stopped being true with 12a. The last sentence is SD-D2's stake: a `mv` of
+// `.yolo` moves this home, and the session reading this with it.
+//
+// They were the header's until the briefing diet (docs/design/briefing-diet.md §4): the core now
+// says the same in its "What survives a restart" line, and these, verbatim, open the storage topic.
 var macosUserHomeLines = []string{
 	"Your home is THIS workspace's own (`.yolo/setups/<setup>/home`) and it PERSISTS between",
 	"launches; another workspace has its own. Only its links to machine-wide state, the",
@@ -355,8 +364,13 @@ var macosUserHomeLines = []string{
 	"move, rename or delete `.yolo` or anything in it but your own files in `.yolo/durable`.",
 }
 
+// toolingLine names the CLI's own help. The host notch's header keeps it; a jail's moved to the
+// jail-mechanics index with the briefing diet (docs/design/briefing-diet.md §4), so the core spends
+// no bytes on what the index carries.
+const toolingLine = "Jail tooling: `yolo --help`; config reference: `yolo config-ref`."
+
 // setupHeader names the selected setup and spells its fields, while deriving the enforcement
-// vector from the setup kind and applied backend.
+// vector from the setup kind and applied backend. It ends with a blank line.
 func setupHeader(s setup.Setup, description, mechanism string, isMacOS bool) []string {
 	kind := render.KindForSetup(s.Kind())
 	prof := ConfinementProfile(kind, mechanism, isMacOS)
@@ -365,31 +379,24 @@ func setupHeader(s setup.Setup, description, mechanism string, isMacOS bool) []s
 
 	switch s.Kind() {
 	case setup.KindHost:
-		return append([]string{
+		return append(append([]string{
 			title, "", intro,
 			"This is the human's REAL machine, with no container around you. Changes are NOT disposable.",
 			"You have: their real credentials, their real dotfiles, no snapshot to fall back on.",
 			"Absent: nothing is mounted read-only; there is no jail to restart; `sudo` is real.",
 			"`/tmp` is this machine's own: it survives an agent restart but may not survive a reboot; put worktrees you need later inside the repository or beside it.",
-		}, enforcementLines(prof)...)
+		}, enforcementLines(prof, false)...), toolingLine, "")
 	case setup.KindGuest:
-		lines := []string{title, "", intro, "This setup runs on the real machine, not in a disposable container."}
-		if MechanismHasNoContainer(mechanism) {
-			lines = append(lines, "")
-			lines = append(lines, macosUserHomeLines...)
-		}
-		return append(lines, enforcementLines(prof)...)
+		return append([]string{title, "", intro, "This setup runs on the real machine, not in a disposable container."}, enforcementLines(prof, true)...)
 	case setup.KindJail:
 		if MechanismHasNoContainer(mechanism) {
-			lines := []string{title, "", intro, "This setup runs on the real machine, not in a container."}
-			return append(append(lines, macosUserHomeLines...), enforcementLines(prof)...)
+			return append([]string{title, "", intro, "This setup runs on the real machine, not in a container."}, enforcementLines(prof, true)...)
 		}
-		return []string{title, "", intro, "You are running inside a container.",
-			"Jail tooling: `yolo --help`; config reference: `yolo config-ref`.", ""}
+		return []string{title, "", intro, "You are running inside a container.", ""}
 	default:
 		return append([]string{title, "", intro,
 			"This setup's boundary is not recognized. Do not assume a container; the enforcement details below are the only ones established."},
-			enforcementLines(ConfinementProfile(render.KindUnset, mechanism, isMacOS))...)
+			enforcementLines(ConfinementProfile(render.KindUnset, mechanism, isMacOS), true)...)
 	}
 }
 
@@ -401,8 +408,12 @@ func setupHeader(s setup.Setup, description, mechanism string, isMacOS bool) []s
 // about its own notch and is invisible everywhere else — it decides the posture INSIDE a
 // pack's config surfaces, never as a statement of its own. `yolo describe` prints the same
 // two facts to the human from the same table (printConfinementVector); this is the agent's
-// copy.
-func enforcementLines(prof render.Profile) []string {
+// copy. It ends with a blank line.
+//
+// compact says the autonomy sentence in one short line, for a jail briefing whose header counts
+// against the core's budget (docs/design/briefing-diet.md §8); the host notch's body is unchanged
+// by the diet (§10), so it keeps the long form.
+func enforcementLines(prof render.Profile, compact bool) []string {
 	lines := []string{"", "Enforced by:"}
 	var any bool
 	for _, prim := range render.PrimitiveOrder() {
@@ -416,214 +427,91 @@ func enforcementLines(prof render.Profile) []string {
 		// as "not stated" when the fact IS the point.
 		lines = append(lines, "- nothing — no enforcement primitive at all; this is a real machine.")
 	}
-	if prof.AgentAutonomy {
+	switch {
+	case compact && prof.AgentAutonomy:
+		lines = append(lines, "", "Agent autonomy is **ON**: no permission prompts, safe only because the boundary above contains you.")
+	case compact:
+		lines = append(lines, "", "Agent autonomy is **OFF**: permission prompts stay on, because nothing above contains you. Do not try to disable them.")
+	case prof.AgentAutonomy:
 		lines = append(lines,
 			"",
 			"Agent autonomy is **ON**: your tools run without permission prompts, which is safe",
 			"only because the boundary above contains you.")
-	} else {
+	default:
 		lines = append(lines,
 			"",
 			"Agent autonomy is **OFF**: permission prompts stay on, because nothing above",
 			"contains you. Do not try to disable them.")
 	}
-	return append(lines, "", "Jail tooling: `yolo --help`; config reference: `yolo config-ref`.", "")
+	return append(lines, "")
 }
 
+// BriefingContent renders the jail-managed briefing body (before any host-level user content is
+// prepended and before agents_md_extra and the packs' prose are appended): the lines joined with
+// "\n" plus a trailing newline.
+//
+// SINCE THE BRIEFING DIET (docs/design/briefing-diet.md) a jail's body is three parts: the setup
+// header, any alert (provisioning failed, the attach-skew notice, the handoff), and the CORE, a
+// budgeted page of the facts whose breach is silent (briefingcore.go). Everything else the body
+// used to say is a TOPIC (briefingtopics.go), rendered from this same input into the generated
+// jail-mechanics skill's `topics/` — or, when this entry did not write that skill
+// (BriefingInput.InlineTopics), appended here in full, so the core never points at a file that
+// is not there. The core's size is held by TestTheCoreFitsItsBudget.
+//
+// The network mode is AppliedNetMode when set, else NetMode, else "bridge".
 func BriefingContent(in BriefingInput) string {
 	// THE BASE IS NOTCH-AWARE (docs/plans/notch-convergence.md item 26, row D7). Everything below
-	// the header describes a LAUNCH — the /workspace bind, the network stack it applied, the
-	// mounts, the shims, the loopholes, the jail's own limitations and how to ask for a package —
-	// and at the host notch there is no launch: the agent is the human's own process on the real
-	// machine, and every one of those sections would be a false sentence there. So the host's
-	// base is its confinement header and nothing else: that it is on the REAL machine, that
-	// nothing is disposable, what enforces nothing, and that autonomy is off. It is what
-	// `yolo host apply` composes ahead of the packs' prose (HostBriefingBase), which is how a host
-	// agent is told where it is (env-manager Phase 8's done-when).
+	// the header describes a LAUNCH, and at the host notch there is no launch: the agent is the
+	// human's own process on the real machine, and every one of those sections would be a false
+	// sentence there. So the host's base is its confinement header and nothing else. It is what
+	// `yolo host apply` composes ahead of the packs' prose (HostBriefingBase).
 	s := briefingSetup(in.Setup)
 	if s.Kind() == setup.KindHost {
 		return strings.Join(setupHeader(s, briefingSetupDescription(in, s), in.Mechanism, in.IsMacOS), "\n") + "\n"
 	}
-	// What the launch APPLIED wins over what the config asked for; NetMode is the
-	// fallback for a caller that never resolved a backend. Everything downstream — the
-	// network paragraph and both port sections, which describe forwarding that only
-	// happens under bridge — keys off this one value, so a nested jail forced onto host
-	// networking is told so instead of being told about a bridge it does not have.
-	netMode := in.AppliedNetMode
-	if netMode == "" {
-		netMode = in.NetMode
-	}
-	if netMode == "" {
-		netMode = "bridge"
-	}
+	v := newBriefingView(in)
+	topics := BriefingTopics(in)
 
-	var networkLine string
-	switch {
-	case netMode == "host":
-		// "this environment", not "the container": host networking is also what the
-		// macos-user backend applies, and there is no container anywhere in it
-		// (DP-B3 / DP-L2). The sentence has to be true of both, so it names neither.
-		networkLine = "- **Network**: Host networking — this environment shares the host's network stack. `localhost` / `127.0.0.1` resolves directly to the host. No port mapping needed."
-	case in.Sealed:
-		// THE SEAL'S BRIDGE (FP-D13). The paragraph below says yolo has the host's loopback
-		// forwarded in, which a sealed launch never asks for; and nothing of yolo's runs on the
-		// host for a build to reach. What the build has is the network itself, for its
-		// dependencies. No claim about what the host stack forwards on its own: on a macOS
-		// podman machine gvproxy forwards the loopback with no flag asked for.
-		networkLine = "- **Network**: Bridge mode, on the runtime's own bridge. This is a sealed build jail " +
-			"(a pack's build, handed no credential and no host file), so yolo asked for no forwarding of " +
-			"the host's loopback (`$YOLO_HOST_LOOPBACK` is `unknown`), forwards and publishes no port, and " +
-			"starts no host service. `localhost` in here is the JAIL's loopback. Outbound network works, " +
-			"for fetching dependencies."
-	default:
-		// NO NUMERIC ADDRESS HERE, and that is a correction rather than a style choice.
-		// This line used to say "(169.254.1.2)", which is the address yolo asks pasta for
-		// — one of three answers, and wrong on the other two. Under slirp4netns podman
-		// aims the name at the host's GLOBAL address (hostloopback.go's own table says
-		// so), and on a macOS podman machine it is gvproxy's 192.168.127.254 (measured
-		// 2026-09-16 on podman 6.0.2/applehv). The NAME is the contract; the number is a
-		// property of a host stack the briefing cannot see, so it tells the agent how to
-		// look instead of asserting one.
-		//
-		// The $YOLO_HOST_LOOPBACK sentence gained its `unknown` case for the same
-		// measurement: on macOS podman the launcher excludes itself from the decision by
-		// name and always says `unknown`, while the Mac's loopback IS forwarded (by
-		// gvproxy, with no flag asked for). "requested/shared = forwarding is in place"
-		// alone therefore reads as "unknown = it is not", which is false exactly where
-		// the value is always unknown — and an agent that believes it skips a route that
-		// works. See docs/plans/setup-support-gaps.md G8.
-		networkLine = "- **Network**: Bridge mode. `localhost` in here is the JAIL's loopback. Reach the host at " +
-			"`host.containers.internal` — including host services bound to the host's own `127.0.0.1`, which yolo " +
-			"has the network stack forward in. Which ADDRESS that name resolves to depends on the host's network " +
-			"stack, so read it (`getent hosts host.containers.internal`) rather than assuming one. " +
-			"`$YOLO_HOST_LOOPBACK` says what the launcher decided: `requested`/`shared` mean forwarding is in " +
-			"place, and `unknown` means the launcher did not ask — on a macOS podman machine that is the normal " +
-			"value and the hop usually works anyway, so probe it before concluding it does not."
+	lines := append([]string{}, setupHeader(s, briefingSetupDescription(in, s), in.Mechanism, in.IsMacOS)...)
+	lines = append(lines, briefingAlerts(in, v)...)
+	lines = append(lines, coreLines(in, v, topics)...)
+	if in.InlineTopics {
+		for _, t := range topics {
+			lines = append(lines, "## "+t.Title, "")
+			lines = append(lines, t.Body...)
+		}
+		lines = append(lines, inlineSkillsSection(in)...)
 	}
+	return strings.Join(lines, "\n") + "\n"
+}
 
-	// Both port sections are suppressed under host networking, where the stacks are
-	// shared and neither key is honored at launch — rendering them would describe
-	// forwarding that is not happening.
-	var publishedPorts []string
-	if len(in.PublishPorts) > 0 && netMode != "host" {
-		publishedPorts = append(publishedPorts,
-			"- **Published Ports** (the HOST connects IN to a server you run in here). Only works if "+
-				"the server binds `0.0.0.0`; a `127.0.0.1` listener in here is not publishable:")
-		for _, entry := range in.PublishPorts {
-			hp, jp, ok := publishEntry(entry)
-			if !ok {
-				continue
-			}
-			publishedPorts = append(publishedPorts,
-				"  - jail port "+jp+" → `localhost:"+hp+"` on the host")
-		}
-	}
-
-	var forwardedPorts []string
-	if len(in.ForwardHostPorts) > 0 && netMode != "host" {
-		forwardedPorts = append(forwardedPorts,
-			"- **Forwarded Host Ports** (YOU connect OUT to a service on the host). These answer on "+
-				"the JAIL's own `localhost`, so a client in here can use `localhost:<port>` directly:")
-		for _, entry := range in.ForwardHostPorts {
-			lp, hp, kind := portEntry(entry)
-			switch kind {
-			case portInt, portPlain:
-				forwardedPorts = append(forwardedPorts, "  - `localhost:"+lp+"` in here → host port "+lp)
-			case portMapped:
-				forwardedPorts = append(forwardedPorts, "  - `localhost:"+lp+"` in here → host port "+hp)
-			}
-		}
-	}
-
-	var resourceLine []string
-	if len(in.Resources) > 0 {
-		keys := make([]string, 0, len(in.Resources))
-		for k := range in.Resources {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			parts = append(parts, k+"="+pyValue(in.Resources[k]))
-		}
-		resourceLine = []string{
-			"- **Resource limits** (kernel-enforced): " + strings.Join(parts, ", ") +
-				".  Sub-limit your own processes with `yolo-cglimit` (`--help` for usage).",
-		}
-	}
-
-	// Report what was emitted (backend-parity.md §6): the class the launch passed, in words
-	// that claim neither enforcement nor effect. The disk may ignore it, and the agent can
-	// raise it, so "kernel-enforced" or "in effect" would be two different false sentences.
-	// The schedulers named as ignoring it are the grading's own (ioprio.IgnoredBy), so the
-	// briefing and the launch line cannot disagree about mq-deadline and "low". And it is
-	// scoped to the jail: wherever the host nix daemon is mounted the jail runs with
-	// NIX_REMOTE=daemon, so a `nix build` runs in the daemon's builders on the host, which
-	// no process here started (docs/design/io-priority.md §2, Non-Goal 6).
-	//
-	// ON macos-user THE MECHANISM IS ANOTHER ONE, and so is every word after the value: the
-	// launcher sets a macOS disk I/O policy on itself and the session inherits it
-	// (docs/design/io-priority.md §5.5). There is no Linux class, no scheduler to name and no
-	// entrypoint boot, so the Linux sentence would be three false claims in a row; this one
-	// names the policy and keeps the two that hold everywhere: advisory, and the host nix
-	// daemon's builds are outside it.
-	var ioPriorityLine []string
-	if p := ioprio.Priority(in.IOPriority); p.Declared() && slices.Contains(paths.NativeRuntimes, in.Mechanism) {
-		pol, _ := p.DarwinPolicy()
-		ioPriorityLine = []string{
-			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + ioprio.DarwinPolicyName(pol) + "), " +
-				"the macOS disk I/O policy the launcher set before this session started, so every " +
-				"process here inherits it and builds yield the disk under contention. Advisory, not a " +
-				"limit: a process can set its own, and work a host process does for the session is " +
-				"outside it: a `nix build` through the host nix daemon keeps the host's policy.",
-		}
-	} else if p.Declared() {
-		ioPriorityLine = []string{
-			"- **Disk I/O priority**: `" + in.IOPriority + "` (" + p.ClassName() + "), set on every " +
-				"process in this jail at boot so builds here yield the disk under contention. " +
-				"Advisory, not a limit: a process can raise its own, it does not reach buffered " +
-				"writeback, disks whose scheduler is " + joinOr(ioprio.IgnoredBy(p)) + " ignore it, " +
-				"and work a host process does for the jail is outside it: a `nix build` through the " +
-				"host nix daemon keeps the host's priority.",
-		}
-	}
-
-	var provisioningFailed []string
+// briefingAlerts are the conditional sections that report an event rather than describe the jail
+// (an "alert", docs/design/briefing-diet.md §1). They stay always-loaded, after the header and
+// outside the core's budget (BD-D5): each appears only after its event, and each is something the
+// agent must see without asking.
+func briefingAlerts(in BriefingInput, v briefingView) []string {
+	var lines []string
 	if in.ProvisioningFailed {
-		// macos-user has no /workspace: the workspace is the host directory itself.
-		ws := "/workspace"
-		if slices.Contains(paths.NativeRuntimes, in.Mechanism) {
-			ws = in.Workspace
-		}
-		provisioningFailed = []string{
+		lines = append(lines,
 			"## ⚠ Provisioning failed",
 			"",
 			"The last boot's provisioning failed — project tools may be missing.",
-			"Read `" + ws + "/.yolo/logs/startup.log` and self-serve (e.g. run",
-			"`mise install` in " + ws + ", then re-run the step that failed).",
+			"Read `"+v.workspace+"/.yolo/logs/startup.log` and self-serve (e.g. run",
+			"`mise install` in "+v.workspace+", then re-run the step that failed).",
 			"",
-		}
+		)
 	}
-
-	lines := append([]string{}, setupHeader(s, briefingSetupDescription(in, s), in.Mechanism, in.IsMacOS)...)
-	lines = append(lines, provisioningFailed...)
 	// An acknowledged attach's account of the jail it entered, beside provisioning's: both say the
 	// environment is not what it should be, and both are absent in the common case.
 	lines = append(lines, attachSkewSection(in.AttachSkew)...)
-	// The handoff, if one was handed over for this launch: a one-time transition task,
-	// surfaced once (the run pipeline consumes the pointer once this briefing is written,
-	// so it never returns as a stale task). Prominent — it is what the agent is here to do.
+	// The handoff, if one was handed over for this launch: a one-time transition task, surfaced
+	// once (the run pipeline consumes the pointer once this briefing is written, so it never
+	// returns as a stale task). "Handed over" rather than "the host agent handed over": a jail
+	// agent filing a pointer for its successor uses the same carrier (agent-briefings.md).
 	//
-	// "Handed over" rather than "the host agent handed over": the host→jail transition is
-	// the motivating case, but a jail agent filing a pointer for its successor uses the
-	// same carrier (agent-briefings.md), and the briefing should not misattribute it.
-	//
-	// When there is no handoff (the common case) no section appears, and the agent's
-	// default — wait for the user — is the whole story, so NO standing line is added: the
-	// jail's config-independent header bytes are pinned unchanged
-	// (TestBriefingJailHeaderIsUnchanged), and an always-present line would move that
-	// surface for every existing user. The one-time-ness therefore has to be stated INSIDE
-	// the conditional section, where it costs those pinned bytes nothing.
+	// When there is no handoff (the common case) no section appears and NO standing line is
+	// added: the one-time-ness is stated INSIDE the conditional section, where it costs the
+	// header's pinned bytes nothing (TestBriefingJailHeaderIsUnchanged).
 	if in.Handoff != "" {
 		lines = append(lines,
 			"## Handoff",
@@ -635,245 +523,7 @@ func BriefingContent(in BriefingInput) string {
 			"",
 		)
 	}
-	home := in.Home
-	if home == "" {
-		home = "/home/agent"
-	}
-	// THE WORKSPACE BULLET EXISTS TO EXPLAIN AN ALIAS, AND ON A NATIVE BACKEND THERE IS
-	// NONE. A container binds the host directory at `/workspace`, so the paragraph's job
-	// is to say that the two are one thing and no sync step stands between them. A
-	// macos-user launch mounts nothing: the agent is in the host directory, at its real
-	// path, and `/workspace` does not exist at all.
-	//
-	// RULED 2026-09-13: name the absence and keep `/workspace` canonical. The three
-	// built-in skills carry 25 references to `/workspace` and are static markdown with no
-	// templating, so substituting the real path everywhere was the larger change and
-	// making `/workspace` real (an /etc/synthetic.conf entry, the mechanism nix uses for
-	// /nix) was not taken. The consequence is that this bullet is the ONE place a
-	// macos-user agent is told those references mean its own path — so it says so
-	// explicitly rather than leaving the reader to infer it from a path that looks
-	// different.
-	envLines := []string{"## Environment", ""}
-	if slices.Contains(paths.NativeRuntimes, in.Mechanism) {
-		envLines = append(envLines,
-			"- **Workspace**: `"+in.Workspace+"` — the host directory itself, not a",
-			"  copy and not a mount. Edits here ARE the host's; there is never a git",
-			"  pull/push, fetch, or any sync step for this directory.",
-			"  ⚠ There is no `/workspace` on this backend. Skills and docs that name",
-			"  `/workspace` — including the built-in ones — mean the path above.",
-			// Not "persistent across sessions": true, but it hid the fact that matters, which
-			// part of the home is this workspace's alone (docs/reference/jail-home.md#the-storage-classes).
-			// Since slice 12a the home IS the workspace's sidecar in both modes
-			// (macos-user-model-plan.md MMP-D25); until the Mac run of 2026-11-03 this line still
-			// called it one account home shared by every workspace.
-			"- **Home**: `"+home+"` (this workspace's own; its links to shared logins and",
-			"  caches reach state shared by every workspace on this machine)",
-			"- **OS**: macOS, Seatbelt-confined (no container, no systemd, no sudo)",
-		)
-	} else {
-		envLines = append(envLines,
-			"- **Workspace**: `/workspace` is the host directory `"+in.Workspace+"`,",
-			"  bind-mounted LIVE — the same files, not a copy. Host-side edits are",
-			"  instantly visible here and vice versa; there is never a git",
-			"  pull/push, fetch, or any sync step between the jail and the host",
-			"  for this directory.",
-			// NOT "(persistent across sessions)", which this line said until the durable-paths
-			// slice: on podman the home is a read-only bind, so the claim invited writes that
-			// fail, and the agent fell back to /tmp, which is deleted after the jail exits
-			// (docs/reference/jail-home.md#storage-classes-and-the-durable-dir).
-			"- **Home**: `"+home+"`"+homeLineNote(in.Persistence, home),
-			"- **OS**: NixOS-based minimal container (no systemd, no sudo)",
-		)
-	}
-	lines = append(lines, append(envLines, networkLine)...)
-	// THE NETWORK PRIMITIVE'S FACT (OQ-NC3, docs/plans/notch-convergence.md, ruled 2026-09-28,
-	// A): a jail on a shared namespace keeps its autonomy, and is told so beside the network
-	// line it qualifies. The sentence is render's (SharedNetworkFact), the one the launch line
-	// prints, so the agent's copy and the human's cannot disagree.
-	if fact := render.SharedNetworkFact(briefingProfile(in, netMode)); fact != "" {
-		lines = append(lines, "- **Shared network**: "+fact)
-	}
-	lines = append(lines, publishedPorts...)
-	lines = append(lines, forwardedPorts...)
-	lines = append(lines, resourceLine...)
-	lines = append(lines, ioPriorityLine...)
-	if in.HostNix {
-		lines = append(lines,
-			"- **Nix** uses the host's daemon and store (`NIX_REMOTE=daemon`). A `result`",
-			"  link, `--out-link`, `nix profile` or `.direnv` root made under the workspace or",
-			fmt.Sprintf("  your home is kept for the host by a yolo-owned copy, for %d days after its last",
-				int(nixroots.DefaultLease/(24*time.Hour))),
-			fmt.Sprintf("  build and at most %d per workspace: `yolo nix-roots list` shows them, `keep",
-				nixroots.DefaultCap),
-			"  <link>` renews one, `release` gives one back. A link under /tmp is NOT a GC",
-			"  root the host honors. If a link dangles anyway, rebuild it.",
-		)
-	}
-	lines = append(lines,
-		"",
-		"⚠ rg is recursive by default — never pass grep-style `-r`/`-rn` flags",
-		"(in rg, `-r` means `--replace` and silently corrupts match output).",
-		"Use `rg -n <pattern> [path]`.",
-		"",
-	)
-	// Right after the Environment block whose Home line points at it, and before every
-	// capability section: where work survives decides where an agent puts it, so it has to
-	// be read before the agent plans anything (docs/reference/jail-home.md#the-storage-class-briefing-section).
-	wsShown := "/workspace"
-	if slices.Contains(paths.NativeRuntimes, in.Mechanism) {
-		wsShown = in.Workspace
-	}
-	lines = append(lines, persistenceSection(in.Persistence, in.Durable, wsShown, in.Workspace, home)...)
-
-	// BEFORE the capability sections, deliberately: these are constraints that change
-	// how everything below them should be read, and a constraint discovered after the
-	// capability it qualifies has already been read too late.
-	if len(in.BackendLimits) > 0 {
-		lines = append(lines, "## What this environment does NOT do for you", "")
-		for _, l := range in.BackendLimits {
-			lines = append(lines, "- "+l)
-		}
-		lines = append(lines, "")
-	}
-	if len(in.Loopholes) > 0 {
-		lines = append(lines, "## Loopholes — host capabilities wired into this jail", "")
-		for _, lh := range in.Loopholes {
-			first := loopholeFirst(lh.Desc)
-			if first != "" {
-				lines = append(lines, "- **"+lh.Name+"**: "+first)
-			} else {
-				lines = append(lines, "- **"+lh.Name+"**")
-			}
-			// What it holds in this project, so an agent does not debug a socket that was
-			// never bound (docs/reference/loophole-grants.md §5).
-			if lh.Standing != "" {
-				lines = append(lines, "  - "+lh.Standing)
-			}
-		}
-		lines = append(lines, "", "Details: `yolo loopholes list`.", "")
-	}
-
-	if len(in.BlockedTools) > 0 {
-		lines = append(lines,
-			"## Blocked Tools",
-			"",
-			"The following tools are blocked or shimmed in this project:",
-			"",
-		)
-		for _, tool := range in.BlockedTools {
-			entry := "- `" + tool.Name + "`"
-			if tool.Message != "" {
-				entry += ": " + tool.Message
-			}
-			if tool.Suggestion != "" {
-				entry += " Use `" + tool.Suggestion + "` instead."
-			}
-			lines = append(lines, entry)
-		}
-		lines = append(lines, "")
-	}
-
-	// THE MODE IS PER ENTRY, where the heading used to say "(read-only)" for all of them:
-	// a read-write config element is the host's own directory, and an agent told it was a
-	// read-only view would treat a write there as scratch (docs/reference/context-mounts.md
-	// §3.8). The path printed is the one the agent opens on THIS backend, and the context
-	// dir's variable is named so pack prose spelling `$YOLO_CONTEXT_DIR/<rel>` resolves.
-	if len(in.ContextMounts) > 0 {
-		ctxDir := in.ContextDir
-		if ctxDir == "" {
-			ctxDir = paths.ContainerContextDir
-		}
-		lines = append(lines, "## Additional Context Mounts", "",
-			"Host directories mounted into this jail. `$"+paths.ContextDirEnv+"` is `"+ctxDir+"` here.",
-			"")
-		anyRW, anyLinked, anyCopied := false, false, false
-		for _, m := range in.ContextMounts {
-			mode := "read-only"
-			if m.ReadWrite {
-				mode, anyRW = "read-write", true
-			}
-			// A COPY IS A SNAPSHOT, and the entry says so where the agent reads it: the bytes it
-			// opens are the host file as it was at launch, not the host file.
-			if m.Copied {
-				mode, anyCopied = mode+"; copied at launch; host edits arrive at the next launch", true
-			} else {
-				anyLinked = true
-			}
-			// AN OPTIONAL MOUNT MAY BE ABSENT: a check that runs after the briefing is written (the
-			// macos-user sandbox account's DAC preflight) may still skip it.
-			if m.Optional {
-				mode = "optional; may be absent; " + mode
-			}
-			entry := "- `" + m.Path + "` (" + mode + "; host `" + m.Host + "`"
-			if m.Pack != "" {
-				entry += "; from pack `" + m.Pack + "`"
-			}
-			lines = append(lines, entry+")")
-		}
-		if anyRW {
-			lines = append(lines, "",
-				"A read-write mount is the host's own directory, not a copy: what you write there",
-				"is what the host reads.")
-		}
-		// THE LINK DELIVERY'S TWO DELTAS, said where an agent would trip on them
-		// (docs/reference/context-mounts.md#what-cannot-be-matched). With no container there is no mount
-		// namespace: each entry is a link to the host folder itself, so a tool that resolves
-		// paths reports the host's, and the sandbox account's file permissions apply below the
-		// folder, which a container's root would have read past.
-		//
-		// A copied entry is not a link, so the sentence leaves it out by name when both kinds are
-		// listed, and is not said at all when every entry is a copy.
-		if MechanismHasNoContainer(in.Mechanism) && anyLinked {
-			each := "Each is a link"
-			if anyCopied {
-				each = "Each one not copied is a link"
-			}
-			lines = append(lines, "",
-				each+" to the host folder itself, not a mount: `pwd -P`, `realpath` and",
-				"git print the host path, and a subfolder this account may not read stays",
-				"unreadable here (`Permission denied`).")
-		}
-		lines = append(lines, "")
-	}
-
-	// DP-B1's SECOND briefing site. The `/ctx` clause was unconditional, so a jail with no
-	// `mounts` at all — and every macos-user jail, which bound none before it delivered them by
-	// link — was told a read-only filesystem existed that nothing had mounted. The "Additional Context Mounts" section above lists what was BOUND; this line
-	// describes the same thing, so the two have to appear and disappear together. Fixing one
-	// and not the other is how the first fix was found to be half a fix.
-	noSudoLine := "- No sudo/root."
-	if len(in.ContextMounts) > 0 {
-		noSudoLine = "- No sudo/root; context mounts under `$" + paths.ContextDirEnv +
-			"` are read-only unless marked read-write."
-	}
-	lines = append(lines,
-		"## Limitations",
-		"",
-		"- Host credentials are not propagated into the jail: the host's `~/.ssh`,",
-		"  `~/.gitconfig`, and cloud/gh tokens are invisible here. This is a credential",
-		"  boundary, not a network block — outbound SSH and HTTPS work normally, so git",
-		"  push/pull and API calls succeed whenever the jail has its own credentials",
-		"  (e.g. a workspace-specific deploy key or a token in `.env`), or when a section",
-		"  below says `git` or `gh` runs through the host's own credentials. Without",
-		"  either, authenticated operations fail.",
-		noSudoLine,
-		"",
-	)
-	lines = append(lines, hostRunSection()...)
-	lines = append(lines, "## Skills", "",
-		"Before editing the workspace config, asking for a restart, or relying on a file from the host: read **"+
-			BuiltinSkillName(in.ShippedSkillPrefix, mechanicsSkill)+"**.", "",
-		"User-level skills dirs (`~/.<agent>/skills/`) are **read-only** in-jail",
-		"(kernel-enforced); workspace-level ones (`/workspace/.<agent>/skills/`) are",
-		"writable — develop there, then ask the human to promote to the host.",
-		"",
-		"On-demand skills are staged for you: read **"+BuiltinSkillName(in.ShippedSkillPrefix, "configuring-the-jail")+"** before",
-		"editing `"+in.configName()+"`, and **"+BuiltinSkillName(in.ShippedSkillPrefix, "diagnosing-the-jail")+"** when a command",
-		"misbehaves. Their bodies load only when invoked — they cost nothing until then.",
-		"",
-	)
-
-	return strings.Join(lines, "\n") + "\n"
+	return lines
 }
 
 // briefingMenuExample is the approval menu the briefing shows as its example: the same
@@ -891,13 +541,11 @@ var briefingMenuExample = approvalwait.Menu{
 // rules (approvals are not host-run; each human command alone in a fenced block; the waiter
 // started in the background in the same turn), the approval menu a refusal prints, and
 // `yolo host-run` (docs/reference/host-run-mailbox.md, HX-D41), one line a human runs on the
-// host whose output comes back here. It is a jail section; the host notch's briefing returns
-// before it. It names no harness: a pack that installs one adds how its background task is
-// started.
+// host whose output comes back here. It is the body of the host-requests topic
+// (briefingtopics.go), whose title is its old heading; the core keeps the three rules in one line.
+// It names no harness: a pack that installs one adds how its background task is started.
 func hostRunSection() []string {
 	lines := []string{
-		"## Running a command on the host",
-		"",
 		"Three rules whenever the human must do something on the host:",
 		"",
 		"- **Approvals are not host-run.** `yolo approve`, `yolo config apply` and `yolo allow` are the",

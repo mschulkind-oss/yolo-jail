@@ -39,12 +39,13 @@ func TestMacosUserBriefingAndLaunchLinesDescribeThisBackend(t *testing.T) {
 	packHome(t, `{"packs": ["claude"]}`)
 	ws := macosUserWorkspace(t, `{"kvm": true, "gpu": {"enabled": true}, "resources": {"memory": "2g"}, "ephemeral_storage": "tmpfs"}`)
 	r := macosUserRunProbe(t, "declaration parity", ws, strings.Join([]string{
-		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md 2>&1`,
+		`echo "=== BRIEFING ==="; cat ~/.claude/CLAUDE.md ~/.claude/skills/jail-mechanics/topics/*.md 2>&1`,
 		`echo "=== END ==="`,
 	}, "\n"))
 	briefing := section(r.stdout, "=== BRIEFING ===", "=== END ===")
-	if !strings.Contains(briefing, "## Environment") {
-		t.Fatalf("no yolo briefing with an Environment block arrived at ~/.claude/CLAUDE.md, so "+
+	// The core and the jail-mechanics topic files it points at (docs/design/briefing-diet.md).
+	if !strings.Contains(briefing, "- **Workspace**") {
+		t.Fatalf("no yolo briefing core arrived at ~/.claude/CLAUDE.md, so "+
 			"none of the briefing rows can be read:\n%s", lastLines(briefing, 30))
 	}
 

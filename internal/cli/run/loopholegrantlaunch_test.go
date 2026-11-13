@@ -305,7 +305,8 @@ func TestTheBriefingStatesEachLoopholesStanding(t *testing.T) {
 		!strings.Contains(loops[0].Standing, "yolo request audio use") {
 		t.Errorf("briefing standing %q does not state the standing and the step", loops[0].Standing)
 	}
-	text := jailcontent.BriefingContent(jailcontent.BriefingInput{Loopholes: loops})
+	// With the topics inline, as an entry that stages no topic files writes them.
+	text := jailcontent.BriefingContent(jailcontent.BriefingInput{Loopholes: loops, InlineTopics: true})
 	if !strings.Contains(text, loops[0].Standing) {
 		t.Errorf("the rendered briefing drops the standing:\n%s", text)
 	}
