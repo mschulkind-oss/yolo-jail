@@ -255,15 +255,22 @@ func TestAHungRemoteFetchTimesOutOnItsOwnBudgetAndStillBuilds(t *testing.T) {
 	tip := gitIn(t, f.pusher, "rev-parse", "mine")
 	f.launch(t)
 	set("hang")
-	f.store.Timeout = 4 * time.Second
+	// The check's whole budget is generous and the hung fetch's own share of it is capped short.
+	// With a whole budget of a few seconds instead, the fetch took half and the comparison and merge
+	// base after it had to finish in the other half, which they did not at a load average of ~60
+	// ("the series' replay ran out of its 4s").
+	f.store.Timeout = 10 * time.Minute
+	defer func(c time.Duration) { shareCap = c }(shareCap)
+	shareCap = 500 * time.Millisecond
 	f.now = f.now.Add(3 * time.Hour) // the whole check runs: the fetch, the comparison, the merge base
 	// The hung fetch sleeps an hour, so the launch RETURNING, with the fetch's own timeout as its
 	// error, is the proof that the budget cut it: no wall-clock bound is asserted, since one
-	// measured the machine's load (24.6s at a load average of ~40) rather than the budget. A
-	// budget that failed to cut the fetch hangs this test into go test's timeout, which is red.
+	// measured the machine's load (24.6s at a load average of ~40) rather than the budget. The
+	// error naming the share's 500ms, not the whole budget's half, is what says the fetch was cut
+	// by its own budget.
 	r := f.launch(t).Record.PatchBranch // no Err, no Problem (launch says)
-	if r.Commit != tip || r.Verified || !strings.Contains(r.FetchErr, "timed out") {
-		t.Fatalf("resolved = %+v, want the mirror's %s, not verified, the fetch timed out", r, tip)
+	if r.Commit != tip || r.Verified || !strings.Contains(r.FetchErr, "timed out after 500ms") {
+		t.Fatalf("resolved = %+v, want the mirror's %s, not verified, the fetch timed out on its 500ms share", r, tip)
 	}
 	wantLine(t, r, f.now, "mine  origin "+shortCommit(tip), "not verified (fetch failed: ")
 }
