@@ -2,21 +2,22 @@
 title: "What only a Mac can verify"
 status: accepted
 stage: CURRENT
-next: "Write item 4's automated twin (§0.5): a launch with a pack selected that reads ~/.claude/skills and the briefing's first line, asserting a named subset rather than a count. Then the open threads at the end of this file"
+next: "Read item 4's twin on its first scheduled macos-user.yml run after it lands (§0.6: a first red is as likely the test's as the product's). Then the open threads at the end of this file"
 ---
 
 # What only a Mac can verify
 
-**Status:** what only a Mac can verify; eight of the ten items now have an automated twin on the
-scheduled `macos-user.yml` job, and items 1's and 2's, the last two written, have both passed there.
+**Status:** what only a Mac can verify; nine of the ten items now have an automated twin on the
+scheduled `macos-user.yml` job. Items 1's and 2's have both passed there; item 4's, written
+2026-11-12, has not run yet.
 
 
 **Audience:** whoever has a Mac and five minutes — and, since 2026-09-12, a nightly CI
-job that stands in for them on eight of the ten items below.
+job that stands in for them on nine of the ten items below.
 
 > [!IMPORTANT]
 > **This file was called *What only a Mac with a password can verify*, and the title had
-> to go.** Eight items run unattended on a Mac with **no** password — a host with
+> to go.** Nine items run unattended on a Mac with **no** password — a host with
 > passwordless `sudo`, which is what a GitHub-hosted macOS runner is. The password was
 > never a property of the backend; it was a property of the maintainer's laptop. What is
 > irreducible is the **Mac**, and for three items a **human at a keyboard**.
@@ -122,7 +123,7 @@ rather than by a list somebody maintains.
 | 1 | `TestMacosUserLaunchRunsAsTheSandboxAccountInTheWorkspace` (written 2026-10-01, passed on the scheduled job 2026-10-03) | nothing of the item itself; the one sudo prompt is a human's only on a Mac whose sudo asks |
 | 2 | `TestMacosUserLaunchDeniesReadOfHost0644File` (written 2026-10-13, passed on the scheduled job 2026-10-15) | nothing of the denial; the item's own two probes stay a human's smoke test, and ⚠ one of them proves nothing; see the item |
 | 3 | partly: `TestMacosUserFloorReachesTheSandboxPath` makes the same re-prepend assertion for the packages the FLOOR declares | naming a package **your own config** declares, which is what the acceptance bar is about |
-| 4 | none | all of it. Needs a launch with a pack selected; nobody has written it |
+| 4 | `TestMacosUserStagedSkillsAndBriefingReachTheAgent` (written 2026-11-12, NOT YET RUN) | nothing of the item itself |
 | 5 | `TestMacosUserHomeTierIsPerWorkspace` | nothing of the item itself |
 | 6 | `TestMacosUserFloorReachesTheSandboxPath` | nothing |
 | 7 | `TestMacosUserProvisioningStageRunsAndRecordsItself` | nothing that can be spelled — its ⚠ cwd sub-item is **struck**, its ⚠ timing sub-item is now a logged number |
@@ -130,8 +131,8 @@ rather than by a list somebody maintains.
 | 9 | `TestMacosUserDeclaredToolsArrive` (three subtests, one launch) | nothing. Its fourth subtest, `lsp_servers`, was deleted on 2026-09-25 with the LSP install recipes; see the item |
 | 10 | (a) `TestMacosUserLayoutRefusesAnOccupiedSidecarMirror` | (b) never, deliberately: it poisons an account home permanently |
 
-Eight of the ten have an unattended twin, item 2's among them, which is the one that
-establishes the backend is a sandbox at all. **Two do not**: item 3 only partly, and item 4.
+Nine of the ten have an unattended twin, item 2's among them, which is the one that
+establishes the backend is a sandbox at all. **One does not**: item 3, only partly.
 
 ### 0.2 The job that runs them
 
@@ -226,9 +227,10 @@ passwordless host the other six need, and items 1, 2 and 4 could share one launc
   derivation to build. The only one of the four with a cost beyond the launch.
 - **4** — a launch with a pack selected, then `~/.claude/skills` and the briefing's first line.
   ⚠ **It must not assert a skill COUNT.** Item 4's two runs recorded fourteen and thirteen, and
-  both were right: `developing-yolo-jail` is the source-tree-only skill, and the second run used
-  a workspace that is not this repo. Assert a named subset plus the source-tree skill's presence
-  *keyed on the workspace*, or the test encodes a bug.
+  both were right: `developing-yolo-jail` was the source-tree-only skill, and the second run used
+  a workspace that is not this repo. **Written 2026-11-12**; see item 4. The source-tree special
+  case was removed since (commit `66ad2a48d`), so there is no workspace-keyed skill left to
+  assert, and the twin asserts the named subset alone.
 
 ### 0.6 The FIRST run is different, and the section above does not apply to it
 
@@ -465,11 +467,17 @@ whether the workspace is this repo. `~/.claude/CLAUDE.md` again opened with the 
 briefing.
 
 > [!NOTE]
-> **No automated twin.** It needs a launch with a pack selected (the isolated user config the
-> suite already writes, via `packHome`), then two reads: `~/.claude/skills` and the first line
-> of `~/.claude/CLAUDE.md`. `TestMacosUserHomeTierIsPerWorkspace` selects a pack and launches,
-> but asserts the SHAPE of the home rather than what was staged into it, so it would not notice
-> content that never arrived.
+> **The automated twin was written on 2026-11-12**:
+> `TestMacosUserStagedSkillsAndBriefingReachTheAgent`
+> (`integration/macosuserstagedcontent_test.go`). It selects the claude pack through `packHome`,
+> launches, and reads through `~/.claude`: every skill directory holding a `SKILL.md`, and the
+> briefing's first line. It asserts that both built-in skills, `configuring-the-jail` and
+> `diagnosing-the-jail`, arrived, never a count, and that the briefing opens with
+> `# YOLO Environment — setup `. Two things changed since the hand runs above: the built-ins
+> are now those two on-demand skills rather than fourteen, and the source-tree-only skill is gone
+> (commit `66ad2a48d`), so the workspace no longer decides the list.
+> `TestMacosUserStagedContentProbeReadsAFixture` runs the same probe unsandboxed under `-short`
+> and checks that each named skill is a real embedded one. **NOT YET RUN on a Mac.**
 
 ## 5. The per-workspace home layout — NEW 2026-09-12, NEVER RUN
 
