@@ -164,7 +164,7 @@ func TestLaunchWarningNamesTheFileAndLine(t *testing.T) {
 }
 
 // The retired `mcp_presets` key is refused by the LAUNCH at either scope, naming the file and
-// line it is written at and the replacement (docs/design/mcp-presets-removal.md §13 step 3). A
+// line it is written at and the replacement (docs/reference/mcp-configuration.md, the retired mcp_presets key). A
 // value of [] is refused too: the key itself is the thing to delete.
 func TestALaunchRefusesTheRetiredMCPPresetsKeyAtEitherScope(t *testing.T) {
 	for _, scope := range []string{"user", "workspace"} {

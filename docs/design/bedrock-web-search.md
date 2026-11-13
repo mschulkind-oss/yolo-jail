@@ -5,7 +5,7 @@ status: in-review
 stage: DESIGN
 next: "Rule OQ-BR19, the first owed, then OQ-BR23 and OQ-BR20. D7, read 2026-10-01 from the shipped packages, bears on OQ-BR19 (codex and opencode do not resolve ${VAR} in an MCP server's env) and widens OQ-BR23 (on -p bedrock-bridge claude and codex offer a search runtime cannot serve, and runtime answered claude's with a 400 on 2026-10-01; copilot and oh-omp search outside the MCP table)"
 depends-on:
-  - mcp-presets-removal.md
+  - ../reference/mcp-configuration.md
 tags: [bedrock, aws, agentcore, mcp, web-search, tavily, packs, providers]
 summary: "No agent has native web search on bedrock-runtime, the one Bedrock endpoint family yolo ships. So every Bedrock profile gets one MCP search tool served by an AgentCore gateway the company creates once, reached through an in-jail signing proxy, shipped by the Bedrock pack, on by default and keyed the way a user's Tavily server is keyed. Five questions decide how it is built; the direction is ruled, the proxy's shape is decided and the Bedrock gate is answered."
 ---
@@ -38,8 +38,8 @@ and when a user's own Tavily search server is also eligible, which one does it g
 - **Ruled:** every Bedrock profile gets web search as an MCP tool served by AWS's AgentCore, on by
   default, *"just like we can include tavily optionally by capability"* ([DIR-BR4](#DIR-BR4)).
 - **Also ruled, elsewhere, and it narrows this doc:** a pack may contribute an MCP server entry
-  through a new `mcp` kind ([`OQ-MP3`](mcp-presets-removal.md#decision-ledger), 2026-09-20), and the
-  core `mcp_presets` list retires ([`OQ-MP6`](mcp-presets-removal.md#decision-ledger)). Neither is
+  through a new `mcp` kind ([`OQ-MP3`](../reference/mcp-configuration.md#OQ-MP3), 2026-09-20), and the
+  core `mcp_presets` list retires ([`OQ-MP6`](../reference/mcp-configuration.md#OQ-MP6)). Neither is
   built. So "a preset like devtools" now means *a pack-shipped `mcp` entry*, the shape
   chrome-devtools itself is moving to.
 - **Settled 2026-09-29:** the signing proxy is a stdio MCP server that is a hidden `yolo`
@@ -69,7 +69,7 @@ and when a user's own Tavily search server is also eligible, which one does it g
 **Reads with:** [`bedrock-plumbing.md`](bedrock-plumbing.md) (how each agent reaches Bedrock at
 all), [`mcp-configuration.md`](../reference/mcp-configuration.md) (the MCP pipeline this amends:
 pack-contributed entries, the closed preset list; the settled parts fold in there at graduation),
-[`mcp-presets-removal.md`](mcp-presets-removal.md) (the `mcp` kind),
+[`mcp-configuration.md`](../reference/mcp-configuration.md#a-packs-servers-the-mcp-kind) (the `mcp` kind),
 [capability-driven MCP delivery](../reference/mcp-configuration.md#capability-driven-mcp-delivery) (the delivery rule this
 reuses), [`providers-and-profiles-redesign.md`](providers-and-profiles-redesign.md) (how "this is
 Bedrock" gets spelled), [`providers.md`'s credential gate](../reference/providers.md#the-credential-gate) (why nothing
@@ -177,7 +177,7 @@ MEASURED at `6f21b82c`, from the code and [`mcp-configuration.md`](../reference/
   the table (claude, codex, copilot, opencode, pi, agy) writes one. yolo delivers an MCP server only
   as a command the agent spawns.
 - **No pack can contribute one.** `ValidateKind` refuses `mcp-server` as an unknown kind
-  (`internal/packdecl/kinds_test.go`). The `mcp` kind [`OQ-MP3`](mcp-presets-removal.md#decision-ledger)
+  (`internal/packdecl/kinds_test.go`). The `mcp` kind [`OQ-MP3`](../reference/mcp-configuration.md#OQ-MP3)
   ruled is not built.
 - **`${VAR}` is never interpolated by yolo.** It is written verbatim, and the agent that launches
   the server resolves it ([`mcp-configuration.md`](../reference/mcp-configuration.md#the-rules-the-one-loader-enforces)).
@@ -278,7 +278,7 @@ MEASURED at `6f21b82c` ([§3](#3-what-yolos-mcp-pipeline-does-today)):
 
 | The preset needs | Today | Verdict |
 | :--- | :--- | :--- |
-| An MCP entry a pack ships | presets are core's closed list; no contribution kind carries an MCP server | **missing**, but ruled: the `mcp` kind ([`OQ-MP3`](mcp-presets-removal.md#decision-ledger)) |
+| An MCP entry a pack ships | presets are core's closed list; no contribution kind carries an MCP server | **missing**, but ruled: the `mcp` kind ([`OQ-MP3`](../reference/mcp-configuration.md#OQ-MP3)) |
 | On by default | presets are opt-in through `mcp_presets` | **missing**; a pack's `mcp` entry is on whenever the pack is selected |
 | Delivered only on a Bedrock profile | the capability rule keys on capabilities, not identity; name-keyed gates are [trap D5](providers-and-profiles-redesign.md#D5) | **missing**; answered by a gate on the provider's `platform` ([OQ-BR22](#decision-ledger)) |
 | Suppressed where search is native | capability-driven MCP delivery | **present**, reused unchanged |
@@ -633,7 +633,7 @@ unchanged. Its *"queries stay in AWS"* holds only if those per-agent tools are a
 | :--- | :--- | :--- | :--- | :--- |
 | DIR-BR4 | **Every Bedrock profile, in every agent and for every model, gets web search as an MCP tool served by an AgentCore gateway the company creates once.** *"we could also integrate search for agent core and get search for all models?"*, then *"let's skip mantle"*, refined: *"it'll probably just be a mcp preconfig like devtools, and easy to include with bedrock by default just like we can include tavily optionally by capability."* So the tool is an MCP preset the Bedrock pack contributes, on by default on Bedrock profiles and keyed the way Tavily is keyed, reached through an in-jail signing proxy. How it is built is [OQ-BR19](#OQ-BR19)–[OQ-BR23](#OQ-BR23). A direction, so no question id | 2026-09-25 | [§4](#4-the-shape) (was [`bedrock-plumbing.md`](bedrock-plumbing.md) section 6.9) | — |
 | OQ-BR21 | **Implementation decision, no ruling needed:** A, the signing proxy is a stdio MCP server that is a hidden `yolo` subcommand, signing with `internal/sigv4` (`AgentCoreService`, `AgentCoreGatewayRegion`, `Chain`). No config schema change. B, a wire-bridge loopback route, is the later upgrade path; C is refused because it would run third-party code holding the jail's AWS credentials. The proxy never sends the chain's unsigned bearer | 2026-09-29 | [§4](#4-the-shape), [§7](#7-behavior-of-the-preset-and-the-proxy) | — (the signer, `internal/sigv4`, is built; the proxy is not) |
-| OQ-BR22 | **Answered by rulings** [DIR-BR4](#DIR-BR4), [OQ-MP3](mcp-presets-removal.md#decision-ledger), [OQ-MP6](mcp-presets-removal.md#decision-ledger), [OQ-BR2](providers-and-profiles-redesign.md#8-decision-ledger) and [OQ-BR8](providers-and-profiles-redesign.md#8-decision-ledger): A, the Bedrock pack ships `agentcore-web-search` as an `mcp` entry delivered to a render target whose selected provider declares `"platform": "aws-bedrock"`. Gated on the platform alone, so `-p bedrock-bridge` gets it too | 2026-09-29 | [§5](#5-keyed-the-way-tavily-is-keyed-gated-to-bedrock) | — (the `platform` field and the `mcp` kind are built; the preset and its gate are not) |
+| OQ-BR22 | **Answered by rulings** [DIR-BR4](#DIR-BR4), [OQ-MP3](../reference/mcp-configuration.md#OQ-MP3), [OQ-MP6](../reference/mcp-configuration.md#OQ-MP6), [OQ-BR2](providers-and-profiles-redesign.md#8-decision-ledger) and [OQ-BR8](providers-and-profiles-redesign.md#8-decision-ledger): A, the Bedrock pack ships `agentcore-web-search` as an `mcp` entry delivered to a render target whose selected provider declares `"platform": "aws-bedrock"`. Gated on the platform alone, so `-p bedrock-bridge` gets it too | 2026-09-29 | [§5](#5-keyed-the-way-tavily-is-keyed-gated-to-bedrock) | — (the `platform` field and the `mcp` kind are built; the preset and its gate are not) |
 
 ---
 

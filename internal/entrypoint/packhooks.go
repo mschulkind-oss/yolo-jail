@@ -38,7 +38,7 @@ package entrypoint
 // hook joins this file; inventing a general mechanism before then would be speculation.
 //
 // ONE HOOK DOES RUN PACK CODE, by the maintainer's ruling: boot_check
-// (docs/design/mcp-presets-removal.md, OQ-MP9, 2026-10-23 — "if the pack discovers at boot …
+// (docs/reference/mcp-configuration.md, OQ-MP9, 2026-10-23 — "if the pack discovers at boot …
 // that it's not there, then it should print it … it is just a warning"). It runs a script the
 // pack delivers, as the boot's user, in a CONTAINER jail only, where the whole boot is inside the
 // jail's confinement. It runs neither on macos-user, whose bootstrap is outside the agent's

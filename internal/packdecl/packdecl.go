@@ -233,7 +233,7 @@ type Hook struct {
 var KnownHooks = []string{"shared_credentials", "shared_directory", "unshare_directory", "per_jail_history", HookBootCheck}
 
 // HookBootCheck is the hook that runs a check script the pack delivers, once at boot, and
-// prints what it says as a warning (docs/design/mcp-presets-removal.md, OQ-MP9): `from` is the
+// prints what it says as a warning (docs/reference/mcp-configuration.md, OQ-MP9): `from` is the
 // script's home-relative path, run as `/bin/sh <home>/<from> <flags...>`. Spelled here as well
 // as in the entrypoint because the host validates the one field only this hook takes (`flags`).
 const HookBootCheck = "boot_check"
@@ -1465,14 +1465,14 @@ func (ls *LaunchSelection) TakesSubcommand(argv []string) bool {
 // with that home (packload.ComposeMCPServers), because an MCP client spawns its servers with a
 // scrubbed environment and so needs an absolute path, and the home differs per notch: /home/agent in
 // a container jail, the sandbox account's home on macos-user, your own at `yolo host`. It is the
-// whole path vocabulary the kind has (docs/design/mcp-presets-removal.md OQ-MP4).
+// whole path vocabulary the kind has (docs/reference/mcp-configuration.md OQ-MP4).
 const MCPHomePrefix = "~/"
 
 // mcpEntryKeys is the field set of an `mcp` contribution's entry: the keys a user's own
 // `mcp_servers` entry takes (the config package's knownMCPServerKeys, which this package may not
 // import, and TestTheMCPKindCarriesEveryMCPServerKey there pins the two together), so a pack's
 // server is never second-class to a hand-written one, nor able to say what one cannot
-// (mcp-presets-removal.md §6.2, risk R2).
+// (docs/reference/mcp-configuration.md MP-D6).
 var mcpEntryKeys = []string{"args", "command", "env", "headers", "oauth", "provides", "requires_env", "transport", "url"}
 
 // MCPEntryKeys returns mcpEntryKeys, sorted, for the test that pins it against the config's set.
