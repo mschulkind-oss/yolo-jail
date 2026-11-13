@@ -90,6 +90,11 @@ func registerOrdinaryPreparations(ctx context.Context, vector []npmCaptureInput,
 				r.RetryAt = time.Time{}
 				r.ServingEntry = ""
 			}
+			// A revoked record carries a terminal label from its revocation; re-registered, it is
+			// due work again (its admitted entry stays served) — as a reactivated tree is.
+			if !r.Active || r.Phase == "inactive" || r.Phase == "unresolved" {
+				r.Phase = "pending"
+			}
 			r.Active = true
 			r.Reason = ""
 			r.UpdatedAt = preparationNow()

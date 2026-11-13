@@ -166,7 +166,10 @@ func TestPreparationStatusNamesAnExplicitStop(t *testing.T) {
 	withHomeAndCwd(t)
 	stoppedAt := time.Date(2026, 11, 13, 11, 12, 24, 0, time.UTC)
 	if err := withPreparationState(func(s *preparationState) error {
-		s.Subscriptions = []preparationRecord{{Key: "owner/tree", Runtime: "podman", Platform: "linux/amd64", Generation: 1, Active: true, Phase: "admitted"}}
+		s.Subscriptions = []preparationRecord{
+			{Key: "owner/tree", Runtime: "podman", Platform: "linux/amd64", Generation: 1, Active: true, Phase: "admitted"},
+			{Key: "owner/off", Runtime: "podman", Platform: "linux/amd64", Generation: 1, Phase: "inactive"},
+		}
 		s.Worker = preparationWorker{Identity: "stopped-incarnation", StopRequested: true, StoppedAt: stoppedAt}
 		return nil
 	}); err != nil {
@@ -179,6 +182,10 @@ func TestPreparationStatusNamesAnExplicitStop(t *testing.T) {
 	want := "Tree preparation worker: not running; stopped by `yolo pack prepare stop` at " + stoppedAt.Local().Format(time.RFC3339) + "; run `yolo pack prepare start` to reauthorize and resume"
 	if !strings.Contains(out.String(), want) {
 		t.Fatalf("status did not name the explicit stop; want %q in:\n%s", want, out.String())
+	}
+	// An inactive phase is said once, not "inactive (inactive)".
+	if !strings.Contains(out.String(), "owner/off [podman/linux/amd64] generation 1 (diagnostic only; not admission): inactive\n") {
+		t.Fatalf("inactive record misprinted:\n%s", out.String())
 	}
 
 	// A worker that exited on its own (no stop asked) keeps the plain line.

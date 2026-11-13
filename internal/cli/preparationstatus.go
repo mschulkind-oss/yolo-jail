@@ -53,7 +53,7 @@ func printPreparationStatus(out, errw io.Writer, color bool, key string) int {
 			phase = "pending"
 		}
 		pr.Printf("%s [%s/%s] generation %d (diagnostic only; not admission): %s%s", r.Key, r.Runtime, r.Platform, r.Generation, phase,
-			map[bool]string{true: " (inactive)", false: ""}[!r.Active])
+			map[bool]string{true: " (inactive)", false: ""}[!r.Active && phase != "inactive"])
 		if r.Retained != nil && (r.Retained.Generation != r.Generation || r.Retained.InputIdentity != r.InputIdentity) {
 			pr.Printf("  retained diagnostic generation %d (previous declaration, not current admission): %s", r.Retained.Generation, richtext.Escape(r.Retained.Phase))
 			if r.Retained.Reason != "" {
