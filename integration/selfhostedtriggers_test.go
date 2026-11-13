@@ -74,9 +74,10 @@ var unsafeSelfHostedTriggers = map[string]string{
 // below.
 var onBlockRe = regexp.MustCompile(`(?m)^(?:on|"on"|'on'):[ \t]*(.*)$((?:\n(?:[ \t]+[^\n]*|[ \t]*))*)`)
 
-// triggerKeyRe matches one trigger inside the mapping form — a key at any indent, which is
-// enough because a nested key (`schedule:`'s `- cron:`) is a list item and starts with `-`.
-var triggerKeyRe = regexp.MustCompile(`(?m)^[ \t]{1,4}([a-z_]+):`)
+// triggerKeyRe matches one key inside the mapping form, with its indent. Only the keys at the
+// FIRST key's indent are triggers: a list item (`schedule:`'s `- cron:`) starts with `-`, but a
+// trigger's own mapping (`workflow_dispatch:`'s `inputs:`) is a deeper key and is not a trigger.
+var triggerKeyRe = regexp.MustCompile(`(?m)^([ \t]{1,8})([a-z_]+):`)
 
 // inlineListRe pulls the names out of the `on: [a, b]` form.
 var inlineListRe = regexp.MustCompile(`\[([^\]]*)\]`)
@@ -110,8 +111,14 @@ func workflowTriggers(t *testing.T, body string) []string {
 		return []string{bare}
 	}
 	var out []string
+	indent := ""
 	for _, km := range triggerKeyRe.FindAllStringSubmatch(m[2], -1) {
-		out = append(out, km[1])
+		if indent == "" {
+			indent = km[1]
+		}
+		if km[1] == indent {
+			out = append(out, km[2])
+		}
 	}
 	return out
 }
@@ -220,4 +227,16 @@ func sortedKeys(m map[string]string) []string {
 		}
 	}
 	return out
+}
+
+// TestWorkflowTriggersIgnoreATriggersOwnKeys: a dispatch input (`workflow_dispatch:`'s
+// `inputs:`, as .github/workflows/orbstack.yml declares) is not a trigger, while every
+// first-level event still is, whatever its indent.
+func TestWorkflowTriggersIgnoreATriggersOwnKeys(t *testing.T) {
+	body := "on:\n  workflow_dispatch:\n    inputs:\n      connection:\n        required: true\n" +
+		"  schedule:\n    - cron: '0 0 * * *'\n  push:\n\njobs:\n"
+	got := workflowTriggers(t, body)
+	if strings.Join(got, ",") != "workflow_dispatch,schedule,push" {
+		t.Errorf("triggers = %v, want [workflow_dispatch schedule push]", got)
+	}
 }

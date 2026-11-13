@@ -1,0 +1,108 @@
+name: OrbStack native proof
+
+# Component D of docs/research/orbstack-as-a-podman-host-plan.md: the native proof that yolo's
+# Podman path works on a rootless Podman inside an OrbStack Linux machine, reached through
+# OrbStack's own SSH proxy. A Linux run or a nested jail proves none of it: OrbStack's SSH
+# half-close, its shared folders and host.orb.internal exist only on the Mac.
+#
+# DISPATCH ONLY, BY THE MAINTAINER, ON A REVIEWED REF. It runs on the existing self-hosted Mac
+# (the one apple-container.yml uses, which has OrbStack installed) and names the Podman
+# connection to use; the connection and its OrbStack machine are set up by hand beforehand, and
+# nothing here creates, changes or removes either (that waits on OQ-ORB1):
+#
+#   gh workflow run orbstack.yml --repo mschulkind-oss/yolo-jail --ref <reviewed-branch> \
+#     -f connection=<connection-name>
+#   gh run watch
+#
+# The connection name is not a secret, and it reaches every step through `env`, never
+# interpolated into shell source. integration/selfhostedtriggers_test.go pins the trigger and the
+# repository guard.
+
+on:
+  workflow_dispatch:
+    inputs:
+      connection:
+        description: "Podman connection (podman system connection list) to the OrbStack machine"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CONTAINER_CONNECTION: ${{ inputs.connection }}
+
+jobs:
+  orbstack:
+    if: github.repository == 'mschulkind-oss/yolo-jail'
+    runs-on: [self-hosted, apple-container]
+    name: OrbStack (self-hosted arm64 Mac)
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          set-safe-directory: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: The selected endpoint is a rootless OrbStack machine
+        run: |
+          set -euo pipefail
+          test -n "$CONTAINER_CONNECTION"
+          facts=$(podman info --format '{{.Host.Security.Rootless}}|{{.Host.Kernel}}')
+          test "${facts%%|*}" = true || { echo "::error::the endpoint behind $CONTAINER_CONNECTION is not rootless"; exit 1; }
+          kernel=${facts#*|}
+          printf 'Selected Podman guest kernel: %s\n' "$kernel"
+          case "$kernel" in
+            *-orbstack*) ;;
+            *) echo "::error::$CONTAINER_CONNECTION is not an OrbStack Podman endpoint (kernel $kernel)"; exit 1 ;;
+          esac
+
+      - name: Realize the jail image (building through the Apple Container builder)
+        run: |
+          set -euo pipefail
+          SPEC="$(scripts/mac-ac-linux-builder.sh)"
+          echo "builders: $SPEC"
+          printf 'NIX_CONFIG=builders = %s\n' "$SPEC" >> "$GITHUB_ENV"
+          nix build --impure --accept-flake-config --no-link --print-out-paths \
+            .#ociImage --builders "$SPEC"
+
+      - name: Load the realized image into the selected connection
+        # `just load` on macOS archives the image and runs `podman load -i`, which honors
+        # CONTAINER_CONNECTION: the launch's own delivery branch, never a containers-storage copy.
+        run: just load
+        env:
+          YOLO_LOAD_RUNTIME: podman
+
+      - name: Select the OrbStack tests
+        id: subset
+        run: |
+          set -euo pipefail
+          go test -list '^TestOrbStack' ./integration | grep -E '^TestOrbStack' | sort > "$RUNNER_TEMP/orbstack-tests"
+          count=$(wc -l < "$RUNNER_TEMP/orbstack-tests" | tr -d ' ')
+          echo "selected $count OrbStack tests:"
+          cat "$RUNNER_TEMP/orbstack-tests"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::the listing selected 0 tests named TestOrbStack… — refusing to pass vacuously. Either the suite was renamed, or ./integration does not compile."
+            exit 1
+          fi
+          echo "pattern=^($(paste -sd'|' "$RUNNER_TEMP/orbstack-tests"))$" >> "$GITHUB_OUTPUT"
+
+      - name: OrbStack tests
+        run: go test -count=1 -timeout 0 -v -run '${{ steps.subset.outputs.pattern }}' ./integration
+        env:
+          YOLO_TEST_ORBSTACK: "1"
+          YOLO_SETUP: podman-self
+
+      - name: Leftovers (report only)
+        if: always()
+        run: |
+          podman ps --all || true
