@@ -111,11 +111,11 @@ func (r *reporter) note(text string) {
 	}
 }
 
-// ok increments the pass count and prints " [PASS] msg".
+// ok increments the pass count and prints " ✓ [PASS] msg".
 func (r *reporter) ok(msg string) {
 	r.passed++
 	r.record("pass", msg, "")
-	r.line("  " + r.style("[PASS]", ansiBoldGreen) + " " + msg)
+	r.line(r.badge(glyphPass, ansiGreen, badgePass, ansiBoldGreen) + msg)
 }
 
 // okPath is ok for a "<label><path><tail>" finding whose path is the value: the recorded
@@ -125,26 +125,26 @@ func (r *reporter) ok(msg string) {
 func (r *reporter) okPath(label, path, tail string) {
 	r.passed++
 	r.record("pass", label+path+tail, "")
-	r.line("  " + r.style("[PASS]", ansiBoldGreen) + " " + label + r.style(path, ansiCyan) + tail)
+	r.line(r.badge(glyphPass, ansiGreen, badgePass, ansiBoldGreen) + label + r.style(path, ansiCyan) + tail)
 }
 
-// fail increments the fail count and prints " [FAIL] msg" + optional note.
+// fail increments the fail count and prints " ✗ [FAIL] msg" + optional note.
 func (r *reporter) fail(msg, note string) {
 	r.failed++
 	r.record("fail", msg, note)
-	r.line("  " + r.style("[FAIL]", ansiWhiteOnRed) + " " + msg)
+	r.line(r.badge(glyphFail, ansiRed, badgeFail, ansiWhiteOnRed) + msg)
 	r.note(note)
 }
 
-// warn increments the warn count and prints " [WARN] msg" + optional note.
+// warn increments the warn count and prints " ! [WARN] msg" + optional note.
 func (r *reporter) warn(msg, note string) {
 	r.warned++
 	r.record("warn", msg, note)
-	r.line("  " + r.style("[WARN]", ansiBlackOnYel) + " " + msg)
+	r.line(r.badge(glyphWarn, ansiYellow, badgeWarn, ansiBlackOnYel) + msg)
 	r.note(note)
 }
 
-// skip prints " [SKIP] msg" and counts it SEPARATELY from the three grades.
+// skip prints "   [SKIP] msg" (no glyph, console.go) and counts it SEPARATELY from the three grades.
 //
 // # Why this level exists
 //
@@ -175,7 +175,7 @@ func (r *reporter) warn(msg, note string) {
 func (r *reporter) skip(msg, note string) {
 	r.skipped++
 	r.record("skip", msg, note)
-	r.line("  " + r.style("[SKIP]", ansiDimBadge) + " " + msg)
+	r.line(r.badge(glyphSkip, "", badgeSkip, ansiDimBadge) + msg)
 	r.note(note)
 }
 
@@ -240,6 +240,13 @@ func (r *reporter) configWarn(msg string) {
 	}
 	r.configWarned[msg] = true
 	r.warn(msg, "Fix the config entry this names (`yolo config-ref` documents every key), "+recheck)
+}
+
+// badge renders a graded line's prefix: the indent, the glyph in its hue, the badge in its
+// own SGR, and the space before the message. Stripped, it is console.go's plain prefix, so
+// PassLine(msg) is what ok(msg) prints with color off.
+func (r *reporter) badge(glyph, glyphSGR, badge, badgeSGR string) string {
+	return "  " + r.style(glyph, glyphSGR) + " " + r.style(badge, badgeSGR) + " "
 }
 
 // style wraps s in an ANSI SGR sequence when color is on; otherwise returns s

@@ -296,10 +296,10 @@ for Linux and Apple silicon Macs. An Intel Mac gets the guide's nixos.org script
 trust lines instead.
 
 ```text
-  [FAIL] nix not found
-       -> Install Nix with the NixOS Nix installer (its --extra-conf makes the Nix daemon trust you):
-            curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
-          then, in a new terminal: yolo check
+  ✗ [FAIL] nix not found
+         -> Install Nix with the NixOS Nix installer (its --extra-conf makes the Nix daemon trust you):
+              curl -sSfL https://artifacts.nixos.org/nix-installer | sh -s -- install --extra-conf "extra-trusted-users = $(whoami)"
+            then, in a new terminal: yolo check
 ```
 
 **Before:** `yolo check` with its output piped, and two running jails it judges orphaned:
@@ -312,11 +312,11 @@ trust lines instead.
 why each jail stopped, which a removal from outside yolo cannot.
 
 ```text
-  [WARN] 2 orphaned jail(s)
-       -> These containers are stuck or have lost their workspace, and this check removes them
-          only when a terminal answers its question:
-          fix:  podman rm -f yolo-api-3f2a91c0 yolo-web-9c1d47e2
-          then: yolo check
+  ! [WARN] 2 orphaned jail(s)
+         -> These containers are stuck or have lost their workspace, and this check removes them
+            only when a terminal answers its question:
+            fix:  podman rm -f yolo-api-3f2a91c0 yolo-web-9c1d47e2
+            then: yolo check
 ```
 
 **Before:** a jail's first `codex` whose install fails (the launcher in `~/.yolo/bin/launch`):

@@ -6,28 +6,43 @@ package check
 
 import "strings"
 
-// Plain badge lines (ANSI-stripped). Two leading spaces, a 6-column "[BADGE]"
-// tag, then a space and the message.
+// Plain badge lines (ANSI-stripped). Two leading spaces, a one-column glyph and
+// a space, a 6-column "[BADGE]" tag, then a space and the message.
 const (
 	badgePass = "[PASS]"
 	badgeFail = "[FAIL]"
 	badgeWarn = "[WARN]"
+	badgeSkip = "[SKIP]"
+
+	// The scannable glyphs before the badges (docs/plans/cli-visual-polish.md, Group C): the
+	// eye finds a ✗ in a column of ✓ faster than it reads [FAIL] among [PASS]. They are literal
+	// text, so the plain report carries them too; on a terminal each takes its badge's hue.
+	// [SKIP] has no glyph, only the blank that keeps its badge in the column: it reports an
+	// absence, and a mark would compete with the three that report a finding.
+	glyphPass = "✓"
+	glyphFail = "✗"
+	glyphWarn = "!"
+	glyphSkip = " "
 
 	// Note indent: the first line is prefixed with an ASCII "-> " arrow (not a
 	// Unicode arrow — legible on a plain terminal); continuation lines align
-	// under it.
-	noteFirstPrefix = "       -> "
-	noteContPrefix  = "          "
+	// under it. The arrow sits under the badge's closing bracket, as it did
+	// before the glyph column moved the badge two columns right.
+	noteFirstPrefix = "         -> "
+	noteContPrefix  = "            "
 )
 
 // PassLine returns the plain-text PASS line for msg.
-func PassLine(msg string) string { return "  " + badgePass + " " + msg }
+func PassLine(msg string) string { return "  " + glyphPass + " " + badgePass + " " + msg }
 
 // FailLine returns the plain-text FAIL line for msg.
-func FailLine(msg string) string { return "  " + badgeFail + " " + msg }
+func FailLine(msg string) string { return "  " + glyphFail + " " + badgeFail + " " + msg }
 
 // WarnLine returns the plain-text WARN line for msg.
-func WarnLine(msg string) string { return "  " + badgeWarn + " " + msg }
+func WarnLine(msg string) string { return "  " + glyphWarn + " " + badgeWarn + " " + msg }
+
+// SkipLine returns the plain-text SKIP line for msg.
+func SkipLine(msg string) string { return "  " + glyphSkip + " " + badgeSkip + " " + msg }
 
 // NoteLines renders a (possibly multi-line) note:
 // the first line gets the "-> " arrow, the rest align under it. Returns one
