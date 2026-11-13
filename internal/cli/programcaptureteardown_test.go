@@ -18,6 +18,7 @@ func TestSelectedNPMSharedDemandRegisteredDuringTeardownIsNotAnsweredWithTheCanc
 	f := newSelectedNPMFixture(t)
 	req := selectedNPMUser(t, f, false)
 	workers := selectedNPMSharedWorker(t)
+	started := make(chan struct{})
 	cancelled := make(chan struct{})
 	releaseTeardown := make(chan struct{})
 	inner := programCaptureChild
@@ -26,6 +27,7 @@ func TestSelectedNPMSharedDemandRegisteredDuringTeardownIsNotAnsweredWithTheCanc
 		if calls.Add(1) == 1 {
 			// The first producer child holds until the worker cancels it, then holds its teardown
 			// open until the test has registered the second launch's demand.
+			close(started)
 			<-ctx.Done()
 			close(cancelled)
 			<-releaseTeardown
@@ -42,7 +44,15 @@ func TestSelectedNPMSharedDemandRegisteredDuringTeardownIsNotAnsweredWithTheCanc
 	firstDone := make(chan error, 1)
 	go func() { firstDone <- wait(first) }()
 	dir := sharedDemandDir(ordinaryProgramKey(f.in), req.Runtime, req.Platform)
-	selectedNPMWaitLeases(t, dir, 1)
+	// Cancel only once production is running: a requester gone before the worker starts its
+	// producer leaves nothing to tear down.
+	select {
+	case <-started:
+	case err := <-firstDone:
+		t.Fatalf("the first requester returned before its producer started: %v", err)
+	case <-time.After(testHangGuard(t)):
+		t.Fatal("the worker never started its producer")
+	}
 	cancelFirst()
 	if err := <-firstDone; !errors.Is(err, context.Canceled) {
 		t.Fatalf("first requester: %v", err)
