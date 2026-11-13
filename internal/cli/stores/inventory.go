@@ -21,7 +21,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
-	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 // Sizing says HOW a size figure was obtained. It is printed beside every number
@@ -104,6 +103,10 @@ type Store struct {
 	Section string `json:"section"`
 	Name    string `json:"name"`
 	Path    string `json:"path"`
+	// Confinement is the technology a technology-bound row belongs to ("podman",
+	// "apple-container"); "" for a row of the whole machine, which appears once
+	// (named-setups.md §12.5).
+	Confinement string `json:"confinement,omitempty"`
 
 	Sizing Sizing `json:"sizing"`
 	Bytes  int64  `json:"bytes"`
@@ -128,18 +131,23 @@ type Store struct {
 
 // Report is one run's whole inventory.
 type Report struct {
+	// Schema names the document and its version (named-setups.md §12.5).
+	Schema      string    `json:"schema"`
 	GeneratedAt time.Time `json:"generated_at"`
 	// Frame is "host" or "in-jail". THE HEADER STATES WHICH MACHINE'S VIEW IT
 	// MEASURED, and this is not cosmetic: paths.GlobalCache() resolves to the
 	// host's tree for a host yolo and to a jail's own for an in-jail one, and
 	// reading that expression in the wrong frame is what produced a wrong
 	// retraction in the design corpus (§5.5).
-	Frame     string   `json:"frame"`
-	FrameNote string   `json:"frame_note"`
-	Runtime   string   `json:"runtime,omitempty"`
-	Budget    string   `json:"walk_budget"`
-	Stores    []Store  `json:"stores"`
-	Notes     []string `json:"notes,omitempty"`
+	Frame     string `json:"frame"`
+	FrameNote string `json:"frame_note"`
+	// Complete is true when every source listed or is not installed; Sources is each one's
+	// answer, `yolo ps`'s (named-setups.md §12.4).
+	Complete bool         `json:"complete"`
+	Sources  []SourceJSON `json:"sources"`
+	Budget   string       `json:"walk_budget"`
+	Stores   []Store      `json:"stores"`
+	Notes    []string     `json:"notes,omitempty"`
 
 	// Recorded is how many ledger lines this run wrote (0 with --no-record).
 	Recorded   int      `json:"recorded"`
@@ -168,15 +176,17 @@ const (
 // not reachable from here.
 func Inventory(o Options) Report {
 	fillDefaults(&o)
-	rt := o.DetectRuntime()
-	// Asked ONCE: every collector below that reads the runtime reads this answer, so no two
-	// rows of one report can be about different runtimes.
-	o.DetectRuntime = func() string { return rt }
+	rt := o.SelectedRuntime()
+	// Asked ONCE: every machine-wide row that names what `yolo prune` here does reads this
+	// answer, so no two rows of one report can be about different setups.
+	o.SelectedRuntime = func() string { return rt }
 	rep := Report{
+		Schema:      StoresSchema,
 		GeneratedAt: o.Now().UTC(),
 		Frame:       "host",
 		FrameNote:   "these are this HOST's stores",
-		Runtime:     rt,
+		Complete:    complete(o),
+		Sources:     sourcesJSON(o),
 		Budget:      o.Budget.String(),
 	}
 	if o.InJail() {
@@ -188,12 +198,15 @@ func Inventory(o Options) Report {
 	rep.Stores = append(rep.Stores, stateStores(o, cacheRows)...)
 	rep.Stores = append(rep.Stores, cacheRows...)
 	rep.Stores = append(rep.Stores, aliasStores(o)...)
-	rep.Stores = append(rep.Stores, imageStores(o, rt)...)
-	rep.Stores = append(rep.Stores, scratchStores(o, rt)...)
-	rep.Stores = append(rep.Stores, toolDiskStores(o, rt)...)
-	rep.Stores = append(rep.Stores, durableStores(o, rt)...)
-	rep.Stores = append(rep.Stores, rescueStores(o, rt)...)
-	rep.Stores = append(rep.Stores, freshHomeStores(o, rt)...)
+	// The technology-bound sections, once per container source that listed (§12.5).
+	for _, src := range listedContainerSources(o) {
+		rep.Stores = append(rep.Stores, tagTechnology(imageStores(o, src), src)...)
+		rep.Stores = append(rep.Stores, tagTechnology(scratchStores(o, src), src)...)
+		rep.Stores = append(rep.Stores, tagTechnology(toolDiskStores(o, src), src)...)
+	}
+	rep.Stores = append(rep.Stores, durableStores(o)...)
+	rep.Stores = append(rep.Stores, rescueStores(o)...)
+	rep.Stores = append(rep.Stores, freshHomeStores(o)...)
 	rep.Stores = append(rep.Stores, macosUserStores(o)...)
 	rep.Stores = append(rep.Stores, nixStores(o, rt)...)
 	return rep
@@ -396,7 +409,7 @@ var macosUserContainerOnlyState = map[string]struct{ pass, also string }{
 // walked a second time — the cache is the largest tree on the machine and
 // walking it twice would double this command's cost for a number it already has.
 func stateStores(o Options, cacheRows []Store) []Store {
-	rt := o.DetectRuntime()
+	rt := o.SelectedRuntime()
 	root := o.GlobalStorage()
 	cacheLeaf := filepath.Base(o.GlobalCache())
 
@@ -545,12 +558,13 @@ func miseRow(s *Store, o Options) {
 		Trigger: "yolo prune --apply; post-launch slot once consented",
 	}
 	s.Verdict = VerdictYolo
-	var live runtime.LiveSet
-	if rt := o.DetectRuntime(); rt != "" {
-		live = prune.LiveYoloContainers(rt, o.Exec)
-	}
-	sw := prune.FindUnusedMiseVersions(s.Path, live, o.Now(), o.Budget)
+	// The running jails are every source's (§12.5); with a container source unanswered, the
+	// set is not known, and the judgment declines naming that source, since a jail it runs may be
+	// using a version.
+	sw := prune.FindUnusedMiseVersions(s.Path, liveJails(o), o.Now(), o.Budget)
 	switch {
+	case sw.Declined != "" && sourcesDecline(o) != "":
+		s.Note = "yolo cannot tell which versions are unused right now: " + sourcesDecline(o)
 	case sw.Declined != "":
 		s.Note = "yolo cannot tell which versions are unused right now: " + sw.Declined
 		if sw.Remedy != "" {
@@ -582,7 +596,7 @@ func miseRow(s *Store, o Options) {
 // anything at all reclaims those gigabytes — is a per-subdir fact. Coverage is
 // read LIVE off prune's own exported lists, never re-typed here.
 func cacheStores(o Options) []Store {
-	rt := o.DetectRuntime()
+	rt := o.SelectedRuntime()
 	root := o.GlobalCache()
 	covered := map[string]Reclaimer{}
 	// The post-launch slot purges this class too, but only on a HOST launch and
@@ -708,9 +722,10 @@ type podmanImage struct {
 // bytes, why yolo declines, and that `podman image prune` is the user's to run.
 // Explicitly NOT on the launch path: an unactionable line in front of every jail
 // start is what OQ-BF1 ruled against.
-func imageStores(o Options, rt string) []Store {
+func imageStores(o Options, src Source) []Store {
+	rt := runtimeOf(src.Confinement)
 	mk := func(key, name string) Store {
-		return Store{Key: key, Section: SectionImages, Name: name, Path: rt + " image store",
+		return Store{Key: techKey(key, src), Section: SectionImages, Name: name, Path: rt + " image store",
 			Reclaimer: none(), Verdict: VerdictHuman}
 	}
 	ours := mk("images.yolo", "yolo-jail images")
@@ -742,12 +757,6 @@ func imageStores(o Options, rt string) []Store {
 		return rows
 	}
 
-	if rt == macosUserRuntime {
-		return []Store{notApplicableOnMacosUser("images.macos-user", SectionImages, "images")}
-	}
-	if !slices.Contains(paths.SupportedRuntimes, rt) {
-		return setAll(SizingAbsent, "no container runtime on this notch")
-	}
 	if rt != "podman" {
 		// Apple Container's listing is not podman's, and DF3's label probe was
 		// explicitly NOT MEASURED there. Reporting unknown is the honest answer;
@@ -811,9 +820,10 @@ func imageStores(o Options, rt string) []Store {
 // hold files owned by subordinate ids the host user cannot read, which the walk counts
 // as unreadable subtrees and reports as a lower bound; a mountpoint that is not on this
 // machine at all (podman's VM, on macOS) makes the row unknown rather than zero.
-func scratchStores(o Options, rt string) []Store {
+func scratchStores(o Options, src Source) []Store {
+	rt := runtimeOf(src.Confinement)
 	mk := func(key, name string) Store {
-		return Store{Key: key, Section: SectionVolumes, Name: name, Path: rt + " volumes",
+		return Store{Key: techKey(key, src), Section: SectionVolumes, Name: name, Path: rt + " volumes",
 			Verdict: VerdictYolo, CountLabel: "volumes"}
 	}
 	live := mk("volumes.scratch.live", "live jails' scratch")
@@ -830,12 +840,6 @@ func scratchStores(o Options, rt string) []Store {
 			rows[i].Sizing, rows[i].Reason, rows[i].CountLabel = sizing, reason, ""
 		}
 		return rows
-	}
-	if rt == macosUserRuntime {
-		return []Store{notApplicableOnMacosUser("volumes.macos-user", SectionVolumes, "scratch volumes")}
-	}
-	if !slices.Contains(paths.SupportedRuntimes, rt) {
-		return setAll(SizingAbsent, "no container runtime on this notch")
 	}
 	if rt != "podman" {
 		return setAll(SizingAbsent, "this runtime's scratch dirs are tmpfs")
@@ -1077,12 +1081,9 @@ const SectionDurable = "workspace durable dirs"
 // worktree knows whether it holds unlanded work, so yolo keeps the growth visible and deletes
 // nothing. The figures follow DS-D3 in every frame: an lstat walk beneath an os.Root and git's
 // own admin files, never git itself, never a file beneath the durable dir.
-func durableStores(o Options, rt string) []Store {
-	if !slices.Contains(paths.SupportedRuntimes, rt) {
-		return nil
-	}
+func durableStores(o Options) []Store {
 	var out []Store
-	for _, ws := range prune.FindYoloWorkspaces(rt, o.Exec) {
+	for _, ws := range sourceWorkspaces(o) {
 		dir := durable.HostPath(ws)
 		// Every read goes through durable.Open, which refuses a link at `.yolo` as well as
 		// at `durable`: the jail can point `.yolo` at any host directory, whose names and
@@ -1134,7 +1135,7 @@ func durableStores(o Options, rt string) []Store {
 			note += fmt.Sprintf("; %d other entries", len(sc.Others))
 		}
 		s.Note = note + ". `yolo check` in that workspace lists each worktree. Only workspaces with a " +
-			"jail the runtime still lists get a row here."
+			"jail running, as `yolo ps` lists them, get a row here."
 		out = append(out, s)
 	}
 	return out
@@ -1177,20 +1178,6 @@ func onMacosUserContainerPass(s *Store, pass, also string) {
 		note = s.Note + " — " + note
 	}
 	s.Note = note
-}
-
-// notApplicableOnMacosUser is the one row a container-only section gets on macos-user: that
-// backend runs no containers or images, so there is nothing to list, and a container runtime on
-// the same Mac is listed by naming it. Absent, never unknown: nothing was asked and failed.
-func notApplicableOnMacosUser(key, section, what string) Store {
-	return Store{
-		Key: key, Section: section, Name: "(not applicable)", Path: "macos-user",
-		Sizing:    SizingAbsent,
-		Reason:    "not applicable on macos-user, which runs no containers or images",
-		Reclaimer: none(), Verdict: VerdictYolo,
-		Note: "a container runtime's " + what + " on this Mac are listed by " +
-			"`YOLO_SETUP=apple-container-self yolo stores` (or YOLO_SETUP=podman-self)",
-	}
 }
 
 // SectionMacosUser is the macos-user backend's own storage outside the state dir: the host-owned

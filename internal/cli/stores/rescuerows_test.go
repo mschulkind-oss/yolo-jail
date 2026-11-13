@@ -82,12 +82,12 @@ func TestTheRunWorkspacesRescueIsListedWithNoJailRunning(t *testing.T) {
 	r.Close()
 	o, _ := testOptions(t)
 	o.Workspace = ws
-	rows := rescueStores(o, "podman")
+	rows := rescueStores(o)
 	if len(rows) != 1 || rows[0].Path != r.Dir {
 		t.Errorf("rows: %+v", rows)
 	}
 	o.Workspace = ""
-	if rows := rescueStores(o, "podman"); len(rows) != 0 {
+	if rows := rescueStores(o); len(rows) != 0 {
 		t.Errorf("with no workspace and no jail, rows: %+v", rows)
 	}
 }

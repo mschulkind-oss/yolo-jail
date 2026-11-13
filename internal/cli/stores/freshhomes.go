@@ -6,7 +6,6 @@ import (
 	"slices"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/prune"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -20,16 +19,14 @@ const SectionFreshHome = "fresh agent homes"
 // reclaims one: the session in it may have found what the user was looking for, so yolo never
 // deletes it, and the row says how the user may. The workspaces are the ones rescueStores reads:
 // the one this was run in, then those a runtime still lists a jail for.
-func freshHomeStores(o Options, rt string) []Store {
+func freshHomeStores(o Options) []Store {
 	var workspaces []string
 	if o.Workspace != "" {
 		workspaces = append(workspaces, o.Workspace)
 	}
-	if slices.Contains(paths.SupportedRuntimes, rt) {
-		for _, ws := range prune.FindYoloWorkspaces(rt, o.Exec) {
-			if !slices.Contains(workspaces, ws) {
-				workspaces = append(workspaces, ws)
-			}
+	for _, ws := range sourceWorkspaces(o) {
+		if !slices.Contains(workspaces, ws) {
+			workspaces = append(workspaces, ws)
 		}
 	}
 	var out []Store

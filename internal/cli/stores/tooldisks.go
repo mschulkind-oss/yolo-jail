@@ -23,7 +23,8 @@ import (
 //
 // Podman has no row: its /mise is the machine's store, one host dir or one Podman Machine
 // volume, and nothing in it is per workspace.
-func toolDiskStores(o Options, rt string) []Store {
+func toolDiskStores(o Options, src Source) []Store {
+	rt := runtimeOf(src.Confinement)
 	if rt != "container" {
 		return nil
 	}

@@ -5,18 +5,16 @@ import (
 	"testing"
 )
 
-// TestEveryListingVerbIsWiredToNameAnAbsentRuntime pins the call sites of listingDetect: `yolo
-// stores` (storesOptions) and `yolo prune` (pruneOptions) each hand their engine the detector that
-// names the next step when the selected setup's runtime is not installed. Each case fails when its
-// front door goes back to the bare detectListingRuntime. `yolo ps` asks every source and reads no
-// selected setup (named-setups-plan.md slice 11d); a technology that is not installed is no news
-// there (named-setups.md §12.3).
+// TestEveryListingVerbIsWiredToNameAnAbsentRuntime pins the call site of listingDetect: `yolo
+// prune` (pruneOptions) hands its engine the detector that names the next step when the selected
+// setup's runtime is not installed, and fails when its front door goes back to the bare
+// detectListingRuntime. `yolo ps` and `yolo stores` ask every source (named-setups-plan.md slices
+// 11d and 11f), and their source lines say which technology is not installed.
 func TestEveryListingVerbIsWiredToNameAnAbsentRuntime(t *testing.T) {
 	for _, tc := range []struct {
 		verb string
 		run  func()
 	}{
-		{"stores", func() { storesOptions([]string{"stores"}).DetectRuntime() }},
 		{"prune", func() { pruneOptions([]string{"prune"}).DetectRuntime() }},
 	} {
 		t.Run(tc.verb, func(t *testing.T) {
