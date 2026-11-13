@@ -4,7 +4,7 @@ package check
 // manifest (docs/design/pack-manifests.md §5): this release reads pack.json and pack.jsonc, so the
 // pack passes, and the migration is the author's act, taken when they choose. The line names the
 // verb that takes it. A pack.toml still writing a provider in a legacy spelling (`[[provider]]
-// name =`, or a `[[profile]]` that folds into its provider; docs/design/readable-config.md RC-D69)
+// name =`, or a `[[profile]]` that folds into its provider; docs/reference/config/rulings.md#RC-D69)
 // gets the same kind of line.
 
 import (

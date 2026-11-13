@@ -709,8 +709,8 @@ user-scope-only set, by contrast, has grown well past the four this section used
 install, `env`, `doctor_cmd` and `settings` keys (every one a `user-scope only` refusal in
 `internal/config`, counted 2026-09-06).
 
-An iceboxed consent proposal, since retired into [RC-D24's background](readable-config.md#appendix-a-background-to-rc-d24-a-writable-host-path-from-a-workspace), would have
-added a host-side trust record for writable grants in the local file; [RC-D24](readable-config.md#RC-D24) ruled
+An iceboxed consent proposal, since retired into [RC-D24's background](../reference/config/rulings.md#a-writable-mount-from-a-workspace), would have
+added a host-side trust record for writable grants in the local file; [RC-D24](../reference/config/rulings.md#RC-D24) ruled
 instead for a request approved in the config-change prompt behind a user-config ceiling. The proposal passed Test 1 where [`OQ-TP9`](#decision-ledger)'s gate
 failed, because neither the repo author nor the in-jail agent could already grant a writable host
 path; built, it would have been a new refusal source bound by [`OQ-TP6`](#decision-ledger).

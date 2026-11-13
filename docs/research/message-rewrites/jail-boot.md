@@ -25,7 +25,7 @@ When a boot step fails, the boot prints `Error: <step>: <error>`. It then refuse
 
 ### P3. Legacy config spellings in advice (`config.jsonc`, `yolo-jail.jsonc`, `packages`, `env_sources`, `profile`)
 
-Config is TOML now. A TOML user who follows this advice looks for a file or key that is not there. The rule from AGENTS.md, and from decision RC-D40 in `docs/design/readable-config.md`, is that advice names a verb, not a file to hand-edit. Use `yolo config add install.nix <pkg>`, `yolo config add env.files <file> --user`, and `yolo active-provider <agent> <provider>`. The same sites are listed under [Wrong today](#wrong-today).
+Config is TOML now. A TOML user who follows this advice looks for a file or key that is not there. The rule from AGENTS.md, and from decision RC-D40 in `docs/reference/config/rulings.md`, is that advice names a verb, not a file to hand-edit. Use `yolo config add install.nix <pkg>`, `yolo config add env.files <file> --user`, and `yolo active-provider <agent> <provider>`. The same sites are listed under [Wrong today](#wrong-today).
 
 - **Before:** `add it to `packages` in yolo-jail.jsonc`
 - **After:** `add it to this project's packages with `yolo config add install.nix <name>``
@@ -1054,7 +1054,7 @@ These messages stop the launch as a failed boot step, so P2 applies. Most end wi
 
 ## Wrong today
 
-- `internal/entrypoint/prism.go:1497`: every "dropping from …" line tells the user to declare the entry in `~/.config/yolo-jail/config.jsonc`. The user config is TOML now (`config.toml`). Decision RC-D40 in `docs/design/readable-config.md` rules: "never a hard-coded `config.jsonc`". A TOML user is sent to a file they do not have. *Fixed in `ad7b7161b`.*
+- `internal/entrypoint/prism.go:1497`: every "dropping from …" line tells the user to declare the entry in `~/.config/yolo-jail/config.jsonc`. The user config is TOML now (`config.toml`). Decision RC-D40 in `docs/reference/config/rulings.md` rules: "never a hard-coded `config.jsonc`". A TOML user is sent to a file they do not have. *Fixed in `ad7b7161b`.*
 - `internal/entrypoint/prism.go:1671`: tells the user to set the `profile` key. The TOML spelling is `active_provider`, and the verb is `yolo active-provider <agent> <provider>` (RC-D40, RC-D52). *Fixed in `ad7b7161b`.*
 - `internal/entrypoint/providerkeys.go:131`: points to the legacy `profile` key in the same way. *Fixed in `ad7b7161b`.*
 - `internal/entrypoint/requires.go:78`: says `packages` in `yolo-jail.jsonc`. The TOML key is `install.nix` (this repo's own `yolo-jail.toml` uses `[install] nix = [...]`). *Fixed in `ad7b7161b`.*

@@ -10,7 +10,7 @@ import (
 
 // EncodeLoopholeTOMLLines writes a legacy loophole manifest.jsonc tree (configdoc.Parse's
 // Values, with its authored key order) as loophole.toml lines, each carrying the legacy path it
-// came from so a migration can put every comment back in order (docs/design/readable-config.md
+// came from so a migration can put every comment back in order (docs/reference/config/rulings.md
 // RC-D28).
 //
 // The spellings are the schema's own keys, unchanged. The layout is: every plain key of a table

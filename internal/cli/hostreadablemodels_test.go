@@ -1,7 +1,7 @@
 package cli
 
 // hostreadablemodels_test.go pins the host notch's CALL SITE for a model said once
-// (docs/design/readable-config.md RC-D29, docs/design/config-user.md §8 C7): composedHostProviders
+// (docs/reference/config/rulings.md#RC-D29, docs/reference/config/user-config.md#lines-you-never-write C7): composedHostProviders
 // hands the composer the offline catalog, as the jail notch's composedProviders does, so a row
 // named without facts gets the catalog's at `yolo host` too.
 

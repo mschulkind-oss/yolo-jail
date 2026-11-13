@@ -1,7 +1,7 @@
 package packmigrate
 
 // providerspelling.go is `yolo pack migrate` on a pack.toml that still writes a provider in a
-// legacy spelling (docs/design/readable-config.md RC-D69): `[[provider]] name = "x"` becomes
+// legacy spelling (docs/reference/config/rulings.md#RC-D69): `[[provider]] name = "x"` becomes
 // `[providers.x]`, and each `[[profile]]` over a provider the same manifest declares folds into
 // it (packdecl.Manifest.FoldProfiles) — an alias, or a variant with that `name` — with
 // `formerly.profiles` moved to `formerly.providers`. A manifest declaring one id both ways has

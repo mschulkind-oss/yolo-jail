@@ -131,7 +131,7 @@ func (p *MigrationPlan) Transcript() string {
 }
 
 // UnaliasedLines are the closing report's lines for each provider the conversion gave variants
-// and no alias (RC-D62, docs/design/readable-config.md#RC-D62): a variant is selected as
+// and no alias (RC-D62, docs/reference/config/rulings.md#RC-D62): a variant is selected as
 // provider/variant and nothing shorter, so the line names the one command that gives a short
 // name. One line per provider, however many files wrote its variants.
 func UnaliasedLines(p *MigrationPlan) []string {

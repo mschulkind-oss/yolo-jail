@@ -31,7 +31,7 @@ unsaid. The owner's ruling ([OQ-MF1](#OQ-MF1)) and the lane decisions are in the
 > TOML. With those admitted, the migration converts the whole file and the provider table a
 > launch resolves comes out equal, with one derived fact (the maker an id names) compared as derived.
 
-**Reads with:** [`readable-config.md`](readable-config.md) (front door and ledger),
+**Reads with:** [`config/rulings.md`](../reference/config/rulings.md) (front door and ledger),
 [`config-migration.md` §4](config-migration.md#4-what-yolo-config-migrate-does) (what the migration
 proves), [`model-lists-and-pickers.md`](model-lists-and-pickers.md#oq-ml4-ml5-setup) (how a model
 row gets its facts; the shared-facts ruling), [`pack-manifests.md` §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once)
@@ -66,13 +66,13 @@ Terms used from here on. A model's **facts** are what an agent needs to know abo
 its id: name, price, context size, output limit, input types, whether it reasons, its catalog
 `base`, its OpenRouter pin ([the ruling's definition](model-lists-and-pickers.md#oq-ml4-ml5-setup)).
 A **row** is a readable model entry under `models`, an object with no `id` field
-([RC-D29](readable-config.md#RC-D29)); [§3.1](#31-a-name-for-a-model) says what its key is. A
+([RC-D29](../reference/config/rulings.md#RC-D29)); [§3.1](#31-a-name-for-a-model) says what its key is. A
 **legacy row** is the object form with an `id`. The **provider table** is the map
 `packload.ComposeProviders` resolves for a launch, which every agent's derive reads; the **proof**
 is `yolo config migrate`'s equality check, which compares that table from the old files and from
 the files it would write and refuses to write on any difference
 ([config-migration.md §4](config-migration.md#4-what-yolo-config-migrate-does),
-[RC-D30](readable-config.md#RC-D30)).
+[RC-D30](../reference/config/rulings.md#RC-D30)).
 
 ## 2. Where the TOML stops today
 
@@ -141,12 +141,12 @@ default = { model = "qwen-3.8-27b", name = "Qwen 27B", context = 65_536, max_tok
 ```
 
 A row with no `model` is the model its key names, as every readable row is today
-([RC-D29](readable-config.md#RC-D29) (2)); `model` defaults to the key. So the pack manifests'
+([RC-D29](../reference/config/rulings.md#RC-D29) (2)); `model` defaults to the key. So the pack manifests'
 id-keyed rows ([pack-manifests.md §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once))
 are unchanged, and a pack's string shorthand `default = "qwen-3.8-27b"` is the shorthand of a row
 that says only `model`. The id is still written once (in `model`), the maker still follows from
 the id (`vendor` is inferred from `model`, not from the key), and the facts still live in one
-place, so [config-user.md §3](config-user.md#3-principles)'s second principle holds in substance;
+place, so [`config/README.md`](../reference/config/README.md#principles)'s second principle holds in substance;
 its letter, *the key is the id*, gains the clause *unless the row says `model`*. `model` must be an
 id, never another row's key: a name does not chain.
 
@@ -159,7 +159,7 @@ id and the user's facts.
 **Why `model` and not `id`.** The `id` key stays refused in TOML. Its presence is how the
 composition tells a legacy row from a readable one on the merged table (`readableRowIDs`,
 `splitReadableModels`), and a legacy row composes without the catalog, `every_model` and
-`twin_of` ([RC-D29](readable-config.md#RC-D29) (2), (5)). Re-admitting `id` would route a TOML row
+`twin_of` ([RC-D29](../reference/config/rulings.md#RC-D29) (2), (5)). Re-admitting `id` would route a TOML row
 through the legacy lowering or need a second way to tell the two apart; a new word costs neither.
 `model` is the word the config already uses for "which model" (`options.model`, a provider's
 `model`, a variant's `model`), and the rename table's row for `id` now names it.
@@ -169,11 +169,11 @@ holds `model`, its facts sit at `model_options.<key>`, exactly where a legacy al
 is the id the client registers; the wire id is `model` unless the row says `wire_id` or is a
 `twin_of`. `twin_of` names a row by its key, so the file's twin says `twin_of = "deepseek-floor"`
 ([§3.3](#33-a-twin-one-wire-id-at-two-windows)). A row's place in the list is its declaration
-order, as for every readable row ([RC-D30](readable-config.md#RC-D30) (3)). The refusal
-[RC-D29](readable-config.md#RC-D29) (7) built keeps its purpose and narrows: a row written over a
+order, as for every readable row ([RC-D30](../reference/config/rulings.md#RC-D30) (3)). The refusal
+[RC-D29](../reference/config/rulings.md#RC-D29) (7) built keeps its purpose and narrows: a row written over a
 pack's alias for another id is refused only when it says no `model`, since that row would send its
 key as the id; the message names `model = "<the pack's id>"` as the one remedy, and its old
-`id = …` remedy, which the TOML refuses, goes ([RC-D40](readable-config.md#RC-D40)).
+`id = …` remedy, which the TOML refuses, goes ([RC-D40](../reference/config/rulings.md#RC-D40)).
 
 **Rejected spellings.** *A name line beside an id-keyed row* (`deepseek-floor = "<id>"` and
 `"<id>" = { … }`, the first draft): the owner read it as two models, with the name line looking
@@ -188,7 +188,7 @@ named `default`, the rewrite RC-D29 (7) exists to prevent; the migration writes 
 file's own `id`, so nothing is saved by leaving it out.
 
 **Conversion.** A legacy row converts to a row with the same key; its `id` becomes `model`, left
-out when it equals the key (as today); its facts are respelled as [RC-D30](readable-config.md#RC-D30)
+out when it equals the key (as today); its facts are respelled as [RC-D30](../reference/config/rulings.md#RC-D30)
 (2) respells them; `extends` passes through. Rows are written in the old list's order, the alias
 name order, which is the order the readable rows then declare.
 
@@ -234,7 +234,7 @@ what pi reads: his pi fork declares `reads_shared_models`, so `models.json` carr
 `sharedModels` and `{ id, extends }` rows ([ML-D11](model-lists-and-pickers.md#ML-D11),
 [ML-D14](model-lists-and-pickers.md#ML-D14)); full rows mean the same model but a different file.
 `every_model` stays what it is, one provider's facts under all of its rows, and the two compose
-as [RC-D29](readable-config.md#RC-D29) (5) says.
+as [RC-D29](../reference/config/rulings.md#RC-D29) (5) says.
 
 **The pin is one fact.** `openrouter_routing` in an entry replaces whole and never merges key by
 key, in a readable row as in a legacy one: `MergeProviderModel` replaces the object, and
@@ -261,7 +261,7 @@ deepseek-floor-300k = { model = "deepseek/deepseek-v4.1-flash-1017:floor@300k", 
 
 `twin_of` names a row by its key, takes every fact of that row, its `extends` and its pin included,
 and sends its wire id ([pack-manifests.md §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once),
-[RC-D29](readable-config.md#RC-D29) (3)); the twin then states what it alone decides, here its own
+[RC-D29](../reference/config/rulings.md#RC-D29) (3)); the twin then states what it alone decides, here its own
 client id (`model`), its name and its window. That is the file's own description of its twins
 (*"a twin states only `name` and `context_window` and inherits everything else, upstream order
 included"*), said in one key instead of two, and it is what makes the owner's rule hold by
@@ -275,7 +275,7 @@ inherited id).
 
 **`context`, not `compact_at`.** The file overrides `context_window`, the declared window, and
 the flat vocabulary has one key for the declared window and the compaction window alike
-([RC-D29](readable-config.md#RC-D29) (4)). The conversion respells it `context`, which is what
+([RC-D29](../reference/config/rulings.md#RC-D29) (4)). The conversion respells it `context`, which is what
 the file said. `compact_at = 307_200` would lower to the same flat `context_window` and is the
 readable word for *a narrower working budget on the same wire id*; the owner may switch by
 hand, and the table does not move.
@@ -284,7 +284,7 @@ hand, and the table does not move.
 provider has that `wire_id` as its `model` (or key) and the proof holds for the result; otherwise
 it becomes a row with `wire_id` (and its `extends`, if any), which is the legacy row respelled and
 always proves. The plan tries `twin_of` first and plans again with `wire_id` on a difference, the
-way it drops folds ([RC-D30](readable-config.md#RC-D30) (4), [RC-D36](readable-config.md#RC-D36));
+way it drops folds ([RC-D30](../reference/config/rulings.md#RC-D30) (4), [RC-D36](../reference/config/rulings.md#RC-D36));
 the transcript names each twin it wrote as `twin_of`.
 
 **Proof.** Byte-equal for the file: `models.deepseek-floor-300k` holds the twin's own `model`; its
@@ -297,7 +297,7 @@ sibling's `model` (`WireIDAuthored` is set by `twin_of`); `extends` and `base` a
 `options.model = "deepseek-floor"` passes through the conversion today (the dry run does not
 list it) and keeps meaning the row keyed `deepseek-floor`, which [§3.1](#31-a-name-for-a-model)
 keeps. Nothing to convert ([MF-D4](#decision-ledger)). The readable provider-level `model` key
-exists for a profile's starting model ([RC-D32](readable-config.md#RC-D32)); the file's profiles
+exists for a profile's starting model ([RC-D32](../reference/config/rulings.md#RC-D32)); the file's profiles
 already convert to `variants` with their literal ids and are not this doc's subject.
 
 ### 3.5 The maker an id names
@@ -306,7 +306,7 @@ already convert to `variants` with their literal ids and are not this doc's subj
 `callableModels` (offered to every agent when absent, filtered by a maker set only on Bedrock
 for claude and codex) and by the wire bridge's Anthropic routing (`anthropicModelIDs`). A readable
 row infers it from a `global.<maker>.` prefix or a `<maker>/` route of its id (`model`, or the
-key) and leaves it unwritten ([RC-D30](readable-config.md#RC-D30) (2) calls a vendor the id names
+key) and leaves it unwritten ([RC-D30](../reference/config/rulings.md#RC-D30) (2) calls a vendor the id names
 *derived*); a legacy row carries only what it wrote.
 
 **Proof.** The provider-table layer compares a vendor the id names as derived on both sides: a
@@ -329,7 +329,7 @@ happens.
 | the provider table the launch resolves | `ComposeProviders` over the old merged read, with a vendor the id names filled in ([§3.5](#35-the-maker-an-id-names)) | the same over the written files | `models`, `model_options`, `model_routing`, `model_shared`, `variants`, `options` and `(model order)` are byte-equal per provider |
 
 A plan that fails the table with `twin_of` is planned again with `wire_id`; one that fails with
-folds, without them ([RC-D30](readable-config.md#RC-D30) (4)); one that still fails writes nothing
+folds, without them ([RC-D30](../reference/config/rulings.md#RC-D30) (4)); one that still fails writes nothing
 and prints the difference key by key, as today.
 
 ## 4. What is deliberately not said
@@ -337,7 +337,7 @@ and prints the difference key by key, as today.
 - **A tombstone.** A fact written as `null` ([ML-D10](model-lists-and-pickers.md#ML-D10)) has no
   TOML spelling, in a row, in `every_model` or in `model_facts`; the converter reports it as it
   reports every null. The file writes none. Whether `false` says "none" for a model fact, as it
-  does in a manifest ([RC-D25](readable-config.md#RC-D25)), is a question for the doc that owns
+  does in a manifest ([RC-D25](../reference/config/rulings.md#RC-D25)), is a question for the doc that owns
   tombstones, not this one.
 - **A twin of a pack's string name.** `twin_of` names a row, and a pack's bare `default = "<id>"`
   is a row saying only `model`, so a user may twin it (`default-200k = { model = "…", twin_of =
@@ -364,11 +364,11 @@ built; its Built column names the tests that pin it.
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | <a id="OQ-MF1"></a>[OQ-MF1](#OQ-MF1) | **A model's row is keyed by its short name and says which model it is with `model = "<id>"`; the id is not the only name.** The owner's ruling (2026-10-30), taking option A: *"it is the file's own shape with `id` respelled, one model per row, and the only way a pack's `default` takes user facts."* [MF-D1](#MF-D1) is the mechanism | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | built through [MF-D1](#MF-D1) |
-| <a id="MF-D1"></a>MF-D1 | **A readable row is keyed by its id unless it says `model`; then the key is the model's name and `model` is the id the model is listed and registered under. A pack's string `default = "<id>"` is the shorthand of a row saying only `model`. `id` stays refused in TOML, and its rename row names `model`. The RC-D29 (7) refusal fires only for a row over a pack's alias for another id that says no `model`, and names `model = "<id>"`. The migration writes `model` from a legacy row's `id` when the two differ.** Amends [RC-D29](readable-config.md#RC-D29) (2)'s definition of a row; builds RC-D29 (7) and [RC-D30](readable-config.md#RC-D30) (2), (3). Reason: the owner read the first draft's name line beside an id-keyed row as two models and as backwards (2026-10-30); the row keyed by its name is the file's own shape, needs no new composition rule, and is the only way a pack's `default` takes user facts. Conditional on [OQ-MF1](#OQ-MF1) | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | built; `TestAReadableRowAcceptsModelAndWireID`, `TestTheIDKeyIsRefusedNamingModel`, `TestARowKeyedByANameListsItsModelUnderTheName`, `TestARowWithNoModelIsTheModelItsKeyNames`, `TestAUsersDefaultRowWithModelAddsFactsToThePacksDefault`, `TestARowOverAPackAliasWithoutModelIsRefusedNamingModel`, `TestPlanConvertsANamedRowToARowWithModel` |
+| <a id="MF-D1"></a>MF-D1 | **A readable row is keyed by its id unless it says `model`; then the key is the model's name and `model` is the id the model is listed and registered under. A pack's string `default = "<id>"` is the shorthand of a row saying only `model`. `id` stays refused in TOML, and its rename row names `model`. The RC-D29 (7) refusal fires only for a row over a pack's alias for another id that says no `model`, and names `model = "<id>"`. The migration writes `model` from a legacy row's `id` when the two differ.** Amends [RC-D29](../reference/config/rulings.md#RC-D29) (2)'s definition of a row; builds RC-D29 (7) and [RC-D30](../reference/config/rulings.md#RC-D30) (2), (3). Reason: the owner read the first draft's name line beside an id-keyed row as two models and as backwards (2026-10-30); the row keyed by its name is the file's own shape, needs no new composition rule, and is the only way a pack's `default` takes user facts. Conditional on [OQ-MF1](#OQ-MF1) | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | built; `TestAReadableRowAcceptsModelAndWireID`, `TestTheIDKeyIsRefusedNamingModel`, `TestARowKeyedByANameListsItsModelUnderTheName`, `TestARowWithNoModelIsTheModelItsKeyNames`, `TestAUsersDefaultRowWithModelAddsFactsToThePacksDefault`, `TestARowOverAPackAliasWithoutModelIsRefusedNamingModel`, `TestPlanConvertsANamedRowToARowWithModel` |
 | <a id="MF-D2"></a>MF-D2 | **`model_facts` keeps its name as a readable top-level table with the row fact spellings, refusing route-only keys; `extends` stays a row key; both rename rows become identity rows and the converter passes both through.** Building [OQ-ML5](model-lists-and-pickers.md#oq-ml4-ml5-setup), [ML-D12](model-lists-and-pickers.md#ML-D12), [ML-D14](model-lists-and-pickers.md#ML-D14). `every_model` is per provider, `model_facts` per model across providers, and a fold into `every_model` changes `model_options.*.extends` and `model_shared`, so the rename row's fold could never prove equal and would change what a shared-form pi reads | 2026-10-30 | [§3.2](#32-facts-shared-by-a-models-routes) | built; `TestModelFactsIsAReadableTopLevelTable`, `TestAModelFactsEntryRefusesWhatOnlyARouteCanSay`, `TestReadableSharedFactsLayUnderARowThatExtendsThem`, `TestPlanConvertsModelFactsAndExtendsUnchanged` |
-| <a id="MF-D3"></a>MF-D3 | **A legacy `wire_id` row converts to `twin_of` naming the sibling row's key when a row of the same provider has that id and the proof holds; otherwise to a row with `wire_id`, which the schema admits and whose rename row goes. `context_window` on a twin respells to `context`.** Building [pack-manifests.md §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once), [RC-D29](readable-config.md#RC-D29) (3), (4), the retry pattern of [RC-D30](readable-config.md#RC-D30) (4). `twin_of` is what the file's twins mean and makes "a tier and its twin cannot split" structural; `wire_id` is what the decoder already reads and covers the twin `twin_of` cannot say | 2026-10-30 | [§3.3](#33-a-twin-one-wire-id-at-two-windows) | built; `TestATwinOfANamedRowSendsItsModel`, `TestAWireIDRowSendsItAndKeepsItsOwnFacts`, `TestPlanConvertsAWireIDTwinToTwinOfTheSiblingsKey`, `TestPlanKeepsWireIDWhenTwinOfWouldChangeTheTwin`, `TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable` |
+| <a id="MF-D3"></a>MF-D3 | **A legacy `wire_id` row converts to `twin_of` naming the sibling row's key when a row of the same provider has that id and the proof holds; otherwise to a row with `wire_id`, which the schema admits and whose rename row goes. `context_window` on a twin respells to `context`.** Building [pack-manifests.md §4](pack-manifests.md#4-flags-that-add-and-a-model-said-once), [RC-D29](../reference/config/rulings.md#RC-D29) (3), (4), the retry pattern of [RC-D30](../reference/config/rulings.md#RC-D30) (4). `twin_of` is what the file's twins mean and makes "a tier and its twin cannot split" structural; `wire_id` is what the decoder already reads and covers the twin `twin_of` cannot say | 2026-10-30 | [§3.3](#33-a-twin-one-wire-id-at-two-windows) | built; `TestATwinOfANamedRowSendsItsModel`, `TestAWireIDRowSendsItAndKeepsItsOwnFacts`, `TestPlanConvertsAWireIDTwinToTwinOfTheSiblingsKey`, `TestPlanKeepsWireIDWhenTwinOfWouldChangeTheTwin`, `TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable` |
 | <a id="MF-D4"></a>MF-D4 | **`options.model` naming a row's key is left as written.** It converts today and keeps its meaning under MF-D1 | 2026-10-30 | [§3.4](#34-the-starting-model-named-by-a-name) | built; `TestPlanConvertsTheMaintainersModelSectionsWithNothingLeft` (`options.model = "floor"` passes through) |
-| <a id="MF-D5"></a>MF-D5 | **The proof's provider-table layer compares a vendor the id names as derived: a legacy row with no `vendor` is compared as if it carried the maker `InferModelVendor` gives its id, and the transcript names each such row.** Building [RC-D30](readable-config.md#RC-D30) (2)'s "a vendor the id names is derived" and [OQ-BR9](bedrock-plumbing.md#decision-ledger). The one place the table is not byte-equal; without it no `<maker>/` row ever converts. The launch after migration carries the maker; no reader acts on it for a provider whose derive passes no maker set | 2026-10-30 | [§3.5](#35-the-maker-an-id-names) | built; `TestPlanComparesAVendorTheIDNamesAsDerived`, `TestPlanTranscriptNamesTwinsAndDerivedVendors` |
+| <a id="MF-D5"></a>MF-D5 | **The proof's provider-table layer compares a vendor the id names as derived: a legacy row with no `vendor` is compared as if it carried the maker `InferModelVendor` gives its id, and the transcript names each such row.** Building [RC-D30](../reference/config/rulings.md#RC-D30) (2)'s "a vendor the id names is derived" and [OQ-BR9](bedrock-plumbing.md#decision-ledger). The one place the table is not byte-equal; without it no `<maker>/` row ever converts. The launch after migration carries the maker; no reader acts on it for a provider whose derive passes no maker set | 2026-10-30 | [§3.5](#35-the-maker-an-id-names) | built; `TestPlanComparesAVendorTheIDNamesAsDerived`, `TestPlanTranscriptNamesTwinsAndDerivedVendors` |
 | <a id="MF-D6"></a>MF-D6 | **A `model_facts` entry is read in the readable spelling when it writes a key only that spelling has (`accepts`, `price`, `context`, `api`, `thinking`, `images`, `vendor`), and in the legacy spelling otherwise; validation and composition ask the one predicate (`packdecl.IsReadableModelFacts`). The readable schema keeps `model_facts` among its removed roots and lists the readable paths explicitly.** Building [MF-D2](#MF-D2). The composition reads the merged config, where a legacy file's entries still arrive in the legacy spelling, so it must read both; an entry of only the shared keys (`name`, `reasoning`, `max_tokens`, `base`, `openrouter_routing`) lowers the same either way. Keeping the root removed is what keeps the legacy `input`, `cost` and `context_window` out of the TOML schema; the sketch's "take it out of the removed roots" would have admitted them | 2026-10-30 | [§3.2](#32-facts-shared-by-a-models-routes) | built; `TestModelFactsIsAReadableTopLevelTable`, `TestReadableSharedFactsLayUnderARowThatExtendsThem` |
 | <a id="MF-D7"></a>MF-D7 | **A user's readable row is the id its `model` says, else its key, wherever the composition asks which model a row is: the catalog lookup, the inferred maker, the default wire id, the listed id, and the drop of a pack's `vendor` for a row the user repointed (`dropRepointedVendors`).** Building [MF-D1](#MF-D1); `model` is literal and never resolved as another row's key | 2026-10-30 | [§3.1](#31-a-name-for-a-model) | built; `TestARowKeyedByANameListsItsModelUnderTheName`, `TestAUsersDefaultRowWithModelAddsFactsToThePacksDefault` |
 | <a id="MF-D8"></a>MF-D8 | **The converter names a sibling for `twin_of` only when it is a converted row of the same provider that sends no other row's id; the twin's `extends`, when it names the sibling's, is left out (the twin takes it). A table difference is retried with the folds dropped first, then with each twin keeping `wire_id` (folds back on, then off), then the inline env as before.** Building [MF-D3](#MF-D3). A twin of a twin would take its facts from a third row; dropping the folds first keeps a twin that the fold, not the twin, broke | 2026-10-30 | [§3.3](#33-a-twin-one-wire-id-at-two-windows) | built; `TestPlanFallsBackToWireIDWhenTwinOfChangesTheTable`, `TestPlanConvertsTheMaintainersModelSectionsWithNothingLeft` |
@@ -549,7 +549,7 @@ two rows are one model's facts" anywhere but in `base`.
 The two profiles converted as variants, `openrouter/or` and `openrouter/or-300k`, are not shown
 above; the owner's own shape for them (2026-11-03: *"a provider named or … but certainly no 300k
 naming"*) is the provider's alias with the starting model on the provider, and no variant at
-all ([RC-D62](readable-config.md#RC-D62)):
+all ([RC-D62](../reference/config/rulings.md#RC-D62)):
 
 ```toml
 [providers.openrouter]

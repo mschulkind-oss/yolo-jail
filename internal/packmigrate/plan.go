@@ -425,7 +425,7 @@ func remapLabel(label string, origIndex []int) string {
 
 // placeComments carries every legacy comment, in document order, to just before the first line
 // written from a key that follows it in the old file — or to the end when none does
-// (readable-config-plan.md §6: delimiters change to #, nothing is attached by inference, nothing
+// (docs/design/config-migration.md#4-what-yolo-config-migrate-does: delimiters change to #, nothing is attached by inference, nothing
 // is dropped).
 func placeComments(lines []packdecl.TOMLLine, doc *configdoc.Document) ([]packdecl.TOMLLine, []string) {
 	spans := doc.Index.Comments()

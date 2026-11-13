@@ -2,7 +2,7 @@ package run
 
 // providertable_equivalence_test.go is the byte-identity proof for carrying a model said once
 // (`every_model`, `twin_of`, `compact_at`) and catalog facts (C7) into a launch
-// (docs/design/readable-config.md RC-D29): every config that launched before resolves to the
+// (docs/reference/config/rulings.md#RC-D29): every config that launched before resolves to the
 // SAME provider table after. The table is what crosses into the jail as YOLO_PROVIDERS and the
 // one input every derive reads its providers from, so an identical table is an identical
 // rendered provider/model config for every agent.

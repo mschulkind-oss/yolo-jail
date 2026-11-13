@@ -190,7 +190,7 @@ func requestedPatterns(ws *jsonx.OrderedMap, declarations []config.ReadableBroke
 }
 
 // lowerUserBrokered converts a user file's brokered table to the ruled `allow.<source>` tables
-// (config-user.md §6 and appendix A.6): the read grant on "*" becomes the source's read
+// (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins and appendix A.6): the read grant on "*" becomes the source's read
 // capability under `always`, and `grant_kinds` becomes `on_request`, each kind through the
 // capability the declaring pack maps it to (config.LegacyUserAllowance, the mapping the readable
 // launch already applies to a legacy user config). Anything the declaration cannot say stays at

@@ -5,7 +5,7 @@ package brokerscope
 const GitHubHost = "github.com"
 
 // RequestedRepoURLs are the exact remote URLs a project's request for OWNER/REPO on host adds to a
-// remote-url scope (docs/design/readable-config.md RC-D26): the HTTPS URL and the scp-style SSH
+// remote-url scope (docs/reference/config/rulings.md#RC-D26): the HTTPS URL and the scp-style SSH
 // URL a fetch of it spells, each approved at the gate as a row of its own. nil for a host whose
 // URLs are not known, which leaves the request unrepresentable there. The scope matches the
 // `.git`, trailing-slash and relative/absolute-path spellings of these two itself

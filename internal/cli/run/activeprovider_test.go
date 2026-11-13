@@ -1,7 +1,7 @@
 package run
 
 // activeprovider_test.go pins the one selection namespace at a launch (config.ConfigActiveSelection,
-// config.LoadSelectableProfiles; docs/design/config-user.md §5).
+// config.LoadSelectableProfiles; docs/reference/config/user-config.md#which-provider-each-agent-runs-on).
 
 import (
 	"bytes"

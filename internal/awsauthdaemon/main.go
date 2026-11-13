@@ -14,7 +14,7 @@
 //     profile selects it), so a user who reaches Bedrock some other way never names an AWS
 //     profile. Such a daemon serves nothing: it starts, mints nothing, answers every credential
 //     request and every launch check with what to set, and needs no `aws` CLI
-//     (docs/design/config-user.md §7, "a listed login pack whose table names no profile ... serves
+//     (docs/reference/config/user-config.md#one-switch-packs, "a listed login pack whose table names no profile ... serves
 //     nothing, and the check says what to set"; docs/reference/loophole-grants.md §4.3).
 //  1. Once a profile is named, the NARROWING must be configured, or it refuses (OQ-SSO1). A widening
 //     retrofitted later breaks every setup that came to depend on the old default,
@@ -241,7 +241,7 @@ func safeSettingsRefusal(kind awsauth.ResolveRefusalKind) (string, string) {
 	readable := strings.HasSuffix(file, ".toml")
 	if readable {
 		// A readable user config holds a pack's settings under allow.<pack>, which `yolo config
-		// set` writes (docs/design/config-commands.md); a legacy one keeps loopholes.<name>.settings.
+		// set` writes (docs/reference/config/editing.md); a legacy one keeps loopholes.<name>.settings.
 		key = func(setting string) string { return "allow." + LoopholeName + "." + setting }
 		set = func(setting, value string) string {
 			return "run `yolo config set " + key(setting) + " " + value + " --user`"

@@ -16,7 +16,7 @@ import (
 )
 
 // LoopholeMigration is one loophole module's planned rewrite from its legacy manifest.jsonc to
-// loophole.toml (docs/design/readable-config.md RC-D28), proven equal before anything is written:
+// loophole.toml (docs/reference/config/rulings.md#RC-D28), proven equal before anything is written:
 // the TOML decodes, strictly, to the identical in-memory manifest the legacy file did.
 type LoopholeMigration struct {
 	// Dir is the module directory, relative to the pack root.

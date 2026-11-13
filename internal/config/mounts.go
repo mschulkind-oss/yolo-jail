@@ -40,7 +40,7 @@ type ContextMount struct {
 	// host path>, which DestFor computes.
 	At string
 	// RW is true only for an object element that says "mode": "rw" or "write": true (the
-	// readable config's spelling, docs/design/config-project.md §1; RC-D24).
+	// readable config's spelling, docs/reference/config/project-config.md#the-sections; RC-D24).
 	RW bool
 	// Optional is true only for an object element that says "optional": true: a backend that
 	// cannot deliver it skips it with one line and the launch goes on, where a required element
@@ -292,7 +292,7 @@ const (
 //
 // Its COMPUTATION is kept one function so that it can change in one place: user scope only,
 // which is cache_relocations' precedent (a workspace config is agent-editable, so it cannot
-// GRANT a read-write host mount). RC-D24 (docs/design/readable-config.md) supersedes OQ-WT1
+// GRANT a read-write host mount). RC-D24 (docs/reference/config/rulings.md) supersedes OQ-WT1
 // with one exception, judged beside this predicate rather than inside it because it needs the
 // element's file and the user's ceiling: a TOML workspace file may REQUEST one when the user
 // config allows it, and the config-change gate approves it (mountsrequest.go). Both halves read

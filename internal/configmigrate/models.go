@@ -2,7 +2,7 @@ package configmigrate
 
 // models.go converts a provider's legacy model rows into the readable rows and folds the facts
 // every row repeats into the provider's `every_model` (docs/design/config-migration.md §4 item 4,
-// docs/design/readable-config.md OQ-RC18, RC-D27, RC-D29). The equality check's config layers
+// docs/reference/config/rulings.md#OQ-RC18, RC-D27, RC-D29). The equality check's config layers
 // compare both sides with the folds undone (unfoldEveryModel), so what proves a conversion or a
 // fold is the extra layer this file adds: the provider table a launch resolves from each side
 // (providerTable), composed by the one composition every notch calls.

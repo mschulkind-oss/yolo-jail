@@ -87,7 +87,7 @@ Five sources, merged in order, later overriding earlier:
 | Environment | a small set of `YOLO_*` variables | last-resort overrides |
 
 TOML is the current format and the legacy JSONC files are still read for a few releases
-([RC-D19](../design/readable-config.md#decision-ledger)). A scope holds one format: a TOML file beside
+([RC-D19](config/rulings.md#RC-D19)). A scope holds one format: a TOML file beside
 a legacy file of the same scope is refused, and a launch that finds a legacy file offers
 `yolo config migrate`, which converts them together and keeps each original as `<name>.pre-migrate`
 (`convert_later` in a legacy user file silences the offer). Edit with the named verbs

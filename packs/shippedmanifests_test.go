@@ -10,7 +10,7 @@ import (
 // TestNoShippedPackHasAJSONManifest pins the conversion of the shipped packs to pack.toml: every
 // shipped pack carries a pack.toml and no legacy manifest. There are no exceptions: the meanings
 // TOML once could not say, "no package for this manager", "declared with no default" and "delete
-// this managed key", are `false` and `unset` (docs/design/readable-config.md RC-D25).
+// this managed key", are `false` and `unset` (docs/reference/config/rulings.md#RC-D25).
 func TestNoShippedPackHasAJSONManifest(t *testing.T) {
 	entries, err := fs.ReadDir(packs.FS, ".")
 	if err != nil {

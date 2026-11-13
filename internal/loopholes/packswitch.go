@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// THE PACK SWITCH (docs/design/config-user.md §7, approved 2026-10-25): `packs` is the only
+// THE PACK SWITCH (docs/reference/config/user-config.md#one-switch-packs, approved 2026-10-25): `packs` is the only
 // switch. Every pack loophole runs whenever its pack is selected and grants nothing until a grant
 // covers the project (docs/reference/loophole-grants.md §4.1); there is no manifest default,
 // and the one config key that decides whether it runs is the off switch of the four loopholes
@@ -33,7 +33,7 @@ func SelectionIsTheSwitch() bool {
 var ungatedLoopholes = map[string]bool{"claude-oauth-broker": true, "openai-auth-broker": true, "aws-auth": true}
 
 // allowanceKeys are the keys of an `allow.<source>` table that are a broker's allowance rather
-// than a pack setting (docs/design/config-user.md §6).
+// than a pack setting (docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins).
 var allowanceKeys = map[string]bool{"always": true, "on_request": true}
 
 // ConfigBlock is the merged config's `loopholes` block as the settings readers use it: under a

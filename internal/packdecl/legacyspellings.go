@@ -1,7 +1,7 @@
 package packdecl
 
 // legacyspellings.go is the pack.toml provider and profile spellings RC-D69 retires
-// (docs/design/readable-config.md RC-D69): a provider is declared `[providers.<id>]`, the shape a
+// (docs/reference/config/rulings.md#RC-D69): a provider is declared `[providers.<id>]`, the shape a
 // user's config has, so `[[provider]] name = "<id>"` and `[[profile]]` are legacy spellings, read
 // for a few releases. `yolo check` notes each one naming `yolo pack migrate <path>`, which writes
 // the keyed form, and a manifest declaring one provider both ways is refused naming the same

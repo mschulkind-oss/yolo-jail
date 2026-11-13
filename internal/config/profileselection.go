@@ -498,7 +498,7 @@ func HostProfileDeselection(key ProfileSelection, typed, keyReaches bool, cli st
 //
 // A selection read from `active_provider` (OQ-RC14) is undone by that key's own word, "native"
 // (OQ-RC20), at the agent's entry, which its named verb writes: `yolo active-provider <cli>
-// native` (docs/design/config-commands.md §4). The legacy `profile` key has no verb, so its fix
+// native` (docs/reference/config/editing.md#the-commands). The legacy `profile` key has no verb, so its fix
 // stays the key respelled.
 func profileKeyFix(key ProfileSelection, cli, every string) string {
 	keyName := ProfileKey

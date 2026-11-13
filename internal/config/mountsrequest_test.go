@@ -1,6 +1,6 @@
 package config
 
-// mountsrequest_test.go pins RC-D24 (docs/design/readable-config.md): a project's TOML config
+// mountsrequest_test.go pins RC-D24 (docs/reference/config/rulings.md): a project's TOML config
 // may REQUEST a writable mount with `write = true` once the user config's
 // `[allow.mounts] on_request = ["write"]` allows it, and the config-change gate then approves it
 // with the mount shown loud. Every rule is asserted at its call site: ValidateConfig (what

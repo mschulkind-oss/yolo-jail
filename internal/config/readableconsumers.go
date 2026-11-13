@@ -3,7 +3,7 @@ package config
 import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 
 // readableconsumers.go holds the ONE reader for each setting the readable config layout
-// (docs/design/readable-config.md) moved, so every backend asks the same function. The loaded
+// (docs/reference/config/rulings.md) moved, so every backend asks the same function. The loaded
 // config carries the readable spelling (`machine.resources`, `install.mise`, `install.nix`);
 // each reader falls back to the legacy top-level spelling only for callers that hand it an
 // unprojected legacy map directly. The rename table these follow is RenameDescriptors.

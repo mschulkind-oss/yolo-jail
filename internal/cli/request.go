@@ -1,7 +1,7 @@
 package cli
 
 // request.go is `yolo request`, the named verb for a project's broker request
-// (docs/design/config-commands.md §4; the `requests` section is config-user.md §6, RC-D12 and
+// (docs/reference/config/editing.md#the-commands; the `requests` section is docs/reference/config/user-config.md#what-a-jail-may-do-with-your-logins, RC-D12 and
 // RC-D13). It writes the project file, which is the agent's to edit, so it runs in a jail too;
 // then it runs `yolo check` and names `yolo config apply`, the host step that approves it.
 // A request outside the user's ceiling is reported and skipped, never refused: the project

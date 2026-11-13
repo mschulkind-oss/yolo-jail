@@ -17,7 +17,7 @@ type ProviderViaRoute struct {
 // ProviderDeriveRequest names an actual selected pack and one of its declared derived surfaces.
 // Context supplies only non-selection inputs; ViaRoutes carries already-resolved service routes.
 // This seam is pure and is not wired into launch/runtime paths: a launch lowers readable model
-// rows inside packload.ComposeProviders instead (docs/design/readable-config.md RC-D29).
+// rows inside packload.ComposeProviders instead (docs/reference/config/rulings.md#RC-D29).
 type ProviderDeriveRequest struct {
 	Receiver  string
 	Pack      *packload.Pack

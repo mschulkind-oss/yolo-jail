@@ -662,7 +662,7 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 }
 
 // configReadFailure is the FAIL line and note for a config scope that could not be read. A
-// config name that is there but cannot be read (RC-D59, docs/design/readable-config.md#RC-D59)
+// config name that is there but cannot be read (RC-D59, docs/reference/config/rulings.md#RC-D59)
 // FAILs with the launch's own sentence of fact, and its next step is the note; anything else is
 // named in the file it names.
 func configReadFailure(err error, again string) (msg, note string) {

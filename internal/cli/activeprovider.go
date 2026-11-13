@@ -1,7 +1,7 @@
 package cli
 
 // activeprovider.go is `yolo active-provider`, the named verb for the readable config's
-// `active_provider` table (docs/design/config-commands.md §4): which provider an agent (or every
+// `active_provider` table (docs/reference/config/editing.md#the-commands): which provider an agent (or every
 // agent, "default") uses. It is sugar over `yolo config set active_provider.<agent> <name>`, plus
 // the one thing a text edit cannot do: it validates the name against the selectable namespace the
 // launch resolves (config.LoadSelectableProfiles) over the selected packs and the user config as

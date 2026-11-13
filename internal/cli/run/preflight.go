@@ -40,7 +40,7 @@ func (o *Options) loadAndValidateConfig() (*jsonx.OrderedMap, bool) {
 	configErrors = src.Annotate(configErrors)
 	configWarnings = src.Annotate(configWarnings)
 	// The pack switch: an `allow.<pack>` table naming a pack `packs` does not list selects
-	// nothing, so it is refused here exactly as `yolo check` refuses it (config-user.md §7).
+	// nothing, so it is refused here exactly as `yolo check` refuses it (docs/reference/config/user-config.md#one-switch-packs).
 	configErrors = append(configErrors, config.AllowPackSwitchErrors()...)
 
 	for _, msg := range configWarnings {

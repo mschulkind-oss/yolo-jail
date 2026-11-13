@@ -2,7 +2,7 @@
 // staging directory (config.PackEntry.Slug), a host file's surface name
 // (config.HostFileEntry.Slug), and every directory or plugin name yolo derives from a pack name
 // that may hold a "/" — a readable-config pack is named by its source handle, `local/matt` or
-// `yolo-packs/pi-fork` (OQ-RC15, docs/design/readable-config.md).
+// `yolo-packs/pi-fork` (OQ-RC15, docs/reference/config/rulings.md).
 //
 // One function, so one name has one spelling wherever it becomes a path: a pack's staged tree,
 // its namespaced skills subtree and its `files` landing all read `yolo-packs_2fpi-fork`, never a

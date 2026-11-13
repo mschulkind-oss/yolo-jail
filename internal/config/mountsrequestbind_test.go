@@ -1,6 +1,6 @@
 package config
 
-// mountsrequestbind_test.go pins the review fixes to RC-D24 (docs/design/readable-config.md):
+// mountsrequestbind_test.go pins the review fixes to RC-D24 (docs/reference/config/rulings.md):
 // what a human approves at the gate for a project's writable mount request is the host path it
 // RESOLVES to, the record holds that path so a retargeted link asks again, the bind is of the
 // approved path only, and every refusal runs on exactly what the gate read.

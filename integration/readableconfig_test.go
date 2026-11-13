@@ -1,6 +1,6 @@
 package integration
 
-// readableconfig_test.go is the container tier of the readable config (docs/design/readable-config.md):
+// readableconfig_test.go is the container tier of the readable config (docs/reference/config/README.md):
 // a jail launched on TOML files, the named verbs that edit them, and what `yolo init` leaves alone.
 // The unit tiers pin each reader and verb against fixtures; only a launch shows the pieces joined:
 // what the loader read is what the container got, and what a verb wrote is what the next launch
@@ -162,7 +162,7 @@ func TestPackAddOnTheHostIsSeenByTheNextLaunch(t *testing.T) {
 }
 
 // `yolo init` in a git checkout writes the pointer file and leaves the project's tracked
-// .gitignore and the clone's .git/info/exclude byte-for-byte as they were (config-project.md §2,
+// .gitignore and the clone's .git/info/exclude byte-for-byte as they were (docs/reference/config/project-config.md#no-file-at-all,
 // C5; the owner, 2026-11-07). It writes no old-format file.
 func TestInitLeavesTheGitignoreAlone(t *testing.T) {
 	requireJail(t)

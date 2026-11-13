@@ -1,6 +1,6 @@
 // Package packmigrate rewrites a pack's legacy pack.json as the grouped pack.toml and moves its
 // plain-copy `files` content into the conventional home/ folder — `yolo pack migrate`'s library
-// (docs/design/pack-manifests.md §5, readable-config-plan.md L3).
+// (docs/design/pack-manifests.md §5).
 //
 // A migration PROVES EQUALITY OR WRITES NOTHING. Equality is not the manifest text: it is the
 // normalized manifest accessors (ManifestDifferences), the content and mode of every delivered

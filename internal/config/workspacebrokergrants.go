@@ -9,7 +9,7 @@ import (
 )
 
 // WorkspaceBrokerGrants is what one workspace config's own words grant one broker source, as the
-// scope projection makes them (docs/design/readable-config.md RC-D60): the concrete grants, and
+// scope projection makes them (docs/reference/config/rulings.md#RC-D60): the concrete grants, and
 // the legacy grants the projection could not place on a concrete repository, each with why.
 type WorkspaceBrokerGrants struct {
 	Source string

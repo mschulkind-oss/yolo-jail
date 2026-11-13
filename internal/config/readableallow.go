@@ -2054,7 +2054,7 @@ const (
 	AllowNudgeOffNoSwitch AllowNudgeKind = "off-no-switch"
 )
 
-// AllowNudge is one finding of AllowPackNudges (docs/design/config-user.md §7).
+// AllowNudge is one finding of AllowPackNudges (docs/reference/config/user-config.md#one-switch-packs).
 type AllowNudge struct {
 	Kind AllowNudgeKind
 	// Table is the authored name under `allow.`; Pack is the pack that table belongs to (the one
