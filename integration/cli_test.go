@@ -151,16 +151,16 @@ func TestYoloCheckValidConfig(t *testing.T) {
 }
 
 // foreignJailFailRes match the liveness section's two per-jail [FAIL] rows and capture the
-// container each is about: a loophole's row, `  [FAIL] loophole <name> @ <container>: <what>`,
+// container each is about: a loophole's row, `  ✗ [FAIL] loophole <name> @ <container>: <what>`,
 // and the one row a jail gets when its whole host-services directory is gone,
-// `  [FAIL] <container>: host-services directory missing (<names>)`.
+// `  ✗ [FAIL] <container>: host-services directory missing (<names>)`.
 //
 // The second is a foreign row for the same reason as the first: `yolo check` in this workspace
 // still grades that directory on every running jail, and another run's jail being torn down
 // removes it while the runtime still lists the container.
 var foreignJailFailRes = []*regexp.Regexp{
-	regexp.MustCompile(`^\s*\[FAIL\] loophole \S+ @ (\S+?):`),
-	regexp.MustCompile(`^\s*\[FAIL\] (yolo-\S+?): host-services directory missing\b`),
+	regexp.MustCompile(`^\s*✗ \[FAIL\] loophole \S+ @ (\S+?):`),
+	regexp.MustCompile(`^\s*✗ \[FAIL\] (yolo-\S+?): host-services directory missing\b`),
 }
 
 // foreignJailFails splits a `yolo check` report's [FAIL] rows into the ones about ownJail or
@@ -284,15 +284,15 @@ func TestYoloCheckAvailableInsideJail(t *testing.T) {
 // only a liveness row naming ANOTHER container is set aside.
 func TestForeignJailFailsSplitsByContainer(t *testing.T) {
 	report := strings.Join([]string{
-		"  [PASS] Merged config is semantically valid",
-		"  [FAIL] loophole claude-oauth-broker @ yolo-002-aaaa: broker endpoint missing",
-		"  [FAIL] loophole openai-auth-broker @ yolo-002-mine: no endpoint published",
-		"  [FAIL] yolo-002-cccc: host-services directory missing (github-broker, openai-auth-broker)",
-		"  [FAIL] yolo-002-mine: host-services directory missing (github-broker)",
-		"  [FAIL] loophole claude-oauth-broker: daemon unreachable (pid=7, socket missing, not accepting)",
-		"  [FAIL] config.network.mode: bad value",
-		"  [WARN] loophole x @ yolo-002-bbbb: something",
-		"  [SKIP] loophole github-broker @ yolo-002-dddd: not graded from this workspace (another workspace's jail)",
+		"  ✓ [PASS] Merged config is semantically valid",
+		"  ✗ [FAIL] loophole claude-oauth-broker @ yolo-002-aaaa: broker endpoint missing",
+		"  ✗ [FAIL] loophole openai-auth-broker @ yolo-002-mine: no endpoint published",
+		"  ✗ [FAIL] yolo-002-cccc: host-services directory missing (github-broker, openai-auth-broker)",
+		"  ✗ [FAIL] yolo-002-mine: host-services directory missing (github-broker)",
+		"  ✗ [FAIL] loophole claude-oauth-broker: daemon unreachable (pid=7, socket missing, not accepting)",
+		"  ✗ [FAIL] config.network.mode: bad value",
+		"  ! [WARN] loophole x @ yolo-002-bbbb: something",
+		"    [SKIP] loophole github-broker @ yolo-002-dddd: not graded from this workspace (another workspace's jail)",
 	}, "\n")
 	own, foreign := foreignJailFails(report, "yolo-002-mine")
 	if len(foreign) != 2 || !strings.Contains(foreign[0], "yolo-002-aaaa") ||

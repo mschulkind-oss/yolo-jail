@@ -520,10 +520,10 @@ func TestSectionPacksReportsOneRefusalAsOneFail(t *testing.T) {
 		t.Errorf("one tripped override must be exactly one FAIL: failed=%d warned=%d\n%s",
 			r.failed, r.warned, buf.String())
 	}
-	want := `  [FAIL] Refusing to launch: pack ` + name + `'s ` + "`kind: \"env\"`" + ` contribution sets WIDGET_POINTER, and this launch also delivers what the pack declares OVERRIDES it — the agent would silently use that instead.
-       -> WIDGET_TOKEN is delivered by legacy env_sources.
-          The pack says: the widget client sends WIDGET_TOKEN first
-          Drop one. Remove WIDGET_TOKEN from legacy env_sources, or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
+	want := `  ✗ [FAIL] Refusing to launch: pack ` + name + `'s ` + "`kind: \"env\"`" + ` contribution sets WIDGET_POINTER, and this launch also delivers what the pack declares OVERRIDES it — the agent would silently use that instead.
+         -> WIDGET_TOKEN is delivered by legacy env_sources.
+            The pack says: the widget client sends WIDGET_TOKEN first
+            Drop one. Remove WIDGET_TOKEN from legacy env_sources, or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
 `
 	if !strings.Contains(buf.String(), want) {
 		t.Errorf("the refusal's report shape changed:\n--- got ---\n%s\n--- want (a substring) ---\n%s",
@@ -554,10 +554,10 @@ func TestSectionPacksWarnsForAnUncertainOverride(t *testing.T) {
 		t.Errorf("an uncertain override must be exactly one WARN and no FAIL: failed=%d warned=%d\n%s",
 			r.failed, r.warned, buf.String())
 	}
-	want := `  [WARN] Warning: pack ` + name + `'s ` + "`kind: \"env\"`" + ` contribution sets WIDGET_POINTER, and this launch also delivers what the pack declares MAY override it — if it does, the agent silently uses that instead. The launch continues.
-       -> A host_files entry renders ~/.widget/config into the jail.
-          The pack says: the widget config dir answers first when it holds a key
-          If it does, drop one. Remove the host_files entry for ~/.widget/config, or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
+	want := `  ! [WARN] Warning: pack ` + name + `'s ` + "`kind: \"env\"`" + ` contribution sets WIDGET_POINTER, and this launch also delivers what the pack declares MAY override it — if it does, the agent silently uses that instead. The launch continues.
+         -> A host_files entry renders ~/.widget/config into the jail.
+            The pack says: the widget config dir answers first when it holds a key
+            If it does, drop one. Remove the host_files entry for ~/.widget/config, or stop delivering pack ` + name + `'s contribution — it is delivered only while the ` + "`gatedprofile`" + ` profile is active, so deselect that profile or the pack.
 `
 	if !strings.Contains(buf.String(), want) {
 		t.Errorf("the warning's report shape changed:\n--- got ---\n%s\n--- want (a substring) ---\n%s",

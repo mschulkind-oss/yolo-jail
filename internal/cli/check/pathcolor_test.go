@@ -18,7 +18,7 @@ func TestOkPathColorsThePathAndKeepsThePlainBytes(t *testing.T) {
 	pr.okPath("Parsed user config: ", "/h/.config/yolo-jail/config.toml", " (x)")
 	cr.okPath("Parsed user config: ", "/h/.config/yolo-jail/config.toml", " (x)")
 
-	if want := "  [PASS] Parsed user config: /h/.config/yolo-jail/config.toml (x)\n"; plain.String() != want {
+	if want := "  ✓ [PASS] Parsed user config: /h/.config/yolo-jail/config.toml (x)\n"; plain.String() != want {
 		t.Errorf("plain okPath = %q, want %q", plain.String(), want)
 	}
 	if !strings.Contains(colored.String(), ansiCyan+"/h/.config/yolo-jail/config.toml"+ansiReset) {

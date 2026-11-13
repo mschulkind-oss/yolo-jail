@@ -32,6 +32,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/execx"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
@@ -145,6 +146,16 @@ func PrintStatus(deps CLIDeps, name string) int {
 		}
 		return 0
 	}
+	// ONE STATUS COLUMN (docs/plans/cli-visual-polish.md, Group C): each copy's line is its
+	// identity, padded to the widest identity in the report, then a glyph and the mark, so the
+	// marks line up down the report and a ✗ stands out. The padding is computed on the plain
+	// identity and written outside its tags, so the colored column lines up as the plain one does.
+	width := 0
+	for _, i := range insts {
+		if n := utf8.RuneCountInString(statusIdentity(i, false)); n > width {
+			width = n
+		}
+	}
 	last := ""
 	for _, i := range insts {
 		if i.Name != last {
@@ -154,22 +165,14 @@ func PrintStatus(deps CLIDeps, name string) int {
 			out.printf("[bold]Host daemon: %s[/bold]", i.Name)
 			last = i.Name
 		}
-		mark := "[green]accepting[/green]"
-		if !i.Accepting {
-			mark = "[red]not accepting[/red]"
-		}
+		pad := strings.Repeat(" ", width-utf8.RuneCountInString(statusIdentity(i, false)))
+		out.print("  " + statusIdentity(i, true) + pad + "  " + statusMark(i.Accepting))
 		if i.HostWide {
-			// ONLY WHAT IS KNOWN (HD-D31): the machine-wide model is retired, so no jail this yolo
-			// launched uses the copy; whether a jail an older yolo launched still does is not
-			// something status can see, so it is said as the condition for the stop.
-			out.printf("  host-wide, left by an older yolo: pid %s, socket %s, %s",
-				pidList(i.PIDs), socketValue(i.Socket), mark)
 			out.print("    [dim]Jails this yolo launches do not use it; only a jail an older yolo " +
 				"launched can. Once no such jail is running, this ends it:[/dim]")
 			out.print("      [cyan]" + richtext.Escape(StopHostWideCommand(i.Name)) + "[/cyan]")
 			continue
 		}
-		out.printf("  jail %s: pid %s, socket %s, %s", i.Jail, pidList(i.PIDs), socketValue(i.Socket), mark)
 		if !i.Accepting {
 			out.printf("    [yellow]Its daemon died, or its jail ended without stopping it. If that "+
 				"jail is still running, its %s requests fail: leave the jail and launch it again, "+
@@ -179,6 +182,31 @@ func PrintStatus(deps CLIDeps, name string) int {
 		}
 	}
 	return rc
+}
+
+// statusIdentity is a status line's identity: which copy, its pids and its socket. Colored, the
+// socket is its cyan value (socketValue); plain, it is the text the status column is padded from.
+func statusIdentity(i Instance, colored bool) string {
+	socket := i.Socket
+	if colored {
+		socket = socketValue(i.Socket)
+	}
+	if i.HostWide {
+		// ONLY WHAT IS KNOWN (HD-D31): the machine-wide model is retired, so no jail this yolo
+		// launched uses the copy; whether a jail an older yolo launched still does is not
+		// something status can see, so it is said as the condition for the stop.
+		return fmt.Sprintf("host-wide, left by an older yolo: pid %s, socket %s", pidList(i.PIDs), socket)
+	}
+	return fmt.Sprintf("jail %s: pid %s, socket %s", i.Jail, pidList(i.PIDs), socket)
+}
+
+// statusMark is the status column's entry: a green ✓ for a copy that accepts and a red ✗ for one
+// that does not, before the word. The glyph is literal text, so the plain report carries it too.
+func statusMark(accepting bool) string {
+	if accepting {
+		return "[green]✓ accepting[/green]"
+	}
+	return "[red]✗ not accepting[/red]"
 }
 
 // socketValue renders a status line's socket path as its value: cyan, so the label/value split

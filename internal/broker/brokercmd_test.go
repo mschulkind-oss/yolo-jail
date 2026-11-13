@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 )
@@ -445,6 +446,62 @@ func TestStatusColorsItsSocketPathsAdditively(t *testing.T) {
 	for _, sock := range []string{running[0].Socket, older.Socket, StopHostWideCommand(fixtureDaemon)} {
 		if !strings.Contains(colored, "\x1b[36m"+sock+"\x1b[0m") {
 			t.Errorf("%q is not cyan:\n%q", sock, colored)
+		}
+	}
+	if got := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(colored, ""); got != plain {
+		t.Errorf("stripped colored status differs from the plain one:\n%q\n%q", got, plain)
+	}
+}
+
+// TestStatusAlignsItsMarksIntoOneGlyphColumn pins the Group C glyph-and-column polish of
+// docs/plans/cli-visual-polish.md: each copy's mark is a ✓ or ✗ glyph and its word, the marks of
+// every line in the report start in one column however long each identity is, the glyphs are
+// green and red on a terminal, and the colored report without its escapes is the plain one.
+func TestStatusAlignsItsMarksIntoOneGlyphColumn(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+	older := jailCopy("", 3, true)
+	older.HostWide, older.Socket = true, "/tmp/yolo-old-"+fixtureDaemon+".sock"
+	other := jailCopy("cccccccc", 1234, false)
+	other.Name = "other-daemon"
+	running := []Instance{jailCopy("aaaaaaaa", 7, true), jailCopy("bbbbbbbb", 91011, false), older, other}
+	run := func(color bool) string {
+		deps, buf := newDeps(t, &verbState{running: running})
+		deps.Color = color
+		deps.IsTTYStdout = func() bool { return true }
+		PrintStatus(deps, "")
+		return buf.String()
+	}
+	plain, colored := run(false), run(true)
+	want := map[string]string{
+		"  jail aaaaaaaa: pid 7, socket " + running[0].Socket:               "✓ accepting",
+		"  jail bbbbbbbb: pid 91011, socket " + running[1].Socket:           "✗ not accepting",
+		"  host-wide, left by an older yolo: pid 3, socket " + older.Socket: "✓ accepting",
+		"  jail cccccccc: pid 1234, socket " + other.Socket:                 "✗ not accepting",
+	}
+	column := -1
+	for prefix, mark := range want {
+		var line string
+		for _, l := range strings.Split(plain, "\n") {
+			if strings.HasPrefix(l, prefix+" ") {
+				line = l
+			}
+		}
+		if line == "" {
+			t.Fatalf("no status line starts %q:\n%s", prefix, plain)
+		}
+		if !strings.HasSuffix(line, "  "+mark) || strings.TrimSpace(strings.TrimSuffix(line, mark)) != strings.TrimSpace(prefix) {
+			t.Errorf("line %q is not its identity, padding and %q", line, mark)
+		}
+		at := utf8.RuneCountInString(strings.TrimSuffix(line, mark))
+		if column == -1 {
+			column = at
+		} else if at != column {
+			t.Errorf("mark of %q starts at column %d, want %d:\n%s", prefix, at, column, plain)
+		}
+	}
+	for _, m := range []string{"\x1b[32m✓ accepting\x1b[0m", "\x1b[31m✗ not accepting\x1b[0m"} {
+		if !strings.Contains(colored, m) {
+			t.Errorf("colored status lacks %q:\n%q", m, colored)
 		}
 	}
 	if got := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(colored, ""); got != plain {

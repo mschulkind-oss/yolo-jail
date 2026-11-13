@@ -2,7 +2,7 @@
 title: "CLI visual polish — color to guide the eye"
 status: accepted
 stage: DESIGN
-next: "Group C color is done (2026-11-12); its glyph and status-column sub-items change plain bytes and remain; the frozen run progress lines wait on OQ-VP1"
+next: "Group C is done (color 2026-11-12, glyphs and status column 2026-11-13); the cross-cutting passes and the startup banner remain; the frozen run progress lines wait on OQ-VP1"
 tags: [plan, cli, color, polish]
 ---
 
@@ -23,7 +23,7 @@ through the renderer (bold headers, cyan command names); `config render
 colored (dim/red/yellow, bold header, TTY-gated, byte-parity locked). `check`
 keeps its own richer private ANSI (background/inverse badges richtext lacks) —
 left as-is per the palette-gaps note. Config help and `init`/`init-user-config`
-status lines are now colored additively (2026-10-08), and the Group C color halves (2026-11-12); the remaining candidates are
+status lines are now colored additively (2026-10-08), the Group C color halves (2026-11-12), and Group C's glyphs and status column (2026-11-13); the remaining candidates are
 listed below, with run-boot frozen lines still needing sign-off. The invariant's `NO_COLOR` clause, unbuilt until then, is
 enforced by one gate since 2026-09-26 — see
 [Implementation decisions](#implementation-decisions--no_color-2026-09-26), which also names
@@ -258,10 +258,10 @@ Highest value, low risk (text stays byte-identical after strip).
 
 ### Group C — GREEN: already good, optional polish
 
-The color halves of the four items below are **DONE (2026-11-12)**. What is left of them is the
-glyphs and the status column, which are not additive: each adds or moves plain bytes, so every
-golden and every reader that parses the plain report moves with it. They stay open as separate
-sub-items.
+The color halves of the four items below are **DONE (2026-11-12)**, and the glyph and
+status-column sub-items **(2026-11-13)**. Those two were not additive: each added or moved plain
+bytes, so the goldens and the readers that parse the plain report moved with them in the same
+commit.
 
 - [x] **`yolo check` / doctor, color** — **DONE 2026-11-12.** The ` -> workspace` tail of a
   running-jail row (`sectionRunningJails` in `check.go`) is dim so the jail name pops, and the
@@ -270,15 +270,29 @@ sub-items.
   Check keeps its private ANSI set (palette gap #2). `TestOkPathColorsThePathAndKeepsThePlainBytes`,
   `TestTheUserConfigFindingColorsItsPath` and `TestARunningJailsWorkspaceTailIsDim` pin the colors
   and the stripped bytes.
-- [ ] **`yolo check` glyphs** — scannable glyphs before badges (`[PASS]`→green ✓,
-  `[FAIL]`→red ✗, `[WARN]`→yellow `!`). Changes the plain bytes.
+- [x] **`yolo check` glyphs** — **DONE 2026-11-13.** Each graded line now reads
+  `  ✓ [PASS] …`, `  ✗ [FAIL] …` or `  ! [WARN] …`, the glyph green, red or yellow on a terminal
+  (`reporter.badge`; the plain forms are `PassLine`, `FailLine`, `WarnLine` and `SkipLine` in
+  `internal/cli/check/console.go`). Two choices this item left open were made here: `[SKIP]` gets
+  no glyph, only the blank that keeps its badge in the column, because it reports an absence; and
+  the note arrow moved two columns right with the badge, so it still sits under the badge's
+  closing bracket. The recorded JSON messages carry no glyph. `TestTheReporterPrintsAGlyphBeforeEachBadge`
+  and `TestBadgeLines` pin it, the no-runtime golden moved with it, and the integration suite's
+  foreign-jail row matchers (`foreignJailFailRes`) read the new prefix.
 - [x] **`yolo host-daemon status`, color** — **DONE 2026-11-12.** The `pid file:` line the item
-  named is gone; each copy's line now reads `jail <id>: pid <n>, socket <path>, accepting`. The
+  named is gone; each copy's line now reads `jail <id>: pid <n>, socket <path>` and its mark (the
+  glyph-and-column sub-item below). The
   socket path and an older yolo's stop command are cyan and `richtext.Escape`d
   (`socketValue` in `internal/broker/brokercmd.go`); `TestStatusColorsItsSocketPathsAdditively`
   pins it.
-- [ ] **`yolo host-daemon status` glyphs and column** — ✓/✗ glyphs before the accepting mark,
-  and the marks aligned into one status column. Changes the plain bytes.
+- [x] **`yolo host-daemon status` glyphs and column** — **DONE 2026-11-13.** Each copy's line is
+  its identity (`jail <id>: pid <n>, socket <path>`, or the older yolo's host-wide copy), padded to
+  the widest identity in the report, then two spaces and `✓ accepting` (green) or
+  `✗ not accepting` (red); the comma before the mark is gone. The padding is computed on the plain
+  identity and written outside its tags (`statusIdentity`, `statusMark` in
+  `internal/broker/brokercmd.go`), so the colored column lines up as the plain one does.
+  `TestStatusAlignsItsMarksIntoOneGlyphColumn` pins the column across daemons and the host-wide
+  line, the glyph colors, and byte parity.
 - [x] **`yolo prune` mode banner** (`internal/prune/prunecmd.go`) — **DONE 2026-11-12.** The
   header is `[bold yellow]yolo prune (DRY-RUN)` and `[bold red]yolo prune (APPLY)`, red because
   APPLY deletes. `TestTheModeBannerColorsItsMode` pins both; the existing color-gate tests pin
@@ -324,7 +338,8 @@ golden update — call it out for human sign-off, don't fold it in silently.
    `--explain`~~ — all are colored with byte parity; config help completed
    2026-10-08.
 4. ~~init status lines~~ — colored additively through richtext (2026-10-08).
-5. Group C polish: color done 2026-11-12; glyphs, the status column and the cross-cutting passes remain.
+5. ~~Group C polish~~: color done 2026-11-12, glyphs and the status column 2026-11-13; the
+   cross-cutting passes remain.
 6. Frozen-byte surfaces (run sub-steps, banner) last, each with human sign-off.
 
 ## Open Questions

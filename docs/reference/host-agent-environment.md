@@ -1090,11 +1090,11 @@ floor. UNMEASURED, each owed a run on a real host:
   that would generate it is what `"none"` refuses. For a directory off `PATH` the section prints:
 
   ```text
-  [WARN] wrapper directory is not on PATH, so no wrapper runs
-       -> export PATH="/home/you/.local/share/yolo-jail/bin/wrap:$PATH"
-          Add that line to your shell rc, below any line that puts ~/.local/bin on PATH, then open a new shell.
-          Until then a bare claude or pi runs unwrapped, with no composed environment, though each wrapper works by absolute path.
-          host_apply_on_launch is on but cannot fire, so no launch re-checks this host's render.
+  ! [WARN] wrapper directory is not on PATH, so no wrapper runs
+         -> export PATH="/home/you/.local/share/yolo-jail/bin/wrap:$PATH"
+            Add that line to your shell rc, below any line that puts ~/.local/bin on PATH, then open a new shell.
+            Until then a bare claude or pi runs unwrapped, with no composed environment, though each wrapper works by absolute path.
+            host_apply_on_launch is on but cannot fire, so no launch re-checks this host's render.
   ```
 
 - **`apply` does not refuse.** It also writes the Channel 1 surfaces, which work regardless;
