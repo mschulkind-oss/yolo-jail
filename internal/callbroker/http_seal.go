@@ -140,7 +140,7 @@ func (h *HTTPHandler) seal(jail, generation string, req httpFrontSealRequest) (h
 	if h.start == "" {
 		return reply, errors.New("call broker has no bound host launch; stop the jail and relaunch")
 	}
-	if err := validatePreparedHTTPGeneration(h.inputFile, h.input); err != nil {
+	if _, err := validatePreparedHTTPGeneration(h.inputFile, h.input); err != nil {
 		return reply, err
 	}
 	sf, _, err := h.currentAuthority()

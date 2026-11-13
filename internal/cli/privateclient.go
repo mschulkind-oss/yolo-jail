@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/callbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/capture"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
@@ -203,11 +208,56 @@ func verifyPrivateClientDelivery(cell packload.PrivateProgramEnvPlan, in npmCapt
 }
 
 // privateClientExec and privateClientStore are the bootstrap's exec and in-jail store, variables
-// so a test can observe the exec without replacing its process.
+// so a test can observe the exec without replacing its process. privateClientMayBePublished and
+// privateClientFetch are its publication prefilter and host exchange, variables so a test can name
+// a published cell and stand in for a live host.
 var (
-	privateClientExec  = syscall.Exec
-	privateClientStore = entrypoint.PrivateClientStore
+	privateClientExec           = syscall.Exec
+	privateClientStore          = entrypoint.PrivateClientStore
+	privateClientMayBePublished = callbrokerinput.HTTPClientBinMayBePublished
+	privateClientFetch          = callbroker.FetchHTTPClientPublication
 )
+
+// publishPrivateClient asks the host, over this jail's own endpoint for the bound generation's
+// front, for the client's publication (pack-brokers-http-plan.md, Task 4), and returns environ with
+// the client's three ordinary variables set to the local token, the front's HTTPS URL and a trust
+// file holding only the front's pinned certificate. Any value those variables already had is
+// dropped first, so the jail's environment cannot point the client elsewhere. A host refusal
+// stops the client: a published cell never runs with a partial or stale publication.
+func publishPrivateClient(environ []string, b entrypoint.PrivateClientBinding, getenv func(string) string) ([]string, error) {
+	loophole, seen := "", 0
+	for _, item := range strings.Split(getenv(paths.HTTPFrontGenerationsEnv), ",") {
+		name, generation, ok := strings.Cut(strings.TrimSpace(item), "=")
+		if ok && generation == b.Generation {
+			loophole, seen = name, seen+1
+		}
+	}
+	if seen != 1 || loophole == "" || loophole == "." || loophole == ".." || strings.ContainsAny(loophole, "/\x00") {
+		return nil, errors.New("this jail's " + paths.HTTPFrontGenerationsEnv + " names no single front for its generation")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pub, err := privateClientFetch(ctx, paths.JailHostServicesDir+"/"+loophole+paths.ServiceEndpointExt, b.Generation, b.Bin)
+	if err != nil {
+		return nil, err
+	}
+	der, err := base64.StdEncoding.Strict().DecodeString(pub.CertificateBase64)
+	if err != nil {
+		return nil, errors.New("the host's publication carries no usable certificate")
+	}
+	trust, err := privateClientTrustPath(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(environ)+3)
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if name != pub.TokenVariable && name != pub.URLVariable && name != pub.TrustVariable {
+			out = append(out, kv)
+		}
+	}
+	return append(out, pub.TokenVariable+"="+pub.Token, pub.URLVariable+"="+pub.URL, pub.TrustVariable+"="+trust), nil
+}
 
 // runPrivateClientExec is the shipped bootstrap of a bound private client (`yolo internal
 // private-client-exec`): it accepts exactly the bound argv, requires the jail's own binding of the
@@ -253,10 +303,16 @@ func runPrivateClientExec(args []string, getenv func(string) string) int {
 		return refuse(err.Error())
 	}
 	defer node.Close()
+	environ := entrypoint.PrivateClientEnviron(os.Environ())
+	if privateClientMayBePublished(b.Bin) {
+		if environ, err = publishPrivateClient(environ, b, getenv); err != nil {
+			return refuse(b.Bin + "'s front could not be published to it: " + err.Error())
+		}
+	}
 	// The descriptor is close-on-exec: the kernel opens the executable through it before closing
 	// it, and Node then reads its own path from /proc/self/exe, the real file.
 	self := "/proc/self/fd/" + strconv.Itoa(int(node.Fd()))
-	if err := privateClientExec(self, append([]string{"node", entry}, rest...), entrypoint.PrivateClientEnviron(os.Environ())); err != nil {
+	if err := privateClientExec(self, append([]string{"node", entry}, rest...), environ); err != nil {
 		return refuse(errors.Join(errors.New("exec failed"), err).Error())
 	}
 	return 0

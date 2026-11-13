@@ -26,6 +26,9 @@ type HTTPHandler struct {
 	*CLIHandler
 	beforeHTTPCommit func() // deterministic store-boundary test seam; nil in production
 	beforeSealWrite  func() // between the token and seal leaf writes; test seam, nil in production
+	// published decides whether a client/setup cell receives its front's URL, token and trust.
+	// It is callbrokerinput.HTTPClientCellPublished in production; a test may name a cell.
+	published func(callbrokerinput.HTTPClientCell) bool
 	// front is this broker start's sealed selected front, if any. Only Handle
 	// reads it; approval authority never builds or consults it.
 	front httpFrontState
@@ -44,7 +47,7 @@ func newHTTPHandler(inputFile, workspace string, store *brokerstore.Store, audit
 		return nil, errors.New("selected HTTP call broker binding is invalid; relaunch with the pack selected")
 	}
 	if in.HTTPFrontGeneration != "" {
-		if err := validatePreparedHTTPGeneration(inputFile, in); err != nil {
+		if _, err := validatePreparedHTTPGeneration(inputFile, in); err != nil {
 			return nil, err
 		}
 	}
@@ -52,33 +55,34 @@ func newHTTPHandler(inputFile, workspace string, store *brokerstore.Store, audit
 		Roots: in.Roots, Resources: in.Resources, Cells: in.Cells, Lookups: in.Lookups,
 		ReadOverPost: slices.Clone(in.HTTPBinding.ReadOverPost)}
 	return &HTTPHandler{CLIHandler: &CLIHandler{inputFile: inputFile, original: bytes.Clone(data), input: in,
-		workspace: workspace, shutdown: context.Background(), classifier: c, store: store, audit: audit}}, nil
+		workspace: workspace, shutdown: context.Background(), classifier: c, store: store, audit: audit},
+		published: callbrokerinput.HTTPClientCellPublished}, nil
 }
 
-func validatePreparedHTTPGeneration(inputFile string, in callbrokerinput.Launch) error {
+func validatePreparedHTTPGeneration(inputFile string, in callbrokerinput.Launch) (callbrokerinput.PreparedHTTPClientGeneration, error) {
 	if len(in.HTTPFrontGeneration) != 32 {
-		return errors.New("selected HTTP prepared generation reference is invalid; relaunch the selected pack")
+		return callbrokerinput.PreparedHTTPClientGeneration{}, errors.New("selected HTTP prepared generation reference is invalid; relaunch the selected pack")
 	}
 	if _, err := hex.DecodeString(in.HTTPFrontGeneration); err != nil {
-		return errors.New("selected HTTP prepared generation reference is invalid; relaunch the selected pack")
+		return callbrokerinput.PreparedHTTPClientGeneration{}, errors.New("selected HTTP prepared generation reference is invalid; relaunch the selected pack")
 	}
 	preparedPath := inputFile + ".prepared"
 	data, err := readPrivateInput(preparedPath)
 	if err != nil {
-		return errors.New("selected HTTP prepared identity is missing or unsafe; relaunch the selected pack")
+		return callbrokerinput.PreparedHTTPClientGeneration{}, errors.New("selected HTTP prepared identity is missing or unsafe; relaunch the selected pack")
 	}
 	prepared, err := callbrokerinput.DecodePreparedHTTPClientGeneration(data)
 	if err != nil {
-		return errors.New("selected HTTP prepared identity is invalid; relaunch the selected pack")
+		return callbrokerinput.PreparedHTTPClientGeneration{}, errors.New("selected HTTP prepared identity is invalid; relaunch the selected pack")
 	}
 	scope, err := brokerscope.ReadFile(in.ScopeFile)
 	if err != nil {
-		return errors.New("selected HTTP scope identity is unavailable; relaunch the selected pack")
+		return callbrokerinput.PreparedHTTPClientGeneration{}, errors.New("selected HTTP scope identity is unavailable; relaunch the selected pack")
 	}
 	if err := callbrokerinput.ValidatePreparedHTTPClientLaunch(prepared, in, scope.Container, scope.LaunchID, scope.Source, scope.Repos); err != nil {
-		return errors.New("selected HTTP prepared identity does not match the selected launch scope; relaunch the selected pack")
+		return callbrokerinput.PreparedHTTPClientGeneration{}, errors.New("selected HTTP prepared identity does not match the selected launch scope; relaunch the selected pack")
 	}
-	return nil
+	return prepared, nil
 }
 
 // serveHTTP is reached only from the host-authenticated operation handler. A
@@ -199,7 +203,7 @@ func (h *HTTPHandler) Handle(s *hostservice.Session) {
 		return
 	}
 	for _, key := range s.Request.Keys() {
-		if key != "op" && key != "http" && key != "jail_id" && key != "front_generation" && key != "front" {
+		if key != "op" && key != "http" && key != "jail_id" && key != "front_generation" && key != "front" && key != "client" {
 			s.Stderr("Unsupported HTTP broker field; update the selected client.\n")
 			s.Exit(64)
 			return
@@ -221,6 +225,10 @@ func (h *HTTPHandler) Handle(s *hostservice.Session) {
 	}
 	if ok && op == httpFrontSealOp {
 		h.handleSeal(s, generation)
+		return
+	}
+	if ok && op == callbrokerinput.HTTPClientPublishOp {
+		h.handlePublish(s, generation)
 		return
 	}
 	raw, present := s.Get("http")

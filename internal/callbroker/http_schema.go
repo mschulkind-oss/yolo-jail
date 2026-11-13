@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 )
 
 // validateHTTPBrokerFrame runs on authenticated, bounded HTTP ingress before
@@ -39,6 +41,16 @@ func validateHTTPBrokerFrame(data []byte) error {
 		}
 		if !httpJSONString(front["address"]) || !httpJSONString(front["certificate_base64"]) {
 			return errors.New("HTTP front seal address and certificate must be strings")
+		}
+		return nil
+	}
+	if op == callbrokerinput.HTTPClientPublishOp {
+		top, err := exactHTTPObject(data, []string{"op", "front_generation", "client"}, "jail_id")
+		if err != nil {
+			return err
+		}
+		if !httpJSONString(top["front_generation"]) || !httpJSONString(top["client"]) || top["jail_id"] != nil && !httpJSONString(top["jail_id"]) {
+			return errors.New("HTTP client publication generation, client or jail hint has the wrong type")
 		}
 		return nil
 	}
