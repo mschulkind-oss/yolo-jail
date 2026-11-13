@@ -3,7 +3,7 @@ title: "Your rules first, and a tenth of ours: the briefing diet"
 date: 2026-11-13
 status: in-review
 stage: DESIGN
-next: "Rule OQ-BD1; the core and topic split does not wait on it"
+next: "Build the two-block order (Task 2) and the launch size line (Task 4) for 0.18.0"
 tags: [briefing, skills, packs, context, design]
 summary: "yolo's always-loaded briefing shrinks to a budgeted core of about 2.5 KB that points at the generated jail-mechanics skill, shipped packs' prose moves into pack skills, and the user's own prose is composed ahead of yolo's."
 ---
@@ -31,10 +31,10 @@ assert sentences of the current body are rewritten against the topic files.
 **Start at [§4](#4-the-core)**: the core's text is the design. The rest decides where the
 removed text goes.
 
-**Needs your ruling:** [OQ-BD1](#OQ-BD1).
+**Ruled:** your rules come first ([BD-D11](#BD-D11)).
 
 **Reads with:** [`briefing-diet-plan.md`](briefing-diet-plan.md) (the implementation plan's
-seed; its ordering task waits on [OQ-BD1](#OQ-BD1)),
+seed),
 [`agent-briefings.md`](../reference/agent-briefings.md) (how a briefing is composed today),
 [`jail-mechanics-skill.md`](../reference/jail-mechanics-skill.md) (the generated skill this
 extends), [`computed-briefings.md`](computed-briefings.md) (pack prose rendered from facts; it
@@ -237,8 +237,8 @@ The two pointers that carry the most, as proposed (234 and 190 bytes):
 
 ## 7. Order
 
-Each destination's file is composed as two blocks, and which comes first is
-[OQ-BD1](#OQ-BD1):
+Each destination's file is composed as two blocks, the user block first
+([BD-D11](#BD-D11)):
 
 - **The user block:** the host file `after` names (when it is the user's), then
   `agents_md_extra`, then each non-shipped pack's prose in config order.
@@ -253,9 +253,8 @@ the user has forked is no longer shipped, and its prose is user prose.
 **The host notch composes the same two blocks in the same order.** `yolo host apply` reads only
 the user-scope `agents_md_extra`, as today.
 
-Under either answer to [OQ-BD1](#OQ-BD1), yolo's block is at most about 2.6 KB, so the user's
-prose moves by at most that much in either direction. The ruling decides what a cut from the end
-removes.
+yolo's block is at most about 2.6 KB and comes last, so an agent that cuts a long file from the
+end loses yolo's text before any of the user's.
 
 ## 8. Budgets, and the test that holds them
 
@@ -335,41 +334,17 @@ refuses, and it never trims.
 
 1. The core and the topic files, with the core and description budgets. This is where most of
    the bytes are and it waits on no ruling.
-2. The two-block order, once [OQ-BD1](#OQ-BD1) is ruled, with the composed-file budget.
+2. The two-block order, user block first, with the composed-file budget.
 3. The four shipped packs' pointers and skills, with the pack budget.
 4. The launch's size line and Claude's declared value.
 5. The reference documents.
 
-Steps 1 to 3 are the 0.18.0 slice.
-
-## Open Questions
-
-1. 💬 **OQ-BD1: Should your own rules come before yolo's text in the briefing file?**
-
-   Matt keeps his working rules in personal packs. He starts agy in a jail; agy loads
-   `~/.gemini/config/AGENTS.md`, where yolo's text comes first and his rules start 25 KB down,
-   and he reports that agy drops the end of the file. After the diet yolo's text is about
-   2.5 KB, so either order moves his rules by that much. The choice is what an agent that cuts
-   from the end loses.
-
-   - **A. Your rules first, yolo's text last.** A cut removes yolo's text first: the agent may
-     not know `/tmp` is lost at a restart. Your rules are cut only if they alone exceed the
-     agent's limit.
-   - **B. yolo's text first, your rules after.** The agent always knows where it is. Your rules
-     start 2.5 KB down, and a cut removes their last section first.
-
-   <!-- vantage: question id=OQ-BD1 leaning="A. Your rules first: yolo's text is the part yolo can afford to lose, since the jail-mechanics skill's description still reaches the agent by another channel." -->
-
-   _Leaning:_ A. Your rules first: yolo's text is the part yolo can afford to lose, since the
-   jail-mechanics skill's description still reaches the agent by another channel.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+Steps 1 to 5 ship in 0.18.0 (the owner, 2026-11-13).
 
 ## Decision Ledger
 
-Implementation decisions taken by the design seat, not owner rulings; each is
-reversible.
+Implementation decisions taken by the design seat, each reversible, and the owner's ruling
+(BD-D11).
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -383,3 +358,4 @@ reversible.
 | BD-D8 | `agents_md_extra` and non-shipped packs' prose form the user block with the host file; the host notch composes the same two blocks | 2026-11-13 | [§7](#7-order) | — |
 | BD-D9 | An over-long composed file is disclosed at launch against a pack-declared, measured value; never refused, never trimmed | 2026-11-13 | [§8](#8-budgets-and-the-test-that-holds-them) | — |
 | BD-D10 | No size limit is declared for an agent whose limit was not measured; agy's is an owner observation | 2026-11-13 | [§9](#9-what-done-looks-like) | — |
+| <a id="BD-D11"></a><a id="OQ-BD1"></a>BD-D11 | **Owner ruling:** the user block comes first and yolo's block last, so a cut from the end removes yolo's text first (the owner, 2026-11-13: *"yes, put my rules first"*) | 2026-11-13 | [§7](#7-order) | — |

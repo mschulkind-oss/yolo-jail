@@ -3,8 +3,8 @@ title: "Plan: the briefing diet"
 date: 2026-11-13
 status: draft
 stage: SKETCH
-next: "Task 1 built (its section records the files and decisions); Task 3 against the tree; Task 2 after OQ-BD1 is ruled"
-depends-on: [briefing-diet.md#OQ-BD1]
+next: "Tasks 1 and 3 built; Tasks 2, 4 and 5 for 0.18.0"
+depends-on: [briefing-diet.md#BD-D11]
 tags: [briefing, skills, packs, plan]
 summary: "Seed of the build hand-off for the briefing diet: a provisional map and task slices from the files read during design, to be completed by a planner against the tree."
 ---
@@ -27,13 +27,11 @@ task's fence, or a gate fails outside the task's scope.
 
 | Slice | Tasks | Ships in | Waits on |
 | :--- | :--- | :--- | :--- |
-| 1 | 1 (core and topics), 2 (order), 3 (shipped packs' pointers and skills) | 0.18.0 | Task 2 only: [OQ-BD1](briefing-diet.md#OQ-BD1) |
-| 2 | 4 (the launch's size line), 5 (reference documents) | After 0.18.0 | Slice 1 |
+| 1 | 1 (core and topics), 2 (order, user block first: [BD-D11](briefing-diet.md#BD-D11)), 3 (shipped packs' pointers and skills) | 0.18.0 | Nothing |
+| 2 | 4 (the launch's size line), 5 (reference documents) | 0.18.0 (the owner, 2026-11-13) | Slice 1 |
 
 Tasks 1 and 3 touch disjoint files and may be built in parallel. Task 2 lands after Task 1,
-since both edit the composer's call site. If [OQ-BD1](briefing-diet.md#OQ-BD1) is still open at
-the release, slice 1 ships Tasks 1 and 3: yolo's share then falls from 26,867 bytes to about
-2.2 KB with the order unchanged.
+since both edit the composer's call site.
 
 ## Map (provisional)
 
