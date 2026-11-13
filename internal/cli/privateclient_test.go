@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"io"
 	"os"
@@ -373,5 +376,112 @@ func TestAuditedPrivateClientsPinExactlyTheAuditedCell(t *testing.T) {
 		SourceURL: auditedSemverURL, SourceIntegrity: auditedSemverIntegrity}}
 	if len(auditedPrivateClients) != 1 || auditedPrivateClients[0] != want[0] {
 		t.Fatalf("audited private clients = %+v, want %+v", auditedPrivateClients, want)
+	}
+}
+
+// A published cell's bootstrap asks the host over its own front's endpoint and hands the client
+// only the published token, URL and a trust file holding the pinned certificate, overriding any
+// value the jail set for those variables. Production's empty cell list never asks the host, and a
+// host refusal stops the client before anything runs.
+func TestPrivateClientBootstrapPublishesOnlyAPublishedCell(t *testing.T) {
+	r, _, checked, err := auditedSemverRun(t, "semver@7.7.2", nil, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := checked["semver"].Binding
+	b.Generation = strings.Repeat("a", 32)
+	bound, err := entrypoint.MarshalPrivateClients([]entrypoint.PrivateClientBinding{b})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := os.ReadFile(r.f.node)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(nodeDir, "node"), prepared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", nodeDir)
+	t.Setenv("SEMVER_TOKEN", "jail-chosen")
+	t.Setenv("SSL_CERT_FILE", "/workspace/evil.pem")
+	oldExec, oldStore, oldMay, oldFetch := privateClientExec, privateClientStore, privateClientMayBePublished, privateClientFetch
+	t.Cleanup(func() {
+		privateClientExec, privateClientStore, privateClientMayBePublished, privateClientFetch = oldExec, oldStore, oldMay, oldFetch
+	})
+	privateClientStore = paths.CapturesDir()
+	var execEnv []string
+	var execed bool
+	var trust []byte
+	privateClientExec = func(argv0 string, argv []string, environ []string) error {
+		execed, execEnv = true, environ
+		for _, kv := range environ {
+			if path, ok := strings.CutPrefix(kv, "SSL_CERT_FILE="); ok {
+				trust, _ = os.ReadFile(path) // what the client would read, before any exec
+			}
+		}
+		return nil
+	}
+	type asked struct{ endpoint, generation, bin string }
+	var calls []asked
+	der := []byte("fixture certificate DER")
+	answer := callbrokerinput.HTTPClientPublication{Token: strings.Repeat("c", 64), URL: "https://127.0.0.1:41000",
+		CertificateBase64: base64.StdEncoding.EncodeToString(der), TokenVariable: "SEMVER_TOKEN", URLVariable: "SEMVER_URL", TrustVariable: "SSL_CERT_FILE"}
+	var refusal error
+	privateClientFetch = func(_ context.Context, endpoint, generation, bin string) (callbrokerinput.HTTPClientPublication, error) {
+		calls = append(calls, asked{endpoint, generation, bin})
+		return answer, refusal
+	}
+	args := append(entrypoint.PrivateClientArgv(b)[3:], "1.2.3")
+	env := map[string]string{entrypoint.PrivateHTTPClientsEnv: bound, paths.HTTPFrontGenerationsEnv: "tasks=" + b.Generation}
+	getenv := func(k string) string { return env[k] }
+
+	// Production: no published cell names semver, so the host is never asked and nothing changes.
+	if rc := runPrivateClientExec(args, getenv); rc != 0 || !execed || len(calls) != 0 {
+		t.Fatalf("an unpublished cell asked the host or did not run: rc=%d calls=%v", rc, calls)
+	}
+	for _, kv := range execEnv {
+		if strings.HasPrefix(kv, "SEMVER_URL=") {
+			t.Fatalf("an unpublished cell received %s", kv)
+		}
+	}
+
+	privateClientMayBePublished = func(bin string) bool { return bin == "semver" }
+	execed, execEnv = false, nil
+	if rc := runPrivateClientExec(args, getenv); rc != 0 || !execed {
+		t.Fatalf("a published cell did not run: rc=%d", rc)
+	}
+	if len(calls) != 1 || calls[0] != (asked{"/run/yolo-services/tasks.endpoint", b.Generation, "semver"}) {
+		t.Fatalf("the bootstrap asked %v, not its own front's endpoint for its generation", calls)
+	}
+	got := map[string][]string{}
+	for _, kv := range execEnv {
+		name, value, _ := strings.Cut(kv, "=")
+		got[name] = append(got[name], value)
+	}
+	if len(got["SEMVER_TOKEN"]) != 1 || got["SEMVER_TOKEN"][0] != answer.Token || len(got["SEMVER_URL"]) != 1 || got["SEMVER_URL"][0] != answer.URL ||
+		len(got["SSL_CERT_FILE"]) != 1 || !strings.HasPrefix(got["SSL_CERT_FILE"][0], "/proc/self/fd/") {
+		t.Fatalf("the client's ordinary variables are not exactly the publication: %v", got)
+	}
+	if block, _ := pem.Decode(trust); block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, der) {
+		t.Fatalf("the trust file does not hold exactly the pinned certificate: %q", trust)
+	}
+
+	for name, tc := range map[string]struct {
+		generations string
+		refusal     error
+	}{
+		"host refuses":         {"tasks=" + b.Generation, errors.New("client semver (pack audited-semver) is not published")},
+		"no front generation":  {"", nil},
+		"two fronts, one gen":  {"tasks=" + b.Generation + ",other=" + b.Generation, nil},
+		"unsafe loophole name": {"../x=" + b.Generation, nil},
+		"another front's gen":  {"tasks=" + strings.Repeat("b", 32), nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env[paths.HTTPFrontGenerationsEnv], refusal, execed = tc.generations, tc.refusal, false
+			if rc := runPrivateClientExec(args, getenv); rc == 0 || execed {
+				t.Fatalf("a published cell ran without its publication: rc=%d", rc)
+			}
+		})
 	}
 }
