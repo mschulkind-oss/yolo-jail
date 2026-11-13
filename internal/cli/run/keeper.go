@@ -277,6 +277,7 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	o := NewDefaultOptions()
 	o.Workspace = plan.Workspace
 	o.Network = plan.Network
+	o.orbStackPodman = plan.OrbStack
 	o.MacosUserMode = plan.MacosUserMode
 	o.Color = plan.Color
 	color := plan.Color

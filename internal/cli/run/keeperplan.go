@@ -64,6 +64,10 @@ type keeperPlan struct {
 	// through resolveNetMode, so the keeper resolves the mode its launch resolved only if
 	// "" survives the trip rather than arriving as a typed bridge (G25).
 	Network string `json:"network"`
+	// OrbStack is the launch's OrbStack route fact (orbstackroute.go): its endpoint answered as
+	// a rootless OrbStack machine and the opt-out was not set. The keeper takes it rather than
+	// asking podman again, so its daemons advertise the name the jail was told about.
+	OrbStack bool `json:"orbstack,omitempty"`
 	// Color is whether the launch renders color on its stream, which the keeper's lines reach
 	// through the relay.
 	Color bool `json:"color"`

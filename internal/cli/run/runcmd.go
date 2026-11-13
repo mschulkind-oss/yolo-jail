@@ -560,6 +560,10 @@ type Options struct {
 	// later podman fact on the launch path reads it. nil until the gate answered, and on
 	// every backend the gate does not cover.
 	podmanFacts *podmanFacts
+	// orbStackPodman is the macOS patient one-shot's answer naming a rootless OrbStack
+	// endpoint (orbstackroute.go), or a keeper's plan carrying its launch's route. False on
+	// every other launch.
+	orbStackPodman bool
 	// readiness is the gate's whole result, success or not, for the refusal's exit code and
 	// the machine-wide launch line. nil when no gate ran.
 	readiness *runtime.ReadyResult

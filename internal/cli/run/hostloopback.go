@@ -350,6 +350,10 @@ type hostLoopbackFacts struct {
 	podmanVersion string
 	// optOut is hostLoopbackOptOutEnv being set.
 	optOut bool
+	// orbStack is a macOS podman launch whose endpoint answered as a rootless OrbStack
+	// machine (orbstackroute.go). Its route needs no argv: the daemons advertise
+	// orbStackHostName, and the decision only tells the jail so.
+	orbStack bool
 }
 
 // hostLoopbackPlan is the decision's whole output: an argv fragment to append
@@ -412,6 +416,13 @@ func decideHostLoopback(f hostLoopbackFacts) hostLoopbackPlan {
 	// The escape hatch speaks only when it is actually suppressing something.
 	// A hatch that announces itself on every launch of every unaffected host
 	// trains the reader to skip the line it exists to be read on.
+	if f.orbStack && plan.disposition != "" {
+		return hostLoopbackPlan{warning: "[yellow]Warning: " + hostLoopbackOptOutEnv + " is set — NOT routing " +
+			"this jail's host services through OrbStack's " + orbStackHostName + ".\n" +
+			"  Jail-facing services (Claude OAuth broker, AWS credentials) will be unreachable\n" +
+			"  from inside this jail. Unset it to restore the route.\n" +
+			"  docs/research/orbstack-as-a-podman-host.md[/yellow]"}
+	}
 	if len(plan.args) == 0 {
 		return hostLoopbackPlan{}
 	}
@@ -437,6 +448,16 @@ func decideHostLoopback(f hostLoopbackFacts) hostLoopbackPlan {
 // hostLoopbackPlanFor is decideHostLoopback minus the opt-out, split out so the
 // opt-out can report what it suppressed rather than guessing.
 func hostLoopbackPlanFor(f hostLoopbackFacts) hostLoopbackPlan {
+	// OrbStack's route (orbstackroute.go): no argv, the daemons advertise its host name, and
+	// the jail is told `requested` because yolo took the step that reaches the services. The
+	// opt-out is applied by decideHostLoopback, as for every other route. An explicit mode is
+	// the user's and gets nothing, like every other explicit mode.
+	if f.orbStack {
+		if f.netMode != "bridge" {
+			return hostLoopbackPlan{}
+		}
+		return hostLoopbackPlan{disposition: paths.HostLoopbackRequested}
+	}
 	// Rootless is the gate on every ARGV: `rootlessNetworkCmd` is a
 	// containers.conf value that a rootful podman still reports and never uses,
 	// and emitting `--network=pasta` there would swap out a working bridge for a
@@ -799,6 +820,9 @@ func versionSuffix(f hostLoopbackFacts) string {
 type podmanInfo struct {
 	Host struct {
 		RootlessNetworkCmd string `json:"rootlessNetworkCmd"`
+		// Kernel is the endpoint's kernel release, read for one fact only: whether the
+		// endpoint is an OrbStack machine (isOrbStackPodman).
+		Kernel string `json:"kernel"`
 		// The three below are read for the timing log only (podmanFactsNote):
 		// they decide podman's exit path — which database it locks, where it
 		// writes events, who owns its cgroups — and nothing here branches on them.
@@ -895,6 +919,13 @@ func (o *Options) hostLoopbackFactsFor(rt, netMode string) hostLoopbackFacts {
 	// networking and podman-machine puts a VM between the jail and the host's
 	// loopback, which is a different problem with a different fix (design doc §8
 	// puts macOS out of scope explicitly).
+	if rt == "podman" && o.IsMacOS { // parity: HonoredBy — a macOS Podman endpoint gets host-service reach only from OrbStack's route (orbstackroute.go); Podman Machine and Apple Container keep `unknown`
+		// The one macOS fact: the endpoint answered as OrbStack's (orbstackroute.go). Read
+		// through orbStackRoutes' own input, so the disposition and the advertised name
+		// cannot disagree; the mode and the opt-out are applied by the decision.
+		f.orbStack = o.orbStackPodman
+		return f
+	}
 	if rt != "podman" || o.IsMacOS {
 		return f
 	}
