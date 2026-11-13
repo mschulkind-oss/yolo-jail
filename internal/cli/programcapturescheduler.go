@@ -175,7 +175,9 @@ func runOrdinaryScheduledPreparation(ctx context.Context, r preparationRecord, w
 	if err != nil {
 		return nil, err
 	}
-	result, err := waitSharedDemandResult(ctx, d, true, func(pid int) { fmt.Fprintf(w, "%s: timer joined ordinary shared producer pid %d\n", in.Bin, pid) })
+	result, err := waitSharedDemandResult(ctx, d, true, func(pid int) {
+		fmt.Fprintf(w, "%s: timer joined ordinary shared producer (%s)\n", in.Bin, sharedProducerPhrase(pid))
+	})
 	if err != nil {
 		return nil, err
 	}

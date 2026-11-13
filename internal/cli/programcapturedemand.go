@@ -266,7 +266,7 @@ func waitOrdinaryCheck(ctx context.Context, store *capture.Store, in npmCaptureI
 		return advanceNPMCapture(withOrdinaryCaptureRuntime(ctx, d.Runtime), store, in, fingerprint, fresh, boundary, w, foregroundGuard)
 	}
 	result, err := waitSharedDemandResult(ctx, d, false, func(pid int) {
-		fmt.Fprintf(w, "%s: waiting for shared ordinary preparation (pid %d); interrupting detaches this requester\n", in.Bin, pid)
+		fmt.Fprintf(w, "%s: waiting for shared ordinary preparation (%s); interrupting detaches this requester\n", in.Bin, sharedProducerPhrase(pid))
 	})
 	if err != nil {
 		return npmCaptureRecord{}, err
