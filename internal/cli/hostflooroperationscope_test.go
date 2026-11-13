@@ -222,28 +222,42 @@ func TestPatchedAdvanceExternallyOwnedContextRetainsPosture(t *testing.T) {
 		<-ctx.Done()
 		return 130, false
 	}
-	t.Cleanup(func() { forkBuildChild = originalChild })
 	fork := fx.fork(t)
 	result := make(chan advanceResult, 1)
+	joined := make(chan struct{})
+	// Registered after the fixture's own cleanups, so it runs before them: the advance is
+	// cancelled and has RETURNED before the child seam or the fixture is taken from under it,
+	// on a failure path too.
+	t.Cleanup(func() {
+		cancel()
+		<-joined
+		forkBuildChild = originalChild
+	})
 	go func() {
+		defer close(joined)
 		result <- advancePatchedFork(fork, advanceOptions{
 			platform: fx.platform, launch: true, ctx: parent, act: act,
 			out: io.Discard, errw: io.Discard,
 		})
 	}()
+	// A failure guard for a hang only, never a budget the advance has to beat: it runs real git
+	// work before its child, and a fixed two seconds failed a healthy advance under load.
+	guard := testHangGuard(t)
 	select {
 	case childCtx := <-entered:
 		if childCtx.Value(operationScopeTestKey{}) != "external-lane" || childCtx.Done() == nil {
 			t.Errorf("explicit external context did not reach its cancellable cold child: %v", childCtx)
 		}
-	case <-time.After(2 * time.Second):
+	case res := <-result:
+		t.Fatalf("the owned-lane advance returned before entering its cold child runner: %+v", res)
+	case <-time.After(guard):
 		t.Fatal("explicit external context did not select its cold child runner")
 	}
 	cancel()
 	var res advanceResult
 	select {
 	case res = <-result:
-	case <-time.After(2 * time.Second):
+	case <-time.After(guard):
 		t.Fatal("external-context cancellation did not return the owned-lane advance")
 	}
 	if res.delivery.Key != "" || res.built {

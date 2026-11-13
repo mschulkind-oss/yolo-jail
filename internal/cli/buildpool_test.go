@@ -98,8 +98,8 @@ func (fx *treesFixture) slot(t *testing.T, rt string, maxBuilds int, act *run.Ac
 }
 
 // concurrentChildren stands a build child in that counts the builds running at once, holds each
-// until want of them run together (or hold passes), and then lets them end, the earliest
-// declared last: what the pool must still print first.
+// until want of them run together (or hold passes, which releases them all), and then lets them
+// end, the earliest declared last: what the pool must still print first.
 func concurrentChildren(t *testing.T, want int, hold time.Duration) (most *int) {
 	t.Helper()
 	var mu sync.Mutex
@@ -115,9 +115,12 @@ func concurrentChildren(t *testing.T, want int, hold time.Duration) (most *int) 
 			closeOnce.Do(func() { close(all) })
 		}
 		mu.Unlock()
+		// A hold that expires ends every other child's hold too: hold is a failure guard for a
+		// pool that never reaches want, not a window a loaded machine must start want children in.
 		select {
 		case <-all:
 		case <-time.After(hold):
+			closeOnce.Do(func() { close(all) })
 		}
 		// The earliest declared ends last.
 		var n int
@@ -139,7 +142,10 @@ func concurrentChildren(t *testing.T, want int, hold time.Duration) (most *int) 
 // flush in the order keys end.
 func TestTheSlotBuildsItsKeysAtOnceAndPrintsThemInOrder(t *testing.T) {
 	fx := newTreesFixture(t, 5)
-	peak := concurrentChildren(t, 4, 5*time.Second)
+	// The children wait for all four to be running, the event the bound asserts. The guard only
+	// turns a pool that never runs four into a red test; a fixed five seconds failed a healthy
+	// pool whose fourth build started late under load.
+	peak := concurrentChildren(t, 4, preparationTestGuard)
 	got, stream := fx.slot(t, "podman", 4, &run.ActInterrupt{})
 	term := stream.terminal()
 	if *peak != 4 {
