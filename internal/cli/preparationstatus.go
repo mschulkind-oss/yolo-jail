@@ -31,6 +31,12 @@ func printPreparationStatus(out, errw io.Writer, color bool, key string) int {
 	case preparationUnknown:
 		pr.Printf("Tree preparation worker: unknown (%v); state retained — retry `yolo pack prepare status`", probeErr)
 	default:
+		// A new incarnation rewrites the worker record, so a recorded stop request is the last
+		// worker's: it stopped because it was asked to, and stays stopped until resumed.
+		if state.Worker.StopRequested && !state.Worker.StoppedAt.IsZero() {
+			pr.Printf("Tree preparation worker: not running; stopped by `yolo pack prepare stop` at %s; run `yolo pack prepare start` to reauthorize and resume", state.Worker.StoppedAt.Local().Format(time.RFC3339))
+			break
+		}
 		pr.Printf("Tree preparation worker: not running; run `yolo pack prepare start` to reauthorize and resume")
 	}
 
