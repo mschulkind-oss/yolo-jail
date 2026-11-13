@@ -404,7 +404,7 @@ func TestPrivateClientBootstrapPublishesOnlyAPublishedCell(t *testing.T) {
 	}
 	t.Setenv("PATH", nodeDir)
 	t.Setenv("SEMVER_TOKEN", "jail-chosen")
-	t.Setenv("SSL_CERT_FILE", "/workspace/evil.pem")
+	t.Setenv("SSL_CERT_FILE", "/tmp/evil.pem")
 	oldExec, oldStore, oldMay, oldFetch := privateClientExec, privateClientStore, privateClientMayBePublished, privateClientFetch
 	t.Cleanup(func() {
 		privateClientExec, privateClientStore, privateClientMayBePublished, privateClientFetch = oldExec, oldStore, oldMay, oldFetch
