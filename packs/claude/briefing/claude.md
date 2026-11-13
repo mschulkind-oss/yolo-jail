@@ -1,0 +1,1 @@
+**Waiting on the host** in Claude Code: start `yolo wait <id>` with the Bash tool and `run_in_background: true`, in the same turn you relay the human's commands. Before you make a worktree, read the **yolo-claude** skill.

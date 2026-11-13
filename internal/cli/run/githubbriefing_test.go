@@ -14,12 +14,14 @@ import (
 // BB-D68), so an agent does not learn each rule by failing once: `gh` is a forwarder at
 // ~/.yolo/bin/block/gh and not a blocker, filters work, an in-scope write waits for one exact
 // host Allow-once decision, raw GraphQL is refused while gh's own commands work, and a branch
-// with a slash goes into a `gh api` path. Driven through the production staging and briefing
-// packs, so deleting the file or the convention that delivers it fails here.
+// with a slash goes into a `gh api` path. Since the briefing diet (docs/design/briefing-diet.md
+// BD-D2) the manual is the pack's `yolo-gh` skill and the briefing is a pointer naming it.
+// Driven through the production staging, briefing and skills paths, so deleting either file or
+// the contribution that delivers it fails here.
 func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
-	shipped, err := officialpacks.FS.ReadFile("github/briefing/gh.md")
+	shipped, err := officialpacks.FS.ReadFile("github/skills/yolo-gh/SKILL.md")
 	if err != nil {
-		t.Fatalf("the github pack ships no briefing: %v", err)
+		t.Fatalf("the github pack ships no yolo-gh skill: %v", err)
 	}
 	prose := string(shipped)
 	flat := strings.Join(strings.Fields(prose), " ")
@@ -50,14 +52,14 @@ func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
 		"In a jail started by this yolo, the running broker takes the repository at its next call; an older one needs a restart. Nothing changes before that y.",
 	} {
 		if !strings.Contains(flat, want) {
-			t.Errorf("the github briefing lacks %q:\n%s", want, prose)
+			t.Errorf("the yolo-gh skill lacks %q:\n%s", want, prose)
 		}
 	}
 	// The retired route: the repository-scope check is `yolo config check` (config only), not the
 	// shape check `yolo check --no-build`, which skips no readiness section the agent needs here.
 	for _, gone := range []string{"Then run `yolo check --no-build`, and ask the user"} {
 		if strings.Contains(flat, gone) {
-			t.Errorf("the github briefing still names the retired route %q:\n%s", gone, prose)
+			t.Errorf("the yolo-gh skill still names the retired route %q:\n%s", gone, prose)
 		}
 	}
 
@@ -78,14 +80,32 @@ func TestTheGitHubPackBriefsEveryAgentOnGHInTheJail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)
 	}
-	// Broadcast: every agent's briefing carries it once.
+	pointer, err := officialpacks.FS.ReadFile("github/briefing/gh.md")
+	if err != nil {
+		t.Fatalf("the github pack ships no briefing: %v", err)
+	}
+	if !strings.Contains(string(pointer), "**yolo-gh** skill") {
+		t.Errorf("the github briefing does not name the yolo-gh skill:\n%s", pointer)
+	}
+	// Broadcast: every agent's briefing carries the pointer once, and none carries the manual.
 	for _, dest := range []string{".claude/CLAUDE.md", ".pi/agent/AGENTS.md"} {
 		raw, err := os.ReadFile(filepath.Join(staging, briefingStagingName(dest)))
 		if err != nil {
 			t.Fatalf("no %s briefing written: %v", dest, err)
 		}
-		if n := strings.Count(string(raw), strings.TrimRight(prose, "\n")); n != 1 {
-			t.Errorf("%s carries the github briefing %d times, want 1:\n%s", dest, n, raw)
+		if n := strings.Count(string(raw), strings.TrimRight(string(pointer), "\n")); n != 1 {
+			t.Errorf("%s carries the github pointer %d times, want 1:\n%s", dest, n, raw)
+		}
+		if strings.Contains(string(raw), "`gh` here is `~/.yolo/bin/block/gh`") {
+			t.Errorf("%s still carries the gh manual; it belongs in the yolo-gh skill:\n%s", dest, raw)
+		}
+	}
+	// And every agent's skills directory holds the skill the pointer names.
+	_, targets, skillStaging := stageSkillTargets(t, "yolo-ws-abcd1235")
+	for _, dest := range []string{".claude/skills", ".pi/agent/skills"} {
+		names, ok := stagedFor(t, targets, skillStaging, dest)
+		if !ok || !hasName(names, "yolo-gh") {
+			t.Errorf("%s staged %v (target %v), want the yolo-gh skill", dest, names, ok)
 		}
 	}
 }

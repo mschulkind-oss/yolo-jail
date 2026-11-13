@@ -367,7 +367,8 @@ func reportBriefingOverlays(pr richtext.Printer, dests []entrypoint.HostBriefing
 // withheldBriefing is one briefing source the host composer leaves out of every destination
 // because its governor `describes` a kind of its pack's own that the host does not deliver
 // (entrypoint.HostWithheldKinds over hostDelivery's census, docs/design/boundary-broker.md
-// BB-D69): the pack, the pack-relative file, and those kinds.
+// BB-D69): the pack, the pack-relative file, and those kinds. A skills tree withheld the same way
+// (briefing-diet.md BD-D3) is one too, its rel the tree's directory with a trailing slash.
 type withheldBriefing struct {
 	pack  string
 	rel   string
@@ -392,6 +393,14 @@ func withheldBriefings(loaded []*packload.Pack, delivery entrypoint.HostDelivery
 		for _, s := range sources {
 			if kinds := entrypoint.HostWithheldKinds(delivery, p.Name, s); len(kinds) > 0 {
 				out = append(out, withheldBriefing{pack: p.Name, rel: s.Rel, kinds: kinds})
+			}
+		}
+		// A skills tree is withheld by the same census (hostskills.ComposeHostSkillsFor,
+		// briefing-diet.md BD-D3), and named the same way, as its directory.
+		trees, _ := p.GovernedSources(packdecl.KindSkills)
+		for _, s := range trees {
+			if kinds := entrypoint.HostWithheldKinds(delivery, p.Name, s); len(kinds) > 0 {
+				out = append(out, withheldBriefing{pack: p.Name, rel: s.Rel + "/", kinds: kinds})
 			}
 		}
 	}

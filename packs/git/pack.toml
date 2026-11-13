@@ -8,6 +8,9 @@ from = "loopholes/git-broker"
 describes = ["intercept"]
 from = "briefing/git.md"
 
+[[skills]]
+describes = ["intercept"]
+
 [[intercept]]
 bin = "git-remote-yolo"
 forward = ["yolo", "git-remote", "--"]

@@ -324,6 +324,16 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	// staged pack tree on attach, and a fresh launch pairs the new tree with the new binaries.
 	{release: "v0.17.1", pack: "guardrails", problem: `knows those of mv and rm only, not "git"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree},
+	// Measured against v0.17.1 on 2026-11-13: the git and github packs declare `describes` on
+	// their `skills` contribution (docs/design/briefing-diet.md BD-D3), which that reader refuses
+	// off `briefing`. An old jail keeps its staged pack tree on attach, and a fresh launch pairs
+	// the new tree with the new binaries.
+	{release: "v0.17.1", pack: "git", problem: `kind "skills" does not take "describes"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("describes")},
+	{release: "v0.17.1", pack: "github", problem: `kind "skills" does not take "describes"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("describes")},
 }
 
 // asLegacyJSON is a repair that changes nothing itself: repairManifest first replaces a

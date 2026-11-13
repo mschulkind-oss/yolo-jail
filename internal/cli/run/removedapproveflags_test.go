@@ -9,12 +9,14 @@ import (
 
 // TestNoShippedPackOffersTheRemovedApproveFlags: `yolo approve --add` and `--remember` are
 // removed (git-broker.md GB-D28, github-write-scopes.md OQ-GW2), and the CLI refuses both. The
-// text the git and github packs ship into every jail, their briefings and the github-broker's
+// text the git and github packs ship into every jail, their briefings, their skills and the github-broker's
 // loophole description, must not tell an agent to relay either to the human.
 func TestNoShippedPackOffersTheRemovedApproveFlags(t *testing.T) {
 	for _, file := range []string{
 		"git/briefing/git.md",
+		"git/skills/yolo-git/SKILL.md",
 		"github/briefing/gh.md",
+		"github/skills/yolo-gh/SKILL.md",
 		"github/loopholes/github-broker/loophole.toml",
 		"github/README.md",
 	} {
