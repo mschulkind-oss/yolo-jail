@@ -20,7 +20,9 @@ func TestPreparationActualFailureReasonAndBackoffSurviveIdleTicks(t *testing.T) 
 	done := make(chan error, 1)
 	go func() { done <- runPreparationScheduler(ctx, ticks, io.Discard) }()
 	ticks <- pf.now
-	deadline := time.After(5 * time.Second)
+	// The wait is on both keys' failure records; the guard only turns a hung scheduler into a red
+	// test. A fixed five seconds failed two healthy failing builds under load.
+	deadline := time.After(testHangGuard(t))
 	for {
 		a, _ := readPreparationSnapshot(poolKeyA)
 		b, _ := readPreparationSnapshot(poolKeyB)
@@ -32,7 +34,7 @@ func TestPreparationActualFailureReasonAndBackoffSurviveIdleTicks(t *testing.T) 
 			stop()
 			<-done
 			t.Fatalf("actual failure/backoff absent: a=%+v b=%+v", a, b)
-		case <-time.After(time.Millisecond):
+		case <-time.After(10 * time.Millisecond):
 		}
 	}
 	before, _ := readPreparationSnapshot(poolKeyA)

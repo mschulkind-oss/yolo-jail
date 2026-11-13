@@ -1143,6 +1143,9 @@ func runBackgroundFinishContention(t *testing.T, bg detachedPatchFailureFixture,
 		backgroundArtifactTestHook = previousHook
 		publishBackgroundEvidenceClaim = previousPublish
 	}()
+	// Every wait below is on an event; guard only turns a hang into a red test. A fixed five
+	// seconds failed a healthy producer, which runs real git work before its finish, under load.
+	guard := testHangGuard(t)
 	var output bytes.Buffer
 	go func() {
 		runBackgroundAdvanceUnder(context.Background(), bgArgs(bg.fork.Key()), &output)
@@ -1152,11 +1155,11 @@ func runBackgroundFinishContention(t *testing.T, bg detachedPatchFailureFixture,
 	case <-entered:
 	case <-done:
 		t.Fatalf("actual background producer ended before its finish transaction: %s", output.String())
-	case <-time.After(5 * time.Second):
+	case <-time.After(guard):
 		resume()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(guard):
 		}
 		t.Fatalf("actual background producer did not reach finish: %s", output.String())
 	}
@@ -1165,14 +1168,14 @@ func runBackgroundFinishContention(t *testing.T, bg detachedPatchFailureFixture,
 		resume()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(guard):
 		}
 		t.Fatalf("could not hold the artifact lock at the paused finish: %v", err)
 	}
 	resume()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(guard):
 		lock.Release()
 		t.Fatal("background finish blocked instead of trying the artifact lock once")
 	}
