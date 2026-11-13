@@ -270,7 +270,7 @@ func (a *advance) waitSharedPreparation(ctx context.Context) advanceResult {
 	}
 
 	result, err := waitSharedDemandResult(ctx, d, o.sharedAutomatic, func(pid int) {
-		a.dim("%s: waiting for pid %d's shared preparation — interrupting detaches this requester", a.f.Label(), pid)
+		a.dim("%s: waiting for shared preparation (%s) — interrupting detaches this requester", a.f.Label(), sharedProducerPhrase(pid))
 	})
 	if err != nil {
 		return a.freshRefusal("shared preparation did not complete", err)
@@ -294,6 +294,28 @@ func (a *advance) waitSharedPreparation(ctx context.Context) advanceResult {
 	}
 	r.delivery, r.good = handed.delivery, handed.good
 	return r
+}
+
+// sharedDemandHolder is the pid of the worker holding dir's worker.lock right now, or 0. The
+// file keeps an exited worker's pid until the next worker rewrites it, and a requester reads it
+// just after spawning that next worker, so the recorded pid counts only while the lock is held.
+// It is diagnostic: joining is decided by request/outcome identities, never by this pid.
+func sharedDemandHolder(dir string) int {
+	path := filepath.Join(dir, "worker.lock")
+	pid := pidlock.Holder(path)
+	if pid <= 0 || !pidlock.Held(path) || pidlock.Holder(path) != pid {
+		return 0
+	}
+	return pid
+}
+
+// sharedProducerPhrase names the worker a requester joined: its pid while one holds worker.lock,
+// and that it is still starting otherwise (sharedDemandHolder).
+func sharedProducerPhrase(pid int) string {
+	if pid <= 0 {
+		return "its worker is starting"
+	}
+	return fmt.Sprintf("pid %d", pid)
 }
 
 // waitSharedDemandResult is the ONE requester lease/wait protocol. Source and
@@ -395,7 +417,7 @@ func waitSharedDemandResult(ctx context.Context, d preparationDemand, automatic 
 	}
 	defer r.release(automatic)
 	if say != nil {
-		say(pidlock.Holder(filepath.Join(r.dir, "worker.lock")))
+		say(sharedDemandHolder(r.dir))
 	}
 	return r.wait(ctx)
 }

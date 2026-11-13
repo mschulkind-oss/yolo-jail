@@ -67,7 +67,7 @@ func TestTask2ProducerCancellationWithSecondFreshWaiter(t *testing.T) {
 	go func() { firstDone <- advancePatchedFork(f, options(ctx, io.Discard)) }()
 	<-entered
 	go func() { secondDone <- advancePatchedFork(f, options(context.Background(), &secondOut)) }()
-	waitFor(t, "second fresh requester waiting on owned production", func() bool { return strings.Contains(secondOut.String(), "waiting for pid") })
+	waitFor(t, "second fresh requester waiting on owned production", func() bool { return strings.Contains(secondOut.String(), "waiting for shared preparation") })
 	cancel()
 	select {
 	case <-firstDone:

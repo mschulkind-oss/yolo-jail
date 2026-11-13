@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -95,4 +96,44 @@ func TestSharedDemandRequesterWithNoWorkerStopsAfterTheStartGrace(t *testing.T) 
 
 func sharedDemandWorkerHooks() (func(), func(context.Context, preparationDemand) error) {
 	return sharedWorkerLockContendedHook, sharedPreparationSpawn
+}
+
+// The pid a requester names is the worker that holds worker.lock now. A lock file left by an
+// earlier worker that exited still holds that worker's pid; naming it told the user they had
+// joined a process that was gone (seen in the 2026-11-13 runtime acceptance: "timer joined
+// ordinary shared producer pid 39561" named the first launch's exited producer).
+func TestSharedDemandRequesterNamesNoExitedWorker(t *testing.T) {
+	withHomeAndCwd(t)
+	previousHook, previousSpawn := sharedDemandWorkerHooks()
+	previousGrace := sharedWorkerStartGrace
+	sharedWorkerStartGrace = 4 * sharedDemandPoll
+	sharedPreparationSpawn = func(context.Context, preparationDemand) error { return nil }
+	t.Cleanup(func() {
+		sharedWorkerLockContendedHook, sharedPreparationSpawn = previousHook, previousSpawn
+		sharedWorkerStartGrace = previousGrace
+	})
+	d := preparationDemand{Key: "nopack/tool", Runtime: "podman", Platform: "linux/amd64", Identity: "identity"}
+	dir := sharedDemandDir(d.Key, d.Runtime, d.Platform)
+	if err := ensurePreparationRoot(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "worker.lock"), []byte("424242\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	named := -1
+	_, _ = waitSharedDemandResult(ctx, d, false, func(pid int) { named = pid })
+	if named != 0 {
+		t.Fatalf("requester named pid %d for a worker.lock nobody holds, want 0 (no live worker yet)", named)
+	}
+}
+
+func TestSharedProducerPhrase(t *testing.T) {
+	if got := sharedProducerPhrase(0); got != "its worker is starting" {
+		t.Fatalf("sharedProducerPhrase(0) = %q", got)
+	}
+	if got := sharedProducerPhrase(17); got != "pid 17" {
+		t.Fatalf("sharedProducerPhrase(17) = %q", got)
+	}
 }

@@ -119,8 +119,24 @@ func TestOrdinarySubscriptionRevokedByAgentUpdatesOffFromAnotherWorkspace(t *tes
 	req2.Fingerprint = "workspace-specific-" + req.Fingerprint
 	req2.Env = ordinarySelectionEnvironment(cfg, req.Packs)
 	_, _ = prepareOrdinaryForLaunch(req2, io.Discard)
-	if r := ordinarySubscription(t, key); r.Active {
+	r := ordinarySubscription(t, key)
+	if r.Active {
 		t.Fatalf("agent_updates off left the ordinary subscription active: %+v", r)
+	}
+	if !strings.Contains(r.Reason, "off for pack") || !strings.Contains(r.Reason, "agent_updates") || strings.Contains(r.Reason, "use a fresh launch") {
+		t.Fatalf("policy-off revocation reason does not name the policy: %q", r.Reason)
+	}
+
+	// Turning the policy back on and launching re-registers it as pending work, not as an
+	// active record still labelled inactive (seen in the 2026-11-13 runtime acceptance).
+	user["agent_updates"] = true
+	out, _ = json.Marshal(user)
+	writeFile(t, paths.UserConfigPath(), string(out))
+	if _, err := prepareOrdinaryForLaunch(req, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if r := ordinarySubscription(t, key); !r.Active || r.Phase != "pending" || r.Reason != "" {
+		t.Fatalf("re-enabled subscription: active=%v phase=%q reason=%q, want active pending work", r.Active, r.Phase, r.Reason)
 	}
 }
 

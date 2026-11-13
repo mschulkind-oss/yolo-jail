@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 )
@@ -155,5 +156,48 @@ func TestPreparationPublicRegistrationRetainsOldGenerationWithoutAdmission(t *te
 	statusLine := f.Key() + " [" + req.Runtime + "/" + req.Platform + "]"
 	if rc := printPreparationStatus(&out, io.Discard, false, ""); rc != 0 || !strings.Contains(out.String(), statusLine) || !strings.Contains(out.String(), "retained diagnostic generation") || !strings.Contains(out.String(), "previous declaration, not current admission") || !strings.Contains(out.String(), "original failure") {
 		t.Fatalf("public all-record status misrepresented fixture diagnostics %s: rc=%d %s", statusLine, rc, out.String())
+	}
+}
+
+// The design's explicit-stop row: after `yolo pack prepare stop` the worker stays stopped until
+// a launch or `yolo pack prepare start`, and status names the stop rather than reading as a
+// crash or an idle exit (seen missing in the 2026-11-13 runtime acceptance).
+func TestPreparationStatusNamesAnExplicitStop(t *testing.T) {
+	withHomeAndCwd(t)
+	stoppedAt := time.Date(2026, 11, 13, 11, 12, 24, 0, time.UTC)
+	if err := withPreparationState(func(s *preparationState) error {
+		s.Subscriptions = []preparationRecord{
+			{Key: "owner/tree", Runtime: "podman", Platform: "linux/amd64", Generation: 1, Active: true, Phase: "admitted"},
+			{Key: "owner/off", Runtime: "podman", Platform: "linux/amd64", Generation: 1, Phase: "inactive"},
+		}
+		s.Worker = preparationWorker{Identity: "stopped-incarnation", StopRequested: true, StoppedAt: stoppedAt}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if rc := printPreparationStatus(&out, io.Discard, false, ""); rc != 0 {
+		t.Fatalf("status rc=%d: %s", rc, out.String())
+	}
+	want := "Tree preparation worker: not running; stopped by `yolo pack prepare stop` at " + stoppedAt.Local().Format(time.RFC3339) + "; run `yolo pack prepare start` to reauthorize and resume"
+	if !strings.Contains(out.String(), want) {
+		t.Fatalf("status did not name the explicit stop; want %q in:\n%s", want, out.String())
+	}
+	// An inactive phase is said once, not "inactive (inactive)".
+	if !strings.Contains(out.String(), "owner/off [podman/linux/amd64] generation 1 (diagnostic only; not admission): inactive\n") {
+		t.Fatalf("inactive record misprinted:\n%s", out.String())
+	}
+
+	// A worker that exited on its own (no stop asked) keeps the plain line.
+	if err := withPreparationState(func(s *preparationState) error {
+		s.Worker = preparationWorker{Identity: "idle-incarnation", StoppedAt: stoppedAt}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	_ = printPreparationStatus(&out, io.Discard, false, "")
+	if !strings.Contains(out.String(), "Tree preparation worker: not running; run `yolo pack prepare start`") || strings.Contains(out.String(), "stopped by") {
+		t.Fatalf("an idle exit read as an explicit stop:\n%s", out.String())
 	}
 }

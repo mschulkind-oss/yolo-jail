@@ -2,12 +2,12 @@
 title: "Prepare between launches; materialize only at a launch"
 status: accepted
 stage: DECIDED
-next: "Final runtime and platform acceptance: a fresh non-agent nested launch, then real rootless and native Darwin evidence"
+next: "Real rootless and native Darwin evidence, then the runtime gaps the plan's 2026-11-13 record names"
 ---
 
 # Prepare between launches; materialize only at a launch
 
-**Status:** 2026-10-14. The combined candidate connects source scheduling, explicit freshness, independent shared demand, HOST delivery, Apple check-only scheduling and supported ordinary npm capture. The independent combined-source review ran on 2026-11-12, and the seven major defects it found are fixed ([the record](launch-update-preparation-plan.md#review-2026-11-12)). Final combined runtime/platform acceptance remains; this is not a shipped claim.
+**Status:** 2026-11-13. The combined candidate connects source scheduling, explicit freshness, independent shared demand, HOST delivery, Apple check-only scheduling and supported ordinary npm capture. The independent combined-source review ran on 2026-11-12, and the seven major defects it found are fixed ([the record](launch-update-preparation-plan.md#review-2026-11-12)). A fresh non-agent nested launch on 2026-11-13 exercised timer progress without a launch, `--update`, ordinary npm preparation and materialization, and off behavior; its four status and diagnostic defects are fixed ([the record](launch-update-preparation-plan.md#runtime-2026-11-13)). Real rootless and native Darwin acceptance remain; this is not a shipped claim.
 
 > **In short.** Environment preparation should continue between launches, using the same admitted-build pipeline. A launch chooses a generation; background work never changes the environment already running.
 

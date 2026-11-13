@@ -98,6 +98,18 @@ func resolvePreparationDemand(ctx context.Context, d preparationDemand) (resolve
 	return resolvedPreparationDemand{Fork: f}, release, err
 }
 
+// ordinaryAutomaticOff is the owner's `agent_updates` turning automatic preparation off. It is a
+// revoked authorization (errors.Is errPreparationAdmissionStale) whose message is the status
+// reason, so the inactive record names the policy and its two next steps rather than asking for a
+// fresh launch that, under the same policy, registers nothing.
+type ordinaryAutomaticOff struct{ Owner string }
+
+func (e *ordinaryAutomaticOff) Error() string {
+	return fmt.Sprintf("automatic preparation is off for pack %s by `agent_updates` — `yolo --update -- <command>` prepares it on request, and `yolo config set agent_updates '\"next-launch\"' --user` turns the timer back on", e.Owner)
+}
+
+func (e *ordinaryAutomaticOff) Unwrap() error { return errPreparationAdmissionStale }
+
 // resolveOrdinaryPreparation obtains INSTALLATION authority only from current user
 // declarations. The requester carries key/identity, never executable paths or a manifest.
 func resolveOrdinaryPreparation(ctx context.Context, d preparationDemand) (*npmCaptureInput, string, func(), error) {
@@ -150,7 +162,7 @@ func resolveOrdinaryPreparation(ctx context.Context, d preparationDemand) (*npmC
 			return nil, "", release, errSharedPreparationForegroundOnly
 		}
 		if d.Background && !entrypoint.PackPolicyAllows(config.AgentUpdatesWire(), in.Owner) {
-			return nil, "", release, errPreparationAdmissionStale
+			return nil, "", release, &ordinaryAutomaticOff{Owner: in.Owner}
 		}
 		if d.SubscriptionGeneration != 0 {
 			state, e := loadPreparationState()
@@ -266,7 +278,7 @@ func waitOrdinaryCheck(ctx context.Context, store *capture.Store, in npmCaptureI
 		return advanceNPMCapture(withOrdinaryCaptureRuntime(ctx, d.Runtime), store, in, fingerprint, fresh, boundary, w, foregroundGuard)
 	}
 	result, err := waitSharedDemandResult(ctx, d, false, func(pid int) {
-		fmt.Fprintf(w, "%s: waiting for shared ordinary preparation (pid %d); interrupting detaches this requester\n", in.Bin, pid)
+		fmt.Fprintf(w, "%s: waiting for shared ordinary preparation (%s); interrupting detaches this requester\n", in.Bin, sharedProducerPhrase(pid))
 	})
 	if err != nil {
 		return npmCaptureRecord{}, err

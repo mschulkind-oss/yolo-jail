@@ -39,7 +39,7 @@ func registerOrdinaryPreparations(ctx context.Context, vector []npmCaptureInput,
 	// workspace may differ), so it is re-resolved through the user resolver and deactivated only
 	// when that resolver no longer authorizes it: removed from the user selection, or its owner's
 	// agent_updates policy off.
-	revoked := map[string]bool{}
+	revoked := map[string]string{}
 	existing, err := preparationSubscriptions()
 	if err != nil {
 		return err
@@ -53,8 +53,12 @@ func registerOrdinaryPreparations(ctx context.Context, vector []npmCaptureInput,
 		}
 		_, _, release, err := resolveOrdinaryPreparation(ctx, preparationDemand{Kind: r.Kind, Key: r.Key, Runtime: r.Runtime, Platform: r.Platform, Background: true})
 		release()
-		if errors.Is(err, errSharedPreparationForegroundOnly) || errors.Is(err, errPreparationAdmissionStale) {
-			revoked[r.Key] = true
+		var off *ordinaryAutomaticOff
+		switch {
+		case errors.As(err, &off):
+			revoked[r.Key] = off.Error()
+		case errors.Is(err, errSharedPreparationForegroundOnly) || errors.Is(err, errPreparationAdmissionStale):
+			revoked[r.Key] = "no longer authorized by the user selection — use a fresh launch to register its owner"
 		}
 		// Any other outcome (authorized, lock contention, an unresolvable user config) is the
 		// timer's to judge on its next refresh, never this launch's.
@@ -63,11 +67,11 @@ func registerOrdinaryPreparations(ctx context.Context, vector []npmCaptureInput,
 	err = withPreparationState(func(state *preparationState) error {
 		for i := range state.Subscriptions {
 			r := &state.Subscriptions[i]
-			if r.Kind == preparationOrdinaryProgramKind && r.Runtime == req.Runtime && r.Platform == req.Platform && revoked[r.Key] {
+			if r.Kind == preparationOrdinaryProgramKind && r.Runtime == req.Runtime && r.Platform == req.Platform && revoked[r.Key] != "" {
 				if _, ok := authorized[r.Key]; !ok {
 					r.Active = false
 					r.Phase = "inactive"
-					r.Reason = "no longer authorized by the user selection — use a fresh launch to register its owner"
+					r.Reason = revoked[r.Key]
 				}
 			}
 		}
@@ -85,6 +89,11 @@ func registerOrdinaryPreparations(ctx context.Context, vector []npmCaptureInput,
 				r.At = time.Time{}
 				r.RetryAt = time.Time{}
 				r.ServingEntry = ""
+			}
+			// A revoked record carries a terminal label from its revocation; re-registered, it is
+			// due work again (its admitted entry stays served) — as a reactivated tree is.
+			if !r.Active || r.Phase == "inactive" || r.Phase == "unresolved" {
+				r.Phase = "pending"
 			}
 			r.Active = true
 			r.Reason = ""
@@ -112,6 +121,13 @@ func refreshOrdinaryPreparationSubscriptions(ctx context.Context, records []prep
 		release()
 		_ = preparationUpdateRecord(old.Key, old.Runtime, old.Platform, func(r *preparationRecord) {
 			if errors.Is(err, packsrc.ErrLockHeld) || ctx.Err() != nil {
+				return
+			}
+			var off *ordinaryAutomaticOff
+			if errors.As(err, &off) {
+				r.Active = false
+				r.Phase = "inactive"
+				r.Reason = off.Error()
 				return
 			}
 			if err != nil {
@@ -175,7 +191,9 @@ func runOrdinaryScheduledPreparation(ctx context.Context, r preparationRecord, w
 	if err != nil {
 		return nil, err
 	}
-	result, err := waitSharedDemandResult(ctx, d, true, func(pid int) { fmt.Fprintf(w, "%s: timer joined ordinary shared producer pid %d\n", in.Bin, pid) })
+	result, err := waitSharedDemandResult(ctx, d, true, func(pid int) {
+		fmt.Fprintf(w, "%s: timer joined ordinary shared producer (%s)\n", in.Bin, sharedProducerPhrase(pid))
+	})
 	if err != nil {
 		return nil, err
 	}
