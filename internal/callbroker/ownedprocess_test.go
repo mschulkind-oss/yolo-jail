@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -193,5 +194,40 @@ func TestOwnedGroupMemberStillLiveAfterTheGuardFailsClosed(t *testing.T) {
 	_, err := runHeldDescendantFixture(t, hold)
 	if err == nil || !strings.Contains(err.Error(), "still live") || !strings.Contains(err.Error(), "descendants may remain") {
 		t.Fatalf("a member still live after the guard was not refused: %v", err)
+	}
+}
+
+// slowCopyWriter is a Stdout whose first Write blocks for hold: os/exec's goroutine that copies
+// the child's output into it then finishes that long after the child is gone, as it does when a
+// loaded machine leaves the goroutine waiting for a CPU.
+type slowCopyWriter struct {
+	hold time.Duration
+	buf  strings.Builder
+	once bool
+}
+
+func (w *slowCopyWriter) Write(p []byte) (int, error) {
+	if !w.once {
+		w.once = true
+		time.Sleep(w.hold)
+	}
+	return w.buf.Write(p)
+}
+
+// TestOwnedGroupSuccessDoesNotRaceTheOutputCopy: once the group is drained, nothing in it holds
+// the output pipe, so all that is left for Wait is os/exec's copy of what the leader wrote. A
+// short WaitDelay made that copy a race against the scheduler: a copy that had not finished 100ms
+// after the reap turned a successful classifier or host program into "WaitDelay expired before
+// I/O complete" (the landing-gate flakes of 2026-11-09). The hold below stands in for that
+// starved goroutine; the pass condition is the call succeeding with its output, not a timing.
+func TestOwnedGroupSuccessDoesNotRaceTheOutputCopy(t *testing.T) {
+	out := &slowCopyWriter{hold: 500 * time.Millisecond}
+	cmd := exec.Command("/bin/sh", "-c", "printf done")
+	cmd.Stdout = out
+	if err := runOwnedGroup(context.Background(), cmd); err != nil {
+		t.Fatalf("a leader that succeeded failed while its output was still being copied: %v", err)
+	}
+	if out.buf.String() != "done" {
+		t.Fatalf("stdout = %q, want done", out.buf.String())
 	}
 }

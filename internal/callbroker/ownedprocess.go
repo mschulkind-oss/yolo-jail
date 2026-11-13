@@ -20,6 +20,14 @@ var ownedGroupHasNoLiveMember = ownedGroupHasNoLiveMemberOS
 // ends on that event. Only a member still live this long fails the call.
 var ownedGroupDrainGuard = 10 * time.Second
 
+// ownedPipeGuard is the owned command's WaitDelay: how long Wait lets os/exec finish copying the
+// output after the leader is reaped. By then runOwnedGroup has waited for the group to drain, so
+// no member holds the pipes and the copy ends on EOF; only a process that left the group, or a
+// group the listing could not confirm empty, can hold it longer. Like ownedGroupDrainGuard it is
+// a failure guard, not a budget: at 100ms, a copy goroutine a loaded machine had not yet
+// scheduled failed a leader that had succeeded (TestOwnedGroupSuccessDoesNotRaceTheOutputCopy).
+const ownedPipeGuard = 10 * time.Second
+
 // runOwnedGroup keeps the leader unreaped while it observes exit and terminates
 // its process group. Cmd.Wait would release the PID/PGID before a successful
 // wrapper's background children were stopped, allowing a reused PGID to be hit.
@@ -28,7 +36,7 @@ func runOwnedGroup(ctx context.Context, cmd *exec.Cmd) error {
 		return err
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = 100 * time.Millisecond
+	cmd.WaitDelay = ownedPipeGuard
 	if err := startOwnedCommand(cmd); err != nil {
 		return err
 	}
