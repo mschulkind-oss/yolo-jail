@@ -42,9 +42,17 @@ func fixtureClassifier(t *testing.T, body string) Classifier {
 		Identities: map[string]loopholedecl.CallBrokerProgramIdentity{"classifier": {
 			Bin: "classifier", Path: path, SHA256: fmt.Sprintf("%x", sha256.Sum256(raw))}},
 		Roots: []string{"team:alpha"}, Resources: []loopholedecl.CallBrokerResource{{Type: "project"}, {Type: "task", Parent: "project"}},
-		Cells:   []loopholedecl.CallBrokerCell{{Name: "update", Tables: []string{"all"}}},
-		Lookups: []loopholedecl.CallBrokerLookup{{Name: "task-project", CLI: []string{"task", "get", "{id}"}}}}
+		Cells:    []loopholedecl.CallBrokerCell{{Name: "update", Tables: []string{"all"}}},
+		Lookups:  []loopholedecl.CallBrokerLookup{{Name: "task-project", CLI: []string{"task", "get", "{id}"}}},
+		deadline: fixtureClassifierDeadline}
 }
+
+// fixtureClassifierDeadline is the per-process classifier deadline of a fixture whose test is not
+// about that deadline: a failure guard that turns a hung classifier into a red test, never a budget
+// a healthy one has to beat. The 2s production bound (classifierDeadline) refused a fixture
+// classifier at a load average of ~60 ("classifier lifecycle failed: context deadline exceeded").
+// A test about the deadline sets its own.
+const fixtureClassifierDeadline = 2 * time.Minute
 
 func fixtureAnswer(stdin []byte, resource string) string {
 	return fmt.Sprintf(`{"version":"yolo.call-broker-classifier/1","classification":{"argv":["update","a1"],"stdin_sha256":"%x","writes":[{"cell":"update","chain":[{"type":"task","id":"a1"},{"type":"project","id":%q}],"description":"update a1"}]}}`, sha256.Sum256(stdin), resource)
