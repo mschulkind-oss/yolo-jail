@@ -43,7 +43,7 @@ func TestCheckPredictsABoundLoopholeServedWhereItsBindsGo(t *testing.T) {
 	}
 }
 
-// THE GIT REWRITE IS PREDICTED SERVED WHEREVER ITS BROKER RUNS (docs/design/git-broker-plan.md
+// THE GIT REWRITE IS PREDICTED SERVED WHEREVER ITS BROKER RUNS (docs/reference/git-broker.md
 // ID-6; docs/design/boundary-broker.md BB-D104): with packs ["git"] on podman the env the
 // prediction composes carries the rewrite whatever a config switch of git-broker says, since a
 // broker has none; on Apple Container, which runs no host services, it lacks GIT_CONFIG_COUNT

@@ -327,7 +327,7 @@ func Run(opts Options) (rc int) {
 			"nothing.[/dim]")
 		return 1
 	}
-	// THE PIN (pinnedexec.go, docs/design/pinned-host-helpers.md section 3.2, PH-D3): every launch
+	// THE PIN (pinnedexec.go, docs/reference/pinned-host-helpers.md "When it is resolved", PH-D3): every launch
 	// that will start a host helper (a container launch always starts a keeper; macos-user starts its
 	// own) resolves the host yolo it execs them from, once, here, before anything is spawned. An
 	// attach starts nothing the keeper holds, but its own context injector self-execs, so it needs one

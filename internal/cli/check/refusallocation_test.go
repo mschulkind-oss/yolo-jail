@@ -119,7 +119,7 @@ func TestCheckWarningNamesTheFileAndLine(t *testing.T) {
 }
 
 // `yolo check` refuses the retired `mcp_presets` key at either scope, at the line it is written
-// (docs/design/mcp-presets-removal.md §13 step 3).
+// (docs/reference/mcp-configuration.md, the retired mcp_presets key).
 func TestCheckRefusesTheRetiredMCPPresetsKeyAtEitherScope(t *testing.T) {
 	for scope, want := range map[string]string{
 		"user":      "~/.config/yolo-jail/config.jsonc:2:18: config.mcp_presets: REMOVED",

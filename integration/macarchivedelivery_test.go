@@ -644,9 +644,9 @@ func macDeliver(t *testing.T, rt, label, ws, script, wantStdout string) macDeliv
 //   - A's CONTENT REF (`yolo-jail:<key of A's store path>`) — the name the launch inspects. It is
 //     evicted first; on podman every other name on that image goes too, since a surviving tag
 //     keeps the layers and so the present set.
-//   - The STOCK TAG (`yolo-jail:stock-<identity>`, podman only; Apple Container never writes
-//     one) — the pre-build short-circuit (stockimage.go). Evicted the same way. The launch
-//     would print "Image build skipped", which macDeliver fails on.
+//   - The STOCK TAG (`yolo-jail:stock-<identity>`, written by both runtimes) — the pre-build
+//     short-circuit (stockimage.go). Evicted the same way. The launch would print "Image
+//     build skipped", which macDeliver fails on.
 //   - Stale DELIVERY RECORDS (Apple Container's present set) — the private state dir holds none.
 //
 // `yolo-jail:latest` from `just load` is left alone: a launch never resolves it, and Apple
@@ -659,11 +659,11 @@ func TestMacArchiveDeliveryReusesLayers(t *testing.T) {
 	imgs := macArchiveRealize(t)
 
 	refA, refB := image.JailImageRef(rt, imgs.a), image.JailImageRef(rt, imgs.b)
+	// Both runtimes write the stock tag (Apple Container since 2026-11-12, through
+	// `container image tag`), so both evict it, or A's launch prints "Image build skipped".
 	stockRef := ""
-	if rt == "podman" {
-		if id, ok := image.EvalImageIdentity(imgs.flake); ok {
-			stockRef = image.StockImageRef(rt, id)
-		}
+	if id, ok := image.EvalImageIdentity(imgs.flake); ok {
+		stockRef = image.StockImageRef(rt, id)
 	}
 	hadA := macEvictImage(t, rt, refA)
 	hadStock := stockRef != "" && macEvictImage(t, rt, stockRef)

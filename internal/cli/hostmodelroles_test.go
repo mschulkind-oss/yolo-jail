@@ -12,7 +12,7 @@ import "testing"
 // own list, so its provider names no tier for it (docs/design/pi-codex-provider-shadowing.md OQ-3;
 // packload's builtinproviders_test.go pins that half).
 func TestHostLaunchCarriesTheAgentsOwnTiers(t *testing.T) {
-	// KILO_API_KEY is the kilo provider's key, so it lives in the private set (secret-env-scoping.md).
+	// KILO_API_KEY is the kilo provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	env, _ := hostGateLaunchWith(t, `packs = ["pi", "kilo", "cerebras"]
 
 [providers.kilo.models]

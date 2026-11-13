@@ -139,7 +139,7 @@ func TestProfileOptionSelectsTheAliasInTheAgentsOwnFile(t *testing.T) {
 	// the packs, because a provider address is user-scope only — see codexProbeProvider.
 	dir := writeProject(t, `{}`)
 	// The llamacpp table is codexProbeProvider's, spelled in TOML: only TOML has the private set
-	// the cerebras key must live in (secret-env-scoping.md), and there a variant is selected as
+	// the cerebras key must live in (docs/reference/providers.md#the-two-env-sets-public-and-private), and there a variant is selected as
 	// <provider>/<variant>.
 	writeUserTOML(t, `packs = ["pi", "codex", "cerebras"]
 

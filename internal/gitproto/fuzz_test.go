@@ -7,7 +7,7 @@ import (
 )
 
 // FuzzReadCommands throws arbitrary bytes at the push-command reader, the one parse that stands
-// between a jail's push and the per-ref policy (docs/design/git-broker-plan.md ID-9). The oracle
+// between a jail's push and the per-ref policy (docs/reference/git-broker.md ID-9). The oracle
 // checks every accepted command independently of the parser (well-formed ids of one length, a
 // ref with no space, NUL or control byte), then re-encodes what was accepted and reads it back:
 // a round trip must give the same commands, so the broker forwards what it judged.

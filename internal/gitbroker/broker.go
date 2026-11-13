@@ -1,5 +1,5 @@
 // Package gitbroker is the git-broker, `yolo internal daemon git-broker`: the host half of
-// git as a brokered source (docs/design/git-broker.md §4, docs/design/git-broker-plan.md
+// git as a brokered source (docs/reference/git-broker.md, docs/reference/git-broker.md
 // tasks 5 and 6). One runs per jail, behind yolo's loopback-TLS front, on the broker core
 // (internal/brokercore).
 //
@@ -110,7 +110,7 @@ type Broker struct {
 	cover coverer
 	// rootCAs is the HTTPS upstream's trust roots; nil, always outside tests, is the system's.
 	// It is a test seam and nothing else: no config key or environment variable reaches it,
-	// and nothing turns verification off (docs/design/git-broker-plan.md task 6's fence).
+	// and nothing turns verification off (docs/reference/git-broker.md).
 	rootCAs *x509.CertPool
 	// waitLimit, when set below pushWait, shortens a push's wait for its request's answer. It
 	// is a test seam and nothing else.

@@ -7,7 +7,7 @@ import (
 )
 
 // gitremote.go is `yolo git-remote`, the jail side of the git-broker
-// (docs/design/git-broker.md §4.1): git's remote helper `git-remote-yolo`, which the jail's
+// (docs/reference/git-broker.md): git's remote helper `git-remote-yolo`, which the jail's
 // git runs for every remote rewritten to `yolo::<url>`.
 //
 // MAIN ROUTES IT BEFORE THE FRONT DOOR'S OWN WORK (cli.go), as it does `gh`: this verb's

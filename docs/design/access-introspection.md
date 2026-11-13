@@ -7,7 +7,7 @@ next: "Build Task 4 of the plan (the own-jail readout and grant snapshot) once i
 depends-on:
   - boundary-broker.md
   - github-write-scopes.md
-  - git-broker.md
+  - ../reference/git-broker.md
 tags: [design, broker, approvals, grants, working-set, dry-run, introspection, agent-briefings, happy-path]
 summary: "An agent in a jail cannot tell, before it acts, whether a git push, a gh write or a pack broker's call will run, ask the human, or be refused, and it cannot list what it already holds. This design gives every broker one pipeline with two modes: act, as today, and evaluate, which runs the same parse, scope check, fact reads and decision function and stops before any effect. A new verb, yolo access, reads the jail's whole access readout (scope, grants, cells, working set, timed and once grants, pending and answered requests, loophole standing) from the brokers themselves, and predicts a proposed call by asking the broker in evaluate mode. A prediction and the real decision share one pure function, and a divergence on identical inputs is recorded as a defect."
 ---

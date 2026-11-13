@@ -12,8 +12,8 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
 
-// secret-env-scoping.md §3.7: `yolo check` predicts the launch's row 4 line from the same gate, as
-// a WARN (secret-env-scoping-plan.md SEP-D9), naming the variable and never its value.
+// docs/reference/providers.md#the-two-env-sets-public-and-private: `yolo check` predicts the launch's row 4 line from the same gate, as
+// a WARN (docs/reference/providers.md SEP-D9), naming the variable and never its value.
 func TestSecretEnvGapWarnsOfAPrivateNameNothingClaims(t *testing.T) {
 	set := jsonx.NewOrderedMap()
 	set.Set("STRIPE_KEY", "s-probe")
@@ -63,7 +63,7 @@ func TestThePacksSectionWarnsOfAPrivateNameNothingClaims(t *testing.T) {
 	}
 }
 
-// secret-env-scoping-plan.md Task 7: both refusals are a FAIL in check, in the launch's words, through
+// docs/reference/providers.md: both refusals are a FAIL in check, in the launch's words, through
 // the Packs section's call site. A name in both sets refuses whatever claims it (SE-D2).
 func TestThePacksSectionFailsANameInBothSets(t *testing.T) {
 	packsFixture(t, `{"packs": []}`)

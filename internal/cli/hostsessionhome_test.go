@@ -91,7 +91,7 @@ func ownedSessionHomeConfig(cfg string) string {
 
 // sessionCodexCfg is piSubagentsCodexCfg (hostlaunchcomputed_test.go) in TOML: openrouter as pi's
 // provider, openai-auth's codex selectable by -p. OPENROUTER_API_KEY is the openrouter provider's
-// key, so it lives in the private set (secret-env-scoping.md). head is any top-level keys a test
+// key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private). head is any top-level keys a test
 // adds; they must come before the first table.
 func sessionCodexCfg(head string) string {
 	return head + `packs = ["claude", "openrouter", "codex-auth", "pi"]

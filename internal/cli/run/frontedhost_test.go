@@ -1,7 +1,7 @@
 package run
 
 // frontedhost_test.go pins the launch's half of the FRONTED HOST LOOPHOLE (loopholes.Set's
-// FrontedHostNames; docs/design/git-broker-plan.md ID-6): a pack env pointer `served_by`
+// FrontedHostNames; docs/reference/git-broker.md ID-6): a pack env pointer `served_by`
 // git-broker, packs/git's GIT_CONFIG_* rewrite, is served exactly where the launch starts and
 // fronts that host daemon, and named with its own reason everywhere else. Through the real
 // jailDaemonsFor and servedDaemons, so deleting either call site fails it.

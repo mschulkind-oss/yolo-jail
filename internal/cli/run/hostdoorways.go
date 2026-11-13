@@ -96,7 +96,7 @@ func (d *HostDoorways) ForSetup(s setup.Setup) {
 }
 
 // PinnedTo hands the doorways' host services the launch's pinned yolo
-// (docs/design/pinned-host-helpers.md): they run from it, a restart that finds it replaced gives up
+// (docs/reference/pinned-host-helpers.md): they run from it, a restart that finds it replaced gives up
 // naming stopStep, and jail labels them in their start lines. Called before Start; a launch that
 // pins none leaves them to refuse to start, never to run another build.
 func (d *HostDoorways) PinnedTo(pin *helperpin.Pin, jail, stopStep string) {
@@ -391,7 +391,7 @@ func HostOpenAIServiceOn(cfg *jsonx.OrderedMap, packs []*packload.Pack) bool {
 }
 
 // HostFrontedWhy is why a `yolo host` launch of packs serves none of their FRONTED HOST
-// LOOPHOLES (loopholes.Set.FrontedHostWhy at the host notch; docs/design/git-broker-plan.md
+// LOOPHOLES (loopholes.Set.FrontedHostWhy at the host notch; docs/reference/git-broker.md
 // ID-6), keyed by loophole name: packs/git's rewrite is withheld there because the agent's git
 // already runs on the host, which the host notch's doorway clause would not say.
 func HostFrontedWhy(cfg *jsonx.OrderedMap, packs []*packload.Pack) map[string]string {

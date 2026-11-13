@@ -117,7 +117,7 @@ func (f sealFixture) launchStreams(t *testing.T, sealed bool) (argv []string, ws
 		t.Fatal(err)
 	}
 	// A JSONC body is the legacy file; anything else is TOML, the only file that can hold a
-	// provider's key (secret-env-scoping.md SE-D6).
+	// provider's key (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D6).
 	name := "config.toml"
 	if strings.HasPrefix(strings.TrimSpace(f.config), "{") {
 		name = "config.jsonc"

@@ -1,7 +1,7 @@
 package packload
 
 // unselectedclaims.go reads which names the providers of the packs yolo SHIPS, and this launch did
-// not select, claim — to WORD a line, never to decide a reach (docs/design/secret-env-scoping.md
+// not select, claim — to WORD a line, never to decide a reach (docs/reference/providers.md#the-two-env-sets-public-and-private
 // SE-D8). A public name such a provider claims gets one line naming `yolo config secret`; a private
 // name nothing selected claims gets `yolo pack add <pack>` as its remedy. A release that ships a new
 // pack can therefore add a line to a working launch and never changes who receives a value.

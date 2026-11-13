@@ -260,7 +260,7 @@ func TestRecordApprovalWritesBothParts(t *testing.T) {
 	}
 }
 
-// A grant joins only at the gate (BB-D96; docs/design/git-broker-plan.md ID-10): a new one is a
+// A grant joins only at the gate (BB-D96; docs/reference/git-broker.md ID-10): a new one is a
 // line of its source's scope block, no reading of the record holds it until the gate records, and
 // it is recorded under the key `<source>.grants`.
 func TestGrantJoinsOnlyAtTheGate(t *testing.T) {
@@ -315,7 +315,7 @@ func TestGrantJoinsOnlyAtTheGate(t *testing.T) {
 }
 
 // A source with no grants leaves the scope record's bytes as they were before grants existed
-// (docs/design/git-broker-plan.md ID-10): no `<source>.grants` key, and removing a source's last
+// (docs/reference/git-broker.md ID-10): no `<source>.grants` key, and removing a source's last
 // grant takes the key away again rather than leaving an empty list.
 func TestASourceWithNoGrantsWritesNoGrantsKey(t *testing.T) {
 	ws := approvalWorkspace(t)
@@ -351,7 +351,7 @@ func TestASourceWithNoGrantsWritesNoGrantsKey(t *testing.T) {
 }
 
 // A branch grant joins at the gate as create-branch does, its line naming the branch, and
-// the record keeps the branch (docs/design/git-broker.md GB-D12).
+// the record keeps the branch (docs/reference/git-broker.md GB-D12).
 func TestBranchGrantJoinsAtTheGateWithItsBranch(t *testing.T) {
 	ws := approvalWorkspace(t)
 	grant := brokerscope.Grant{Kind: "branch", Repo: "github.com/o/r", Branch: "main"}

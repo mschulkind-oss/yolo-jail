@@ -54,14 +54,14 @@ import (
 //
 // # User grants, in two layers
 //
-// BB-D96 (docs/design/git-broker-plan.md ID-10): the user's own config lists the kinds of grant
+// BB-D96 (docs/reference/git-broker.md ID-10): the user's own config lists the kinds of grant
 // a workspace may hold, `brokered.<source>.grant_kinds`, and the workspace config names each
 // grant and the repository it covers, `brokered.<source>.grants`:
 //
 //	"brokered": { "git": { "grants": [{"kind": "create-branch", "repo": "github.com/o/r"}] } }
 //
 // A `branch` grant names its branch too, `"branch": "main"`: a working-set branch declared in
-// config (docs/design/git-broker.md GB-D12, GB-D13), and a `tag` grant its tag, `"tag": "v*"`;
+// config (docs/reference/git-broker.md GB-D12, GB-D13), and a `tag` grant its tag, `"tag": "v*"`;
 // either may be git's refspec pattern with one `*`, and either may name "*" for its repository
 // (GB-D25). No other kind takes either key. A grant joins only at the config-change gate, as a
 // line of its source's scope block recorded under `<source>.grants` (scopeapproval.go), and only
@@ -74,7 +74,7 @@ const (
 	brokeredRootsKey      = "roots"
 	brokeredSetsKey       = "sets"
 	// brokeredGrantsKey and brokeredGrantKindsKey are the two layers of a user grant
-	// (docs/design/boundary-broker.md BB-D96; docs/design/git-broker-plan.md ID-10): the user's own
+	// (docs/design/boundary-broker.md BB-D96; docs/reference/git-broker.md ID-10): the user's own
 	// config lists the kinds a workspace may hold (`grant_kinds`, user scope only), and the
 	// workspace config names each grant and its repository (`grants`, workspace scope only), which
 	// joins only at the config-change gate and only within the user's kinds.
@@ -1193,7 +1193,7 @@ func validateBrokeredUserScope(errs, warns *[]string, edit ...*editValidationCon
 // A `repos` entry for a source a known loophole brokers on any host (`remote_host: "*"`) is
 // refused, through the resolver and never by the source's name: that source's scope is every
 // remote URL, matched exactly, so a git remote joins with `git remote add` and reaches the gate as
-// a new remote (docs/design/git-broker-plan.md ID-2).
+// a new remote (docs/reference/git-broker.md ID-2).
 //
 // Each `brokered.<source>.grants` entry is checked too (brokeredGrantProblems): its shape, a
 // kind the source defines (through the resolver) and the user's own config allows.

@@ -1,7 +1,7 @@
 package packdecl
 
 // mcpkind_test.go pins the `mcp` contribution kind's declaration (kinds.go KindMCP;
-// docs/design/mcp-presets-removal.md OQ-MP3): what it decodes to, what it refuses on both decode
+// docs/reference/mcp-configuration.md OQ-MP3): what it decodes to, what it refuses on both decode
 // paths, its combine rule, and the one-pack duplicate refusal.
 
 import (

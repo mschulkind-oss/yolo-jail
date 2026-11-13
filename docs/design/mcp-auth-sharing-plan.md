@@ -3,7 +3,7 @@ title: "Plan: the remote mcp_servers form, then one MCP sign-in per user-level s
 date: 2026-11-04
 status: accepted
 stage: DECIDED
-next: "Owner end-to-end check of the Claude one-sign-in slice (Slack plugin); the Mac witnesses for ID-19 and ID-20; build the one sign-in at Linux yolo host (ID-21, OQ-MA10); resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
+next: "Owner end-to-end check of the Claude one-sign-in slice (Slack plugin); the Mac witnesses for ID-19 and ID-20; the owner's real-host check of the one sign-in at Linux yolo host (ID-21, built 2026-11-12); resolve the Codex native-origin proof gap; Tasks 13–15 and native runtime witnesses remain separate"
 depends-on: [mcp-auth-sharing.md]
 tags: [plan, mcp, oauth, credentials, broker, packs, loopholes, sharing]
 summary: "Phase A, the reviewed Task 12 launch-boundary foundations, and the first phase D slice (Claude adoption for sign_in = once) are built, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (ID-19, ID-20). Unknown Codex native origins remain unpromoted and unshared because native identity omits header provenance; Tasks 13–15 remain separate."
@@ -406,20 +406,31 @@ reverse it.
   entry is not a sign-out. Writes follow [ID-12](#id-12): Claude's own `.storage-write.lock`, a
   read-modify-write of the one `mcpOAuth` entry, never through a symlink. It is on by default, with
   no opt-in key. On darwin the launch keeps the not-kept line, naming the Keychain as the reason.
-  **The task:**
-  1. Check first whether the session-poll helper behind [ID-20](#id-20) (`startOnceSession` in
-     `internal/cli/run/mcpauthboundary.go`) can be called from the host launch in
-     `internal/cli/host.go`, or needs a host-side entry point; reuse it either way, never a second
-     poll loop.
-  2. Replace `hostOnceSignInNote`'s Linux path (`internal/cli/hostmcponce.go`) with the session's
-     start line; keep the darwin line, reworded to name the Keychain and no longer call the ruling pending. Update the comments there and in `host.go` and `mcpauthboundary.go` that say the
-     tier is not kept at `yolo host`.
-  3. Tests: rewrite `TestHostLaunchSaysTheOneSignInIsNotKeptHere` to the darwin case; add a Linux
-     test that fails if the host launch's call to the session poll is deleted, and one that the
-     adopted record's `source_dir` is the host's `~/.claude`.
-  4. Docs: check whether [`mcp-configuration.md`](../reference/mcp-configuration.md) and
-     [`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md) say anything about
-     the one sign-in at `yolo host`, and correct what they say.
+  **Built (2026-11-12)**, with these implementation decisions:
+  - *One poll.* The macos-user session's poll is now `run.OnceSession` (`Start` returns the stop
+    that runs the last pass), and `startOnceSession` and the host launch both use it.
+    `run.HostOnceSession` builds the host's share: the user-scope config and selection the host
+    launch composed from, every server user-level
+    ([§5](mcp-auth-sharing.md#5-which-servers-are-user-level)), and one source, the
+    launched program's own pack's store under the real home. Another program's launch
+    (`yolo host -- pi`) writes nothing into `~/.claude`.
+  - *Resident, not exec.* A host launch that keeps the tier runs the program as its child
+    (`launchservice.RunAgent`, as the launch-owned services path does) instead of exec'ing it,
+    because the poll needs a process that lives as long as the program; the launch line says so.
+  - *Not under the credential view.* When the program's environment sets
+    `CLAUDE_SECURESTORAGE_CONFIG_DIR` (the host credential view, CL-D27, or the user's own
+    shell), Claude's store is not `~/.claude`, so the tier is not kept for that launch and the
+    line names the variable, as [ID-16](#id-16) turns it off in a jail's credential-view mode.
+  - *Lines.* The poll's lines go to the host launch log (`host-launch.log`) while the program
+    holds the terminal; the audit's jail field reads `host`.
+
+  `TestHostLaunchOnLinuxKeepsTheOneSignInForTheSession`,
+  `TestHostOnceSessionAdoptsFromTheRealHomesClaudeStore`,
+  `TestHostLaunchOnAMacSaysTheOneSignInIsNotKeptHere`,
+  `TestHostOnceSignInIsNotKeptUnderTheCredentialView`. Not run end to end: the owner's check on a
+  Linux host is one `/mcp` Slack sign-in in `yolo host -- claude`, then `yolo audit --service
+  mcp-auth` showing the `adopt`, and `~/.claude/.credentials.json`'s Slack entry with no
+  `refreshToken`.
 
 ## Tasks
 
@@ -1409,9 +1420,9 @@ the design's; what is recorded here is what that pass must start from.
   - *macos-user:* built (2026-11-06), the session-long poll ([ID-20](#id-20)) on the session's
     bridge file; whether Claude uses that file and not the Keychain there is a
     [Mac witness](mcp-auth-sharing.md#mac-checks), not yet taken.
-  - *`yolo host` on Linux:* to build, [ID-21](#id-21), ruled on by default
-    ([OQ-MA10](mcp-auth-sharing.md#OQ-MA10)). Today the launch still says the tier is not kept
-    there and names `yolo -- claude` (`hostmcponce.go`); that line is the thing to replace on Linux.
+  - *`yolo host` on Linux:* built (2026-11-12), [ID-21](#id-21), on by default
+    ([OQ-MA10](mcp-auth-sharing.md#OQ-MA10)): the session-long poll on the real home's
+    `~/.claude/.credentials.json`; its run on a real host is the owner's check, not yet taken.
   - *`yolo host` on a Mac:* not built and not planned. Host Claude keeps its sign-ins in the
     Keychain; the line stays, reworded to name the Keychain, until the Keychain design on the
     [roadmap](../plans/roadmap.md) exists.

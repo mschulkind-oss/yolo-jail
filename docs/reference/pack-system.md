@@ -2282,7 +2282,7 @@ run only yolo's own code ([P4](macos-user-provisioning.md)), and a check is a pa
 agent-writable home. Nor does it run at `yolo host`. Each line it prints reaches the terminal and the boot log as
 `⚠ <pack>: <line>`, at most four of them, and a check with nothing to report prints nothing. **It
 never stops a launch**, by the maintainer's ruling
-([`OQ-MP9`](../design/mcp-presets-removal.md#OQ-MP9), 2026-10-23: *"it is just a warning"*): a
+([`OQ-MP9`](mcp-configuration.md#OQ-MP9), 2026-10-23: *"it is just a warning"*): a
 check that exits non-zero without output, cannot run, or is still running after 5 seconds costs
 one line naming the command that shows its answer, and a script the home does not hold is named
 too. Core knows nothing about what a check looks for. The one shipped user is `chrome-devtools`,
@@ -2454,7 +2454,7 @@ reviewed where it is declared. It does not apply at the host notch.
 #### `mcp`
 
 One MCP server entry, composed into yolo's own `mcp_servers` table the way `provider` composes
-into `providers` ([`mcp-presets-removal.md` OQ-MP3](../design/mcp-presets-removal.md#decision-ledger)):
+into `providers` ([`OQ-MP3`](mcp-configuration.md#OQ-MP3)):
 `{"kind": "mcp", "name": "chrome-devtools", "bin": "chrome-devtools-mcp", "config": {"command":
 "/bin/sh", "args": ["~/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper"]}}`.
 `config` is the entry in exactly the shape a user writes under `mcp_servers`; a `command` or
@@ -3835,7 +3835,7 @@ corpus. A config still carrying the retired `allow_exec` is refused as an unknow
 a key that does nothing must not be accepted quietly.
 
 <a id="oq-pk1-background"></a>**Background to [`OQ-PK1`](#oq-pk1), below**, which asks for the safe
-subset of packs [`OQ-MP7`](../design/mcp-presets-removal.md#decision-ledger) ruled a workspace config should
+subset of packs [`OQ-MP7`](mcp-configuration.md#OQ-MP7) ruled a workspace config should
 be able to declare. The hard case the ruling names is an
 `mcp` entry, which is code that runs unconditionally at jail start in a home holding real
 credentials, so the rule has to say why that is acceptable or admit content kinds first and
@@ -3843,11 +3843,10 @@ leave executable kinds to a second ruling. The ruling asks for
 [`OQ-WS1`](agent-briefings.md#oq-ws1) (the same question for skills) to be ruled in
 the same sitting, and names R5 in [`loophole-system.md`](loophole-system.md#principles) as the
 wording it amends. It blocks
-[`mcp-presets-removal.md`](../design/mcp-presets-removal.md)'s
-[§13](../design/mcp-presets-removal.md#13-what-i-would-build-in-order) step 3, the retirement of
+[the retirement](mcp-configuration.md#the-retired-mcp_presets-key) of
 `mcp_presets`, because that ruling moved the workspace-scope boundary a workspace-writable key
-would retire across; steps 1 and 2, the `mcp` kind and `packs/chrome-devtools`, were built ahead
-of it on 2026-10-05 ([MP-D8](../design/mcp-presets-removal.md#MP-D8)). Its answer also
+would retire across; the `mcp` kind and `packs/chrome-devtools` were built ahead
+of it on 2026-10-05 ([MP-D8](mcp-configuration.md#MP-D8)). Its answer also
 decides whether the compose engine's `workspace` layer, which nothing fills today, ever gets a
 producer ([the layer](#config-surfaces-and-the-compose-engine)). *PK* stands for the `packs`
 key; the prefix is new with this question.
@@ -3862,7 +3861,7 @@ the subset:
   not the execution.
 - **Every source but a bare name reaches the host.** A `git+` entry makes the host fetch with
   the user's own git credentials ([fetch](#fetch-refresh-lock)), and a `file://` entry reads
-  whatever host directory it names. On [OQ-MP7](../design/mcp-presets-removal.md#decision-ledger)'s
+  whatever host directory it names. On [OQ-MP7](mcp-configuration.md#OQ-MP7)'s
   axis, host reach rather than install, only a pack yolo ships, named by its bare name, reaches
   nothing at selection.
 - **The skills half is already ruled another way.** [`OQ-WS1`](agent-briefings.md#oq-ws1)
@@ -3886,13 +3885,13 @@ The options:
   jail: `skills`, `briefing`, `files`, `config`, `config-overlay`, `config-list`, `env`,
   `models`, a `program` with no recipe, and `blocked-tool`. Any other kind refuses the entry and names the kind,
   and the executable kinds wait for a second ruling. *You see:* a repository that commits
-  `"packs": ["guardrails"]` gets it for every collaborator. *You lose:* [OQ-MP7](../design/mcp-presets-removal.md#decision-ledger)'s own case. A
+  `"packs": ["guardrails"]` gets it for every collaborator. *You lose:* [OQ-MP7](mcp-configuration.md#OQ-MP7)'s own case. A
   `chrome-devtools` pack carries an MCP entry, so the scope demotion that ruling rejected stands
   for it until the second ruling.
 - **(b) Shipped packs whose contributions all stay inside the jail, executable kinds
   included.** (a)'s set plus `program`, `service`, `adapter`, `autonomy`, workspace-scope
   `state`, the `per_jail_history` and `unshare_directory` hooks, and the MCP kind
-  [`mcp-presets-removal.md`](../design/mcp-presets-removal.md#6-there-is-no-mcp-contribution-kind)
+  [the `mcp` kind](mcp-configuration.md#a-packs-servers-the-mcp-kind)
   adds. Refused: `loophole`, `reads-host`, `mount`, `intercept` (a forwarder into a loophole),
   `provider`, `profile`, `machine`-scope `state`, and the `shared_credentials` and
   `shared_directory` hooks, which reach every other workspace through a machine-wide store.
@@ -3909,13 +3908,13 @@ The options:
 
 Whichever is ruled, R5's *"install is user-scope"* in
 [`loophole-system.md`](loophole-system.md#principles) becomes a rule about host reach, as
-[OQ-MP7](../design/mcp-presets-removal.md#decision-ledger) says.
+[OQ-MP7](mcp-configuration.md#OQ-MP7) says.
 
 **The question, each option in brief:**
 
 - ✅ <a id="oq-pk1"></a>**[`OQ-PK1`](#oq-pk1) — which packs may a workspace config declare?**
   The user-scope rule above stands in the code, but
-  [`OQ-MP7`](../design/mcp-presets-removal.md#decision-ledger) ruled on 2026-09-20 that it should not
+  [`OQ-MP7`](mcp-configuration.md#OQ-MP7) ruled on 2026-09-20 that it should not
   simply stand: define a **safe subset** of packs a workspace may declare, drawn on host reach
   rather than on install. The subset itself is not ruled.
 
@@ -3927,7 +3926,7 @@ Whichever is ruled, R5's *"install is user-scope"* in
     included.**
   - **(c) (b), plus a pack the repository carries.**
 
-  _Leaning:_ **(b).** [OQ-MP7](../design/mcp-presets-removal.md#decision-ledger)'s answer draws the line itself: *"it was to stop a workspace
+  _Leaning:_ **(b).** [OQ-MP7](mcp-configuration.md#OQ-MP7)'s answer draws the line itself: *"it was to stop a workspace
   controlling what runs on the host. An MCP server for an agent inside the jail is not that."*
   The objection it left open, unconditional execution, is one a workspace already has through
   `mcp_servers`, so (a) would hold back MP7's own motivating case to guard a power the workspace
@@ -3944,8 +3943,8 @@ Whichever is ruled, R5's *"install is user-scope"* in
   > although it's got quite a lot of implications … for now to make progress here I guess
   > we're just saying it is a pack there's no way to turn it on in a workspace and MCP presets
   > is getting deleted that way we can take the design doc and implementation in time."* This
-  > releases [`mcp-presets-removal.md`](../design/mcp-presets-removal.md)'s step 3 and narrows
-  > [OQ-MP7](../design/mcp-presets-removal.md#decision-ledger)'s "do not just lose it" to
+  > released the retirement of the key ([MP-D10](mcp-configuration.md#MP-D10)) and narrows
+  > [OQ-MP7](mcp-configuration.md#OQ-MP7)'s "do not just lose it" to
   > "lose it until the workspace-packs design lands". That design is
   > [`workspace-packs.md`](../design/workspace-packs.md).
 
@@ -4956,6 +4955,9 @@ in the config-overlay comments (R2, R3) it means the R1–R5 table below, never
 | <a id="batch-7"></a>[**§7**](#batch-7) (pack batch) — `yolo pack lint` asks "does this pack do anything?" and "does it stage content nothing reads?" as separate questions ([its checks](#pack-lint-questions)) | The rule it replaced used "ships `skills/` or `AGENTS.md`" as a proxy for "does anything read this pack". That rejected every shipped pack and a working config-only pack, and gave a pack that did nothing the same message, so it was useless in the one case it existed for. Maintainer framing, 2026-08-04: *"a pack that does absolutely nothing should be warned about, but not one that leaves out a part it could ship."* What shipped is stricter than the word "warned": both checks fail lint. |
 | <a id="oq-al1"></a>[**OQ-AL1**](#oq-al1) — a `config-list` path captures PER ENTRY — relative to the last render on `stateful`, to yolo's insert record on `rmw` — and a mechanism that cannot is refused at launch ([capture per entry](#config-list-capture)) | A whole-array capture of one `pi install` would hold every pack's entries, outrank every contribution and freeze the list: later additions masked, a dropped pack's entries never removed. The obvious shortcuts each fail: limiting the kind to `computed` surfaces does not reach pi's `settings`, making the path `computed` wipes every `pi install`, and an owner opt-in per path protects nothing, since any pack's `config-overlay` can already replace the key. |
 | <a id="oq-al2"></a>[**OQ-AL2**](#oq-al2) — list contributions apply after every ordinary overlay; only capture, `computed` and `managed` replace the final array ([order](#config-list-order)) | An overlay has no per-entry veto to express, so folding lists below overlays would let any overlay silently erase them. |
+| <a id="OQ-DA4"></a>[**OQ-DA4**](#OQ-DA4) — a `config-list` takes `remove` beside `add` ([remove](#config-list-remove)) | Without it, an array-targeting overlay is the only way to drop one element, and it replaces the whole array, silently owning every sibling's entries. The owner, ratifying what was built (2026-10-16): *"of course we can say remove an entry. It seems super useful ... why would we not have this?"* |
+| <a id="OQ-DA1"></a>[**OQ-DA1**](#OQ-DA1) — a pack declares no minimum yolo version, and `yolo pack lint` has no `--for-version` | The owner (2026-10-15): *"Nobody's running old versions."* A pack ahead of its yolo is covered already: a launch skips, with a warning, a contribution holding a field its yolo does not know, and a host `yolo` older than the source it launches refuses (`version.SourceSkew`). |
+| <a id="OQ-DA3"></a>[**OQ-DA3**](#OQ-DA3) — `yolo check` warns about no individual host file an agent reads that reaches no jail (for example pi's `~/.pi/agent/APPEND_SYSTEM.md`) | The owner (2026-10-16): *"how could you warn about every single possible thing that could go wrong?"* A host file reaches a jail only when something composes it: `host_files` (which the shipped `configuring-the-jail` skill names as the route) or a pack's [`briefing`](#briefing). |
 | **[OQ-K1](#why-its-this-way)** — settings declarations are AUTHORITATIVE, never advisory | A launch fetches a git pack it does not have before it resolves anything ([`OQ-PF1`](#oq-pf1)), and a pack still unresolvable after that is fatal, so there is no launch where a configured pack's declaration is missing and the jail starts anyway. (Ruled when launches never fetched; the fetch changes how a pack arrives, not what happens when one cannot.) |
 | **[OQ-K2](#why-its-this-way)** — a workspace may supply values reaching a host daemon, gated by the config-change flow | The conditional IS the ruling: it would have been unsafe before the approval snapshot moved out of the workspace and non-interactive auto-accept was removed. |
 | **[OQ-K3](#why-its-this-way)** — freeze the host-processes visibility list | Live re-read of the workspace file is indistinguishable from the hole: the same property that lets you widen without restarting lets an agent widen its own, mid-session, with no approval gate. |

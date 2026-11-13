@@ -1024,8 +1024,11 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// switch and off by default: set in environ here, so the exec and the resident path below
 	// both carry it.
 	environ = hostClaudeView(launch, environ, errw)
-	// THE ONE-SIGN-IN TIER IS NOT KEPT HERE (hostmcponce.go, OQ-MA10), and the launch says so.
-	hostOnceSignInNote(launch, errw)
+	// THE ONE-SIGN-IN TIER (hostmcponce.go, OQ-MA10, ID-21): on Linux, a session over the real
+	// home's store, started just before the hand-over below and stopped (one last pass) when the
+	// program exits, so a launch that keeps it stays resident; on a Mac, or under the credential
+	// view above, a line saying it is not kept. After the view, whose variable decides the store.
+	onceSession := hostOnceSignIn(launch, environ, trace.log, errw)
 	// The launch selection's variables (MM-D30), disclosed above with its argv.
 	environ = selection.applyEnv(environ)
 	// THE SESSION HOMES (docs/design/per-session-profiles.md §4.7, OQ-SP4; hostsessionhome.go): a
@@ -1162,6 +1165,10 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 			fmt.Fprintf(errw, "yolo host: %s\n", line)
 		}
 		sp.End()
+		// The one-sign-in session runs while the agent does; its stop is the last pass.
+		if onceSession != nil {
+			defer hostOnceStart(onceSession)()
+		}
 		// WHAT STARTS, AND FROM WHERE, the last line before the hand-over: a slow agent startup
 		// is then visibly the agent's, not yolo's.
 		trace.handOver()
@@ -1174,11 +1181,21 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// runs the same target.
 	trace.handOver()
 	printHostStartingLine(errw, cmd[0], resolved)
+	// THE ONE-SIGN-IN SESSION (ID-21) needs this process for the program's life, so a launch that
+	// keeps it runs the program as a child, as the services path above does, and never execs.
+	if onceSession != nil {
+		defer hostOnceStart(onceSession)()
+	}
 	if managed != nil {
 		environ = managed.Environ(environ)
 		if rc, handled := managed.Run(target, argv, environ, stdin, out, rawErrw); handled {
 			return rc
 		}
+	}
+	if onceSession != nil {
+		trace.log.HandedOver("resident")
+		return launchservice.RunAgent(target, argv, environ, stdin, out, rawErrw, nil,
+			hostServiceSignals, "yolo host: ")
 	}
 	// Given back BEFORE the exec, because cli.Main's deferred release never runs once this
 	// process has been replaced — and every host wrapper launch comes through here. With the
@@ -1704,7 +1721,7 @@ type hostComposition struct {
 	// by the front door that runs the agent, and the reason each one it leaves closed is closed.
 	doorways *run.HostDoorways
 	// frontedWhy is why the host notch serves no FRONTED HOST LOOPHOLE (run.HostFrontedWhy;
-	// docs/design/git-broker-plan.md ID-6), keyed by name: the clause a withheld pointer at
+	// docs/reference/git-broker.md ID-6), keyed by name: the clause a withheld pointer at
 	// one is named with, since the host notch's own clause speaks of doorways.
 	frontedWhy map[string]string
 	// served is the served set the credential gate composed this launch against: the doorways
@@ -2861,7 +2878,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 	// for them separately would read every dotenv file twice and warn twice — noise a missing
 	// host-only file used to produce on every `yolo host env`. Both reach the gate, whose
 	// composition ranks the removals with env_sources (envcompose.go).
-	// Both sets (secret-env-scoping.md#33-the-two-sets): the gate reads the set bit, so a private
+	// Both sets (docs/reference/providers.md#the-two-env-sets-public-and-private): the gate reads the set bit, so a private
 	// value reaches this process only when its selection claims the name.
 	hydrated := config.ResolveEnv(workspace, scoped, warn)
 	userEnv, removals := hydrated.Values(), hydrated.Removals()
@@ -2961,7 +2978,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		EnvSources: userEnv,
 		Private:    hydrated.Private(),
 		// An MCP server's requires_env claims a private name for the agents rendering it
-		// (secret-env-scoping.md SE-D13): the host's own packs and your mcp_servers.
+		// (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D13): the host's own packs and your mcp_servers.
 		MCPClaims:        packload.MCPEnvClaims(packload.ComposeMCPServers(hostUserMCPServers(cfg), packs, "")),
 		MCPAgents:        packload.MCPAgents(packs),
 		UnselectedClaims: packload.UnselectedProviderClaims(packs),
@@ -3046,7 +3063,7 @@ func composeHostVarsWith(cfg *jsonx.OrderedMap, workspace, agent, command, profi
 		c.err = err
 		return c
 	}
-	// THE ENV-SET REFUSALS (docs/design/secret-env-scoping.md §3.5, §4.8), the jail's own
+	// THE ENV-SET REFUSALS (docs/reference/providers.md#the-two-env-sets-public-and-private), the jail's own
 	// function: a selected provider's key in the public set, or a name in both sets, refuses
 	// `yolo host --` and `yolo host env` before anything is exec'd or printed (SE-D7). The host
 	// reads only the user config's env, so the remedy's scope is the user's.
@@ -3838,7 +3855,7 @@ func hostScopedEnvSources(cfg *jsonx.OrderedMap, warn func(string)) *jsonx.Order
 					narrowed.Delete(key)
 				}
 			}
-			// The private set's files (secret-env-scoping.md#33-the-two-sets), by the same rule.
+			// The private set's files (docs/reference/providers.md#the-two-env-sets-public-and-private), by the same rule.
 			if secrets, ok := getMapValue(env, "secrets"); ok {
 				if list, ok := getList(secrets, "files"); ok && len(list) > 0 {
 					if kept, dropped := filter("env.secrets.files", list); dropped {

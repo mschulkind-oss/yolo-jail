@@ -1,7 +1,7 @@
 package config
 
 // dotenvedit.go edits one name's lines in a dotenv file for `yolo config secret|unsecret`
-// (secret-env-scoping-plan.md SEP-D12): a line is moved verbatim, every line that sets the name
+// (docs/reference/providers.md SEP-D12): a line is moved verbatim, every line that sets the name
 // leaves the source, and every write is a temp file renamed over the original in its directory,
 // so a reader never sees a half-written file. A file keeps its mode; one created here is 0600.
 

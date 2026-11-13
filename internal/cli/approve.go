@@ -688,7 +688,7 @@ func configGrantNote(workspace string) string {
 
 // configBranch is a working-set branch a `branch` grant declares in a workspace's config, or the
 // tags a `tag` grant covers, as the scope file of a running broker holds it
-// (docs/design/git-broker.md GB-D13, GB-D25). Branch is the grant's name, a pattern included, and
+// (docs/reference/git-broker.md GB-D13, GB-D25). Branch is the grant's name, a pattern included, and
 // Kind is `branch` or `tag`. It is never in the store: the config holds it, so `yolo approve`
 // lists it and cannot revoke it.
 type configBranch struct {

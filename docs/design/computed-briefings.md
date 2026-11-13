@@ -44,7 +44,7 @@ than delivering incomplete briefing text.
 **Reads with:** [`computed-briefings-plan.md`](computed-briefings-plan.md) (the current-tree
 implementation plan; access-projection clarification and operation controls remain unfinished),
 [`readable-config.md`](readable-config.md) (renames the grant config this design reads; the
-dependency is in [§3.2](#32-what-a-producer-reads)), [`git-broker.md`](git-broker.md) (what each
+dependency is in [§3.2](#32-what-a-producer-reads)), [`git-broker.md`](../reference/git-broker.md) (what each
 git grant lets a push do).
 
 ---
@@ -65,7 +65,7 @@ git grant lets a push do).
   ([`boundary-broker.md`](boundary-broker.md#16-the-grant-model-2026-10-23)).
 - **Working set** (ours): the branches a workspace may push to without asking, created under a
   `create-branch` grant or declared by a `branch` grant
-  ([`git-broker.md`](git-broker.md#51-the-working-set-of-pushable-branches)).
+  ([`git-broker.md`](../reference/git-broker.md#the-working-set)).
 - **Briefing producer** *(coined here)*: a function a pack registers with `yolo.briefing(name, fn)`
   that returns Markdown for one briefing destination. It is not a surface derive: it produces
   prose for a briefing, never a config value.

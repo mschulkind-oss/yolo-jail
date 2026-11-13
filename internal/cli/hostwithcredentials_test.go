@@ -17,7 +17,7 @@ import (
 // wcConfig is the maintainer's case: several providers' keys in the ONE private set, beside an
 // unclaimed public value, and no profile selecting any of them. kilo is selected and claims
 // KILO_API_KEY, which the store does not hold. A provider's key lives in the private set
-// ([env.secrets]), since the public set refuses one (secret-env-scoping.md).
+// ([env.secrets]), since the public set refuses one (docs/reference/providers.md#the-two-env-sets-public-and-private).
 const wcConfig = `packs = ["claude", "zai", "cerebras", "openrouter", "kilo"]
 
 [env]

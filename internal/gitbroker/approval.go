@@ -14,7 +14,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 )
 
-// approval.go is a push asking for approval (docs/design/git-broker.md §5, GB-D16 to GB-D23):
+// approval.go is a push asking for approval (docs/reference/git-broker.md, GB-D16 to GB-D23):
 // a push no grant or working-set entry covers whole, whose every ref could be approved, spends
 // an Allow once the host already gave for exactly that push, or files one request for it,
 // writes its notice to the broker's background log, and waits for the answer a bounded time

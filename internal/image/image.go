@@ -54,11 +54,15 @@ func ImageInspectCmd(runtime, image string) []string {
 // permanent, and for why C9 makes it unrepresentable rather than merely
 // avoided.
 //
-// Apple Container never reaches this: the copy names the image inside the OCI
-// archive it writes, so the content ref is applied going in — which also avoids
-// inventing an argv for a `container image tag` subcommand nothing here can
-// verify.
+// Apple Container's content ref never comes through here: the copy names the
+// image inside the OCI archive it writes, so that name is applied going in. Its
+// stock tag does (tagStockImage), spelled `container image tag <source>
+// <target>` — the subcommand Apple's command reference documents in container
+// 1.1.0 and on main (docs/command-reference.md, "container image tag").
 func ImageTagCmd(runtime, src, dst string) []string {
+	if runtime == "container" {
+		return []string{runtime, "image", "tag", src, dst}
+	}
 	return []string{runtime, "tag", src, dst}
 }
 

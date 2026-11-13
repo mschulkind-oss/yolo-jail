@@ -492,7 +492,7 @@ func bootSteps() []bootStep {
 			gen:  LinkContextDir,
 		},
 		{
-			// EACH SELECTED PACK'S boot_check (packbootchecks.go, mcp-presets-removal.md
+			// EACH SELECTED PACK'S boot_check (packbootchecks.go, docs/reference/mcp-configuration.md
 			// OQ-MP9): the pack's own script, run once, its output printed as a warning. After
 			// install_home_overlay, which is what puts the script in a macos-user home. A `run`,
 			// never a generator: a check that fails or hangs costs a line, never the boot.

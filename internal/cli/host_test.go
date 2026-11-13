@@ -19,7 +19,7 @@ import (
 // userCfg writes the machine-wide user config under a temp HOME.
 // userCfg writes the user config: config.jsonc for a legacy JSONC text (one starting with `{`),
 // config.toml otherwise. A provider's key lives in a TOML fixture's [env.secrets], since the
-// legacy spelling has no private set (docs/design/secret-env-scoping.md SE-D6).
+// legacy spelling has no private set (docs/reference/providers.md#the-two-env-sets-public-and-private SE-D6).
 func userCfg(t *testing.T, home, text string) {
 	t.Helper()
 	name := "config.toml"
@@ -1179,7 +1179,7 @@ func TestHostExecProceedsOnceTheKeyIsHydrated(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Chdir(t.TempDir())
 	writeZaiLocalPack(t, home)
-	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	userCfg(t, home, `host_management = "own"
 host_apply_on_launch = false
 

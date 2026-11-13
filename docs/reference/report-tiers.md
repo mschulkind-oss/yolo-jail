@@ -32,7 +32,7 @@ the footer) was re-verified on 2026-10-02 against `fe504e58` and the changes lan
 revision; the rest was last verified in full against `71e86789`, 2026-09-13.
 
 **Needs your ruling:** [OQ-RO8](#OQ-RO8) (whether the dry run's exit follows its ruling or its
-code). [OQ-RO9](#OQ-RO9) was ruled in review on 2026-10-05: a launch's disclosure shows a build
+code) and [OQ-RO10](#OQ-RO10) (whether a successful `--assert` names a next command). [OQ-RO9](#OQ-RO9) was ruled in review on 2026-10-05: a launch's disclosure shows a build
 line by its digest, and every act that builds prints the line in full first. That ruling was
 built on 2026-10-08 in `d180f627a`.
 
@@ -268,6 +268,26 @@ the tier-1 line names them once per run (P1).
 the word that produces it. An `--assert` has none: its header already says *applying into
 &lt;home&gt;*, the verdict says what happened, and the line it used to end on ("Without --assert it
 is a dry run") explained the flag the reader had just typed.
+
+- 💬 <a id="OQ-RO10"></a>**[`OQ-RO10`](#OQ-RO10) — should a successful `--assert` end by naming a next
+  command?**
+
+  You run `yolo host apply --assert`, it applies your packs to your home and ends on its verdict and
+  counts. Nothing tells you what to run next, which the
+  [happy path principle](happy-path-principle.md#the-rules)'s rule 2 calls a dead end. This section
+  says an `--assert` has no footer, so adding one needs a ruling.
+
+  - **A.** A one-line footer after a completed apply names the next command: launching an agent at
+    the host, such as `yolo host -- <agent>` for the agent the packs set up.
+  - **B.** No footer: the verdict is the end of an acting verb, and rule 2 gets this as a recorded
+    exception.
+
+  <!-- vantage: question id=OQ-RO10 leaning="A, one line and only after a completed apply, since the reader's likely next step is to start the agent they just configured; a run that did not complete already names its remedy." -->
+
+  _Leaning:_ A, one line and only after a completed apply, since the reader's likely next step is to start the agent they just configured; a run that did not complete already names its remedy.
+
+  **Answer:**
+  > _(empty — fill in when decided)_
 
 ## The remedy contract
 

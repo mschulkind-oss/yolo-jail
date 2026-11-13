@@ -565,7 +565,7 @@ func TestAWSAuthWithholdsItsPointerFromABedrockKeyHostAgent(t *testing.T) {
 	const probe = "bk-integration-probe-not-a-key"
 	fx := newAWSAuthFixtureWith(t, `{}`, false, func(string) string { return "echo 'fake aws: not asked' >&2; exit 2" })
 	// TOML, because the key belongs in the private set ([env.secrets]), which a provider's key
-	// must ride (secret-env-scoping.md row 2): a legacy env_sources entry is public and refused.
+	// must ride (docs/reference/providers.md#the-two-env-sets-public-and-private row 2): a legacy env_sources entry is public and refused.
 	// Written in place rather than through writeUserTOML, which would re-isolate the home the
 	// fixture just prepared.
 	cfgDir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")

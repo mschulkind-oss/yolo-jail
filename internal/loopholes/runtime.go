@@ -529,7 +529,7 @@ func grantWithholdsBinds(m *Loophole, gate *Set) bool {
 // loopback-TLS front: a loophole with a `host_daemon`, no `jail_daemon` (one with a jail daemon
 // is served through it: ServedJailDaemonNames) and transport loopback-tls, admitted by
 // the same predicate the argv's loops ask (admitsJailSideEffects), so a disabled, inactive or
-// ungated record is not listed (docs/design/git-broker-plan.md ID-6).
+// ungated record is not listed (docs/reference/git-broker.md ID-6).
 //
 // It is the host-daemon half of "served at this notch" (packload.ServedDaemons): a pack `env`
 // contribution `served_by` such a loophole (packs/git's GIT_CONFIG_* rewrite, which sends the

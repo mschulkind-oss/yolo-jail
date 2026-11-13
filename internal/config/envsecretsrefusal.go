@@ -1,7 +1,7 @@
 package config
 
 // envsecretsrefusal.go words the two refusals of the two env sets
-// (docs/design/secret-env-scoping.md §3.5, §4.8; secret-env-scoping-plan.md Task 7): a selected
+// (docs/reference/providers.md#the-two-env-sets-public-and-private): a selected
 // provider's key in the public set (row 2), and one name in both sets (SE-D2). Both are fatal and
 // have no hatch (SE-D10); every launch path, `yolo host` and `yolo check` call this one function,
 // so they cannot word it differently. Names and places only, never a value.

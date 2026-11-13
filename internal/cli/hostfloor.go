@@ -1238,7 +1238,7 @@ func (o *orderedCopy) missLine(bin string) string {
 // cmd0, which the caller has just ensured. Nothing here refuses the launch: a program the floor
 // cannot hold, or an install that fails, is one line naming what then happens and the next step,
 // and the agent starts without that server rather than not at all — a missing MCP server is no
-// reason to refuse an agent (mcp-presets-removal.md §9.1).
+// reason to refuse an agent (docs/reference/mcp-configuration.md MP-D3).
 func ensureMCPPrograms(packs []*packload.Pack, progs []hostfloor.Program, floor *hostfloor.Floor,
 	cmd0 string, errw io.Writer, act *run.ActInterrupt, ready hostReadiness) {
 	composed, _ := hostMCPPacks(packs)

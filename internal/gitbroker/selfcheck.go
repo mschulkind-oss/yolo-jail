@@ -16,7 +16,7 @@ import (
 const selfCheckTimeout = 10 * time.Second
 
 // SelfCheck is the loophole's `doctor_cmd` (`yolo internal daemon git-broker --self-check`,
-// git-broker-plan.md task 7): it reports the host ssh and git the broker would run, found on
+// docs/reference/git-broker.md): it reports the host ssh and git the broker would run, found on
 // the PATH it inherits and checked by the placement rule as a broker checks them. It fails only
 // when there is no ssh it would run, since without one the broker reaches no remote; a host
 // with no git still serves SSH remotes, so that is reported without failing.

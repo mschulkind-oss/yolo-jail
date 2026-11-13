@@ -3,7 +3,7 @@ title: "One declaration, many mechanisms — and the four inputs that decide whi
 date: 2026-09-12
 status: in-review
 stage: DESIGN
-next: "Record in §11 step 7 that DP-B6's narrowed row held: the 2026-10-03 scheduled macos-user.yml run (GitHub Actions run 37121866798, at 0e34798c6) passed TestMacosUserBriefingAndLaunchLinesDescribeThisBackend. Then rule OQ-DP10, whether and how macos-user enforces resources.pids_limit. DP-L16 is withdrawn by host-tool-provisioning.md's HP-DIR3"
+next: "Rule OQ-DP10, whether and how macos-user enforces resources.pids_limit. DP-L16 is withdrawn by host-tool-provisioning.md's HP-DIR3"
 tags: [confinement, notches, backends, macos-user, guest, parity, silent-drop]
 summary: "The maintainer's principle already holds where it is built: `packages:` ships three mechanisms behind one key. But it quantifies over a composed primitive vector, not over a backend, and that vector has FOUR inputs — notch, mechanism, platform, and which verb is running — of which two are now named, one is a plain word, and one is deliberately nameless. This is the catalog of every declaration a site accepts and does not honor, sorted into four dispositions. Four of its questions were ruled in review on 2026-09-12, a fifth dissolved, and two more ruled on 2026-09-13. Two filed on 2026-09-21 — OQ-DP8 and OQ-DP9, how a macos-user jail daemon's argv resolves with no image and whether it runs confined — were ruled on 2026-09-28 and are built."
 vantage:
@@ -23,7 +23,8 @@ key's fix is built (2026-10-04: `yolo host --` asks the capability gate). Left:
 the delivery half of [`DP-D15`](#7-ruled-divergent-and-the-ones-i-would-re-open)'s directory-shaped
 cells (its refusal half is built, and [`context-mounts.md`](../reference/context-mounts.md) owns the rest), and
 [§11](#11-what-i-would-build-in-order)'s step 7, which waits on a Mac (its macos-user rows'
-checks were written on 2026-10-01 for the scheduled `macos-user.yml` job and have not run there).
+checks, written on 2026-10-01 for the scheduled `macos-user.yml` job, all held there on
+2026-10-03, and the rest of the step still waits on a Mac).
 [DP-L16](#6-alignable-with-the-mechanism-and-its-cost) is not left: principle
 [HP-DIR3](../reference/host-agent-environment.md#HP-DIR3) (2026-09-29) withdrew it, since at the host yolo never
 provisions `packages:`.
@@ -1316,8 +1317,11 @@ three. So the briefing fixes land together or not at all.
      `TestMacosUserFooterSaysJail`'s `renderer_on_path`. **First run 2026-10-02:** every row
      held except one of DP-B6's. That row refused the bare name `yolo-cglimit`, so it failed on
      the briefing sentence saying the client is NOT available here. DP-B6 rules out offering
-     the client, not naming it, so the row now refuses the offer. The narrowed row is unmeasured
-     until the next run. The composition half of every briefing row now runs on Linux too:
+     the client, not naming it, so the row now refuses the offer. **The narrowed row held on
+     2026-10-03:** the scheduled `macos-user.yml`
+     [run 37121866798](https://github.com/mschulkind-oss/yolo-jail/actions/runs/37121866798), at
+     `0e34798c6`, passed `TestMacosUserBriefingAndLaunchLinesDescribeThisBackend`, and
+     `TestMacosUserRefusesADeclaredContextMount` and `TestMacosUserFooterSaysJail` with it. The composition half of every briefing row now runs on Linux too:
      `run.TestMacosUserDeclParityBriefingRowsHoldForTheComposedBriefing` reads both tables and
      the workspace config from the Mac test's source.
      DP-B9 and DP-B10 are stated skips and are not asserted here; DP-B5's line is (2026-10-04),

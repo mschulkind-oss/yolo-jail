@@ -871,7 +871,7 @@ func TestConfigApplyReplacesTheLiveScope(t *testing.T) {
 	}
 }
 
-// A remote-url scope compares exactly (docs/design/git-broker-plan.md ID-2): a running broker's
+// A remote-url scope compares exactly (docs/reference/git-broker.md ID-2): a running broker's
 // file holding a URL that differs from the approved one only in case is a change, so the apply
 // names it and rewrites the file, rather than reading it as "already matches" and leaving the
 // old spelling admitted.
@@ -907,7 +907,7 @@ func TestConfigApplyReplacesACaseOnlyRemoteURLChange(t *testing.T) {
 }
 
 // `yolo config apply` replaces a running launch's grants as it replaces its repositories
-// (docs/design/git-broker-plan.md ID-10): a grant the gate approves that the live file lacks is a
+// (docs/reference/git-broker.md ID-10): a grant the gate approves that the live file lacks is a
 // scope change, named on its line, and the seam writes the approved grants.
 func TestConfigApplyReplacesGrants(t *testing.T) {
 	o, buf, _ := brokeredFixtureGrants(t)

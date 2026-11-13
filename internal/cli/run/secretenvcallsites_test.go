@@ -1,7 +1,7 @@
 package run
 
 // secretenvcallsites_test.go pins the launch's three secret-env call sites in composePackChannelWith
-// by what they do, so deleting a call fails a test (secret-env-scoping-plan.md; review major 5):
+// by what they do, so deleting a call fails a test (docs/reference/providers.md; review major 5):
 // MCPClaims, UnselectedClaims and PublicValues.
 
 import (

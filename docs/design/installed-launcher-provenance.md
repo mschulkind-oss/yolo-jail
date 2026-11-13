@@ -23,7 +23,7 @@ summary: "The installed launcher and the copy a jail runs come from one frozen s
 
 **Needs your ruling:** nothing open. **Ruled 2026-10-23:** [OQ-IP1](#OQ-IP1), [OQ-IP2](#OQ-IP2), [OQ-IP3](#OQ-IP3).
 
-**Reads with:** [`matched-development-bundles.md`](matched-development-bundles.md) (owns the matched-artifact contract and the development wrapper), [`installed-launcher-provenance-plan.md`](installed-launcher-provenance-plan.md) (the implementation sketch, now built), [`self-update.md`](../reference/self-update.md) (owns the install channels and what `yolo update` does on a from-source install), [`host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md) (rules what a checkout a jail can write may do on the host), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (owns the mounted prefix).
+**Reads with:** [`matched-development-bundles.md`](../reference/matched-development-bundles.md) (owns the matched-artifact contract and the development wrapper), [`installed-launcher-provenance-plan.md`](installed-launcher-provenance-plan.md) (the implementation sketch, now built), [`self-update.md`](../reference/self-update.md) (owns the install channels and what `yolo update` does on a from-source install), [`host-execution-from-the-workspace.md`](../reference/host-execution-from-the-workspace.md) (rules what a checkout a jail can write may do on the host), [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md) (owns the mounted prefix).
 
 ---
 
@@ -90,7 +90,7 @@ The two host-only stamps are what the identity check does *not* cover: the check
 
 Two positions, both defensible, and they are what [OQ-IP1](#OQ-IP1) has to choose between.
 
-**P1 — an install is a snapshot.** `just install` freezes the source and installs it; afterwards nothing in the checkout may affect the host. Checkout-coupled work has its own channel: the development wrapper, invoked by path, which builds from the live checkout on demand without touching the installed command ([`matched-development-bundles.md`](matched-development-bundles.md)).
+**P1 — an install is a snapshot.** `just install` freezes the source and installs it; afterwards nothing in the checkout may affect the host. Checkout-coupled work has its own channel: the development wrapper, invoked by path, which builds from the live checkout on demand without touching the installed command ([`matched-development-bundles.md`](../reference/matched-development-bundles.md)).
 
 **P2 — a from-source install is a channel that tracks a checkout.** It is the only install channel that can update itself in place: the source check reads the checkout's branch and upstream, and the apply runs `git pull --ff-only` and then `just deploy` there ([`self-update.md`](../reference/self-update.md#install-channels), [`self-update.md`](../reference/self-update.md#from-source-installs)). Every other channel is found by a marker the distribution left behind — a Cellar path, a pipx receipt, a bundle beside the binary. A `git clone` plus `just install` leaves no marker at all, so `SourceDir` *is* that channel's marker.
 
@@ -131,7 +131,7 @@ The digest's own documented purpose is the last row: it "tells two binaries apar
 
 ## 7. What this does not license
 
-- **Not a `YOLO_REPO_ROOT` revival.** That variable no longer selects a launch source ([`matched-development-bundles.md`](matched-development-bundles.md)), and provenance is not a route back to it.
+- **Not a `YOLO_REPO_ROOT` revival.** That variable no longer selects a launch source ([`matched-development-bundles.md`](../reference/matched-development-bundles.md)), and provenance is not a route back to it.
 - **Not a weaker identity check.** `reporoot` must keep refusing a launcher whose identity does not match the bundle it would pin.
 - **Not a change to how a jail receives its helpers.** The `:ro` bind of the generation, and what the image does or does not bake, stay with [`image-staging-vs-baking.md`](../reference/image-staging-vs-baking.md).
 - **Not a new path from a jail to the checkout.** No option here gives a jail a writable route to the host's source tree, and none changes what a from-source update trusts.
@@ -210,6 +210,6 @@ The digest's own documented purpose is the last row: it "tells two binaries apar
 
 **Provenance** *(coined here)* — which checkout a binary was built from, as an absolute path and a branch. Not identity: two builds with different provenance are the same snapshot, and two builds with the same provenance can be different snapshots. This document uses the word only for the `SourceDir`/`SourceBranch` pair.
 
-**Snapshot identity** — the content hash of the frozen source a build came from, which distinguishes two builds of one commit. Defined in [`matched-development-bundles.md`](matched-development-bundles.md#2-the-matched-artifact-contract); the value itself is stamped at [`version.go:44`](../../internal/version/version.go).
+**Snapshot identity** — the content hash of the frozen source a build came from, which distinguishes two builds of one commit. Defined in [`matched-development-bundles.md`](../reference/matched-development-bundles.md#the-source-snapshot-and-its-identity); the value itself is stamped at [`version.go:44`](../../internal/version/version.go).
 
-**Matched bundle** — one immutable build output pairing the host launcher with the helpers and flake it selects. Coined in [`matched-development-bundles.md`](matched-development-bundles.md#7-terms); this document adds nothing to it.
+**Matched bundle** — one immutable build output pairing the host launcher with the helpers and flake it selects. Coined in [`matched-development-bundles.md`](../reference/matched-development-bundles.md); this document adds nothing to it.

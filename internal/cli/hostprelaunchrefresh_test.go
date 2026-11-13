@@ -322,7 +322,7 @@ func TestHostPiRefreshSkipsAHeldLockWithOneLine(t *testing.T) {
 // THE REFRESH CARRIES NO CREDENTIAL THE COMPOSITION SCOPES TO PI: the jail's launcher runs it
 // before it sources pi's own env file, which is where the gate puts what it scopes to pi alone.
 func TestHostPiRefreshRunsWithoutTheCredentialsComposedForPi(t *testing.T) {
-	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md).
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private).
 	h := newRefreshHost(t, `packs = ["pi", "zai"]
 
 [host_floor]
@@ -399,7 +399,7 @@ func TestHostPiRefreshRunsOnTheChildsPathBeforeTheBlockedTools(t *testing.T) {
 // removal applies, an env_sources null taking the invoking shell's value out, so the refresh never
 // holds a name pi would not.
 func TestHostPiRefreshRunsInTheCompositionEveryProcessReceives(t *testing.T) {
-	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (secret-env-scoping.md);
+	// ZAI_API_KEY is the zai provider's key, so it lives in the private set (docs/reference/providers.md#the-two-env-sets-public-and-private);
 	// the unclaimed proxy and the null stay public.
 	h := newRefreshHost(t, `packs = ["pi", "zai"]
 

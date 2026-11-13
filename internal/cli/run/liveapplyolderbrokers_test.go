@@ -17,7 +17,7 @@ const olderYolo, newerYolo = "0.16.0+87.g14cc75609b4c", "0.17.1"
 
 func wantBrokerSkewNote(t *testing.T, out, started, host string) {
 	t.Helper()
-	// The brokers are pinned to the yolo that started them (docs/design/pinned-host-helpers.md
+	// The brokers are pinned to the yolo that started them (docs/reference/pinned-host-helpers.md
 	// section 6), so the note says plainly that they run it: no "may", no "still".
 	for _, want := range []string{"host brokers run yolo " + started + ", the build that started them", "this is yolo " + host, "yolo stop"} {
 		if !strings.Contains(out, want) {
