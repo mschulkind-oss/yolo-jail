@@ -261,8 +261,12 @@ test:
 # -timeout is per PACKAGE, and is SHORT_TEST_TIMEOUT in scripts/go_packages.py,
 # which says why it is 45m (internal/cli, serial and git-process-bound, on a
 # loaded Mac). `just done` takes the same value.
+#
+# THE TMPDIR LEAK GATE wraps it: the suite runs under a private TMPDIR, and anything left there
+# afterward fails the recipe, named (scripts/tmp-leak-gate.py says how to find and fix one).
+# No switch turns it off; a leak is fixed in the test that made it.
 test-fast:
-    python3 scripts/go_packages.py run go test -short -timeout=45m
+    python3 scripts/tmp-leak-gate.py python3 scripts/go_packages.py run go test -short -timeout=45m
 
 # Run linter (Go: vet + staticcheck) ONCE PER BUILD CONFIGURATION THIS TREE
 # TARGETS — not once per machine.
@@ -356,6 +360,8 @@ lint-ci: lint
     # The Git-aware Go package boundary and `just done`'s front door are regression-tested,
     # including their production call sites.
     python3 scripts/test-go-packages.py
+    # The TMPDIR leak gate `test-fast` runs under, and that it still runs under it.
+    python3 scripts/test-tmp-leak-gate.py
     python3 scripts/test-completion-check.py
     python3 scripts/test_completion_census.py
     # The matched launcher snapshot, install-publication and wrapper regressions are permanent
