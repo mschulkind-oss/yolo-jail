@@ -31,38 +31,28 @@ needs a ruling or a Mac sits in the others.
 
 ## Buildable now by an agent
 
-1. Fix the tests that failed once in the 2026-11-12 landing gates and passed alone
-   ([the backlog's list](BACKLOG.md#landing-gate-flakes-2026-11-12)), with
-   [the 2026-11-09 list](BACKLOG.md#landing-gate-flakes-2026-11-09) — a flaky landing gate costs every lane a rerun.
+1. Shorten [the `internal/cli/run` package's serial run](BACKLOG.md#landing-gate-flakes-2026-11-12) — about 7.5
+   minutes, with several tests waiting out 15 s production limits — which outgrows the landing gate's timeout under
+   load; the classifier-deadline tests in the same entry still race a 1–2 s budget. Every other listed flake is fixed.
 
-2. Graduate [legacy config compat](../design/legacy-config-compat.md) into [the config reference](../reference/config/README.md)
-   and delete the design. Every row is built, the message sweep last, enforced by
-   `TestNoMessageNamesALegacyConfigFileOrASnippet`; [migration](../design/config-migration.md)'s old-reader removal
-   waits for a later release.
-
-3. [Finish ongoing launch preparation and explicit update-and-wait](../design/launch-update-preparation.md) — its
-   [combined-source review](../design/launch-update-preparation-plan.md#review-2026-11-12) ran on 2026-11-12 and its
-   defects are fixed; a fresh non-agent nested launch is agent work, and the rootless and Darwin acceptance is not; the
-   [build-update slices](../design/pi-extension-store-builds.md) reuse the same pipeline.
-
-4. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
+2. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
    the maintainer set its order on 2026-10-23: brokered sources with read and write sets, actionable toasts, a host
    CLI to view and approve, a web UI out of tree on that CLI, then a talk about merging it. The agent steps now:
-   - [Pack brokers](../design/pack-brokers.md): [the HTTP plan](../design/pack-brokers-http-plan.md)'s Task 2
-     closure is sealed; Task 4, publication and the per-cell proof, is next, and publication stays off until then.
-   - [The approval queue's history](../design/approval-experience/request-history-and-privacy.md): the eviction
-     count is built; routing the draft host-history extension through the boundary broker is next.
+   - [The approval queue's history](../design/approval-experience/request-history-and-privacy.md): build the opt-in
+     `yolo approve --json --ended` that [BB-D113](../design/boundary-broker.md#BB-D113) ruled, under its four
+     conditions; last-seen detail is built, and its real-browser masking check remains.
+   - [Pack brokers](../design/pack-brokers.md): [the HTTP plan](../design/pack-brokers-http-plan.md)'s Task 4
+     publication path is built with no client listed, so publication stays off; audit a real HTTP client, then run
+     its nested two-jail replay test.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
 
-5. Repair the reference docs that drifted ([the backlog's list](BACKLOG.md#doc-drift-2026-11-12)): four describe
-   `mcp_presets` as live, and patched forks and the pack system each carry one stale row.
-
-6. Smaller builds no ruling holds:
-   - [The color pass](cli-visual-polish.md)'s glyph and status-column items, which change plain output; Group C's
-     color is done.
-   - [Resource groups](../design/resource-groups.md)' independent review of the descriptor-relative prototype, from
-     [its plan](../design/resource-groups-plan.md), with mapped execution kept refused; its native evidence needs a
-     real Linux host.
+3. Smaller builds no ruling holds:
+   - [LC-D4](../reference/config/rulings.md#LC-D4)'s `yolo check` half: `yolo check` does not yet render what is
+     passed into the jail.
+   - [The color pass](cli-visual-polish.md)'s cross-cutting passes and startup banner; Group C is done, and the
+     frozen run progress lines wait on [OQ-VP1](cli-visual-polish.md#OQ-VP1).
+   - [Launch preparation](../design/launch-update-preparation-plan.md#runtime-2026-11-13)'s two status-wording
+     leftovers in [the backlog](BACKLOG.md#launch-prep-runtime-leftovers).
 
 ## Waiting on an owner ruling
 
@@ -265,7 +255,10 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like),
    [per-jail host daemons'](../design/host-daemon-ownership.md) first launch, [live config apply's](../design/live-config-apply.md)
    rootless evidence, with [M6](../design/live-config-apply.md#LA-M6) and a live forward's traffic, [resource
-   groups](../design/resource-groups-plan.md)' native delegation and placement, the patched fork's rootless check, [the in-jail nix root watcher](../reference/in-jail-nix-roots.md)'s
+   groups](../design/resource-groups-plan.md)' native delegation, child creation, placement and lifetime (the prototype's
+   review is done; its creation step needs the owner's authorization), [launch preparation](../design/launch-update-preparation-plan.md#runtime-2026-11-13)'s
+   rootless acceptance (Darwin's is the Mac's), [pack brokers](../design/pack-brokers-http-plan.md)' rootless per-cell
+   proof once a client is listed, the patched fork's rootless check, [the in-jail nix root watcher](../reference/in-jail-nix-roots.md)'s
    host-side observation and [the approval queue's real-host checks](../design/approval-experience/browser-trust-boundary.md).
    A real Linux GPU host verifies [the graphics-driver tree](../design/gpu-graphics.md) before it graduates.
 

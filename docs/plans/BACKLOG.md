@@ -918,6 +918,11 @@ a lane's run and then passed alone. These remain:
   its arm has taken a signal. They hold no test up, so they are not the hang; the running test's
   own duration in the dump's `running tests:` line is what tells a hang from slowness.
 
+- `TestPackCLIClassifierDeadlineBoundsEachInvocationNotLookups` and
+  `TestHTTPClassifierDeadlineBoundsEachInvocationNotLookups` (`internal/callbroker`) still need each
+  classifier run to beat a 1 s or 2 s deadline; a combined `go test -short` run on 2026-11-13 failed
+  once in `internal/callbroker` at a load average near 28, and its failing test was not captured.
+
 Fixed from this list:
 
 - `TestPreparationControlTickDetectsAReplacedBinary`: a tick send returns before the loop handles
@@ -935,6 +940,15 @@ been going 4 s when the whole package ran out. The package's `TestMain` replaces
 `GIT_CONFIG_KEY_*` and `GIT_CONFIG_VALUE_*` with its own tripwire (`ArmGitConfigTripwire`), and the
 replay drops every `GIT_` variable but `GIT_EXEC_PATH`. With the broker's five rewrites set, the
 running test, `TestAMemberUpstreamMergedAndThenEditedIsAlreadyUpstream`, passes in 0.26 s. On 2026-11-13 the whole package took 127 s at a load average of 93.
+
+### <a id="launch-prep-runtime-leftovers"></a>🔧 **Two status-wording leftovers from the launch-preparation runtime run**
+
+Found by [the 2026-11-13 nested run](../design/launch-update-preparation-plan.md#runtime-2026-11-13):
+
+- Under `--update`, the "⚡ Executing" line prints before the in-jail refresh; the refresh still
+  finishes before the command runs.
+- The status headings still say "Tree preparation worker" and "built-tree preparations", though the
+  worker now covers ordinary programs too.
 
 ### <a id="program-capture-record-platform"></a>🔧 **A program capture still judges an existing entry's platform by its manifest**
 
