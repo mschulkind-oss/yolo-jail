@@ -60,10 +60,10 @@ func TestStagePacksRefusesConfigSurfaceCollision(t *testing.T) {
 	msg := err.Error()
 	for _, want := range []string{
 		"owner", "grabby", // both packs
-		"acme/settings",  // the identity
-		"config-overlay", // the correct expression, which now exists
-		"\"surface\":",   // shown as a copyable shape
-		"mode",           // what silently changed
+		"acme/settings",               // the identity
+		"[[overlay]]",                 // the correct expression, in pack.toml spelling (LC-D12)
+		"surface = \"acme/settings\"", // shown as a copyable shape
+		"mode",                        // what silently changed
 		"exactly ONE owner",
 	} {
 		if !strings.Contains(msg, want) {
