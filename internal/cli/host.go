@@ -130,7 +130,10 @@ apply flags:
                   It REMOVES what yolo wrote; it does not restore what a key held
                   before yolo wrote it, because nothing snapshots that. It keeps an
                   empty default, such as pi's "providers": {}, which the agent's
-                  file needs, and names each one. Runs under host_management "none",
+                  file needs, and names each one. It also deletes the retained older
+                  patched-extension generations and host-floor program versions that
+                  no install deletes, after warning that a running host session may
+                  still read them. Runs under host_management "none",
                   the default, so a home an earlier yolo wrote into can be made yours
                   again; refused at "own" (the file is derived: set "none" first).
   --format json   Emit the dry run as data instead of a report: destinations, losses,
