@@ -869,7 +869,7 @@ mount under `/var/lib/containers/storage` was gone by the second read. The test 
 passed three times alone. The test should compare against the same table it read, or skip mount
 points that vanished in between.
 
-### <a id="landing-gate-flakes-2026-11-09"></a>🔧 **Nine tests failed once in a loaded landing gate and passed alone**
+### <a id="landing-gate-flakes-2026-11-09"></a>🔧 **Tests that failed once in a loaded landing gate and passed alone**
 
 During the 2026-11-09 landings, with load average from 30 to 60, each of these failed in a full
 `just check-ci` or integration run and then passed when run alone. None has been diagnosed. Each
@@ -882,38 +882,43 @@ needs its code read for a wall-clock bound or a race, then a fix that waits on t
   (`internal/callbroker/once_expiry_test.go`)
 - `TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit`
   (`internal/callbroker/classifier_test.go`)
-- `TestSelectedNPMSharedZeroDemandAndRevocationDoNotAdmit` and
-  `TestSelectedNPMSharedSecondDemandKeepsOriginalOwnedProducer`
-  (`internal/cli/programcapturelifetime_test.go`)
-- `TestPreparationActualFailureReasonAndBackoffSurviveIdleTicks`
-  (`internal/cli/preparationfailure_test.go`)
 - `TestRunProactiveSurvivesAFailedMint` (`internal/awsauthdaemon/main_test.go`)
 - `TestForwardAccessDisclosesDeniedGitGroupTerminationAtEveryPreflightProbe`
   (`internal/gitremote/preflight_diagnostic_test.go`)
 - `TestAHungRemoteFetchTimesOutOnItsOwnBudgetAndStillBuilds`
   (`internal/packsrc/patchbranchcheckout_test.go`)
 
-Two other flakes from the same gates are already fixed: the proxy egress tests (`853751692`) and
-`TestPerJailRecordlessStartupReasonCleanup` (`ed4a4d420`).
+Other flakes from the same gates are fixed: the proxy egress tests (`853751692`),
+`TestPerJailRecordlessStartupReasonCleanup` (`ed4a4d420`), the two `TestSelectedNPMShared…` tests
+(`internal/cli/programcapturelifetime_test.go`), whose 5–6 s barrier and lease waits `9f84fd251`
+replaced with the test's own hang guard, and
+`TestPreparationActualFailureReasonAndBackoffSurviveIdleTicks`, whose 5 s wait for both failure
+records `305f0f500` replaced the same way.
 
 ### <a id="landing-gate-flakes-2026-11-12"></a>🔧 **Tests that failed once in the 2026-11-12 fan-out and passed alone**
 
 During the 2026-11-12 roadmap fan-out, with fourteen lanes testing at once, each of these failed in
-a lane's run and then passed alone. None has been diagnosed:
+a lane's run and then passed alone. These remain:
 
-- `TestTheSlotBuildsItsKeysAtOnceAndPrintsThemInOrder` (`internal/cli/buildpool_test.go`): it
-  expected four concurrent builds and saw three.
-- `TestBackgroundFinishContentionPreservesTypedFailureClaim` (`internal/cli/backgroundadvance_test.go`)
-- `TestPatchedAdvanceExternallyOwnedContextRetainsPosture`
-  (`internal/cli/hostflooroperationscope_test.go`)
 - `TestNoteUseProfilesCountsTheContainerArgvAsReachingTheAgent`
-  (`internal/cli/run/useprofiletargets_test.go`): the package hit its timeout there.
+  (`internal/cli/run/useprofiletargets_test.go`) is not the defect. The `internal/cli/run` package
+  hit its 45-minute timeout while that test had run for 0 s and was removing its temporary
+  directories. The package runs serially, and on 2026-11-13, at a load average near 30, a
+  `go test -short` of it took over seven minutes. Under fourteen lanes it outgrew the
+  `SHORT_TEST_TIMEOUT` that `just test-fast` passes. Several of its slowest tests take 15 s each,
+  which suggests they wait out a production bound rather than an event.
 - The `internal/packsrc` git-wrapper tests, which timed out twice in one lane; the suspect is the
   jail's git broker environment (`GIT_CONFIG_COUNT`) reaching the wrapped git.
 
-`TestPreparationControlTickDetectsAReplacedBinary`, also on this list, is fixed: a tick send returns
-before the loop handles the tick, so the scheduler could stop at the tick before the one the test
-waited on.
+Fixed from this list:
+
+- `TestPreparationControlTickDetectsAReplacedBinary`: a tick send returns before the loop handles
+  the tick, so the scheduler could stop at the tick before the one the test waited on.
+- `TestTheSlotBuildsItsKeysAtOnceAndPrintsThemInOrder` (`305f0f500`): each build child waited at
+  most 5 s for the fourth to start, and three keys waited on the pack mirror longer than that.
+- `TestBackgroundFinishContentionPreservesTypedFailureClaim` and
+  `TestPatchedAdvanceExternallyOwnedContextRetainsPosture` (`305f0f500`): 5 s and 2 s bounds on
+  real git work.
 
 ### <a id="doc-drift-2026-11-12"></a>🔧 **Reference rows the 2026-11-12 graduations left stale**
 
