@@ -450,6 +450,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 			Sections:   jailcontent.PackBriefingSections(packBriefings, d.Agent),
 			Provenance: config.BriefingProvenance(cfg),
 		})
+		o.noteBriefingSize(d, content, packBriefings)
 		if err := jailcontent.WriteBriefing(
 			filepath.Join(staging, briefingStagingName(d.Into)), content); err != nil {
 			return "", err

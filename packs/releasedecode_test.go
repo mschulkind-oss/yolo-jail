@@ -334,6 +334,15 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.17.1", pack: "github", problem: `kind "skills" does not take "describes"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("describes")},
+	// Measured against v0.17.1 on 2026-11-13: claude's ~/.claude/CLAUDE.md destination declares
+	// `warns_above_chars` (docs/design/briefing-diet.md BD-D9), which that reader does not know,
+	// so it skips the whole destination contribution, as v0.15.1 skipped claude's program for
+	// `sandbox_tmpdir_env`. An old jail handed the tree would write no CLAUDE.md; the guard below
+	// is what keeps one from ever being handed it, and a fresh launch pairs the new tree with the
+	// new binaries.
+	{release: "v0.17.1", pack: "claude", problem: `unknown field "warns_above_chars"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("warns_above_chars")},
 }
 
 // asLegacyJSON is a repair that changes nothing itself: repairManifest first replaces a
@@ -761,7 +770,8 @@ func knownSkippedBreakFor(release, pack, skipped string) int {
 		strings.Contains(skipped, "is read without its unknown field") ||
 		strings.Contains(skipped, "keeping the autonomy contribution without its unknown field") ||
 		strings.Contains(skipped, "keeping the blocked-tool contribution") ||
-		strings.Contains(skipped, "skipping the env contribution")
+		strings.Contains(skipped, "skipping the env contribution") ||
+		strings.Contains(skipped, "skipping the briefing contribution")
 	kindSkip := strings.Contains(skipped, "skipping unknown kind")
 	if !fieldSkip && !kindSkip {
 		return -1

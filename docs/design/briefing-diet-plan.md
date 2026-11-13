@@ -3,7 +3,7 @@ title: "Plan: the briefing diet"
 date: 2026-11-13
 status: draft
 stage: SKETCH
-next: "Tasks 1, 2 and 3 built; Tasks 4 and 5 for 0.18.0"
+next: "Tasks 1 to 4 built; Task 5 (the reference documents) for 0.18.0"
 depends-on: [briefing-diet.md#BD-D11]
 tags: [briefing, skills, packs, plan]
 summary: "Seed of the build hand-off for the briefing diet: a provisional map and task slices from the files read during design, to be completed by a planner against the tree."
@@ -203,6 +203,56 @@ the test that pins it.
    composed whole at both notches.
 8. Docs: [`pack-system.md`](../reference/pack-system.md) (`describes` on `skills`), the github
    pack's README, and the built columns of the ledger rows that named the old `gh.md`.
+
+## Task 4: the launch's size line
+
+Built in its own lane on 2026-11-13, beside Task 2. It implements
+[BD-D9](briefing-diet.md#decision-ledger) and BD-D10.
+
+**Decisions taken in the build** (each reversible):
+
+- **The field is `warns_above_chars`, on the briefing destination** (an entry with `into`), as
+  [§8](briefing-diet.md#8-budgets-and-the-test-that-holds-them) says. It is a positive integer; zero, a negative value, any other kind and briefing content
+  without `into` are refused, each naming the fix.
+- **Characters are UTF-16 code units**, which is what a JavaScript string's `length` counts and
+  so what Claude Code, a Node program, compares. For ASCII prose that is the byte count.
+- **"Over" means strictly longer than the value**: a file of exactly 40,000 characters gets no
+  line.
+- **The file is measured at its final point**: after pack prose and any host file are composed,
+  just before it is written to staging. A one-line hook in `refreshJailBriefingsMode` keeps the
+  merge with Task 2 small.
+- **The parts are each pack's prose that reached the destination, plus "the rest"**: yolo's
+  text, `agents_md_extra`, any host file, and the separators. The rest is reported as one part
+  because the hook sees only the final file and the pack prose; splitting it would need the
+  composer's internals, which Task 2 is changing. The line names at most three parts, largest
+  first.
+- **The next step names the largest pack among the parts.** When no pack prose reached the
+  file, it says to move a section of the file into a skill.
+- **It is a yellow `Warning:` line on the launch's stderr**, like the unread-host-file line. It
+  is therefore teed to `launch.log` and has no flag to hide it.
+- **Jail notch only.** `yolo host apply` composes the host notch's files on its own path and
+  prints no size line. A follow-up can call the same `jailcontent.BriefingSizeWarning` there.
+- **v0.17.1 skips the whole `.claude/CLAUDE.md` destination** because it does not know the
+  field. This is a known release break, listed in `knownReleaseBreaks` with the attach guard,
+  like `sandbox_tmpdir_env` on claude's program. The release-decode probe's list of skip
+  phrases gains "skipping the briefing contribution".
+
+**Steps:**
+
+1. `internal/packdecl/contributes.go`, `warnsabovechars.go`: `Contribution.WarnsAboveChars`
+   (its doc comment is the reference) and `warnsAboveCharsProblems`. Pinned first, failing, by
+   `internal/packdecl/warnsabovechars_test.go`.
+2. `packs/claude/pack.toml`: `warns_above_chars = 40000` on the `.claude/CLAUDE.md`
+   destination. Pinned by `TestOnlyTheClaudePackDeclaresAMeasuredBriefingLimit`
+   (`internal/packload/shippedwarnsabove_test.go`), which also fails if another shipped pack
+   declares a value (BD-D10).
+3. `internal/jailcontent/briefingsize.go`: `BriefingChars` and `BriefingSizeWarning`, which
+   words the line. Pinned by `internal/jailcontent/briefingsize_test.go`.
+4. `internal/cli/run/briefingdest.go`, `briefingsizeline.go`, `prepare.go`: the destination
+   carries its value, and `noteBriefingSize` prints the line from the write loop. Pinned through
+   the production staging by `internal/cli/run/briefingsizeline_test.go`. Its over-limit case
+   fails when the call in `prepare.go` is deleted.
+5. `packs/releasedecode_test.go`: the v0.17.1 break and its repair.
 
 ## Seed notes for the planner
 

@@ -507,6 +507,32 @@ type Contribution struct {
 	// this launch is in a jail. (It was also an approval claim until OQ-TP9 deleted the
 	// fetched-pack prompt — docs/design/trust-paths.md, 2026-09-04.)
 	After string `json:"after,omitempty"`
+	// WarnsAboveChars is the length, in characters, above which the agent reading this briefing
+	// DESTINATION warns that the file is too long. `briefing` destinations only (an entry with
+	// `into`), a positive count, refused anywhere else (warnsAboveCharsProblems).
+	//
+	// # What it drives (docs/design/briefing-diet.md BD-D9)
+	//
+	// One launch line. When the composed file at this destination is longer than the count, the
+	// launch prints a warning naming the file, its length, the count, its largest parts, and the
+	// next step: move a section of the largest pack's prose into a skill in that pack. It never
+	// refuses a launch and never trims the file; a launch has no quiet mode, so the line is
+	// never suppressed either. A destination without the field gets no line.
+	//
+	// # Characters, as the agent counts them
+	//
+	// The count is compared against UTF-16 code units, which is what JavaScript's string
+	// `length` counts and so what a Node-based agent measures; for ASCII prose it is the byte
+	// count (jailcontent.BriefingChars).
+	//
+	// # Only a measured value (BD-D10)
+	//
+	// A pack declares the value its agent was MEASURED to warn at, and nothing else: a guessed
+	// limit is a warning the agent never gives. The claude pack declares 40,000, read from
+	// Claude Code 2.1.323's binary on 2026-11-13: it warns when one instruction file is longer
+	// than max(40,000, a share of the context window), and at a 200,000-token window the floor
+	// applies. No other shipped pack declares one, because no other agent's limit was measured.
+	WarnsAboveChars *int `json:"warns_above_chars,omitempty"`
 
 	// --- audiences (docs/reference/agent-briefings.md#audiences-what-varies-per-destination) ---
 	// Agent is the IDENTITY a destination declares for itself: "this `into` is where the
@@ -4507,6 +4533,7 @@ func validateContribution(label string, c Contribution) []string {
 		}
 	}
 	problems = append(problems, projectDirsProblems(label, c)...)
+	problems = append(problems, warnsAboveCharsProblems(label, c)...)
 	problems = append(problems, describesProblems(label, c)...)
 	problems = append(problems, filesSlotProblems(label, c)...)
 	// `update` is program's alone, refused in `profile`'s position and for `profile`'s
