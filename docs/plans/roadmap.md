@@ -10,7 +10,7 @@ vantage:
 
 # Roadmap
 
-**Reconciled:** 2026-11-12.
+**Reconciled:** 2026-11-13.
 
 This page owns the order in which open work is taken up, and why. Each linked document owns its state, next step and
 gates; read it before starting, because a place on this list is not permission to build.
@@ -31,96 +31,37 @@ needs a ruling or a Mac sits in the others.
 
 ## Buildable now by an agent
 
-1. [Legacy configs keep working](../design/legacy-config-compat.md) — ahead of everything. The maintainer,
-   2026-11-03: *"why do I need to change my configs? that's not the point of this. the configs keep working."*
-   Every question is ruled; the message sweep the doc names is the remaining build.
+1. Fix the tests that failed once in the 2026-11-12 landing gates and passed alone
+   ([the backlog's list](BACKLOG.md#landing-gate-flakes-2026-11-12)), with
+   [the 2026-11-09 list](BACKLOG.md#landing-gate-flakes-2026-11-09) — a flaky landing gate costs every lane a rerun.
 
-2. Graduate the built config work: [the readable-config redesign](../design/readable-config.md) with
-   [its plan](../design/readable-config-plan.md), [the user config](../design/config-user.md),
-   [a project's file](../design/config-project.md) and [the editing commands](../design/config-commands.md) into one
-   system doc, and [config validation](../design/config-validation.md) into a reference — the maintainer,
-   2026-10-24, on the redesign: *"this is important"*. It shipped; the reference is what is still owed. The user
-   config's repository request is re-spelled first, as its doc says; [migration](../design/config-migration.md)'s
-   old-reader removal waits for a later release.
+2. Graduate [legacy config compat](../design/legacy-config-compat.md) into [the config reference](../reference/config/README.md)
+   and delete the design. Every row is built, the message sweep last, enforced by
+   `TestNoMessageNamesALegacyConfigFileOrASnippet`; [migration](../design/config-migration.md)'s old-reader removal
+   waits for a later release.
 
-3. Graduate the rest of the built designs whose docs name graduation as their next step, so the reference
-   corpus describes what ships: [the git broker](../design/git-broker.md) into
-   [its reference](../reference/git-broker.md), which still documents the removed `--add` and `--remember`;
-   [pinned host helpers](../design/pinned-host-helpers.md); [matched development bundles](../design/matched-development-bundles.md);
-   [the MCP presets removal](../design/mcp-presets-removal.md); and [secret env scoping](../design/secret-env-scoping.md)'s
-   rule into [the credential gate](../reference/providers.md#the-credential-gate).
-   Retire [the downstream asks](downstream-asks.md), all settled.
-
-4. [Finish ongoing launch preparation and explicit update-and-wait](../design/launch-update-preparation.md) — its
+3. [Finish ongoing launch preparation and explicit update-and-wait](../design/launch-update-preparation.md) — its
    independent combined-source review is agent work, and the platform acceptance after it is not; the
    [build-update slices](../design/pi-extension-store-builds.md) reuse the same pipeline.
 
-5. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
+4. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
    the maintainer set its order on 2026-10-23: brokered sources with read and write sets, actionable toasts, a host
    CLI to view and approve, a web UI out of tree on that CLI, then a talk about merging it. The agent steps now:
-   - [Pack brokers](../design/pack-brokers.md): the combined-tree review and nested conformance its doc names, then
-     sealing [the HTTP plan](../design/pack-brokers-http-plan.md)'s Task 2 closure; publication stays off.
-   - [The GitHub work-kinds plan](../design/github-write-scopes-plan.md), completed against the tree from
-     [its ruled design](../design/github-write-scopes.md); repository binding, its first slice, is built.
-   - [The read-only approval queue](../design/approval-experience/README.md) shipped as `yolo approve --web`;
-     [its history sibling](../design/approval-experience/request-history-and-privacy.md)'s eviction count is unbuilt.
+   - [Pack brokers](../design/pack-brokers.md): [the HTTP plan](../design/pack-brokers-http-plan.md)'s Task 2
+     closure is sealed; Task 4, publication and the per-cell proof, is next, and publication stays off until then.
+   - [The approval queue's history](../design/approval-experience/request-history-and-privacy.md): the eviction
+     count is built; routing the draft host-history extension through the boundary broker is next.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
 
-6. [Named setups](../design/named-setups.md)' slices 11d to 11f (one machine-wide `yolo ps` and `yolo stores`),
-   and [the account mode's shared `/tmp`](../design/macos-user-model-plan.md#MMP-D29) — both ruled and buildable on
-   Linux; their Mac witnesses follow in the last group, and the Mac's default setup moves only after them.
+5. Repair the reference docs that drifted ([the backlog's list](BACKLOG.md#doc-drift-2026-11-12)): four describe
+   `mcp_presets` as live, and patched forks, the pack system and agent credentials each carry one stale row or link.
 
-7. [One MCP sign-in at Linux `yolo host`](../design/mcp-auth-sharing.md) — ruled 2026-11-09, and the next build in
-   [its plan](../design/mcp-auth-sharing-plan.md).
-
-8. Write a design for Claude's sign-ins in the macOS Keychain at `yolo host` — the owner, 2026-11-09: *"put a design
-   doc on the roadmap for mac keychain stuff."* Host Claude on a Mac keeps its login and MCP sign-ins in the Keychain
-   rather than `~/.claude/.credentials.json` (inferred, not yet measured), so the one MCP sign-in is unsupported at a
-   Mac's `yolo host` until this design exists. It reads with [the keychain from a jail](../design/keychain-from-a-jail.md),
-   whose plan sketch is also owed; recording [OQ-CT1](../research/copilot-token-storage.md#OQ-CT1)'s answer from that
-   accepted design is agent work.
-
-9. File as 💬 questions the owner calls that have no filed home, so they can be routed and ruled:
-   [the setup census's silent drops](../design/backend-parity.md#42-what-was-built-2026-10-05-and-what-it-found);
-   the maintainer's review of
-   [the pi extension's leaks](../design/simultaneous-auth-and-pack-isolation.md#34-what-the-extension-cannot-close),
-   with whether to ask pi-subagents for a registry several extensions can share; the sign-off on
-   [the color pass](cli-visual-polish.md)'s frozen `yolo run` progress golden; approving
-   [the drafted rewordings](../research/macos-backend-performance.md#9-corrections-the-results-feed) of
-   [the direction's ruled sentences](../reference/macos-no-vm-direction.md#what-the-numbers-bear-on); whether a
-   successful `yolo host apply --assert` names a next command, which
-   [rule 2](../reference/happy-path-principle.md#the-rules) calls a dead end; and the four calls the 2026-09-26
-   open-source audit left the maintainer — whether one public research doc stays public, the scratch-directory
-   `.gitignore` entries, a `last-release` recipe from the template, and when to retire the Python-version migration.
-   The audit's report is outside this repository, so this line is their only record until they are filed.
-
-10. Record what finished Mac and CI runs already showed, where each doc's `next` names the run:
-    [the AWS doorway](../design/host-notch-services.md), [DP-B6](../design/declaration-parity.md) and
-    [the build sandbox](../design/macos-user-build-step-threat-model.md) from the 2026-10-03 run; the 2026-11-11
-    native run's macos-user cells in [patched forks](../reference/patched-forks.md#14-unbuilt-and-unmeasured),
-    [pi extensions](../reference/pi-extensions.md#16-unbuilt-and-unmeasured) and
-    [the macos-user timing breakdown](../reference/perf-logging.md); and the darwin cells of
-    [the vendor installs](../reference/agent-install-in-ci.md).
-
-11. Smaller builds no ruling holds:
-    - [Wire-bridge failover](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled),
-      opt-in per model; its live check needs an account.
-    - [Resource groups](../design/resource-groups.md), from [its plan](../design/resource-groups-plan.md), with mapped
-      execution kept refused until native evidence exists.
-    - [Live config apply](../design/live-config-apply.md)'s later slices,
-      [resources](../design/live-config-apply.md#LA-S4c) and [host-port forwards](../design/live-config-apply.md#LA-S4d).
-    - Apple Container's stock tag in [image build reuse](../reference/image-staging-vs-baking.md); its acceptance
-      needs the Apple Container dispatch.
-    - [OrbStack](../research/orbstack-as-a-podman-host.md)'s components C and D, from
-      [its plan](../research/orbstack-as-a-podman-host-plan.md); component A stops at
-      [OQ-ORB1](../research/orbstack-as-a-podman-host.md#OQ-ORB1).
-    - [The Seatbelt profile's disclosure on a live launch](../research/agent-safehouse.md), the one adoption left.
-    - [The color pass](cli-visual-polish.md)'s additive Group C items.
-    - [The unit suite's clock waits](test-suite-speed.md#retaken-2026-10-01-and-which-targets-hold).
-    - [The automated twin of the manual checks' item 4](runbooks/macos-user-manual-checks.md).
-    - [The Mac-runner probe workflow](../research/apple-container-file-cost.md#5-a-planned-probe-on-the-mac-runner),
-      which the maintainer then pushes and dispatches.
-    - The codex unlock of [per-session profiles](../design/per-session-profiles.md#7-what-this-does-not-cover).
+6. Smaller builds no ruling holds:
+   - [The color pass](cli-visual-polish.md)'s glyph and status-column items, which change plain output; Group C's
+     color is done.
+   - [Resource groups](../design/resource-groups.md)' independent review of the descriptor-relative prototype, from
+     [its plan](../design/resource-groups-plan.md), with mapped execution kept refused; its native evidence needs a
+     real Linux host.
 
 ## Waiting on an owner ruling
 
@@ -138,14 +79,30 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    refresh replaces yours; and [a leftover `mcp-adapter.json` at the host](../reference/mcp-configuration.md#OQ-MC2),
    which host apply never deletes and pi keeps loading, with [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1).
 
-3. [Enable profile-served daemons on attach without ending sibling sessions](../design/attach-daemon-activation.md#OQ-AD1)
+3. Calls filed 2026-11-12, each holding a build: [OQ-GW16](../design/github-write-scopes.md#OQ-GW16), on REST deletes,
+   holds [the GitHub work-kinds plan](../design/github-write-scopes-plan.md)'s Task 2 (Task 1 is built);
+   [OQ-SP6](../design/per-session-profiles.md#OQ-SP6), where codex's session homes live, holds the rest of the codex
+   unlock of per-session profiles, whose model-menu half is built; and [OQ-KH1](../design/claude-keychain-at-host.md#OQ-KH1)
+   with [OQ-KH2](../design/claude-keychain-at-host.md#OQ-KH2) hold [Claude's sign-ins in the macOS Keychain at
+   `yolo host`](../design/claude-keychain-at-host.md), so a Mac's `yolo host` has no one MCP sign-in until they are
+   ruled; its Mac checks size the second.
+
+4. Calls that had no filed home until 2026-11-12: [the setup census's silent drops](../design/backend-parity.md#OQ-BP6)
+   with [OQ-BP7](../design/backend-parity.md#OQ-BP7); [the pi extension's leaks](../design/simultaneous-auth-and-pack-isolation.md#OQ-PAS3)
+   with [OQ-PAS4](../design/simultaneous-auth-and-pack-isolation.md#OQ-PAS4); [the color pass's frozen `yolo run`
+   progress golden](cli-visual-polish.md#OQ-VP1); [the drafted rewordings of the macOS direction](../research/macos-backend-performance.md#OQ-MB2);
+   [whether a successful `yolo host apply --assert` names a next command](../reference/report-tiers.md#OQ-RO10); and
+   the 2026-09-26 open-source audit's four calls, [OQ-OS1](open-source-hygiene.md#OQ-OS1) to
+   [OQ-OS4](open-source-hygiene.md#OQ-OS4).
+
+5. [Enable profile-served daemons on attach without ending sibling sessions](../design/attach-daemon-activation.md#OQ-AD1)
    — the reported late Bedrock selection reaches a restart prompt.
 
-4. [Computed briefings](../design/computed-briefings-plan.md), [OQ-CBP1](../design/computed-briefings-plan.md#OQ-CBP1)
+6. [Computed briefings](../design/computed-briefings-plan.md), [OQ-CBP1](../design/computed-briefings-plan.md#OQ-CBP1)
    and [OQ-CBP2](../design/computed-briefings-plan.md#OQ-CBP2) — the maintainer, 2026-10-24: a pack's briefing should
    tell each workspace's agent exactly how to finish a change according to the grants that workspace was approved.
 
-5. Rulings holding other builds: [program delivery](../design/program-delivery.md)'s [mise pin of `pnpm`](../design/program-delivery.md#oq-pd19), with
+7. Rulings holding other builds: [program delivery](../design/program-delivery.md)'s [mise pin of `pnpm`](../design/program-delivery.md#oq-pd19), with
    [autoprune's `$GOBIN` class](../design/program-delivery.md#oq-pd20) and [a pack's agent-CLI pin](../design/program-delivery.md#oq-pd21);
    [whether a pack service's in-jail daemon is disclosed](../design/trust-paths.md#OQ-TP11), as no launch line names
    the wire bridge; [whether copilot and oh-omp alone get `-p bedrock`](../design/bedrock-plumbing.md#OQ-BR24);
@@ -155,21 +112,21 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    workspace](../design/boundary-broker.md#OQ-BB23); and [workspace widening](../design/workspace-widening.md#OQ-WW1),
    which its built mechanism awaits.
 
-6. [The slot split's migration window](../design/slots-and-contributions.md#OQ-D6) — `exposes`,
+8. [The slot split's migration window](../design/slots-and-contributions.md#OQ-D6) — `exposes`,
    [the pi extension-tree rework](../design/pi-pack-extensions.md) and the worktree lines all wait on it. Then
    [the slots' other calls](../design/slots-and-contributions.md).
 
-7. [Which packs a workspace config may select](../design/workspace-packs.md#OQ-WP1), then
+9. [Which packs a workspace config may select](../design/workspace-packs.md#OQ-WP1), then
    [what a collaborator sees and can refuse](../design/workspace-packs.md) — `mcp_presets` is retired, so until this lands a repository cannot
    give its collaborators the browser, which the presets did.
 
-8. [The VM-local disks](../design/vm-local-volumes.md): [default or opt-in](../design/vm-local-volumes.md#OQ-VL1),
+10. [The VM-local disks](../design/vm-local-volumes.md): [default or opt-in](../design/vm-local-volumes.md#OQ-VL1),
    [`~/.cache`](../design/vm-local-volumes.md#OQ-VL2), [database folders](../design/vm-local-volumes.md#OQ-VL3) and
    [how a new disk fills](../design/vm-local-volumes.md#OQ-VL4) — the largest Mac speedup measured waits on it. Beside
    it, the maintainer's 2026-10-08 request for [tools from a private Homebrew tap in every jail](../design/private-tap-programs.md),
    [OQ-PT1](../design/private-tap-programs.md#OQ-PT1) to [OQ-PT5](../design/private-tap-programs.md#OQ-PT5).
 
-9. Provider rulings later work builds on: [whether the natively-implements rule reaches a list a pack
+11. Provider rulings later work builds on: [whether the natively-implements rule reaches a list a pack
    declares](../design/pi-codex-provider-shadowing.md#OQ-4); [what `-p` names](../design/providers-and-profiles-redesign.md#OQ-PP1),
    which the provider reference's rewrite waits on; [the provider gate's narrow form and the removed `null`
    plan's case](../design/provider-reachability-and-model-names.md); [which set member's overlay wins a shared key](../design/active-provider-sets.md#OQ-AP4);
@@ -177,34 +134,34 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [making the narrowed list the only models a Bedrock credential can call](../design/model-allowlist.md) — a pi
    subagent called a model its menu no longer offered, and only the credential refuses every path.
 
-10. [Notch convergence](notch-convergence.md)'s `rmw` rule on [a table not declared in full](../reference/config-ownership.md#OQ-CO15),
+12. [Notch convergence](notch-convergence.md)'s `rmw` rule on [a table not declared in full](../reference/config-ownership.md#OQ-CO15),
     with [OQ-CO16](../reference/config-ownership.md#OQ-CO16).
 
-11. [The starting tab's Ctrl-C in a shared jail](../design/jail-lifetime-last-session-wins.md#OQ-JL10), whose keeper
+13. [The starting tab's Ctrl-C in a shared jail](../design/jail-lifetime-last-session-wins.md#OQ-JL10), whose keeper
     build waits on [the sidecars and doorbell](../design/agent-event-watchers.md); [the boot snapshot and
     diagnostic dial](../design/diagnostics-past-the-boundary.md), since a refused boot keeps no record of the jail's
     state; and [what just happened in this jail](../design/jail-history.md), whose slices after the first wait on its
     questions.
 
-12. [Whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md#OQ-AM8) — the map
+14. [Whether pack-declared traps fold into the agent directory map](../design/agent-directory-map.md#OQ-AM8) — the map
     would supersede [the traps design](../design/pack-declared-file-diagnostics.md), so rule it before building either;
     the rest of [the map's questions](../design/agent-directory-map.md) hold its pi slice.
 
-13. [How the Claude footer moves into a Claude Code plugin](../research/claude-code-extensions-footer.md), with
+15. [How the Claude footer moves into a Claude Code plugin](../research/claude-code-extensions-footer.md), with
     [how yolo manages Claude Code mods](../research/claude-code-mods-management.md), whose later build steps wait on it.
 
-14. [How far one login is shared](../design/universal-login-sharing.md) — with the host, and between two agents of one
+16. [How far one login is shared](../design/universal-login-sharing.md) — with the host, and between two agents of one
     provider; [its sketch](../design/universal-login-sharing-plan.md) waits on all three questions. Rule the canonical
     copy's location with it, so a `yolo` state reset cannot destroy a login.
 
-15. [Store cleanup that runs even after the last launch](../design/automatic-store-gc.md) — the owner wants no routine
+17. [Store cleanup that runs even after the last launch](../design/automatic-store-gc.md) — the owner wants no routine
     manual pruning. [Its seed](../design/automatic-store-gc-plan.md) and
     [the independent advice](../research/automatic-store-gc-advisory-20261028.md) keep the evidence.
 
-16. [What the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q7 decides
+18. [What the environment manager promises at each notch](../design/environment-manager-user-stories.md) — Q7 decides
     the Linux guest, now [a reserved setup](../design/named-setups.md#decision-ledger).
 
-17. Ask-driven designs: [image paste](../design/image-paste.md#OQ-PA2), asked for on 2026-10-09, where how far Ctrl+V
+19. Ask-driven designs: [image paste](../design/image-paste.md#OQ-PA2), asked for on 2026-10-09, where how far Ctrl+V
     is consumed shapes the key handling, with [OQ-PA1](../design/image-paste.md#OQ-PA1) and
     [OQ-PA3](../design/image-paste.md#OQ-PA3); [whether yolo may hold an editor preference](../design/baked-editor-preference.md),
     asked for by the maintainer, whose first ruling decides an image change every jail pays; and
@@ -212,17 +169,17 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
     [which backend a SandVault setup gets](../design/sandvault-safehouse-compat.md#OQ-NB2), with
     [credentials](../design/sandvault-safehouse-compat.md#OQ-NB3) and [the trial's `.yolo/`](../design/sandvault-safehouse-compat.md#OQ-NB5).
 
-18. [How a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR2), with [the other herdr
+20. [How a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR2), with [the other herdr
     calls](../research/herdr-integration.md) — measured: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree. Beside
     it, [where herdr's approval front end ships](../design/herdr-approvals.md).
 
-19. Storage: [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md) with
+21. Storage: [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md) with
     [its build handoff](shared-tool-store-relocation.md); [how one workspace splits across storage tiers](../design/storage-tiers.md)
     with [its sketch](../design/storage-tiers-plan.md), whose disk-presence and backend calls are the tool store's, so
     rule them together; and [isolating ordinary jail caches](../design/cache-isolation.md), which needs safe
     reclamation alongside it.
 
-20. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),
+22. Calls left at one decision each, each with its facts and a leaning: [the `:ro` degradation rows](../design/composed-file-permissions.md),
     [whether messages name the guide's URL](../design/docs-website.md#OQ-DW3), [the wording style of yolo's messages](../design/message-style.md),
     [the macOS nix build sandbox](../design/macos-user-build-step-threat-model.md#Q2), [array-append pinning](BACKLOG.md#E5),
     [the pack system's other calls](../reference/pack-system.md), [relocating `.yolo` by a link](../reference/jail-home.md#OQ-JH1), [where the workspace layer's links are
@@ -232,11 +189,11 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
     [the dry run's exit](../reference/report-tiers.md), which the code sets to 1 where the ruling says 0, and
     [the declaration-parity call](../design/declaration-parity.md#OQ-DP10).
 
-21. [The macos-user workspace root](../design/configurable-workspace-root.md), [its whitelist](../design/configurable-workspace-root.md#OQ-CW2)
+23. [The macos-user workspace root](../design/configurable-workspace-root.md), [its whitelist](../design/configurable-workspace-root.md#OQ-CW2)
     first — on hold in its own doc until the
     second-account mode's plan reaches it, since the default mode allows a workspace anywhere.
 
-22. Rulings nothing shipped waits on. Gating one later step: [the host-file permission asymmetry](BACKLOG.md#E2) with
+24. Rulings nothing shipped waits on. Gating one later step: [the host-file permission asymmetry](BACKLOG.md#E2) with
     [its host-side twin](pack-host-management-plan.md), [the skills fan-out](BACKLOG.md#OQ-S4),
     [sharing a claimed generic name](../design/credential-sources-separation.md#OQ-ES6),
     [the pack-file conventions](../design/pack-conventions.md), [loophole env and guest fields](../design/loophole-packaging.md),
@@ -262,14 +219,17 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [unmeasured half of the attribute-path resolver](../reference/image-staging-vs-baking.md#what-a-packages-entry-names).
 
 2. The owner's Mac and the Mac runner, for work whose code is in: [named setups](../design/named-setups-plan.md)' W-SU4
-   step, after which the Mac default moves to `seatbelt-self` when the owner calls the Seatbelt path ready;
-   [the account mode](../design/macos-user-model.md)'s remaining slices and witnesses; [the keychain witness
+   step and the Mac witnesses of slices 11d to 11f, after which the Mac default moves to `seatbelt-self` when the owner calls the Seatbelt path ready;
+   [the account mode](../design/macos-user-model.md)'s remaining slices and witnesses, with
+   [W-TMP1](../design/macos-user-model-plan.md#W-TMP1) for its shared `/tmp`; [the Seatbelt profile's disclosure on a
+   real launch](../research/agent-safehouse.md); [the keychain witness
    W-KC5](../design/keychain-from-a-jail.md); [the native TLS witnesses](../design/macos-native-tls.md);
    [the provisioner's Mac confirmations](../design/provisioner-sets.md), before its nix closure is built;
    [a pack's own tool built from its tree](../design/pack-buildable-programs.md), which fails under run-as-you mode;
    [JD-10's guest pack-tree cases](../reference/macos-user-provisioning.md#JD-10) a native run has not yet shown;
-   [MCP sign-in sharing](../design/mcp-auth-sharing-plan.md)'s Mac witnesses and the owner's end-to-end check;
-   [secret env scoping](../design/secret-env-scoping-plan.md)'s Mac checks, before its docs are deleted;
+   [MCP sign-in sharing](../design/mcp-auth-sharing-plan.md)'s Mac witnesses (the owner checked Linux `yolo host`
+   on 2026-11-13);
+   [secret env scoping](../reference/providers.md#the-two-env-sets-public-and-private)'s macos-user rows;
    [the Bedrock key provider](../design/bedrock-key-provider.md)'s W-BK2 rerun with a static pair; and
    [the patched fork's remaining verification](../reference/patched-forks.md#14-unbuilt-and-unmeasured), with the
    maintainer's test of the migration kit.
@@ -277,7 +237,9 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
 3. [Image build reuse](../reference/image-staging-vs-baking.md)'s native Apple Container stock-tag dispatch and
    warm-launch validation; then [Podman Machines pinned to applehv](../research/macos-vm-runtime-comparison.md#32-on-a-shared-mac-folder),
    as Podman's installer gives libkrun, the slowest shared folder measured; then
-   [OrbStack as a Podman host](../research/orbstack-as-a-podman-host-plan.md)'s native proof.
+   [OrbStack as a Podman host](../research/orbstack-as-a-podman-host-plan.md)'s native proof, when the maintainer
+   dispatches `orbstack.yml`; and the maintainer pushes and dispatches [the Apple Container volume
+   probe](../research/apple-container-file-cost.md#5-a-planned-probe-on-the-mac-runner).
    [The two-jail check](../research/macos-backend-performance.md#7-found-on-the-way-two-apple-container-jails-may-mount-one-ext4-disk)
    holds; the next `apple-container.yml` dispatch re-asks [the keeper's remaining Apple Container
    runs](../design/jail-lifetime-last-session-wins.md#7-what-i-would-build-in-order), and someone at the runner Mac
@@ -285,7 +247,8 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
 
 4. The next `macos-user.yml` run confirms in CI what [a developer Mac ran](../design/macos-user-suite-on-a-developer-mac.md):
    the macos-user suite, [the bounded privilege lifecycle](../design/macos-user-privilege-lifecycle.md)'s narrow-sudo
-   step, the macos-user keeper and [the capture fixtures](../reference/install-capture.md); and it runs
+   step, the macos-user keeper and [the capture fixtures](../reference/install-capture.md); it reads [the manual checks' item 4
+   twin](runbooks/macos-user-manual-checks.md) for the first time; and it runs
    [I/O priority](../design/io-priority.md)'s hardware check for the first time. The ownership-enabled volume still
    needs a Mac with root.
 
@@ -300,7 +263,8 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [a low-space collection with a jail up](../reference/image-retention.md#owed-host-steps),
    [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like),
    [per-jail host daemons'](../design/host-daemon-ownership.md) first launch, [live config apply's](../design/live-config-apply.md)
-   rootless evidence, the patched fork's rootless check, [the in-jail nix root watcher](../reference/in-jail-nix-roots.md)'s
+   rootless evidence, with [M6](../design/live-config-apply.md#LA-M6) and a live forward's traffic, [resource
+   groups](../design/resource-groups-plan.md)' native delegation and placement, the patched fork's rootless check, [the in-jail nix root watcher](../reference/in-jail-nix-roots.md)'s
    host-side observation and [the approval queue's real-host checks](../design/approval-experience/browser-trust-boundary.md).
    A real Linux GPU host verifies [the graphics-driver tree](../design/gpu-graphics.md) before it graduates.
 
@@ -312,7 +276,7 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [Copilot's config migration](../design/agent-directory-map.md#74-copilot), [a Kilo session](../design/gateway-provider-packs.md),
    [the restart prompt](../reference/attach-skew.md), [whether the plain agy slot delivers the agent](../design/pack-files-for-agent-state.md#OQ-FS1),
    [pi loading a pack's folder](../reference/pack-system.md#pi-packages), [host Chrome from `yolo host -- claude` and under
-   macos-user](../design/mcp-presets-removal.md#13-what-i-would-build-in-order), [codex, opencode and pi on
+   macos-user](../reference/mcp-configuration.md#the-chrome-devtools-pack), [pi's one MCP sign-in at `yolo host -- pi`](../design/mcp-auth-sharing-plan.md), [codex, opencode and pi on
    Bedrock](../design/bedrock-plumbing.md#8-behaviour-this-design-fixes) under SSO, the Claude and Copilot unlocks of
    per-session profiles, [Pi launch selection](../design/model-lists-and-pickers.md#1411-pis-provider-flag-travels-only-with-an-explicit-model-built-2026-10-07)
    and [simultaneous native authentication](../design/simultaneous-auth-and-pack-isolation.md); launch arguments and
@@ -321,7 +285,8 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
 8. A human with the cloud account clears [an SSO lapse mid-turn](../reference/agent-credentials.md#sso-chain-order),
    [settings-only Bedrock mode](../reference/providers.md#two-channels-split-by-payload-type),
    [an AgentCore gateway](../design/bedrock-web-search.md) and
-   [a Claude usage-limit response](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled).
+   [a Claude usage-limit response](../design/wire-bridge-gateway.md#5-part-4--the-subscription-arm-and-opt-in-failover-ruled),
+   which the failover build waits on.
 
 9. The maintainer's own commits and launches clear [the `matt` pack's `briefing/`](../reference/pack-system.md#briefing),
    [its posture list at the host](../reference/pack-system.md#posture-lists-owed),
