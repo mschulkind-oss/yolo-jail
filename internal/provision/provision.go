@@ -63,11 +63,15 @@ const RefusedStatus = 78
 // stop on these: macos-user checks them before its legacy log-marker classification,
 // and the container stops on every non-zero wrapper status. Ordinary setup failures
 // accepted by the user (or run without a terminal) still return zero.
-// 79–81 are reserved here, outside sysexits (64–78) and signal statuses (128+N).
+// 79–82 are reserved here, outside sysexits (64–78) and signal statuses (128+N).
 const (
 	StageRefusedStatus   = 79 // setup refused; independent of whether its marker was writable
 	StageAbortedStatus   = 80 // the human explicitly declined to continue
 	StageLogFailedStatus = 81 // logging failed; permission to continue cannot be inferred
+	// StageYoloMissingStatus: the stage's PATH reaches no `yolo`, so nothing could be logged.
+	// Only a backend that checks for it before the first log write exits with it (macos-user's
+	// guest-bin check, macosuser.guestBinCheck); Script itself never does.
+	StageYoloMissingStatus = 82
 )
 
 // StartupLogName is the provisioning log's file name, in the workspace's logs directory, and

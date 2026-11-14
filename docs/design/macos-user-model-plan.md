@@ -1337,6 +1337,28 @@ the colleague who reported the refusal):
   `log show --last 5m --predicate 'sender == "Sandbox"'` lines naming `/private/tmp` if any tool
   you use failed. It decides whether [MMP-D29](#MMP-D29)'s closing stands for the account mode.
   *Run 2026-11-13 at `b1d255ded`* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#2-w-tmp1)): the closed `/tmp` holds (the four outputs as expected). The closed-`/tmp` line is in `jail-mechanics/topics/limits.md`, not `CLAUDE.md`. The `tmp:` line prints. **`yolo config unset macos_user_shared_tmp --user` is refused** (*"no scalar removal policy"*). The hatch's `touch` and the tests did not run: account-mode launches intermittently stopped with `yolo: command not found` ([§3](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#3-account-mode-provisioning-loses-yolo-from-path)).
+- <a id="W-PATH1"></a>**W-PATH1 (account-mode provisioning finds no `yolo`,
+  [lab report §3](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#3-account-mode-provisioning-loses-yolo-from-path)):**
+  at the first main commit that contains `StageYoloMissingStatus` (`git log -1 --format=%h -S
+  StageYoloMissingStatus -- internal/provision/provision.go`) or later, run through the dev bundle
+  (`just build-dev-bundle`), as the lab report's launches were. Setup: a fresh workspace `/Users/Shared/yolo/path1` whose config sets
+  `mise_tools`, so the launch runs the provisioning stage. With `YOLO_SETUP=seatbelt-yolo-account`,
+  launch `yolo -- true` there ten times, one after another. Expected: each launch either runs, or
+  stops with the stage's line starting `yolo is not on the provisioning stage's PATH: this session's
+  staged command directory /Users/Shared/yolo-staged/bin/` followed by the stop starting
+  `Provisioning found no yolo to run.` Nothing says `repair workspace .yolo permissions or free disk
+  space`. Then, on the host:
+
+  ```
+  ls -le /Users/Shared/yolo-staged/bin
+  ```
+
+  Report: how many of the ten stopped, each stop's whole text, and the `ls -le` output. A stop that
+  says the directory **is gone from the host** means something removed a live session's directory;
+  one that says it **is on the host, but the sandbox could not run the yolo in it** means the
+  account's sandbox profile does not reach it. For the second, also paste
+  `log show --last 5m --predicate 'sender == "Sandbox"'` lines naming `yolo-staged`. This decides
+  which of the two the code cannot settle on Linux, and so what the fix is.
 - **W3 (slice 12c):** two account-mode workspaces with different `cache_relocations` or alias sets
   launched in turn; A's alias links under `/Users/_yolojail/.cache` survive B's launch.
 
