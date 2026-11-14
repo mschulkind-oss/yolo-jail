@@ -55,8 +55,11 @@ func TestMacosUserUvKeepsTheHostVenv(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The log goes in the sandbox's own TMPDIR: the profile closes the shared /tmp in both modes
+	// (MMP-D36; macosuser.DenyDefaultProfile renders it only under the user's
+	// macos_user_shared_tmp hatch), and grants TMPDIR under every /tmp policy.
 	probe := strings.Join([]string{
-		`log=/tmp/yolo-it-uv-$$.log`,
+		`log="${TMPDIR:?the sandbox has no TMPDIR}/yolo-it-uv-$$.log"`,
 		`echo "=== UV ==="`,
 		`echo "env|${UV_PROJECT_ENVIRONMENT:-unset}"`,
 		`if uv sync >"$log" 2>&1; then echo "sync|OK"; else echo "sync|FAILED"; fi`,

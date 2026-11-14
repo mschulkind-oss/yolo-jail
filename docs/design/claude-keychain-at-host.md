@@ -103,9 +103,11 @@ Read from the 2.1.323 bundle unless marked; [W-KH1](#w-kh1) to [W-KH3](#w-kh3) c
    Hex doubles the JSON, so stdin carries a store of at most about 1.9 KB.
 5. **Every write takes the file lock, Keychain or not.** Each read-modify-write runs inside one
    wrapper that takes `<storage dir>/.storage-write.lock` (proper-lockfile, ten retries, stale
-   after 15 s), skipped only for a diskless launch ([KE2](#KE2), INFERRED: the skip's condition is
-   a minified name, read as diskless because the same predicate also nulls the plain-text fallback
-   path, which the Mac measurably uses). The storage dir is `CLAUDE_SECURESTORAGE_CONFIG_DIR`, else
+   after 15 s), skipped only for a diskless launch ([KE2](#KE2); confirmed on Linux, where 2.1.325
+   defines the skip's condition as `function K(){return Gt()}function Gt(){return
+   n().host.launchOptions.diskless()}`, registers it as `isDiskless:()=>K()`, and nulls the
+   plain-text fallback path with the same `K` in `QTe(){return K()?null:P4()}`; the Mac's minified
+   names differ, so the Mac's [W-KH2](#w-kh2) step 2 confirms its own). The storage dir is `CLAUDE_SECURESTORAGE_CONFIG_DIR`, else
    the config dir, `~/.claude` by default.
 6. **Reads are cached for 30 s**, and a write re-reads first, so a write never starts from a stale
    cache ([KE2](#KE2)).
@@ -214,7 +216,7 @@ that sign-in is adopted at the next `yolo host -- claude`. This is the Linux cos
 
 | Risk | Mitigation |
 | :--- | :--- |
-| Claude does not take the lock for a Keychain write on macOS ([§2](#2-what-claude-does-on-a-mac) item 5 is INFERRED) | [W-KH2](#w-kh2) reads the darwin build; if it does not, a write races Claude's and the tier stays off at a Mac host until a new design |
+| Claude does not take the lock for a Keychain write on macOS ([§2](#2-what-claude-does-on-a-mac) item 5 is confirmed on Linux; the Mac's own build is not yet read) | [W-KH2](#w-kh2) reads the darwin build; if it does not, a write races Claude's and the tier stays off at a Mac host until a new design |
 | A Claude update renames the item or changes its encoding | A read that does not parse is never written and never a sign-out ([§3.2](#32-reads-outcomes-and-sign-out)) |
 | Typical items exceed the stdin cap, so the tier rarely works | [W-KH1](#w-kh1) measures the size; it is the input to [OQ-KH2](#OQ-KH2) |
 
@@ -402,7 +404,7 @@ shorter. **Report:** both lines and the read-back counts. **Decides:** the stdin
 | ID | Kind | Claim | Source |
 | :--- | :--- | :--- | :--- |
 | <a id="KE1"></a>KE1 | SOURCED | Service and account naming | Claude Code 2.1.323 bundle, `var hzr="-credentials"` at byte 300148478: `GOe` and `SY` |
-| <a id="KE2"></a>KE2 | SOURCED, INFERRED | One store object; the lock wrapper around every write; the 30 s read cache | 2.1.323 bundle at byte 300186544 (`fgn`, `Re`), and `var TTa=30000` before it |
+| <a id="KE2"></a>KE2 | SOURCED | One store object; the lock wrapper around every write, skipped only for a diskless launch (confirmed on Linux; the Mac's minified names differ, so the Mac's [W-KH2](#w-kh2) step 2 confirms its own); the 30 s read cache | 2.1.323 bundle at byte 300186544 (`fgn`, `Re`), and `var TTa=30000` before it; the diskless check in 2.1.325, read in [W-KH2](#w-kh2)'s Linux half |
 | <a id="KE3"></a>KE3 | INFERRED | The bundle's storage JavaScript is the same on macOS | The macOS branches (`security`, `O()==="macos"`) are present in the Linux build; [W-KH2](#w-kh2) checks the darwin binary |
 | <a id="KE4"></a>KE4 | SOURCED, MEASURED | `security -i` with hex on stdin up to 4032 bytes, the argv beyond | [keychain-from-a-jail E10](keychain-from-a-jail.md#E10); [lab report, defect 3](../lab-reports/2026-10-25-mac-claude-login-session.md#3-a-sandbox-login-cannot-save-in-account-mode-with-the-view-on-or-off-c1) |
 | <a id="KE5"></a>KE5 | SOURCED | The item's access list holds only `/usr/bin/security` | [`macos-keychain-exposure-by-program.md`](../research/macos-keychain-exposure-by-program.md#table) |

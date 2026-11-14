@@ -1,10 +1,13 @@
 package integration
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 )
 
 // TestMacosUserWorkspaceReadonlyLocksTheConfig is the macos-user half of the lock the container
@@ -59,12 +62,17 @@ func TestMacosUserWorkspaceReadonlyLocksTheConfig(t *testing.T) {
 
 // TestMacosUserWorkspaceReadonlyLocksASymlinkedConfigsTarget: a workspace config that is a
 // symbolic link to a file OUTSIDE the workspace is locked as one inside it is, because outside
-// the workspace is not outside the profile's write allow — the target here is under
-// /private/tmp, one of its writable roots (macosuser.workspaceReadonlyRels' targets). Both
-// writes are refused with an entry: an append through the link, which the kernel resolves to
-// the target, and one to the target by its own path. Under `{}` both succeed, the control that
-// the refusal is this rule's: the target is world-writable on purpose, so that its mode is not
-// what refuses.
+// the workspace is not outside the profile's write allow (macosuser.workspaceReadonlyRels'
+// targets). The target here sits in a READ-WRITE CONTEXT MOUNT's source under the shared root:
+// the deny-by-default profile, which both macos-user modes run, re-allows writes under every
+// read-write source (`#seatbelt-test-id:context-write-allow#`, macosuser.contextWriteAllow) and
+// renders workspace_readonly's denies after it (macosuser.DenyDefaultProfile), so the deny wins.
+// The shared /tmp is no such place: the profile closes it in both modes unless the user's
+// macos_user_shared_tmp hatch opens it (MMP-D36), so a target there is refused with or without
+// an entry and proves nothing. Both writes are refused with an entry: an append through the
+// link, which the kernel resolves to the target, and one to the target by its own path. Under
+// `{}` both succeed, the control that the refusal is this rule's: the target is world-writable
+// on purpose, so that its mode is not what refuses.
 func TestMacosUserWorkspaceReadonlyLocksASymlinkedConfigsTarget(t *testing.T) {
 	requireMacosUser(t)
 	for _, tc := range []struct {
@@ -74,15 +82,18 @@ func TestMacosUserWorkspaceReadonlyLocksASymlinkedConfigsTarget(t *testing.T) {
 		{"without one", `{}`, "ALLOWED"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			dir := ctxSourceUnder(t, macosuser.SharedRootDefault(), 0o755)
+			mounts, err := json.Marshal([]any{
+				map[string]string{"host": dir, "at": "/ctx/cfgtarget", "mode": "rw"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			packHome(t, `{"mounts": `+string(mounts)+`}`)
 			ws := macosUserWorkspace(t, `{}`)
 			if err := os.MkdirAll(filepath.Join(ws, "vendored"), 0o755); err != nil {
 				t.Fatal(err)
 			}
-			dir, err := os.MkdirTemp("/private/tmp", "yolo-it-cfgtarget-")
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = os.RemoveAll(dir) })
 			target := filepath.Join(dir, "cfg.jsonc")
 			if err := os.WriteFile(target, []byte(tc.config), 0o644); err != nil {
 				t.Fatal(err)
