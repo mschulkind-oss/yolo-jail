@@ -1116,13 +1116,18 @@ func TestConcurrentActualRequestCallersHaveOneCreateOnlyTagWinner(t *testing.T) 
 	root := repositoryRoot(t)
 	bin, trace := fakeCommands(t)
 	state := t.TempDir()
-	// mkdir is the atomic fake ref endpoint; the loser sees the same immutable ref
-	// conflict GitHub returns. Both callers pass eligibility before that race.
+	// The fake ref endpoint is a noclobber redirect, which the shell itself opens
+	// with O_CREAT|O_EXCL, so exactly one caller creates the ref and the loser sees
+	// the same immutable-ref conflict (422) GitHub returns. Both callers pass
+	// eligibility before that race. Not mkdir: uutils coreutils (the default
+	// /usr/bin/mkdir on ubuntu-26.04 runners) reports success without -p when its
+	// mkdir(2) fails but the path is by then a directory, so two racing callers
+	// both "created" the ref.
 	body := `#!/bin/sh
 echo "gh $*" >> "$TRACE"
 case "$*" in
  *git/tags*) echo "$TEST_TAG_OBJECT";;
- *git/refs*) mkdir "$STATE/ref" 2>/dev/null || exit 1;;
+ *git/refs*) (set -C; : > "$STATE/ref") 2>/dev/null || exit 1;;
  *"workflow run release.yml"*) :;;
  *actions/workflows/release.yml*) echo 55;;
  *"/runs?per_page=100"*) printf '202\tcompleted\tsuccess\t1\n';;
