@@ -87,6 +87,8 @@ whose values cannot be safely told apart from a secret is not printed, and the o
   version stays a string, and a TOML literal (`'"NEW"'`) is accepted where the schema needs one.
 - `unset` of a key with no removal spelling removes its entry from the named file, whatever it
   holds (a scalar, a list or a whole table), so a lower layer's value or the default may reappear.
+  Removing a whole table such as `machine.gpu`, which `unset` used to refuse, is the owner's
+  ruling of 2026-11-14.
   A key that has a removal spelling takes it instead, as do an agent's provider and a legacy null
   ([README](README.md#how-layers-merge-and-how-a-layer-turns-something-off)):
   `yolo config unset mcp_servers.tavily --local` writes `mcp_servers.tavily = "off"`. A key that
