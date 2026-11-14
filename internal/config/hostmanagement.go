@@ -1,6 +1,8 @@
 package config
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -103,14 +105,44 @@ func HostManagementMode() HostManagement {
 // An unreadable config reports declared=false as well as `none`: this cannot prove a
 // declaration it could not read, and `--sealed`'s whole question is whether one exists.
 func HostManagementDeclared() (HostManagement, bool) {
+	mode, declared, _ := HostManagementLoad()
+	return mode, declared
+}
+
+// HostManagementLoad is HostManagementDeclared plus the error that kept the user config from
+// loading, or nil when it loaded. The mode stays fail-closed (`none`, declared=false) either
+// way; the error is for the SENTENCE. A refusal that turned declared=false into "is unset in
+// config.toml" would describe a file the user may well have written correctly — the failure
+// can sit beside it (a dangling legacy config.jsonc link) — and its `yolo config set` remedy
+// would not help. Every reader that words the unset state checks this error first and prints
+// HostManagementUnreadable instead.
+func HostManagementLoad() (HostManagement, bool, error) {
 	p := paths.UserConfigPath()
 	// strict: a malformed user config must be an ERROR here rather than a silently empty
 	// map, because "the file is broken" and "the key is absent" have opposite answers.
 	cfg, err := loadUserScopeConfig(p, p, true, func(string) {})
-	if err != nil || cfg == nil {
-		return HostManagementNone, false
+	if err != nil {
+		return HostManagementNone, false, err
 	}
-	return hostManagementValue(cfg)
+	if cfg == nil {
+		return HostManagementNone, false, nil
+	}
+	mode, declared := hostManagementValue(cfg)
+	return mode, declared, nil
+}
+
+// HostManagementUnreadable is the sentence for a user config that failed to load
+// (HostManagementLoad's error): what failed, quoted, that `host_management` therefore counts
+// as "none", and the next step — `yolo config check`, which prints the specific fix. It never
+// says the key is unset: yolo could not read whether it is.
+//
+// A config-name error ends "Nothing was started." for the launch it was written for; that tail
+// is dropped here because each caller closes with its own verb's sentence.
+func HostManagementUnreadable(err error) string {
+	reason := strings.TrimSuffix(strings.TrimSpace(err.Error()), " Nothing was started.")
+	return "yolo could not read your user config, so `host_management` counts as \"none\" " +
+		"whatever it says, and grants no write: " + reason +
+		" Run `yolo config check`, which names the fix, then retry."
 }
 
 // hostManagementValue reads the key out of an already-loaded USER-SCOPE config map. Split

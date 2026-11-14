@@ -156,6 +156,11 @@ func TestHostManagementUnreadableConfigIsNone(t *testing.T) {
 		t.Errorf("with an unparseable user config = (%q, %v), want (\"none\", false) — a "+
 			"declaration nobody could read has granted no write claim", mode, declared)
 	}
+	// The same load reports WHY, so a refusal can quote it rather than call the key unset.
+	if mode, declared, err := HostManagementLoad(); mode != HostManagementNone || declared || err == nil {
+		t.Errorf("HostManagementLoad with an unparseable user config = (%q, %v, %v), want "+
+			"(\"none\", false, <the load error>)", mode, declared, err)
+	}
 	// A present but unusable VALUE is the same thing one level in: the declaration could not
 	// be read, so it is never a value yolo writes under.
 	for _, bad := range []string{`{"host_management": "asert"}`, `{"host_management": true}`,

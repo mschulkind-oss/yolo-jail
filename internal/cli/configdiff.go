@@ -170,7 +170,11 @@ func refuseHostSideWrite(t configTarget, cmd string, force bool, errw io.Writer)
 		state := fmt.Sprintf("`host_management: %q`", t.ownership.String())
 		if config.HostManagementRetired() != "" {
 			state = "the retired `host_management: \"assert\"`, read as \"none\","
-		} else if _, declared := config.HostManagementDeclared(); !declared {
+		} else if _, declared, loadErr := config.HostManagementLoad(); loadErr != nil {
+			fmt.Fprintf(errw, "yolo config capture: nothing to capture into — %s\n",
+				config.HostManagementUnreadable(loadErr))
+			return true
+		} else if !declared {
 			state = "an unset `host_management` (\"none\")"
 		}
 		fmt.Fprintf(errw, "yolo config capture: nothing to capture into — under %s yolo "+

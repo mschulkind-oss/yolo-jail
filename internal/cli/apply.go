@@ -1712,7 +1712,9 @@ func applySealed(out, errw io.Writer, color bool) int {
 	// states nothing yolo can read (OQ-CO14 face 1) and so gets that refusal's own words.
 	if msg := config.HostManagementRetired(); msg != "" {
 		refusals = append(refusals, "host_management: "+msg)
-	} else if _, declared := config.HostManagementDeclared(); !declared {
+	} else if _, declared, loadErr := config.HostManagementLoad(); loadErr != nil {
+		refusals = append(refusals, "host_management: "+config.HostManagementUnreadable(loadErr))
+	} else if !declared {
 		refusals = append(refusals,
 			"`host_management` is unset, so who owns the config files in your real home is "+
 				"undeclared (it behaves as \"none\"). Write \"none\" or \"own\" into "+

@@ -173,7 +173,7 @@ func promoteClause(t *testing.T, msg string) (before, clause string) {
 func TestTheNoneRefusalNamesOwnBeforePromote(t *testing.T) {
 	hostManagementRefusedFixture(t, "")
 	for _, declared := range []bool{false, true} {
-		msg := hostManagementRefusal(config.HostManagementNone, declared)
+		msg := hostManagementRefusal(config.HostManagementNone, declared, nil)
 		before, clause := promoteClause(t, msg)
 		if !strings.Contains(before, `"own"`) {
 			t.Errorf("declared=%v: \"own\" is not named before `yolo config promote`:\n%s", declared, msg)

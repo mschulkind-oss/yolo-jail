@@ -81,7 +81,14 @@ func hostOwnership() render.HostOwnership {
 // `none` there is no capture store at the host and promote answers "Nothing to promote" — and
 // `--revert`, the way back to a file purely the user's on a home an earlier yolo wrote into. It
 // used to name `"assert"`, which no longer exists.
-func hostManagementRefusal(mode config.HostManagement, declared bool) string {
+//
+// loadErr is config.HostManagementLoad's: a user config that failed to load is `none` (fail
+// closed), but it is neither "unset" nor "none in <file>", and setting the key would not help,
+// so the refusal quotes the load failure and names `yolo config check` instead.
+func hostManagementRefusal(mode config.HostManagement, declared bool, loadErr error) string {
+	if loadErr != nil {
+		return config.HostManagementUnreadable(loadErr) + " Nothing was written."
+	}
 	switch mode {
 	case config.HostManagementNone:
 		state := "is \"none\" in " + paths.UserConfigDisplayPath()
@@ -122,9 +129,14 @@ func refuseHostCommandLaunch(errw io.Writer) bool {
 	if _, refused := retiredHostManagementRefusal(errw, "yolo host"); refused {
 		return true
 	}
-	mode, declared := config.HostManagementDeclared()
+	mode, declared, loadErr := config.HostManagementLoad()
 	if mode == config.HostManagementOwn {
 		return false
+	}
+	if loadErr != nil {
+		fmt.Fprintf(errw, "yolo host: refusing to launch: host command launches require `host_management: \"own\"`; %s No command was started and yolo provided no host launch assistance.\n",
+			config.HostManagementUnreadable(loadErr))
+		return true
 	}
 	state := "is unset in " + paths.UserConfigDisplayPath() + ", which means \"none\""
 	if declared {
@@ -159,15 +171,15 @@ func refuseHostManagement(out, errw io.Writer, format string) (int, bool) {
 	rc, refused := retiredHostManagementRefusal(errw, "yolo host apply")
 	var verdict string
 	if refused {
-		verdict = hostManagementVerdict(config.HostManagementNone, false, true)
+		verdict = hostManagementVerdict(config.HostManagementNone, false, true, nil)
 	} else {
-		mode, declared := config.HostManagementDeclared()
-		msg := hostManagementRefusal(mode, declared)
+		mode, declared, loadErr := config.HostManagementLoad()
+		msg := hostManagementRefusal(mode, declared, loadErr)
 		if msg == "" {
 			return 0, false
 		}
 		fmt.Fprintf(errw, "yolo host apply: %s\n", msg)
-		rc, verdict = 1, hostManagementVerdict(mode, declared, false)
+		rc, verdict = 1, hostManagementVerdict(mode, declared, false, loadErr)
 	}
 	if outfmt.IsJSON(format) {
 		rc = emitRefusedHostApplyDoc(out, errw, verdict, rc)
@@ -179,10 +191,12 @@ func refuseHostManagement(out, errw io.Writer, format string) (int, bool) {
 // shape of the other refused verdicts (hostApplyVerdict's outcomeRefused): what an --assert would
 // do, why, the value to set, and that nothing would be written. retired is the retired
 // `"assert"`; otherwise mode and declared are hostManagementRefusal's.
-func hostManagementVerdict(mode config.HostManagement, declared, retired bool) string {
+func hostManagementVerdict(mode config.HostManagement, declared, retired bool, loadErr error) string {
 	const own = `set it to "own" to have yolo compose your agents' config files from your packs`
 	path := paths.UserConfigDisplayPath()
 	switch {
+	case loadErr != nil:
+		return `An --assert would REFUSE, and nothing would be written: ` + config.HostManagementUnreadable(loadErr)
 	case retired:
 		return `An --assert would REFUSE: host_management is the retired "assert" in ` + path +
 			` (` + own + `, or to "none", or delete the key), so nothing would be written.`

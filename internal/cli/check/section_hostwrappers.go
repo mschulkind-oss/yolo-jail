@@ -553,7 +553,7 @@ func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
 			" refuses, and no wrapper is regenerated", retired)
 		return true
 	}
-	mode, declared := config.HostManagementDeclared()
+	mode, declared, loadErr := config.HostManagementLoad()
 	switch mode {
 	case config.HostManagementNone:
 		state := `host_management is "none"`
@@ -565,6 +565,12 @@ func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
 			"command generates."
 		fix := "Set host_management to \"own\" in " + userConfigFile() + " and run " +
 			"`yolo host apply --assert`, or turn host_wrappers off."
+		if loadErr != nil {
+			// Fail closed, but never say "unset": the key may be set in a config that could
+			// not be read, and setting it again would not help.
+			state = `the user config could not be read, so host_management counts as "none"`
+			fix = config.HostManagementUnreadable(loadErr)
+		}
 		readable := st.dirErr == nil || os.IsNotExist(st.dirErr)
 		if readable && (len(st.names) == 0 || len(st.missing) > 0) {
 			unwrapped := st.missing
@@ -582,10 +588,13 @@ func hostManagementRow(r *reporter, st wrapperState) (absorbedGeneration bool) {
 				joinLines(fix, why, st.gateClause(gateNone)))
 			return true
 		}
+		regenFix := "Set host_management to \"own\" in " + userConfigFile() + " to have " +
+			"yolo compose your agents' config files from your packs, or turn host_wrappers off."
+		if loadErr != nil {
+			regenFix = fix
+		}
 		r.warn(state+" — `yolo host apply` refuses, so these wrappers are never regenerated",
-			joinLines("Set host_management to \"own\" in "+userConfigFile()+" to have "+
-				"yolo compose your agents' config files from your packs, or turn host_wrappers off.",
-				why, st.gateClause(gateNone)))
+			joinLines(regenFix, why, st.gateClause(gateNone)))
 	case config.HostManagementOwn:
 		r.ok("host_management is \"own\" — yolo composes these files whole and captures your " +
 			"edits, so they are derived output: delete one and the next apply reproduces it")
