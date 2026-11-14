@@ -175,9 +175,9 @@ func TestPlanEditRemoveTOMLTableSubtreeAndArrayTableItem(t *testing.T) {
 		path   []configdoc.Step
 		want   string
 	}{
-		{"nested subtree", "root = 1\r\n[outer]\r\nkeep = 2\r\n# subtree comment\r\n[outer.child]\r\nvalue = 3\r\n[after]\r\nnext = 4", []configdoc.Step{{Key: "outer"}}, "root = 1\r\n\r\n  \r\n# subtree comment\r\n\r\n  \r\n[after]\r\nnext = 4"},
-		{"array table item", "root = 1\n[[items]]\nname = 'first'\n# first note\n[[items]]\nname = 'second'\n[after]\nnext = 4\n", []configdoc.Step{{Key: "items"}, {Index: 0, IsIndex: true}}, "root = 1\n\n  \n# first note\n[[items]]\nname = 'second'\n[after]\nnext = 4\n"},
-		{"interleaved subtree", "[outer.a]\nx=1\n[other]\ny=2\n# later child\n[outer.b]\nz=3\n", []configdoc.Step{{Key: "outer"}}, "\n\n[other]\ny=2\n# later child\n\n\n"},
+		{"nested subtree", "root = 1\r\n[outer]\r\nkeep = 2\r\n# subtree comment\r\n[outer.child]\r\nvalue = 3\r\n[after]\r\nnext = 4", []configdoc.Step{{Key: "outer"}}, "root = 1\r\n# subtree comment\r\n[after]\r\nnext = 4"},
+		{"array table item", "root = 1\n[[items]]\nname = 'first'\n# first note\n[[items]]\nname = 'second'\n[after]\nnext = 4\n", []configdoc.Step{{Key: "items"}, {Index: 0, IsIndex: true}}, "root = 1\n# first note\n[[items]]\nname = 'second'\n[after]\nnext = 4\n"},
+		{"interleaved subtree", "[outer.a]\nx=1\n[other]\ny=2\n# later child\n[outer.b]\nz=3\n", []configdoc.Step{{Key: "outer"}}, "[other]\ny=2\n# later child\n"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

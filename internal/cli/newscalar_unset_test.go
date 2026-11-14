@@ -26,7 +26,8 @@ func TestConfigRegistryUnsetScalarRemovesNamedLocalValueInBothFormats(t *testing
 			name: "TOML integer", key: "machine.resources.cpus", format: configdoc.TOML,
 			localName: paths.WorkspaceLocalConfigTOMLName,
 			userText:  "[machine.resources]\ncpus = 1\n", projectText: "[machine.resources]\ncpus = 2\n", localText: "[machine.resources]\ncpus = 3\n",
-			wantLower: int64(2), wantHunk: "-cpus = 3",
+			// cpus is the table's only key, so its header goes with it (editing.md).
+			wantLower: int64(2), wantHunk: "-[machine.resources]\ncpus = 3",
 		},
 		{
 			name: "JSONC canonical integer", key: "machine.resources.cpus", format: configdoc.JSONC,
@@ -342,9 +343,11 @@ func TestConfigRegistryUnsetScalarDryRunInvalidInputAbsentAndNonScalarPreserveFi
 		}
 	}
 
+	// A table with no removal spelling is removed whole now (TestRunConfigEditUnsetRemovesAWholeTable);
+	// what still refuses is a key with no removal at all, and one whose removal needs two edits.
 	for _, args := range [][]string{
 		{"unset", "unknown.key", "--project"},
-		{"unset", "machine.gpu", "--project"},
+		{"unset", "env.set.FOO", "--project"},
 	} {
 		var out, errw bytes.Buffer
 		rc, output, errOutput := dispatchConfigCapture(t, args)
@@ -353,8 +356,8 @@ func TestConfigRegistryUnsetScalarDryRunInvalidInputAbsentAndNonScalarPreserveFi
 		if rc == 0 || out.Len() != 0 || errw.Len() == 0 {
 			t.Errorf("invalid/non-scalar unset %q rc=%d stdout=%q stderr=%q", args, rc, out.String(), errw.String())
 		}
-		if args[1] == "machine.gpu" && (!strings.Contains(errw.String(), workspace.Path) ||
-			!strings.Contains(errw.String(), "machine.gpu") || !strings.Contains(errw.String(), "edit the value manually") ||
+		if args[1] == "env.set.FOO" && (!strings.Contains(errw.String(), workspace.Path) ||
+			!strings.Contains(errw.String(), "env.set.FOO") || !strings.Contains(errw.String(), "edit the value manually") ||
 			!strings.Contains(errw.String(), "yolo check")) {
 			t.Errorf("non-scalar refusal lacks selected path, canonical key, or next step: %q", errw.String())
 		}
@@ -389,20 +392,20 @@ func TestConfigRegistryUnsetScalarRefusalQuotesSelectedFileAndGivesNextStep(t *t
 		t.Fatal(err)
 	}
 	project := filepath.Join(workspace, paths.WorkspaceConfigTOMLName)
-	if err := os.WriteFile(project, []byte("[machine.gpu]\nenabled = true\n"), 0o600); err != nil {
+	if err := os.WriteFile(project, []byte("[env.set]\nFOO = \"x\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_VERSION", "")
 	withConfigEditCWD(t, workspace)
 
-	rc, out, errw := dispatchConfigCapture(t, []string{"unset", "machine.gpu", "--project"})
+	rc, out, errw := dispatchConfigCapture(t, []string{"unset", "env.set.FOO", "--project"})
 	if rc == 0 || out != "" || !strings.Contains(errw, `"`+project+`"`) ||
-		!strings.Contains(errw, `"machine.gpu"`) || !strings.Contains(errw, "edit the value manually") ||
+		!strings.Contains(errw, `"env.set.FOO"`) || !strings.Contains(errw, "edit the value manually") ||
 		!strings.Contains(errw, "yolo check") || !strings.Contains(errw, "yolo config apply") {
 		t.Fatalf("non-scalar refusal is not quoted/actionable: rc=%d stdout=%q stderr=%q", rc, out, errw)
 	}
-	if got, err := os.ReadFile(project); err != nil || string(got) != "[machine.gpu]\nenabled = true\n" {
+	if got, err := os.ReadFile(project); err != nil || string(got) != "[env.set]\nFOO = \"x\"\n" {
 		t.Fatalf("refusal changed selected Project file: got=%q err=%v", got, err)
 	}
 }

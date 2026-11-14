@@ -20,7 +20,7 @@ func scopeBindingCases() []scopeBindingCase {
 		{
 			name:     "nested header set after info table",
 			before:   "[parent]\nx=1\n[parent.info]\n# keep-info\na=3\n[parent.child]\n# keep-child\ny=2\n[[parent.siblings]]\nname='one'\n",
-			after:    "[parent]\nx=1\nchild = \"value\"\n[parent.info]\n# keep-info\na=3\n\n# keep-child\n\n[[parent.siblings]]\nname='one'\n",
+			after:    "[parent]\nx=1\nchild = \"value\"\n[parent.info]\n# keep-info\na=3\n# keep-child\n[[parent.siblings]]\nname='one'\n",
 			mutation: Mutation{Action: Set, Path: []configdoc.Step{{Key: "parent"}, {Key: "child"}}, Value: "value"},
 			want:     map[string]any{"parent": map[string]any{"x": int64(1), "info": map[string]any{"a": int64(3)}, "child": "value", "siblings": []any{map[string]any{"name": "one"}}}},
 		},
@@ -34,21 +34,21 @@ func scopeBindingCases() []scopeBindingCase {
 		{
 			name:     "quoted dotted nested header set",
 			before:   "[a.\"special.key\".info]\nkeep=1\n[a.\"special.key\".child]\nold=2\n[tail]\nz=3\n",
-			after:    "[a.\"special.key\"]\nchild = \"done\"\n[a.\"special.key\".info]\nkeep=1\n\n\n[tail]\nz=3\n",
+			after:    "[a.\"special.key\"]\nchild = \"done\"\n[a.\"special.key\".info]\nkeep=1\n[tail]\nz=3\n",
 			mutation: Mutation{Action: Set, Path: []configdoc.Step{{Key: "a"}, {Key: "special.key"}, {Key: "child"}}, Value: "done"},
 			want:     map[string]any{"a": map[string]any{"special.key": map[string]any{"info": map[string]any{"keep": int64(1)}, "child": "done"}}, "tail": map[string]any{"z": int64(3)}},
 		},
 		{
 			name:     "root set follows array header",
 			before:   "[[items]]\nname='one'\n[settings]\nold=2\n# keep-settings\n[tail]\nz=3\n",
-			after:    "settings = \"off\"\n[[items]]\nname='one'\n\n\n# keep-settings\n[tail]\nz=3\n",
+			after:    "settings = \"off\"\n[[items]]\nname='one'\n# keep-settings\n[tail]\nz=3\n",
 			mutation: Mutation{Action: Set, Path: []configdoc.Step{{Key: "settings"}}, Value: "off"},
 			want:     map[string]any{"items": []any{map[string]any{"name": "one"}}, "settings": "off", "tail": map[string]any{"z": int64(3)}},
 		},
 		{
 			name:     "nested final singleton removal in indexed parent",
 			before:   "[[parents]]\nid=1\n[parents.info]\n# keep-info\nnote='safe'\n[[parents.children]]\n# keep-child\nname='only'\n[[parents.other]]\nname='other'\n[[parents]]\nid=2\n[[parents.children]]\nname='keep'\n",
-			after:    "[[parents]]\nid=1\nchildren = []\n[parents.info]\n# keep-info\nnote='safe'\n\n# keep-child\n\n[[parents.other]]\nname='other'\n[[parents]]\nid=2\n[[parents.children]]\nname='keep'\n",
+			after:    "[[parents]]\nid=1\nchildren = []\n[parents.info]\n# keep-info\nnote='safe'\n# keep-child\n[[parents.other]]\nname='other'\n[[parents]]\nid=2\n[[parents.children]]\nname='keep'\n",
 			mutation: Mutation{Action: Remove, Path: []configdoc.Step{{Key: "parents"}, {Index: 0, IsIndex: true}, {Key: "children"}, {Index: 0, IsIndex: true}}},
 			want: map[string]any{"parents": []any{
 				map[string]any{"id": int64(1), "info": map[string]any{"note": "safe"}, "children": []any{}, "other": []any{map[string]any{"name": "other"}}},

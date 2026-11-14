@@ -25,7 +25,7 @@ func explicitScopeCases() []explicitScopeCase {
 		{
 			name:     "Set inserts in explicit indexed table before unrelated header",
 			before:   "[[parents]]\nid=1\n[parents.group]\nx=1\n[other]\nz=3\n[parents.group.child]\ny=2\n[[parents]]\nid=2\n",
-			after:    "[[parents]]\nid=1\n[parents.group]\nx=1\nchild = \"value\"\n[other]\nz=3\n\n\n[[parents]]\nid=2\n",
+			after:    "[[parents]]\nid=1\n[parents.group]\nx=1\nchild = \"value\"\n[other]\nz=3\n[[parents]]\nid=2\n",
 			mutation: Mutation{Action: Set, Path: append(append([]configdoc.Step(nil), indexedGroup...), configdoc.Step{Key: "child"}), Value: "value"},
 			want: map[string]any{"parents": []any{
 				map[string]any{"id": int64(1), "group": map[string]any{"x": int64(1), "child": "value"}},

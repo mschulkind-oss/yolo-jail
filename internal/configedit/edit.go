@@ -30,6 +30,10 @@ type Mutation struct {
 	Action Action
 	Path   []configdoc.Step
 	Value  any
+	// PruneEmptiedTable, on a TOML Remove of a key, also removes the `[table]` header the key
+	// was the only member of, unless a comment sits in that table's section (comments are never
+	// removed). `yolo config unset` sets it; a structural set, which may re-add a member, does not.
+	PruneEmptiedTable bool
 }
 
 // Hunk records one exact byte-range replacement in the original document.
@@ -309,12 +313,28 @@ func PlanEdit(data []byte, format configdoc.Format, m Mutation) (*Plan, error) {
 					hunks = commentPreservingHunks(data, ranges, doc.Index.Comments())
 					// A TOML inline table is one line and holds no comment, so its member goes
 					// whole, with one separating comma (inlineTableMemberSpan).
+					inline := false
 					if len(ranges) == 1 {
-						if span, inline := inlineTableMemberSpan(data, ranges[0]); inline {
+						if span, isInline := inlineTableMemberSpan(data, ranges[0]); isInline {
+							inline = true
 							hunks = []Hunk{{Start: span.Start, End: span.End, Before: append([]byte(nil), data[span.Start:span.End]...)}}
 						}
 					}
 					deleteValue(root, path)
+					if !inline {
+						// A table only a removed header implied (`machine` for `[machine.gpu]`)
+						// is gone from the file too.
+						pruneImplicitTOMLAncestors(doc, root, parentPath)
+					}
+					if m.PruneEmptiedTable && !inline {
+						if section, ok, e := emptiedTOMLTableSection(doc, parentPath, ranges); e != nil {
+							return nil, e
+						} else if ok {
+							hunks = []Hunk{{Start: section.Start, End: section.End, Before: append([]byte(nil), data[section.Start:section.End]...)}}
+							deleteValue(root, parentPath)
+							pruneImplicitTOMLAncestors(doc, root, parentPath[:len(parentPath)-1])
+						}
+					}
 					break
 				}
 			}
@@ -868,12 +888,145 @@ func tomlStructureRanges(doc *configdoc.Document, path []configdoc.Step) ([]conf
 	return merged, true, nil
 }
 
+// commentPreservingHunks blanks each range but its comments and whitespace, then takes whole
+// every line the blanking left empty, with its line break: a removed key takes its own line and
+// nothing else (editing.md, the splice, rule 1). A line that was blank already stays, and so does
+// a line still holding a comment.
 func commentPreservingHunks(data []byte, ranges []configdoc.Span, comments []configdoc.Span) []Hunk {
-	hunks := make([]Hunk, 0, len(ranges))
+	// Widen each range to the lines it touches, merging ranges that share a line.
+	var regions []configdoc.Span
 	for _, span := range ranges {
-		hunks = append(hunks, Hunk{Start: span.Start, End: span.End, Before: append([]byte(nil), data[span.Start:span.End]...), After: preserveComments(data, span.Start, span.End, comments)})
+		start := lineStartAt(data, span.Start)
+		end := span.End
+		for end < len(data) && data[end] != '\n' {
+			end++
+		}
+		if end < len(data) {
+			end++
+		}
+		if n := len(regions); n > 0 && start <= regions[n-1].End {
+			if end > regions[n-1].End {
+				regions[n-1].End = end
+			}
+			continue
+		}
+		regions = append(regions, configdoc.Span{Start: start, End: end})
+	}
+	inRange := func(i int) bool {
+		for _, span := range ranges {
+			if i >= span.Start && i < span.End {
+				return true
+			}
+		}
+		return false
+	}
+	hunks := make([]Hunk, 0, len(regions))
+	for _, region := range regions {
+		var blanked []byte
+		for i := region.Start; i < region.End; i++ {
+			if inRange(i) {
+				blanked = append(blanked, preserveComments(data, i, i+1, comments)...)
+			} else {
+				blanked = append(blanked, data[i])
+			}
+		}
+		// preserveComments keeps every line break, so the lines correspond one to one.
+		before := bytes.SplitAfter(data[region.Start:region.End], []byte("\n"))
+		after := bytes.SplitAfter(blanked, []byte("\n"))
+		var out []byte
+		for i := range after {
+			emptied := len(bytes.TrimSpace(after[i])) == 0 && i < len(before) && len(bytes.TrimSpace(before[i])) != 0
+			if !emptied {
+				out = append(out, after[i]...)
+			}
+		}
+		hunks = append(hunks, Hunk{Start: region.Start, End: region.End, Before: append([]byte(nil), data[region.Start:region.End]...), After: out})
 	}
 	return hunks
+}
+
+// emptiedTOMLTableSection returns the bytes of the `[table]` at tablePath when removing the
+// member whose structural ranges are given leaves it empty: its header line through the next
+// header (or the end of the file, then with the blank line that separated it from the table
+// before). ok is false for a table with another member, a table with no header of its own (a
+// dotted or implied one), and a table whose section holds a comment, which is never removed.
+func emptiedTOMLTableSection(doc *configdoc.Document, tablePath []configdoc.Step, ranges []configdoc.Span) (configdoc.Span, bool, error) {
+	if len(tablePath) == 0 || pathHasIndex(tablePath) || len(ranges) == 0 {
+		return configdoc.Span{}, false, nil
+	}
+	table, ok := lookup(doc.Values, tablePath)
+	object, isMap := table.(*jsonx.OrderedMap)
+	if !ok || !isMap || object.Len() != 1 {
+		return configdoc.Span{}, false, nil
+	}
+	header, isHeader, err := isTOMLHeaderTable(doc, tablePath)
+	if err != nil || !isHeader {
+		return configdoc.Span{}, false, err
+	}
+	data := doc.Bytes
+	start := lineStartAt(data, header.Start)
+	// The table's extent ends just before the next header. A member that is itself a headed
+	// table runs past it; then the section ends at the next header after that member, whose own
+	// bytes (a multi-line list's lines may start with `[`) are not scanned.
+	end := ranges[len(ranges)-1].End
+	if end <= header.End {
+		end = header.End
+	} else {
+		end = scanToNextTOMLHeader(data, end)
+	}
+	if start > header.Start || end < ranges[len(ranges)-1].End || hasCommentInRange(doc.Index.Comments(), start, end) {
+		return configdoc.Span{}, false, nil
+	}
+	if end == len(data) && start > 0 {
+		previous := lineStartAt(data, start-1)
+		if len(bytes.TrimSpace(data[previous:start])) == 0 {
+			start = previous
+		}
+	}
+	return configdoc.Span{Start: start, End: end}, true, nil
+}
+
+// scanToNextTOMLHeader returns the start of the first line after the one holding from whose first
+// non-blank byte opens a header, or the end of data.
+func scanToNextTOMLHeader(data []byte, from int) int {
+	end := from
+	nextLine := func(pos int) int {
+		for pos < len(data) && data[pos] != '\n' {
+			pos++
+		}
+		if pos < len(data) {
+			pos++
+		}
+		return pos
+	}
+	for end = nextLine(end); end < len(data); end = nextLine(end) {
+		first := end
+		for first < len(data) && (data[first] == ' ' || data[first] == '\t') {
+			first++
+		}
+		if first < len(data) && data[first] == '[' {
+			break
+		}
+	}
+	return end
+}
+
+// pruneImplicitTOMLAncestors deletes from root each ancestor table, innermost first, that a
+// pruned header leaves empty and that no header of its own defines: TOML had it only because a
+// deeper header implied it, so the file no longer has it at all.
+func pruneImplicitTOMLAncestors(doc *configdoc.Document, root *jsonx.OrderedMap, at []configdoc.Step) {
+	for len(at) > 0 {
+		value, ok := lookup(root, at)
+		object, isMap := value.(*jsonx.OrderedMap)
+		if !ok || !isMap || object.Len() != 0 {
+			return
+		}
+		if _, isHeader, err := isTOMLHeaderTable(doc, at); err != nil || isHeader {
+			return
+		}
+		deleteValue(root, at)
+		at = at[:len(at)-1]
+	}
 }
 
 func deleteValue(root *jsonx.OrderedMap, path []configdoc.Step) {

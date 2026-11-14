@@ -246,8 +246,9 @@ func TestConfigRunWGenericEditValidationDryRunNoopAndHelp(t *testing.T) {
 	rc := configRunW([]string{"unset", "machine.resources.cpus", "--project"}, &unsetOut, &unsetErr)
 	assertPublicPostWriteCheck(t, rc, unsetOut.String(), unsetErr.String())
 	after, readErr := os.ReadFile(workspace.Path)
-	if readErr != nil || bytes.Contains(after, []byte("cpus")) || !bytes.Contains(after, []byte("[machine.resources]")) {
-		t.Fatalf("valid scalar unset did not remove only the authored leaf: %q, %v", after, readErr)
+	// The leaf was its table's only key, so the table's header goes too (editing.md).
+	if readErr != nil || bytes.Contains(after, []byte("cpus")) || bytes.Contains(after, []byte("[machine.resources]")) {
+		t.Fatalf("valid scalar unset did not remove the authored leaf and the table it emptied: %q, %v", after, readErr)
 	}
 	var noopOut, noopErr bytes.Buffer
 	if rc := configRunW([]string{"unset", "machine.resources.cpus", "--project"}, &noopOut, &noopErr); rc != 0 || noopErr.Len() != 0 || strings.Contains(noopOut.String(), "Summary") {

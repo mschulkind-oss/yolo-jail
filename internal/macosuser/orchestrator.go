@@ -1583,8 +1583,8 @@ func sharedTmpDisclosure(plan RunPlan) string {
 		return ""
 	}
 	return "tmp: the shared /tmp is open to the sandbox, read and write, so it can read files your " +
-		"other programs leave there [dim](macos_user_shared_tmp in your user config; remove it to " +
-		"close /tmp again)[/dim]"
+		"other programs leave there [dim](macos_user_shared_tmp in your user config; to close /tmp " +
+		"again, run `yolo config unset macos_user_shared_tmp --user`)[/dim]"
 }
 
 // darwinUserTempDir is the DARWIN_USER_TEMP_DIR of the user the sandbox runs as — yours in the
