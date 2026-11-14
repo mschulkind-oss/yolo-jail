@@ -33,9 +33,12 @@ import (
 // write through the link before the policy is consulted, so a deny on the link's name alone
 // stops only an unlink or a rename of the link. A target in the workspace joins rels under its
 // workspace-relative path. One outside it is returned in targets, by its physical path, because
-// outside the workspace is not outside the write allow: the fixed writable roots
-// (profileWritableRoots: /tmp and /var/folders with their /private twins, and /dev), the
-// sandbox home and every read-write context mount's source are allowed as well. The container
+// outside the workspace is not outside the write allow: the sandbox home, every read-write
+// context mount's source and the profile's temporary directories are allowed as well. Which
+// temporary directories depends on the profile: the older SeatbeltProfile allows the fixed
+// writable roots (profileWritableRoots: /tmp and /var/folders with their /private twins, and
+// /dev); the deny-default profile (seatbeltdeny.go) allows the user's own DARWIN_USER_TEMP_DIR,
+// and the shared /tmp only when the user-scope macos_user_shared_tmp setting opens it. The container
 // backends bind the config `:ro`, and a bind resolves its source through the link, which locks
 // the content wherever it lives. A deny can only narrow the profile, so this one is emitted
 // whether or not the target is under a writable root.
