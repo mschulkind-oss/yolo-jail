@@ -37,14 +37,14 @@ func highRepairCases() []highRepairCase {
 		{
 			name:     "nested header set stays inside owning table extent",
 			before:   "[parent]\nx=1\n[other]\nz=3\n[parent.child]\ny=2\n",
-			after:    "[parent]\nx=1\nchild = \"v\"\n[other]\nz=3\n\n\n",
+			after:    "[parent]\nx=1\nchild = \"v\"\n[other]\nz=3\n",
 			mutation: Mutation{Action: Set, Path: steps("parent", "child"), Value: "v"},
 			want:     map[string]any{"parent": map[string]any{"x": int64(1), "child": "v"}, "other": map[string]any{"z": int64(3)}},
 		},
 		{
 			name:     "descendant before explicit parent does not bind insertion at root",
 			before:   "[parent.child]\ny=2\n[parent]\nx=1\n[tail]\nz=3\n",
-			after:    "\n\n[parent]\nx=1\nchild = \"v\"\n[tail]\nz=3\n",
+			after:    "[parent]\nx=1\nchild = \"v\"\n[tail]\nz=3\n",
 			mutation: Mutation{Action: Set, Path: steps("parent", "child"), Value: "v"},
 			want:     map[string]any{"parent": map[string]any{"x": int64(1), "child": "v"}, "tail": map[string]any{"z": int64(3)}},
 		},
@@ -79,21 +79,21 @@ func highRepairCases() []highRepairCase {
 		{
 			name:     "Set synthesizes quoted implicit parent below indexed ancestry",
 			before:   "[[parents]]\nid=1\n[parents.\"special.group\".child]\nx=2\n[tail]\nz=3\n",
-			after:    "[[parents]]\nid=1\n[parents.\"special.group\"]\nchild = \"v\"\n\n\n[tail]\nz=3\n",
+			after:    "[[parents]]\nid=1\n[parents.\"special.group\"]\nchild = \"v\"\n[tail]\nz=3\n",
 			mutation: Mutation{Action: Set, Path: []configdoc.Step{{Key: "parents"}, row(0), {Key: "special.group"}, {Key: "child"}}, Value: "v"},
 			want:     map[string]any{"parents": []any{map[string]any{"id": int64(1), "special.group": map[string]any{"child": "v"}}}, "tail": map[string]any{"z": int64(3)}},
 		},
 		{
 			name:     "Set synthesizes implicit parent below indexed ancestry",
 			before:   "[[parents]]\nid=1\n[parents.group.child]\nx=2\n[tail]\nz=3\n",
-			after:    "[[parents]]\nid=1\n[parents.group]\nchild = \"v\"\n\n\n[tail]\nz=3\n",
+			after:    "[[parents]]\nid=1\n[parents.group]\nchild = \"v\"\n[tail]\nz=3\n",
 			mutation: Mutation{Action: Set, Path: []configdoc.Step{{Key: "parents"}, row(0), {Key: "group"}, {Key: "child"}}, Value: "v"},
 			want:     map[string]any{"parents": []any{map[string]any{"id": int64(1), "group": map[string]any{"child": "v"}}}, "tail": map[string]any{"z": int64(3)}},
 		},
 		{
 			name:     "singleton Remove synthesizes implicit parent below indexed ancestry",
 			before:   "[[parents]]\nid=1\n[[parents.group.children]]\nname='only'\n[tail]\nz=3\n",
-			after:    "[[parents]]\nid=1\n[parents.group]\nchildren = []\n\n\n[tail]\nz=3\n",
+			after:    "[[parents]]\nid=1\n[parents.group]\nchildren = []\n[tail]\nz=3\n",
 			mutation: Mutation{Action: Remove, Path: []configdoc.Step{{Key: "parents"}, row(0), {Key: "group"}, {Key: "children"}, configdoc.Step{Index: 0, IsIndex: true}}},
 			want:     map[string]any{"parents": []any{map[string]any{"id": int64(1), "group": map[string]any{"children": []any{}}}}, "tail": map[string]any{"z": int64(3)}},
 		},
@@ -114,7 +114,7 @@ func highRepairCases() []highRepairCase {
 		{
 			name:     "Set chooses earliest eligible descendant after explicit indexed parent",
 			before:   "[[parents]]\nid=1\n[parents.group.child]\nx=2\n[parents.group]\nkeep=3\n[parents.group.info]\nz=4\n[[parents]]\nid=2\n",
-			after:    "[[parents]]\nid=1\n\n\n[parents.group]\nkeep=3\nchild = \"v\"\n[parents.group.info]\nz=4\n[[parents]]\nid=2\n",
+			after:    "[[parents]]\nid=1\n[parents.group]\nkeep=3\nchild = \"v\"\n[parents.group.info]\nz=4\n[[parents]]\nid=2\n",
 			mutation: Mutation{Action: Set, Path: []configdoc.Step{{Key: "parents"}, row(0), {Key: "group"}, {Key: "child"}}, Value: "v"},
 			want: map[string]any{"parents": []any{
 				map[string]any{"id": int64(1), "group": map[string]any{"keep": int64(3), "child": "v", "info": map[string]any{"z": int64(4)}}},
@@ -161,7 +161,7 @@ func highRepairCases() []highRepairCase {
 		{
 			name:     "Set synthesizes implicit indexed parent after unrelated root header",
 			before:   "[[parents]]\nid=1\n[other]\nz=3\n[parents.group.child]\nx=2\n[[parents]]\nid=2\n",
-			after:    "[[parents]]\nid=1\n[other]\nz=3\n[parents.group]\nchild = \"v\"\n\n\n[[parents]]\nid=2\n",
+			after:    "[[parents]]\nid=1\n[other]\nz=3\n[parents.group]\nchild = \"v\"\n[[parents]]\nid=2\n",
 			mutation: Mutation{Action: Set, Path: []configdoc.Step{{Key: "parents"}, row(0), {Key: "group"}, {Key: "child"}}, Value: "v"},
 			want: map[string]any{"parents": []any{
 				map[string]any{"id": int64(1), "group": map[string]any{"child": "v"}},
@@ -171,7 +171,7 @@ func highRepairCases() []highRepairCase {
 		{
 			name:     "singleton Remove synthesizes implicit indexed parent after unrelated root header",
 			before:   "[[parents]]\nid=1\n[other]\nz=3\n[[parents.group.children]]\nname='only'\n[[parents]]\nid=2\n",
-			after:    "[[parents]]\nid=1\n[other]\nz=3\n[parents.group]\nchildren = []\n\n\n[[parents]]\nid=2\n",
+			after:    "[[parents]]\nid=1\n[other]\nz=3\n[parents.group]\nchildren = []\n[[parents]]\nid=2\n",
 			mutation: Mutation{Action: Remove, Path: []configdoc.Step{{Key: "parents"}, row(0), {Key: "group"}, {Key: "children"}, {Index: 0, IsIndex: true}}},
 			want: map[string]any{"parents": []any{
 				map[string]any{"id": int64(1), "group": map[string]any{"children": []any{}}},

@@ -188,6 +188,9 @@ func runConfigEditWithMode(args []string, out, errw io.Writer, workspace string,
 			return 1
 		}
 	}
+	// A removal that empties its `[table]` takes the header too, unless a comment sits in the
+	// table (editing.md, the splice).
+	mutation.PruneEmptiedTable = mutation.Action == configedit.Remove
 	mutation.Path = append([]configdoc.Step(nil), key...)
 	if !configEditPathPresent(target.ExpectedBytes(), target.Format, target.AuthoredPath()) {
 		effective, loadErr := config.LoadReadableConfig(workspace, true, nil)
@@ -546,23 +549,23 @@ func configEditUnsetMutation(format configdoc.Format, canonicalPath, authoredPat
 	case config.RemovalUnsetList:
 		return configedit.Mutation{}, fmt.Errorf("this key's removal requires updating both env.set and env.unset; no multi-key edit is available")
 	case config.RemovalUnspecified:
-		// A pack's setting, `allow.<pack>.<setting>`, is the pack's own to type (Any here), and
-		// its whole value is this file's line: unset removes it, list or table, so the advice
-		// that names one (a sets list, a profile) has a verb that carries it out.
-		if format == configdoc.TOML && isAllowPackSetting(authoredPath) {
-			mutation.Action = configedit.Remove
-			return mutation, nil
-		}
-		if rule.Type == config.SchemaTypeAny || rule.Type == config.SchemaTypeObject ||
-			rule.Type == config.SchemaTypeList || rule.Type == config.SchemaTypeObjectOrList {
-			return configedit.Mutation{}, fmt.Errorf("this key has no scalar removal policy in the selected config schema")
-		}
-		value, present, err := configEditAuthoredValue(data, format, authoredPath)
-		if err != nil {
-			return configedit.Mutation{}, err
-		}
-		if present && !configEditIsScalar(value) {
-			return configedit.Mutation{}, fmt.Errorf("this key's authored value is not an ordinary scalar and has no removal policy")
+		// No removal spelling: the unset is this file's entry, removed whole, whatever it
+		// holds (a scalar, a list, a table, or a value of the wrong shape), so a lower file's
+		// value or the default shows through. Advice names this verb for keys the schema types
+		// `any` (`macos_user_shared_tmp`), for tables (`resource_groups`, `setups.<name>`) and
+		// for a stray field (`setups.<name>.policy`); each refused here before
+		// (TestEveryKeyAdviceNamesForUnsetIsRemovable). A pack's setting,
+		// `allow.<pack>.<setting>`, is the same case. A named repository's requests are the
+		// exception: namedRepoUnset plans them one request at a time, and a whole broker's
+		// table under `[repos.<name>]` stays refused.
+		if len(authoredPath) > 2 && !authoredPath[0].IsIndex && authoredPath[0].Key == "repos" {
+			value, present, err := configEditAuthoredValue(data, format, authoredPath)
+			if err != nil {
+				return configedit.Mutation{}, err
+			}
+			if present && !configEditIsScalar(value) {
+				return configedit.Mutation{}, fmt.Errorf("a named repository's requests are removed one at a time, with `yolo config unset repos.<name>.requests.<source>.<capability>`")
+			}
 		}
 		mutation.Action = configedit.Remove
 	default:

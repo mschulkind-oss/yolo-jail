@@ -85,10 +85,15 @@ whose values cannot be safely told apart from a secret is not printed, and the o
   `--dry-run` never creates it.
 - A value's type comes from the schema, never from whether the text looks like a number: a mise
   version stays a string, and a TOML literal (`'"NEW"'`) is accepted where the schema needs one.
-- `unset` of an ordinary scalar removes it from the named file, so a lower layer's value or the
-  default may reappear. A table, a list, an agent's provider and a legacy null each take their
-  removal spelling ([README](README.md#how-layers-merge-and-how-a-layer-turns-something-off)):
-  `yolo config unset mcp_servers.tavily --local` writes `mcp_servers.tavily = "off"`.
+- `unset` of a key with no removal spelling removes its entry from the named file, whatever it
+  holds (a scalar, a list or a whole table), so a lower layer's value or the default may reappear.
+  A key that has a removal spelling takes it instead, as do an agent's provider and a legacy null
+  ([README](README.md#how-layers-merge-and-how-a-layer-turns-something-off)):
+  `yolo config unset mcp_servers.tavily --local` writes `mcp_servers.tavily = "off"`. A key that
+  advice tells the user to unset is one `unset` removes (`TestEveryKeyAdviceNamesForUnsetIsRemovable`).
+- An `unset` that removes the last key of a `[table]` removes the table's header too, with the
+  blank line that set it off, unless a comment sits anywhere in that table: a comment is never
+  removed, and without its header it would read as the previous table's.
 
 ## The splice
 
@@ -99,7 +104,8 @@ legacy JSONC (`configedit.PlanEdit`, over `configdoc`'s positioned index).
 
 1. **Placement.** A new key goes at the end of its table; a new table at the end of the file after
    one blank line; a new list item after the last, with the list's own separator and line breaks
-   copied from its neighbors. A removed key takes its own line and its separator, and nothing else.
+   copied from its neighbors. A removed key takes its own line and its separator, and nothing else;
+   a line that still holds a comment stays, and a line that was already blank is not removed.
 2. **Comments are never read as belonging to anything.** No command moves or removes one; the
    comment above a removed item stays where it was.
 3. **Indentation** is copied from the nearest sibling.

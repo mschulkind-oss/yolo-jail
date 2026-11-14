@@ -82,10 +82,10 @@ func TestConfigEditIndentedTOMLHeaderRemovalPlanAndApply(t *testing.T) {
 	cases := []struct {
 		name, before, want string
 	}{
-		{"spaces", "  [gone]\nvalue=1\n[stay]\nvalue=2\n", "  \n\n[stay]\nvalue=2\n"},
-		{"tabs", "\t[gone]\nvalue=1\n[stay]\nvalue=2\n", "\t\n\n[stay]\nvalue=2\n"},
-		{"crlf", "  [gone]\r\nvalue=1\r\n[stay]\r\nvalue=2\r\n", "  \r\n\r\n[stay]\r\nvalue=2\r\n"},
-		{"empty table", "  [gone]\n[stay]\nvalue=2\n", "  \n[stay]\nvalue=2\n"},
+		{"spaces", "  [gone]\nvalue=1\n[stay]\nvalue=2\n", "[stay]\nvalue=2\n"},
+		{"tabs", "\t[gone]\nvalue=1\n[stay]\nvalue=2\n", "[stay]\nvalue=2\n"},
+		{"crlf", "  [gone]\r\nvalue=1\r\n[stay]\r\nvalue=2\r\n", "[stay]\r\nvalue=2\r\n"},
+		{"empty table", "  [gone]\n[stay]\nvalue=2\n", "[stay]\nvalue=2\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
