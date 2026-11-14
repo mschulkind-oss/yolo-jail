@@ -137,7 +137,26 @@ func fakeHomeNix(t *testing.T, home string) int {
 		}
 		return false
 	}
-	for deadline := time.Now().Add(10 * time.Second); !processRunsWithHome(pid, home) || forkedCopy(); {
+	// And "no forked copy now" holds too before the shell has forked at all, so a scan right
+	// after could still meet the copy: wait until the background child has exec'd sleep (its
+	// argv[0] is no longer `nix`), after which the shell only waits and forks nothing more.
+	sleeping := func() bool {
+		entries, err := os.ReadDir("/proc")
+		if err != nil {
+			return false
+		}
+		for _, e := range entries {
+			child, err := strconv.Atoi(e.Name())
+			if err != nil || parentPid(child) != pid {
+				continue
+			}
+			if args, err := processArgs(child); err == nil && len(args) > 0 && filepath.Base(args[0]) != "nix" {
+				return true
+			}
+		}
+		return false
+	}
+	for deadline := time.Now().Add(10 * time.Second); !processRunsWithHome(pid, home) || !sleeping() || forkedCopy(); {
 		if time.Now().After(deadline) {
 			t.Fatalf("the stand-in nix (pid %d) never stood alone under HOME=%s: %v",
 				pid, home, homeNixProcesses(home))

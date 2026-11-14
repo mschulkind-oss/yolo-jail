@@ -311,28 +311,69 @@ that and stops; the sign-in is the owner's, at the Mac.
 ### W-KH2
 
 **Claude takes its file lock around a Keychain write.** Settles
-[§2](#2-what-claude-does-on-a-mac) item 5 by reading the darwin build:
+[§2](#2-what-claude-does-on-a-mac) item 5 by reading the darwin build. Do not use
+`command -v claude`: on a Mac that runs `yolo host` it finds yolo's host wrapper
+(`~/.local/share/yolo-jail/bin/wrap/claude`), a shell script, and running it starts a whole
+`yolo host` launch. The real binary is the one yolo installed under the host floor:
+
+**Step 1.** Locate it, newest first:
 
 ```sh
-B="$(readlink -f "$(command -v claude)")"
-grep -a -o '.\{0,120\}\.storage-write.\{0,240\}' "$B" | head -3
+B="$(ls -t ~/.local/share/yolo-jail/host-floor/programs/claude/*/home/.local/share/claude/versions/* | head -1)"
 ```
-
-Expected: text containing `if(await r,K())return await` just before the `.storage-write` lock
-call, as in the Linux build. Then the import that names that `K` in the storage chunk:
 
 ```sh
-grep -a -o 'import{F,K}from"[^"]*".\{0,400\}var hzr="-credentials"' "$B" | head -1
+echo "$B"; "$B" --version
 ```
 
-Minified names such as `K` and `hzr` are those of 2.1.323 and change between versions; if the
-second pattern finds nothing, report the first command's output alone.
+Expected: a path of the shape
+`…/host-floor/programs/claude/<gen>/home/.local/share/claude/versions/<ver>`, then
+`<ver> (Claude Code)`.
 
-**Report:** both outputs, verbatim (they hold code, no secret). **Decides:** a Linux agent
-compares them with the Linux build; if the guard is not there, or `K` turns out not to be the
-diskless-launch check, [§3.9](#39-risks)'s first risk is real and the design stops.
+**Step 2.** Read the lock call, the import of its guard, and the guard's definition, with a Python byte
+search (ugrep calls the patterns too complex, and macOS `grep` caps a repetition at 255):
+
+```sh
+python3 -I - "$B" <<'EOF'
+import re, sys
+b = open(sys.argv[1], 'rb').read()
+I = rb'[\w$]+'
+m = re.search(rb'if\(await ' + I + rb',(' + I + rb')\(\)\)return await ' + I + rb'\.run\(!0,' + I + rb'\);.{0,120}?"\.storage-write"', b)
+if not m:
+    sys.exit('no guarded .storage-write lock call found')
+g = m.group(1)
+print('1 guard:', b[m.start():m.end()].decode())
+s = b.rfind(b'// @bun @bytecode', 0, m.start())
+imp = re.search(rb'import\{[^}]*\b' + re.escape(g) + rb'\b[^}]*\}from"([^"]*)"', b[s:m.start()])
+print('2 import:', imp.group(0).decode() if imp else 'none (the guard is defined in its own chunk)')
+for d in re.finditer(rb'function ' + re.escape(g) + rb'\(\)\{return (' + I + rb')\(\)\}function (' + I + rb')\(\)\{return [^}]{0,80}\}', b):
+    print('3 definition:', d.group(0).decode())
+for d in re.finditer(rb'isDiskless:\(\)=>' + re.escape(g) + rb'\(\)', b):
+    print('4 binding:', b[d.start():d.end()].decode())
+EOF
+```
+
+Expected, as in the Linux build of 2.1.325 (minified names other than the guard's differ
+between builds and versions):
+
+```text
+1 guard: if(await r,K())return await Be.run(!0,e);let a=…;await se().mkdir(a);let s=await …(…(a,".storage-write"
+2 import: import{F,ge,K}from"/$bunfs/root/chunk-….js"
+3 definition: function K(){return …()}function …(){return n().host.launchOptions.diskless()}
+4 binding: isDiskless:()=>K()
+```
+
+Line 3 must end `launchOptions.diskless()}`. `no guarded .storage-write lock call found` means
+the guard is not there.
+
+**Report:** the path, the version line and the four lines, verbatim (they hold code, no secret).
+**Decides:** if the guard is not there, or line 3 does not end in `launchOptions.diskless()`, the
+lock is skipped for something other than a diskless launch, [§3.9](#39-risks)'s first risk is real,
+and the design stops.
 
 *Run 2026-11-13 on 2.1.325* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#1-w-kh1-to-w-kh3)): **the guard is there**, `if(await r,K())return await Be.run(!0,e)` before the `.storage-write` lock; the variable is `Gje`, and the chunk imports `{F,K}`. As written the commands fail: `command -v claude` is yolo's host wrapper, and both ugrep and macOS grep reject the patterns.
+
+*Linux half, read 2026-11-13 on 2.1.325* (`~/.local/share/claude/versions/2.1.325` in the jail, `2.1.325 (Claude Code)`, read with the Python search above): **`K` is the diskless-launch check.** The lock call at byte 303909903 reads `if(await r,K())return await Be.run(!0,e)`, the same guard the Mac read; its chunk imports `import{F,ge,K}from"/$bunfs/root/chunk-r3adsed5.js"` and defines no `K` of its own. The one chunk in the binary that exports a `K` (it exports `F`, `K` and `ge` among 788 names) defines, at byte 300829639, `function K(){return Gt()}function Gt(){return n().host.launchOptions.diskless()}`, and registers `isDiskless:()=>K()`. The credentials chunk (the one that starts `import{F,K}from…`) uses the same `K` as `function QTe(){return K()?null:P4()}`, which is the plain-text fallback being nulled that [§2](#2-what-claude-does-on-a-mac) item 5's inference rested on. 2.1.323 reads the same way (`function K(){return on()}function on(){return n().host.launchOptions.diskless()}`). The Linux and darwin builds of 2.1.325 minify other names differently (Linux `J3r` and `chunk-r3adsed5`, the Mac's `Gje` and `chunk-m8nhymg4`), so the Mac's own `K` is confirmed only by step 2's line 3 on the Mac.
 
 ### W-KH3
 

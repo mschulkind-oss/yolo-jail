@@ -21,18 +21,30 @@ import (
 // measured or partial, never unknown. The session puts a probe file in that store first, so the
 // row has something to measure on a machine whose store a previous run left empty, and removes it
 // before it ends. The packs row must be measured: a launch with a pack staged a copy there.
+//
+// THE CONTAINER IMAGE STORE IS A CONTAINER SOURCE'S SECTION (named-setups-plan.md SUP-D57, SUP-D58).
+// There is no macos-user image row: `yolo stores` collects the image section once per container
+// source that `yolo ps`'s discovery listed (Podman, Apple Container), each row tagged with that
+// source's confinement and keyed `images.<row>` for Podman and `images.<row>@apple-container`
+// otherwise. A Mac whose only listed source is Seatbelt has no image section at all. The Linux
+// halves are internal/cli/stores TestAMacosUserInventoryHasNoContainerSectionWithoutAContainerSource
+// and TestEachTechnologysSectionsAppearOncePerListedSource; this reads the same shape off a real Mac,
+// whatever container runtimes it has.
 
 // storesJSON is the part of `yolo stores --format json` this test reads.
 type storesJSON struct {
+	Sources []struct {
+		Confinement, State string
+	} `json:"sources"`
 	Stores []struct {
-		Key, Section, Sizing, Reason, Note string
-		Bytes                              int64
+		Key, Section, Sizing, Reason, Note, Confinement string
+		Bytes                                           int64
 	} `json:"stores"`
 }
 
 // TestMacosUserStoresListsTheSandboxAccount: with a macos-user session up, `yolo stores` lists the
 // state dir's packs copies as measured, the sandbox account's mise store as measured or partial,
-// and the container image store as not applicable.
+// and the container image store only as the rows of each container source that listed.
 func TestMacosUserStoresListsTheSandboxAccount(t *testing.T) {
 	requireMacosUser(t)
 	packHome(t, `{"packs": ["claude"]}`)
@@ -73,9 +85,37 @@ func TestMacosUserStoresListsTheSandboxAccount(t *testing.T) {
 			"could not read the sandbox account's mise store %s without sudo, which the inventory "+
 			"assumes it can", sizing, bytes, ok, macosuser.SandboxMiseData(""))
 	}
-	if sizing, _, ok := get("images.macos-user"); !ok || sizing != "absent" {
-		t.Errorf("the container image store is not the not-applicable row on macos-user (%q, listed %v)",
-			sizing, ok)
+	// The sources: the held session is Seatbelt's, so that source listed; the image section is
+	// each listed container source's, and nothing else's.
+	listed := map[string]bool{}
+	for _, src := range rep.Sources {
+		if src.State == "listed" {
+			listed[src.Confinement] = true
+		}
+	}
+	if !listed["seatbelt"] {
+		t.Errorf("the Seatbelt source did not list with a macos-user session up: sources %+v", rep.Sources)
+	}
+	if _, _, ok := get("images.macos-user"); ok {
+		t.Errorf("an images.macos-user row is listed; SUP-D57 lists only each container source's image rows")
+	}
+	imageKeys := map[string]bool{}
+	for _, s := range rep.Stores {
+		if s.Section != "container image store" {
+			continue
+		}
+		imageKeys[s.Key] = true
+		if (s.Confinement != "podman" && s.Confinement != "apple-container") || !listed[s.Confinement] {
+			t.Errorf("image row %s carries confinement %q, which is not a container source that listed "+
+				"(sources %+v)", s.Key, s.Confinement, rep.Sources)
+		}
+	}
+	for confinement, key := range map[string]string{
+		"podman": "images.yolo", "apple-container": "images.yolo@apple-container",
+	} {
+		if listed[confinement] && !imageKeys[key] {
+			t.Errorf("%s listed, but its image row %s is missing (image rows %v)", confinement, key, imageKeys)
+		}
 	}
 
 	if res := session.release(t); res.rc != 0 {

@@ -442,6 +442,30 @@ func TestAMacosUserInventoryHasNoContainerSectionWithoutAContainerSource(t *test
 	}
 }
 
+// TestAMacosUserInventoryListsOnlyEachContainerSourcesImageRows (named-setups-plan.md SUP-D57,
+// SUP-D58): on a Mac whose selected setup is macos-user and whose listed sources are Seatbelt and
+// a container runtime, the image section is that runtime's rows alone, tagged with its
+// confinement; no image row is macos-user's or Seatbelt's. The Linux half of
+// integration TestMacosUserStoresListsTheSandboxAccount.
+func TestAMacosUserInventoryListsOnlyEachContainerSourcesImageRows(t *testing.T) {
+	o, _ := testOptions(t)
+	o.SelectedRuntime = func() string { return "macos-user" }
+	o.Sources = []Source{appleContainerListed(),
+		{Confinement: "seatbelt", Display: "Seatbelt", State: runtime.SourceListed}}
+	rows := sectionRows(Inventory(o), SectionImages)
+	if _, ok := rows["images.macos-user"]; ok {
+		t.Errorf("an images.macos-user row is listed: %v", keysIn(rows))
+	}
+	if _, ok := rows["images.yolo@apple-container"]; !ok {
+		t.Errorf("Apple Container listed, but its image row is missing: %v", keysIn(rows))
+	}
+	for key, s := range rows {
+		if s.Confinement != "apple-container" {
+			t.Errorf("image row %s carries confinement %q; only the listed container source's rows belong here", key, s.Confinement)
+		}
+	}
+}
+
 // TestMacosUserRowsNameTheRuntimeThatRunsTheirPass: the stopped-container, image-tarball,
 // interrupted-delivery and image-root passes are a container runtime's, and macos-user's own
 // `yolo prune` prints each as not applicable (prune's TestPruneOnMacosUserAsksNoRuntimeAndExitsZero

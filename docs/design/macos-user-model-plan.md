@@ -1300,17 +1300,31 @@ the colleague who reported the refusal):
 
   Expected: the first prints the account's own `/private/var/folders/…/T`; the second prints `OK`;
   the third fails with `touch: /tmp/x: Operation not permitted`; the fourth prints the same
-  directory, then that directory followed by `/zsh`. The agent briefing (for
-  Claude, `~/.claude/CLAUDE.md`) contains the line starting "The shared `/tmp` (`/private/tmp`) is closed
-  to this sandbox". Exit, then on the host:
+  directory, then that directory followed by `/zsh`. Since the briefing diet the closed-`/tmp` line
+  is in the jail-mechanics skill's limits topic, not in the briefing's always-loaded core
+  ([agent-briefings.md](../reference/agent-briefings.md)). Check both halves, for Claude:
+
+  ```
+  grep -nF 'The shared `/tmp` (`/private/tmp`) is closed to this sandbox' ~/.claude/skills/jail-mechanics/topics/limits.md
+  ```
+
+  prints one line, under the heading `## What this environment does NOT do for you`; and
+
+  ```
+  grep -nF 'Its topic files:' ~/.claude/CLAUDE.md
+  ```
+
+  prints the core's last line, which starts "Read the **jail-mechanics** skill", names that skill's
+  `SKILL.md`, and lists `limits` among its topic files, so the closed-`/tmp` line is one hop from
+  the core. Exit, then on the host:
 
   ```
   yolo config set macos_user_shared_tmp true --user
   ```
 
   Relaunch `yolo -- bash` the same way. The launch prints a line starting `tmp: the shared /tmp is
-  open to the sandbox`. Inside, `touch /tmp/x && echo OK` prints `OK`, and the briefing no longer
-  has the closed-`/tmp` line. Then remove the key again (`yolo config unset
+  open to the sandbox`. Inside, `touch /tmp/x && echo OK` prints `OK`, and the first `grep` above
+  (on `topics/limits.md`) prints nothing and exits 1. Then remove the key again (`yolo config unset
   macos_user_shared_tmp --user`) and delete `/tmp/x` (`sudo -n --user=_yolojail /usr/bin/env
   /bin/rm -f /tmp/x`). Also run the Mac-only tests this change edited, and paste their result:
 
