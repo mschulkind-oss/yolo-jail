@@ -1,6 +1,8 @@
 package macosuser
 
 import (
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -166,8 +168,25 @@ func ProvisionArgv(runAs RunAs, script, profilePath, envFile string,
 	// wrap would install against a different environment than the agent then runs in.
 	out = append(out, sandboxEnvPairs(runAs.homes(home), runAs.user(user), sandboxPathForHomes(runAs.homes(home), pathPrefix, guestBinDir), envFile)...)
 	out = append(out, "/usr/bin/sandbox-exec", "-f", profilePath, "--")
-	out = append(out, ExecWithEnvFile(envFile, []string{"/bin/bash", "-c", provisionInWorkspace(workspace, script)})...)
+	if guestBinDir == "" {
+		guestBinDir = filepath.Dir(StagedYoloPath(""))
+	}
+	out = append(out, ExecWithEnvFile(envFile, []string{"/bin/bash", "-c",
+		provisionInWorkspace(workspace, guestBinCheck(guestBinDir)+script)})...)
 	return out
+}
+
+// guestBinCheck is the stage's first command: is `yolo` on its PATH? Every log write in the
+// stage is `yolo internal log-append`, and the only yolo the stage's PATH reaches is the one in
+// this session's staged command directory (guestBinDir, GuestSessionBinDir). Without the check,
+// a missing yolo failed the first log write with `command not found` and stopped the launch as
+// "Provisioning log could not be written … repair workspace .yolo permissions or free disk
+// space", which names neither the cause nor a step that helps (lab report 2026-11-13 §3). It
+// exits provision.StageYoloMissingStatus, which runProvisionStage turns into the stop that does.
+func guestBinCheck(guestBinDir string) string {
+	return `command -v yolo >/dev/null 2>&1 || { printf "yolo is not on the provisioning stage's PATH: ` +
+		`this session's staged command directory %s does not hold a yolo the sandbox can run.\n" ` +
+		shQuote(guestBinDir) + ` >&2; exit ` + strconv.Itoa(provision.StageYoloMissingStatus) + "; }\n"
 }
 
 // provisionInWorkspace starts script in the workspace. The stage's `mise ls --missing` and

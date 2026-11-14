@@ -2002,7 +2002,18 @@ func runProvisionStage(deps Deps, out printer, plan RunPlan) bool {
 	if rc == 0 {
 		return true
 	}
+	if rc == provision.StageYoloMissingStatus {
+		deps.sayFailed(out, guestBinMissingStop(deps, plan))
+		return false
+	}
 	if rc == provision.StageLogFailedStatus {
+		// A log write fails as "command not found" when the stage's yolo is gone (the `--tee`
+		// writer runs after the stage's own guest-bin check), so ask the host before blaming
+		// permissions or disk.
+		if stop, gone := guestBinGoneStop(deps, plan); gone {
+			deps.sayFailed(out, stop)
+			return false
+		}
 		deps.sayFailed(out, "[bold red]Provisioning log could not be written.[/bold red] Repair workspace .yolo permissions or free disk space, then retry yolo; log: "+log+".")
 		return false
 	}
@@ -2029,6 +2040,42 @@ func runProvisionStage(deps Deps, out printer, plan RunPlan) bool {
 		"profile, not the tools themselves. Launching anyway: the declared tools are "+
 		"NOT installed in this sandbox.")
 	return true
+}
+
+// guestBinGoneStop reports whether this session's staged yolo is missing on the host, and the
+// stop for it. It asks the host once; with no way to ask (no PathExists, no session dir) it says
+// nothing is gone, so the caller keeps its own reading.
+func guestBinGoneStop(deps Deps, plan RunPlan) (string, bool) {
+	if deps.PathExists == nil || plan.SessionGuestBinDir == "" {
+		return "", false
+	}
+	if deps.PathExists(filepath.Join(plan.SessionGuestBinDir, "yolo")) {
+		return "", false
+	}
+	return guestBinStop(plan.SessionGuestBinDir, false), true
+}
+
+// guestBinMissingStop is the stop for provision.StageYoloMissingStatus: the stage's PATH reached
+// no yolo. Whether the staged copy is still on the host is the fact that tells removal from a
+// sandbox that cannot reach it, so the stop asks and says which.
+func guestBinMissingStop(deps Deps, plan RunPlan) string {
+	dir := plan.SessionGuestBinDir
+	if dir == "" {
+		dir = filepath.Dir(StagedYoloPath(""))
+	}
+	onHost := deps.PathExists != nil && deps.PathExists(filepath.Join(dir, "yolo"))
+	return guestBinStop(dir, onHost)
+}
+
+func guestBinStop(dir string, onHost bool) string {
+	where := "is gone from the host"
+	if onHost {
+		where = "is on the host, but the sandbox could not run the yolo in it"
+	}
+	return "[bold red]Provisioning found no yolo to run.[/bold red] This session's staged command directory " +
+		dir + " " + where + ". yolo stages it at launch and removes it only when the session ends, " +
+		"so nothing in the workspace is at fault. Retry yolo; if it stops again, run `yolo run --dry-run` " +
+		"and `ls -le " + filepath.Dir(dir) + "` and report both at " + entrypoint.IssuesURL + "."
 }
 
 // PrintPlan renders a RunPlan for --dry-run (human-readable; rich markup
