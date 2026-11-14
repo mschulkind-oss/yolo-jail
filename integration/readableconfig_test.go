@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -54,23 +55,40 @@ func writeWorkspaceTOML(t *testing.T, body string) string {
 // /ctx/<name>, and a writable request the user's [allow.mounts] permits is approved by
 // --accept-config-changes (jailRunArgs carries it) and is writable from inside, the file
 // appearing on the host. The launch must not offer a conversion, as nothing is in the old format.
+//
+// The package half runs on Linux only. On darwin a package means a full image realisation
+// (warmJail's comment says the same), which on a cold macOS runner used the whole
+// YOLO_TEST_JAIL_TIMEOUT before the launch began: shard 5 of nightly 42372802408 on 2026-11-07
+// and of nightly 43597567094 on 2026-11-14. Package delivery on darwin is
+// TestMacArchiveDeliveryReusesLayers' question, and the TOML `[install]` read is
+// internal/config's TestLoadReadableWorkspaceConfigReadsReadableInstall; an [env.set] value
+// stands in as the TOML witness there.
 func TestAJailLaunchesOnTOMLFiles(t *testing.T) {
 	requireJail(t)
 
 	writeUserTOML(t, "[allow.mounts]\non_request = [\"write\"]\n")
 	roSrc, rwSrc := t.TempDir(), t.TempDir()
-	dir := writeWorkspaceTOML(t,
-		"mounts = [\n  '"+roSrc+"',\n  { host = '"+rwSrc+"', at = '/ctx/scratch', write = true },\n]\n\n"+
-			"[install]\nnix = [\"hello\"]\n")
+	withPackage := runtime.GOOS == "linux"
+	body := "mounts = [\n  '" + roSrc + "',\n  { host = '" + rwSrc + "', at = '/ctx/scratch', write = true },\n]\n\n" +
+		"[env.set]\nTOML_WITNESS = \"from-toml\"\n"
+	if withPackage {
+		body += "\n[install]\nnix = [\"hello\"]\n"
+	}
+	dir := writeWorkspaceTOML(t, body)
 
-	script := `command -v hello && echo HELLO-ON-PATH
+	script := `[ "$TOML_WITNESS" = from-toml ] && echo ENV-FROM-TOML
 touch /ctx/scratch/from-jail && echo WRITABLE-OK
 touch /ctx/` + filepath.Base(roSrc) + `/nope 2>/dev/null || echo READONLY-OK`
+	wants := []string{"ENV-FROM-TOML", "WRITABLE-OK", "READONLY-OK"}
+	if withPackage {
+		script = "command -v hello && echo HELLO-ON-PATH\n" + script
+		wants = append(wants, "HELLO-ON-PATH")
+	}
 	r := runYolo(t, dir, script)
 	if r.rc != 0 {
 		t.Fatalf("a launch on TOML files must succeed: rc %d\n%s", r.rc, r.combined())
 	}
-	for _, want := range []string{"HELLO-ON-PATH", "WRITABLE-OK", "READONLY-OK"} {
+	for _, want := range wants {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("the jail did not show %s:\n%s", want, r.combined())
 		}
