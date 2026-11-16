@@ -167,4 +167,3 @@ fixed here or widened into a new implementation policy.
 | SM-D5 | Projection is at the derive boundary, not inside Lua packs. |
 | SM-D6 | Applicable filters intersect and preserve supported user-last rows/order. |
 | SM-D7 | Shared authority/routes remain unprojected; client enforcement still uses enforce_models. |
-| SM-D8 | Additive-list ownership remains with the larger model-lists design. |
