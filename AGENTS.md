@@ -380,6 +380,8 @@ The mechanics behind each of these are in
 | End-user usage, devices/GPU, mise tools, `yolo-cglimit` | [User guide](userguide/README.md), published at [docs.yolo-jail.mschulkind.dev](https://docs.yolo-jail.mschulkind.dev) |
 | Every config key and pack contribution kind, per setup (backend × host OS) | [`settings-per-setup.md`](userguide/reference/settings-per-setup.md) |
 | Mounts, overlays, home layout | [`jail-home.md`](docs/reference/jail-home.md) |
+| Workspace-selected Git skills, authority and delivery | [`workspace-git-skills/README.md`](docs/reference/workspace-git-skills/README.md) |
+| Config approval explanation and raw inspection | [`config-approval-presentation.md`](docs/reference/config-approval-presentation.md) |
 | Briefing generation, skills staging | [`agent-briefings.md`](docs/reference/agent-briefings.md) |
 | MCP/LSP config, the node/npx wrappers | [`mcp-configuration.md`](docs/reference/mcp-configuration.md) |
 | `LD_LIBRARY_PATH` / nix-ld, the `/lib` farm | [`mise-node-dynamic-linking.md`](docs/reference/mise-node-dynamic-linking.md) |

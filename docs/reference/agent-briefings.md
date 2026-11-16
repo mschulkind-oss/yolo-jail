@@ -872,6 +872,9 @@ audience admits, where the host narrows a content `into`
 
 ### The workspace layer
 
+[Workspace Git skill imports](workspace-git-skills/README.md) describe the additional
+lowest-precedence source set, its host authority and confined projection.
+
 A repo's committed skills reach every agent, not only the one whose path the repo chose
 ([`OQ-WS1`](#oq-ws1)): the repo picks the content, never the agent. Five principles shape the
 layer. They are the workspace layer's `P1` to `P5`, anchored `ws-p1` to `ws-p5`, a namespace of

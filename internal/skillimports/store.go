@@ -1,5 +1,7 @@
 package skillimports
 
+// Architecture and invariants: docs/reference/workspace-git-skills/README.md
+
 import (
 	"encoding/hex"
 	"encoding/json"

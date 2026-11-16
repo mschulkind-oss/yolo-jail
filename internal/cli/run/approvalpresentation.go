@@ -1,5 +1,7 @@
 package run
 
+// Architecture and invariants: docs/reference/config-approval-presentation.md
+
 import (
 	"fmt"
 	"os"

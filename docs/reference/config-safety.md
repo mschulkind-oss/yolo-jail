@@ -47,7 +47,8 @@ is trusted on disk and prompts nowhere — see [Why user config never prompts](#
 | The delivered merged config, and the frozen boot baseline | `internal/config` (`assembled.go`), `internal/cli/run` (`writeLaunchConfigArtifacts`) |
 | Where the approval record lives | `internal/paths` (`ApprovalsDir`), keyed by `runtime.FromWorkspace` |
 
-**Reads with:** [`gate-placement-principle.md`](gate-placement-principle.md)
+**Reads with:** [Config approval presentation](config-approval-presentation.md)
+(the complete two-view explanation and read-only inspection), [`gate-placement-principle.md`](gate-placement-principle.md)
 (why a gate only earns its place where authority changes hands),
 [`loophole-system.md`](loophole-system.md#why-its-this-way) ([`OQ-A13`](loophole-system.md#oq-a13)
 makes this diff the disclosure for enabling a host-reaching loophole),

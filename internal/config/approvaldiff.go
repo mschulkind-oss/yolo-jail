@@ -1,5 +1,7 @@
 package config
 
+// Architecture and invariants: docs/reference/config-approval-presentation.md
+
 import (
 	"fmt"
 	"sort"

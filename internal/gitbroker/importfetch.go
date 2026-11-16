@@ -1,5 +1,7 @@
 package gitbroker
 
+// Architecture and invariants: docs/reference/workspace-git-skills/README.md
+
 import (
 	"context"
 	"crypto/x509"

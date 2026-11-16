@@ -171,3 +171,8 @@ naming its replacement (`config.go`'s refusal, pinned by `surfacecmd_test.go`).
 - Verbs: `internal/cli/config.go` (`configRunW`), `configeditverbs.go`, `allow.go`, `allowrepos.go`,
   `request.go`, `requestrepos.go`, `activeprovider.go`, `packadd.go`, `packmigrate.go`,
   `configwhy.go`, `surfacecmd.go`.
+
+The mechanism and boundaries of raw inspection are described in
+[Config approval presentation](../config-approval-presentation.md#raw-inspection).
+Workspace Git commands and their host/jail effects are described in
+[Skill import lifecycle](../workspace-git-skills/lifecycle.md#explicit-commands).
