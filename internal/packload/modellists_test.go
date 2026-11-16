@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
+	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
 // gatewayPack ships a provider with an unordered two-model list and a `default` alias, the
@@ -139,6 +141,125 @@ func TestAModelsAddAppendsToAnotherPacksList(t *testing.T) {
 // EVERY `add` APPLIES BEFORE EVERY `only`, whatever the pack order (MM-D11): a company's
 // narrowing listed first in `packs` cannot be re-opened by a pack listed after it. Two onlys
 // intersect, and a narrowed list carries the mark the derives render an exact menu from.
+func TestScopedModelsOnlyLeavesSharedProviderAndRecordsAgentView(t *testing.T) {
+	company := modelsPack(t, "company", `{"kind":"models","provider":"gw","only":["beta-2"],"agents":["claude"]}`)
+	user := jsonx.NewOrderedMap()
+	userModels := jsonx.NewOrderedMap()
+	userModels.Set("custom", "custom-id")
+	userProvider := jsonx.NewOrderedMap()
+	userProvider.Set("models", userModels)
+	user.Set("gw", userProvider)
+	base, err := ComposeProviders(user, []*Pack{gatewayPack(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ComposeProviders(user, []*Pack{gatewayPack(t), company})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := providerEntry(got, "gw")
+	baseEntry := providerEntry(base, "gw")
+	if !reflect.DeepEqual(subOrderedOrNil(entry, "models"), subOrderedOrNil(baseEntry, "models")) {
+		t.Errorf("scoped only changed shared models: got %s, base %s", dump(t, subOrderedOrNil(entry, "models")), dump(t, subOrderedOrNil(baseEntry, "models")))
+	}
+	if !reflect.DeepEqual(subOrderedOrNil(entry, "model_options"), subOrderedOrNil(baseEntry, "model_options")) {
+		t.Errorf("scoped only changed shared model_options: got %s, base %s", dump(t, subOrderedOrNil(entry, "model_options")), dump(t, subOrderedOrNil(baseEntry, "model_options")))
+	}
+	sharedWithoutView := jsonx.DeepCopy(got).(*jsonx.OrderedMap)
+	providerEntry(sharedWithoutView, "gw").Delete(ModelsViewsKey)
+	if !reflect.DeepEqual(sharedWithoutView, base) {
+		t.Errorf("shared provider table changed beyond its composer-only view: got %s, base %s",
+			dump(t, sharedWithoutView), dump(t, base))
+	}
+	if _, marked := entry.Get(ModelsOnlyKey); marked {
+		t.Error("scoped only marked the shared provider models_only")
+	}
+	views, _ := entry.Get(ModelsViewsKey)
+	byAgent, ok := views.(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("models_views = %T %v, want ordered audience map", views, views)
+	}
+	claude, _ := byAgent.Get("claude")
+	allowed, ok := claude.(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("Claude view = %T %v, want filter/user facts", claude, claude)
+	}
+	filter, _ := allowed.Get("only")
+	if !reflect.DeepEqual(filter, []any{"beta-2"}) {
+		t.Errorf("Claude view only = %v, want [beta-2]", filter)
+	}
+	userIDs, _ := allowed.Get("user")
+	if !reflect.DeepEqual(userIDs, []any{"custom-id"}) {
+		t.Errorf("Claude view user exemptions = %v, want [custom-id]", userIDs)
+	}
+	if _, err := ComposeProviderDeclarations(user, []*Pack{gatewayPack(t), company}); err != nil {
+		t.Fatalf("composer-only models_views prevented typed provider declaration: %v", err)
+	}
+}
+
+func TestUnnarrowedMenusUseEachAgentsProjectedModelView(t *testing.T) {
+	policy := modelsPack(t, "policy", `{"kind":"models","provider":"gw","only":["beta-2"],"agents":["tool-a"]}`)
+	program := func(name string) *Pack {
+		return &Pack{Name: name, Decl: &packdecl.Manifest{Contributes: []packdecl.Contribution{{
+			Kind: packdecl.KindProgram, Bin: name, ExactMenuRefuses: &packdecl.ExactMenuRefusal{},
+		}}}}
+	}
+	packs := []*Pack{gatewayPack(t), policy, program("tool-a"), program("tool-b")}
+	providers, err := ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enforce := false
+	resolved := map[string]ResolvedProfile{
+		"a": {Provider: "gw", EnforceModels: &enforce},
+		"b": {Provider: "gw", EnforceModels: &enforce},
+	}
+	got := UnnarrowedMenus(packs, providers, resolved,
+		map[string]string{"tool-a": "a", "tool-b": "b"}, nil)
+	if len(got) != 1 || got[0].Agent != "tool-a" || got[0].Provider != "gw" {
+		t.Errorf("unnarrowed menus = %+v, want only tool-a's narrowed view", got)
+	}
+}
+
+func TestScopedAndUnscopedOnlyIntersectForTheNamedAgent(t *testing.T) {
+	policy := modelsPack(t, "policy", `{"kind":"models","provider":"gw","only":["beta-2"]},
+	  {"kind":"models","provider":"gw","only":["alpha-1","beta-2"],"agents":["claude"]}`)
+	providers, err := ComposeProviders(nil, []*Pack{gatewayPack(t), policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projected, ok := modelview.ProjectProviderTable(providers, "claude").(*jsonx.OrderedMap)
+	if !ok {
+		t.Fatalf("projected provider table has type %T", modelview.ProjectProviderTable(providers, "claude"))
+	}
+	if got := entryIDs(t, projected, "gw"); !reflect.DeepEqual(got, []string{"beta-2", "default"}) {
+		t.Errorf("Claude's shared/scoped intersection = %v, want [beta-2 default]", got)
+	}
+	if got := entryIDs(t, modelview.ProjectProviderTable(providers, "pi").(*jsonx.OrderedMap), "gw"); !reflect.DeepEqual(got, []string{"beta-2", "default"}) {
+		t.Errorf("Pi's unscoped-only list = %v, want [beta-2 default]", got)
+	}
+}
+
+func TestScopedModelsOnlyDiagnosticsRespectAbsentAndNulledProviders(t *testing.T) {
+	const missingID = "must-not-appear-in-note"
+	policy := modelsPack(t, "policy", `{"kind":"models","provider":"gw","only":["`+missingID+`"],"agents":["claude"]}`)
+	var notes []string
+	if _, err := ComposeProviders(nil, []*Pack{policy}, WithModelNotes(func(note string) { notes = append(notes, note) })); err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) == 0 || strings.Contains(strings.Join(notes, "\\n"), missingID) {
+		t.Errorf("absent provider notes = %v, want a shapes-nothing note without model ids", notes)
+	}
+	user := userProviders(t, `{"gw":null}`)
+	notes = nil
+	if _, err := ComposeProviders(user, []*Pack{gatewayPack(t), policy}, WithModelNotes(func(note string) { notes = append(notes, note) })); err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("nilled provider notes = %v, want none", notes)
+	}
+}
+
 func TestModelsOnlyNarrowsAfterEveryAdd(t *testing.T) {
 	narrow := modelsPack(t, "policy", `{"kind":"models","provider":"gw","only":["beta-2","kimi-k3","grok-5"]},
 	  {"kind":"models","provider":"gw","only":["beta-2","kimi-k3"]}`)

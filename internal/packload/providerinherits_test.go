@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
 )
 
 // inheritsPack is a parent p and a child c that inherits it, with the credential and the variant
@@ -53,6 +54,37 @@ func entryIDs(t *testing.T, table *jsonx.OrderedMap, name string) []string {
 		return nil
 	}
 	return append([]string(nil), models.Keys()...)
+}
+
+func TestScopedModelViewsFollowInheritanceAndIntersectChildScope(t *testing.T) {
+	provider := inheritsPack(t, `
+[providers.p.models]
+a = "a"
+b = "b"
+`)
+	policy := modelsPack(t, "policy", `{"kind":"models","provider":"p","only":["a","b"],"agents":["claude"]},
+	  {"kind":"models","provider":"c","only":["b","c"],"agents":["claude"]}`)
+	providers, err := ComposeProviders(nil, []*Pack{provider, policy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string][]string{"p": {"a", "b"}, "c": {"b"}} {
+		projected, ok := modelview.ProjectProviderTable(providers, "claude").(*jsonx.OrderedMap)
+		if !ok {
+			t.Fatalf("projected providers has type %T", modelview.ProjectProviderTable(providers, "claude"))
+		}
+		entry := providerEntry(projected, name)
+		models := subOrderedOrNil(entry, "models")
+		if got := models.Keys(); !reflect.DeepEqual(got, want) {
+			t.Errorf("Claude %s aliases = %v, want %v", name, got, want)
+		}
+	}
+	if got := entryIDs(t, providers, "p"); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("shared parent list changed: %v", got)
+	}
+	if got := entryIDs(t, providers, "c"); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("shared child list changed: %v", got)
+	}
 }
 
 func TestAChildTakesItsParentsUserSettings(t *testing.T) {

@@ -35,6 +35,44 @@ func companyPack(t *testing.T, contributes string) *packload.Pack {
 	return p
 }
 
+func TestScopedModelsOnlyDoesNotCreateWireBridgeAllowlist(t *testing.T) {
+	const add = `{"kind":"models","provider":"bedrock","add":[
+	  {"id":"global.anthropic.claude-fable-5-2","vendor":"anthropic"},
+	  {"id":"global.anthropic.claude-haiku-5-5","vendor":"anthropic"}]}`
+	base := func() []*packload.Pack {
+		var packs []*packload.Pack
+		for _, p := range packload.Embedded() {
+			if p.Name == "aws-auth" || p.Name == "bedrock" || p.Name == "claude" || p.Name == "wire-bridge" {
+				packs = append(packs, p)
+			}
+		}
+		return packs
+	}
+	without := append(base(), companyPack(t, add))
+	with := append(base(), companyPack(t, add+`,{"kind":"models","provider":"bedrock","only":[
+	  "global.anthropic.claude-fable-5-2","global.anthropic.claude-haiku-5-5"],"agents":["claude"]}`))
+	before, err := packload.ComposeProviders(nil, without)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := packload.ComposeProviders(nil, with)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routePlan := plan{via: viaPlan{Routes: []viaRoute{{Agent: "claude", ProviderName: "bedrock"}}}}
+	use := map[string]string{"claude": "bedrock-bridge"}
+	resolved := map[string]packload.ResolvedProfile{"bedrock-bridge": {}}
+	e := &entrypoint.Env{Vars: map[string]string{"YOLO_PACK_ROOT": stagedTree(t, with)}}
+	baseline := allowlistsFor(routePlan, before, use, resolved, e)
+	scoped := allowlistsFor(routePlan, after, use, resolved, e)
+	if baseline.adapter != nil || len(baseline.via) != 0 {
+		t.Fatalf("baseline list unexpectedly creates an allowlist: %+v", baseline)
+	}
+	if scoped.adapter != nil || len(scoped.via) != 0 {
+		t.Errorf("Claude-scoped menu narrowed the shared bridge route: %+v", scoped)
+	}
+}
+
 // stagedTree stages packs the way a launch's tree holds them (<root>/_official/<name>), each
 // pack's manifest copied, and returns the root the boot reads as YOLO_PACK_ROOT.
 func stagedTree(t *testing.T, packs []*packload.Pack) string {

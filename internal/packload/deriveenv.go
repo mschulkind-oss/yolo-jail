@@ -29,6 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/agentenv"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
 )
 
 // DeriveScript reads a pack's derive.lua (at its tree root), or "" when absent. The
@@ -151,7 +152,11 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 	if err := refuseUnspeakableSetEntries(packs, owner, agent, profile, cfg, providers); err != nil {
 		return nil, err
 	}
-	table := hydrateProviders(providers, lookup)
+	projectedProviders, ok := modelview.ProjectProviderTable(providers, agent).(*jsonx.OrderedMap)
+	if !ok {
+		projectedProviders = providers
+	}
+	table := hydrateProviders(projectedProviders, lookup)
 	// THE ROLE ENVIRONMENT (modelroles.go, OQ-XM4) comes first and the derive's output second,
 	// so a variable the agent's own pack sets under the same name, a tombstone included, wins:
 	// the pack is the more specific statement about its own agent's process. Composed before
@@ -189,7 +194,7 @@ func AgentEnv(packs []*Pack, providers *jsonx.OrderedMap, useProfiles map[string
 		composed[v.Key] = v.Value
 	}
 	if script := DeriveScript(owner); script != "" {
-		out, err := deriveAgentEnv(script, owner, packs, providers, table, useProfiles, agent,
+		out, err := deriveAgentEnv(script, owner, packs, projectedProviders, table, useProfiles, agent,
 			profile, selected, cfg)
 		if err != nil {
 			return nil, err

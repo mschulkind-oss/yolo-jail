@@ -1,0 +1,6 @@
+--- FAIL: TestDeriveContextProjectsProviderModelsAndNeverExposesViews (0.00s)
+    modelview_test.go:26: derive view state = map[ids:map[fable:fable-id gpt:gpt-id opus:opus-id] narrowed:false views:false], want stripped views and models_only
+    modelview_test.go:33: derive models = map[fable:fable-id gpt:gpt-id opus:opus-id], want only fable and opus
+FAIL
+FAIL	github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook	0.002s
+FAIL

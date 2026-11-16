@@ -19,6 +19,7 @@ package packload
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -49,6 +50,10 @@ func UnnarrowedMenus(packs []*Pack, providers *jsonx.OrderedMap, resolved map[st
 				continue
 			}
 			seenAgent[c.Bin] = true
+			agentProviders, ok := modelview.ProjectProviderTable(providers, c.Bin).(*jsonx.OrderedMap)
+			if !ok {
+				agentProviders = providers
+			}
 			whole := map[string]bool{}
 			for _, name := range c.ExactMenuRefuses.Providers {
 				whole[name] = true
@@ -61,7 +66,7 @@ func UnnarrowedMenus(packs []*Pack, providers *jsonx.OrderedMap, resolved map[st
 				}
 				// The first entry on a provider is the one that governs it, whatever its switch.
 				seenProvider[provider] = true
-				entry := providerEntry(providers, provider)
+				entry := providerEntry(agentProviders, provider)
 				if entry == nil || ModelsEnforced(resolved[profile]) || !hasModels(entry) || firstPartyOnly(entry) {
 					continue
 				}

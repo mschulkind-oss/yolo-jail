@@ -573,10 +573,10 @@ type Contribution struct {
 	// an addressed `{"from": "files/pi.md", "agents": ["pi"]}` beside a briefing/ directory
 	// ADDS pi's file and leaves the directory broadcasting.
 	//
-	// Taken by `briefing`, `skills` and `files`, and refused on every other kind: the three
-	// kinds whose content many packs deliver into destinations AGENT packs name, which is the
-	// only place "who is this for?" has more than one answer. (`files` joined them with the
-	// slot mechanism; the first two are the ones with a conventional source.)
+	// Taken by `briefing`, `skills` and `files` to deliver content into destinations AGENT
+	// packs name (`files` joined them with the slot mechanism; the first two have a conventional
+	// source). `models` also accepts an audience, but only on `only`, where it scopes a model-menu
+	// view rather than routing content; models.go owns those constraints.
 	Agents []string `json:"agents,omitempty"`
 	// Describes names the KINDS OF THIS PACK'S OWN CONTRIBUTIONS that a `briefing` content
 	// contribution's prose is about, and delivers that prose at the host only where, for every
@@ -4640,17 +4640,26 @@ func validateContribution(label string, c Contribution) []string {
 	// into destinations AGENT packs name — the only place "who is this for?" is a question
 	// with more than one answer.
 	if c.Kind != KindBriefing && c.Kind != KindSkills && c.Kind != KindFiles {
-		for _, f := range []struct {
-			name string
-			set  bool
-		}{{"agent", c.Agent != ""}, {"agents", len(c.Agents) > 0}} {
-			if !f.set {
-				continue
+		if c.Kind == KindModels {
+			// `models` alone accepts an audience, and only its scoped `only` form reads it.
+			// Its body validation handles the verb/empty-list rules; this reuses the bin
+			// namespace guard without admitting the singular destination identity.
+			for i, a := range c.Agents {
+				problems = binProblem(problems, fmt.Sprintf("%s.agents[%d]", label, i), a)
 			}
-			problems = append(problems, fmt.Sprintf(
-				"%s: kind %q does not take %q — a destination's identity and a contribution's "+
-					"audience are read for \"briefing\", \"skills\" and \"files\" only; no "+
-					"consumer reads either on this kind", label, c.Kind, f.name))
+		} else {
+			for _, f := range []struct {
+				name string
+				set  bool
+			}{{"agent", c.Agent != ""}, {"agents", len(c.Agents) > 0}} {
+				if !f.set {
+					continue
+				}
+				problems = append(problems, fmt.Sprintf(
+					"%s: kind %q does not take %q — a destination's identity and a contribution's "+
+						"audience are read for \"briefing\", \"skills\" and \"files\" only; no "+
+						"consumer reads either on this kind", label, c.Kind, f.name))
+			}
 		}
 	}
 	// `forward` is intercept's whole body, refused elsewhere in `profile`'s position and for

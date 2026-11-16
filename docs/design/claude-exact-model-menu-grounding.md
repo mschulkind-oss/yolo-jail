@@ -1,0 +1,24 @@
+# Source grounding: Claude exact model menu
+
+Verified against `bec6e62042b5e65e762ca40171444c701f8bc341` in the isolated candidate worktree. The supplied scratch feature request was read read-only before implementation; the canonical design is [`claude-exact-model-menu.md`](claude-exact-model-menu.md).
+
+| Finding | Source evidence |
+| :--- | :--- |
+| `models` has only `Add` and `Only`; model validation requires one verb. | `internal/packdecl/models.go` (`ModelsContribution`, `modelsProblems`); `internal/packdecl/contributes.go` (`Contribution.Only`, generic `agent`/`agents` checks). |
+| Model contributions currently apply before user providers, add first, then unscoped `only`, and set the provider-wide `models_only`. | `internal/packload/providers.go` (`composeProviderTable`); `internal/packload/modellists.go` (`applyModelContributions`, `shapeProviderModels`). |
+| User model IDs are identified per provider; model facts/options are alias-keyed and deleting a model alias also deletes its `model_options`. | `internal/packload/modellists.go` (`userModelIDs`, `shapeProviderModels`). |
+| Inheritance copies a finished parent entry, then applies child contributions, then child user config. Thus a composed view marker on a parent can inherit to children, but child-local views must be merged after the child's own user layer. | `internal/packload/providerinherits.go` (`inheritsPlan.compose`); `internal/packload/providers.go` (`composeProviderTable`). |
+| All derive Lua contexts are assembled through `luahook.buildDeriveCtxTable`; `DeriveCtx.Agent` is available there and `providers` is the generic live table. | `internal/agentcfg/luahook/derive.go` (`buildDeriveCtxTable`, read-only tables); production callers include `entrypoint` surface rendering, `packload.AgentEnv`, and `packload` via composition. |
+| `AgentEnv` also computes `ModelRoleVars` from its provider table before invoking the env derive, so its agent view must be projected before that computation. | `internal/packload/deriveenv.go` (`AgentEnv`, `deriveAgentEnv`). |
+| Shared list questions intentionally read the unprojected table; `UnnarrowedMenus` is agent-specific and reads `models_only`. | `internal/packload/unnarrowedmenus.go`; shared wire list in `internal/wirebridged/allowlist.go`; typed decoding strips composer-owned `models_only` in `internal/packload/providers.go` (`ComposeProviderDeclarations`). |
+| Existing real caller fixtures cover Claude Bedrock settings and other agents' `only` behavior. | `internal/entrypoint/claudemodelpins_test.go`, `internal/entrypoint/modelsonlyagents_test.go`, `internal/entrypoint/bedrock_model_list_test.go`. |
+
+The implemented projection boundary is exercised through both `ConfigurePackSurfaces` and `AgentEnv`; unit tests of projection alone do not prove the call sites. The composition order differs from the design's high-level sequence: retain the established unscoped two-pass behavior, while recording scoped view facts after each target provider's user merge and before its inheriting child composes, then applying child-local views after the child's user merge.
+
+## Candidate verification facts
+
+- `internal/entrypoint/claudeexactmodelmenu_test.go` renders the four Claude rows in declared order, checks exact picker replacement, tier env pins, enforcement on/off, and byte-compares Pi and Copilot outputs with and without the audience. The fixture adds ten rows through a company `models.add`; Pi retains all ten explicit `amazon-bedrock/<id>` enabled models in this current harness.
+- The feature request's recorded historical Pi baseline (`amazon-bedrock/*`, `keep_catalog:true`, `enforce:false`) is not the same current fixture. Current `packs/pi/derive.lua` takes its native Bedrock branch and emits explicit `amazon-bedrock/<id>` entries when a callable list is supplied; the no-list path emits a wildcard. [`TestPiOnBedrockUsesItsOwnConverseClient`](../../internal/entrypoint/bedrock_pi_test.go) pins the supplied-list behavior. The implementation does not change it.
+- `internal/wirebridged/allowlist_test.go:TestScopedModelsOnlyDoesNotCreateWireBridgeAllowlist` exercises the production `allowlistsFor` path with a staged pack tree and proves the scoped menu creates no shared bridge allowlist.
+- `go test -run '^TestBedrockRendersEachAgentsOwnClient$' ./integration` passed. `just build-dev-bundle` produced the matched launcher and one throwaway nested `podman-self` launch of `true` passed with no configured packs. This is a boot smoke, not a jail-side scoped-feature render; no live agent/model/AWS call was made.
+- The preserved raw derive-projection regression and the honest record of the other development failures are in [`red-phase receipts`](evidence/claude-exact-model-menu-red-receipts.md). The schema and render output files were reused by green reruns; the evidence note says so rather than presenting those green outputs as red logs.

@@ -53,6 +53,17 @@ func TestModelsDecodesAndTravels(t *testing.T) {
 	}
 }
 
+func TestModelsOnlyAcceptsAgentAudience(t *testing.T) {
+	m, problems := decodeModelsEntry(t, `{"kind":"models","provider":"bedrock","only":["m"],"agents":["claude"]}`)
+	if len(problems) != 0 {
+		t.Fatalf("scoped only was refused: %v", problems)
+	}
+	got := m.ModelsContributions()
+	if len(got) != 1 || len(got[0].Agents) != 1 || got[0].Agents[0] != "claude" {
+		t.Fatalf("ModelsContributions() = %+v, want one claude-scoped only", got)
+	}
+}
+
 func TestModelsRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name, entry, want string
@@ -78,6 +89,11 @@ func TestModelsRefusals(t *testing.T) {
 			{"id": "m", "vendor": "v", "cost": {"input": 1}}]}`, `cost.output is required`},
 		{"an empty add", `{"kind": "models", "provider": "p", "add": []}`, `adds nothing`},
 		{"an id kept twice", `{"kind": "models", "provider": "p", "only": ["m", "m"]}`, `listed twice`},
+		{"an empty audience", `{"kind":"models","provider":"p","only":["m"],"agents":[]}`, `non-empty`},
+		{"a repeated audience name", `{"kind":"models","provider":"p","only":["m"],"agents":["claude","claude"]}`, `listed twice`},
+		{"audience on add", `{"kind":"models","provider":"p","add":[{"id":"m","vendor":"v"}],"agents":["claude"]}`, `only`},
+		{"singular agent on models", `{"kind":"models","provider":"p","only":["m"],"agent":"claude"}`, `does not take "agent"`},
+
 		{"only on another kind", `{"kind": "env", "vars": {"A": "1"}, "only": ["m"]}`, `does not take "only"`},
 		{"add on another kind", `{"kind": "env", "vars": {"A": "1"}, "add": [{"id": "m", "vendor": "v"}]}`,
 			`does not take "add"`},

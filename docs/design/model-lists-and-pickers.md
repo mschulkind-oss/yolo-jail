@@ -548,9 +548,14 @@ so it needs no fetched-pack approval.
   already present. A duplicate `id` keeps the first writer's position and fields whole, and
   `yolo check` names the duplicate. The picks pack yields rather than taking a position
   ([§5.2](#52-how-it-joins-a-launch)).
-- **`only`** narrows to the ids it names and never adds one. Two `only` contributions for one
-  provider intersect. An id that `only` names and no one added is dropped, and `yolo check`
-  names it.
+- **`only`** narrows to the ids it names and never adds one. Two unscoped `only` contributions
+  for one provider intersect. An id that `only` names and no one added is dropped, and `yolo check`
+  names it. An optional `agents` audience scopes an `only` to those agents' projected menus; it
+  does not narrow the shared provider rows or set the shared `models_only` marker. Multiple
+  scoped `only`s intersect per agent, and each agent's declared user ids remain available. The
+  audience is opaque to core; absent `agents` retains the shared behavior. See
+  [`claude-exact-model-menu.md`](claude-exact-model-menu.md) for the accepted design and its
+  boundaries.
 - **The user is the last writer.** A user's `providers.<name>.models` replaces the composed list
   for that provider. Today's string-form maps keep working unchanged. *As built
   ([MM-D11](#MM-D11)): it composes over the shaped list per alias, the way it composes over a

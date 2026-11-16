@@ -136,12 +136,13 @@ func ComposeProviderDeclarations(user *jsonx.OrderedMap, packs []*Pack) ([]packd
 	if err != nil {
 		return nil, err
 	}
-	// `models_only` is a composer-only marker, not an authored provider field; its
-	// narrowed result is already represented by the composed models table.
+	// Composer-only model facts are not authored provider fields. `models_only` is represented
+	// by the narrowed table; `models_views` is consumed only at a per-agent derive boundary.
 	for _, name := range composition.Keys() {
 		if raw, ok := composition.Get(name); ok {
 			if entry, ok := raw.(*jsonx.OrderedMap); ok {
 				entry.Delete(ModelsOnlyKey)
+				entry.Delete(ModelsViewsKey)
 			}
 		}
 	}
@@ -195,7 +196,9 @@ func composeProviderTable(user *jsonx.OrderedMap, packs []*Pack, cfg composeOpts
 		for _, name := range user.Keys() {
 			value, _ := user.Get(name)
 			if value == nil {
-				// PI-D7: a disabled parent still lends its entry to a child.
+				// The null suppresses this provider's own user layer, but the inherited snapshot
+				// still includes the scoped view just as it includes an unscoped models_only fact.
+				applyAgentModelViews(out, user, packs, cfg.modelNote, nil, map[string]bool{name: true})
 				inh.snapshot(out, name)
 				out.Delete(name)
 				continue
@@ -208,6 +211,9 @@ func composeProviderTable(user *jsonx.OrderedMap, packs []*Pack, cfg composeOpts
 			}
 		}
 	}
+	// Scope facts are computed after each named provider's user models have merged. Children
+	// inherit the finished parent view when their entry is built below.
+	applyAgentModelViews(out, user, packs, cfg.modelNote, inh.children, nil)
 	for _, child := range inh.order {
 		if err := inh.compose(child, out, user, packs, cfg, pinned, shipper, providerSupplied); err != nil {
 			return nil, nil, nil, err

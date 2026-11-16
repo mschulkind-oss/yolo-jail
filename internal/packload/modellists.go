@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -34,7 +35,10 @@ import (
 // from a list that merely exists. A composed fact, never a user key: config.knownProviderKeys
 // does not hold it, so a user's config cannot spell it, and the user's own list over a narrowed
 // one keeps the mark (the user writes last, and the menu is still the one list).
-const ModelsOnlyKey = "models_only"
+const (
+	ModelsOnlyKey  = modelview.ModelsOnlyKey
+	ModelsViewsKey = modelview.ViewsKey
+)
 
 // WithModelNotes asks ComposeProviders to report, through note, what its `models` pass could
 // not do as written: a duplicate id or alias (the first writer's kept), an `only` id nothing
@@ -84,6 +88,9 @@ func applyModelContributions(out, user *jsonx.OrderedMap, packs []*Pack, note fu
 			continue
 		}
 		for _, c := range p.Decl.ModelsContributions() {
+			if len(c.Agents) > 0 {
+				continue // scoped onlys are recorded after the user layer, never shape shared rows
+			}
 			all = append(all, shapedModels{pack: p.Name, c: c})
 		}
 	}
@@ -211,6 +218,182 @@ func shapeProviderModels(name string, entry *jsonx.OrderedMap, shapes []shapedMo
 	}
 	setOrDrop(entry, "models", models)
 	setOrDrop(entry, "model_options", opts)
+}
+
+// applyAgentModelViews records scoped `only` keep-sets after the provider's user layer has merged.
+// It changes only ModelsViewsKey; the provider's shared list and ordering remain untouched.
+func applyAgentModelViews(out, user *jsonx.OrderedMap, packs []*Pack, note func(string),
+	skip, restrict map[string]bool) {
+	if note == nil {
+		note = func(string) {}
+	}
+	byProvider := map[string][]shapedModels{}
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, c := range p.Decl.ModelsContributions() {
+			if len(c.Only) > 0 && len(c.Agents) > 0 {
+				byProvider[c.Provider] = append(byProvider[c.Provider], shapedModels{pack: p.Name, c: c})
+			}
+		}
+	}
+	for name, shapes := range byProvider {
+		if skip[name] || (restrict != nil && !restrict[name]) {
+			continue
+		}
+		entry := providerEntry(out, name)
+		emit := note
+		if user != nil {
+			if configured, declared := user.Get(name); declared && configured == nil {
+				emit = func(string) {}
+			}
+		}
+		if entry == nil {
+			var configured any
+			var declared bool
+			if user != nil {
+				configured, declared = user.Get(name)
+			}
+			if declared && configured == nil {
+				continue
+			}
+			if !declared {
+				for _, shape := range shapes {
+					emit(fmt.Sprintf("pack %s's `models` contribution names provider %q, which no "+
+						"selected pack ships and your config's `providers` does not declare, so it "+
+						"shapes nothing", shape.pack, name))
+				}
+			}
+			continue
+		}
+
+		models := subOrderedOrNil(entry, "models")
+		listed := map[string]bool{}
+		if models != nil {
+			for _, alias := range models.Keys() {
+				if id, ok := stringAt(models, alias); ok {
+					listed[id] = true
+				}
+			}
+		}
+		views := subOrdered(entry, ModelsViewsKey)
+		for _, agent := range sortedModelAudiences(shapes, views) {
+			var filters map[string]bool
+			hasFilter := false
+			var userIDs map[string]bool
+			if prior, ok := views.Get(agent); ok {
+				if view, ok := prior.(*jsonx.OrderedMap); ok {
+					filters, hasFilter = modelViewIDs(view, "only")
+					userIDs, _ = modelViewIDs(view, "user")
+				}
+			}
+			if userIDs == nil {
+				userIDs = map[string]bool{}
+			}
+			for id := range userModelIDs(user, name) {
+				userIDs[id] = true
+			}
+			for _, shape := range shapes {
+				if !modelViewContainsAgent(shape.c.Agents, agent) {
+					continue
+				}
+				contributionIDs := make(map[string]bool, len(shape.c.Only))
+				for _, id := range shape.c.Only {
+					contributionIDs[id] = true
+					if !listed[id] && !userIDs[id] {
+						emit(fmt.Sprintf("provider %q: pack %s's scoped `only` for agent %q names %q, "+
+							"which no provider or `add` lists, so it is dropped — `only` narrows and never adds",
+							name, shape.pack, agent, id))
+					}
+				}
+				if !hasFilter {
+					filters, hasFilter = contributionIDs, true
+				} else {
+					for id := range filters {
+						if !contributionIDs[id] {
+							delete(filters, id)
+						}
+					}
+				}
+			}
+			view := jsonx.NewOrderedMap()
+			if hasFilter {
+				view.Set("only", sortedModelIDs(filters))
+			}
+			if len(userIDs) > 0 {
+				view.Set("user", sortedModelIDs(userIDs))
+			}
+			if hasFilter && len(filters) == 0 && len(userIDs) == 0 {
+				emit(fmt.Sprintf("provider %q: scoped `only` contributions keep no models for agent %q", name, agent))
+			}
+			views.Set(agent, view)
+		}
+		entry.Set(ModelsViewsKey, views)
+	}
+}
+
+func sortedModelAudiences(shapes []shapedModels, prior *jsonx.OrderedMap) []string {
+	seen := map[string]bool{}
+	for _, shape := range shapes {
+		for _, agent := range shape.c.Agents {
+			seen[agent] = true
+		}
+	}
+	if prior != nil {
+		for _, agent := range prior.Keys() {
+			seen[agent] = true
+		}
+	}
+	agents := make([]string, 0, len(seen))
+	for agent := range seen {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	return agents
+}
+
+func modelViewIDs(view *jsonx.OrderedMap, key string) (map[string]bool, bool) {
+	ids, ok := view.Get(key)
+	if !ok {
+		return nil, false
+	}
+	out := map[string]bool{}
+	switch values := ids.(type) {
+	case []string:
+		for _, id := range values {
+			out[id] = true
+		}
+	case []any:
+		for _, raw := range values {
+			if id, ok := raw.(string); ok {
+				out[id] = true
+			}
+		}
+	}
+	return out, true
+}
+
+func sortedModelIDs(ids map[string]bool) []any {
+	keys := make([]string, 0, len(ids))
+	for id := range ids {
+		keys = append(keys, id)
+	}
+	sort.Strings(keys)
+	out := make([]any, len(keys))
+	for i, id := range keys {
+		out[i] = id
+	}
+	return out
+}
+
+func modelViewContainsAgent(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // materializeOrder writes the list's current order into `order` facts and returns the last

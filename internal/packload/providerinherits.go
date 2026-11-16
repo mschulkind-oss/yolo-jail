@@ -172,6 +172,7 @@ func (p *inheritsPlan) compose(child string, out, user *jsonx.OrderedMap, packs 
 			}
 		}
 	}
+	applyAgentModelViews(out, user, packs, cfg.modelNote, nil, map[string]bool{child: true})
 	if supplied[parent] {
 		supplied[child] = true
 	}

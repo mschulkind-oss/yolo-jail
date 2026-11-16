@@ -42,6 +42,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -793,6 +794,14 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		table := ctx.Tables[src]
 		if table == nil {
 			table = map[string]any{}
+		}
+		if src == sourceProviders {
+			// This is the per-agent derive boundary: shared provider consumers never receive
+			// an agent view, and the composer-owned key cannot leak into an agent config.
+			projected, ok := modelview.ProjectProviderTable(table, ctx.Agent).(map[string]any)
+			if ok {
+				table = projected
+			}
 		}
 		if src == sourceMCPServers {
 			eligible := eligibleMCPServers(eligibleRemoteMCPServers(table, ctx.RemoteMCPTransports), have)

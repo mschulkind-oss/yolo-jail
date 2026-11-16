@@ -80,6 +80,8 @@ type ModelsContribution struct {
 	Add []ModelEntry
 	// Only is the ids to keep; every other id leaves the list.
 	Only []string
+	// Agents scopes an `only` to these derive audiences; absent means the existing shared list.
+	Agents []string
 }
 
 // ModelsContributions returns every `models` contribution the pack declares, in declaration
@@ -92,7 +94,8 @@ func (m *Manifest) ModelsContributions() []ModelsContribution {
 		if c.Kind != KindModels {
 			continue
 		}
-		mc := ModelsContribution{Provider: c.Provider, Only: append([]string(nil), c.Only...)}
+		mc := ModelsContribution{Provider: c.Provider, Only: append([]string(nil), c.Only...),
+			Agents: append([]string(nil), c.Agents...)}
 		if len(c.Add) > 0 {
 			entries, err := decodeModelEntries(c.Add)
 			if err != nil {
@@ -146,6 +149,27 @@ func modelsProblems(label string, c Contribution) []string {
 		return nil
 	}
 	var problems []string
+	if c.Agent != "" {
+		problems = append(problems, fmt.Sprintf("%s: kind \"models\" does not take \"agent\" — it is a "+
+			"destination identity; use \"agents\" to scope an \"only\" contribution", label))
+	}
+	if c.Agents != nil {
+		switch {
+		case len(c.Add) > 0:
+			problems = append(problems, fmt.Sprintf("%s: a scoped \"models\" contribution may only narrow; "+
+				"\"agents\" is accepted with \"only\", not \"add\"", label))
+		case len(c.Agents) == 0:
+			problems = append(problems, label+`: "agents" must be a non-empty list when present`)
+		default:
+			seen := map[string]bool{}
+			for i, agent := range c.Agents {
+				if seen[agent] {
+					problems = append(problems, fmt.Sprintf("%s.agents[%d]: %q is listed twice", label, i, agent))
+				}
+				seen[agent] = true
+			}
+		}
+	}
 	if c.Provider == "" {
 		problems = append(problems, label+": kind \"models\" needs \"provider\" — the name of "+
 			"the provider whose model list it shapes")
