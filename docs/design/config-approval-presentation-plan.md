@@ -98,13 +98,15 @@ The accepted skill-import design now has the DECIDED implementation plan [`works
 
 Land the following slices serially in one worktree. Do not stage or commit files outside the named slice. Tests must call the production consumer boundary where one exists; pure formatter tests alone are not sufficient evidence.
 
-### Slice 0 — Correct the display-escape contract
+### Slice 0 — Verify the corrected display contract and close source assumptions
+
+The Unicode escape correction was completed in documentation commit `3a534db09`. Do not repeat that edit or count it as runtime implementation; Unicode regression tests remain part of the following slices. This slice verifies the corrected contract and records the bounded U1–U6 source findings below.
 
 **Files:** `docs/design/config-approval-presentation.md` only.
 
 **Tests first / red:** No runtime test applies. Before editing, verify the current tree cannot meet the accepted D15 literally for supplementary characters by applying its proposed `\uXXXX` form: a valid TOML basic-string escape for U+1F600 is `\U0001F600`, not UTF-16 surrogate escapes. Preserve that distinction in the doc diff.
 
-**Change:** Correct the D15 decision, the character-set/width rule, and the rendering examples with the exact contract from [§2](#2-settled-behavior-contract): controls and non-ASCII BMP scalars `\uXXXX`; supplementary scalars `\UXXXXXXXX`; never emit surrogate code points/pairs. In addition to D15 and the character-set bullet, update the TOML-literal table’s control/non-ASCII example into separate control/BMP and supplementary-scalar rows. State explicitly that display escaping is separate from canonical JSON identity. Recheck the D15 reason (prevent control/bidi reshaping) and do not change the decision or original JSON encoder contract. Record U1–U6 current-tree findings and update the design evidence snapshot only to the reviewed commit.
+**Verification:** Confirm the corrected D15 contract uses `\uXXXX` for controls and non-ASCII BMP scalars, `\UXXXXXXXX` for supplementary scalars, and no surrogate code points/pairs. Verify the TOML-literal rows and rendering examples follow the contract in [§2](#2-settled-behavior-contract). Display escaping must remain separate from the unchanged canonical JSON identity. Record U1–U6 current-tree findings and update the design evidence snapshot only to the reviewed commit.
 
 **Green:** `uvx vantage-check docs/design/config-approval-presentation.md` from `/workspace` passes. Review the diff to confirm no other accepted design behavior moved. Replace the unverified U1–U6 assumptions in the design with the bounded results from section 1 here; do not rewrite the original baseline stamp or broaden the verification claim. Commit: `docs(config): specify TOML-valid approval display escapes`.
 

@@ -2,7 +2,7 @@
 title: Workspace Git skills use the broker, not unfettered credentials
 status: accepted
 stage: DECIDED
-next: Planner writes the implementation plan at the current HEAD against the command contract in §4.2 and §6.2
+next: Implement serially from workspace-git-skills-plan.md; nothing is built.
 depends-on: []
 evidence-date: 2026-11-16
 evidence-snapshot: HEAD @ fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece
