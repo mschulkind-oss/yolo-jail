@@ -115,6 +115,10 @@ type Broker struct {
 	// waitLimit, when set below pushWait, shortens a push's wait for its request's answer. It
 	// is a test seam and nothing else.
 	waitLimit time.Duration
+	// trackImportAccess is set only on the short-lived host import caller; it reports whether
+	// this fetch actually sent a host HTTPS credential, rather than merely having authority.
+	trackImportAccess    bool
+	importUsedCredential atomic.Bool
 }
 
 // Main is `yolo internal daemon git-broker`: the core's daemon around this source's broker.

@@ -137,7 +137,8 @@ type httpsFixture struct {
 	url       string // the approved remote
 	host      string // 127.0.0.1:<port>
 	credRc    string // what the fake host git records
-	revokeErr error  // scope revocation result for the live-revoke test
+	rootCAs   *x509.CertPool
+	revokeErr error // scope revocation result for the live-revoke test
 }
 
 // newHTTPSFixture is the SSH fixture with origin moved to the TLS server.
@@ -265,6 +266,7 @@ fi
 			if !o.untrusted {
 				pool.AddCert(ts.Certificate())
 			}
+			h.rootCAs = pool
 			f.broker.rootCAs = pool
 			f.broker.cover = o.cover
 		},

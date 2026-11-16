@@ -95,6 +95,7 @@ type httpsLeg struct {
 	credentialDenial   string
 	lastCredentialSent bool
 	credentialRejected bool
+	usedCredential     bool
 	readOnly           bool // an access advertisement GET must not approve/reject credentials
 }
 
@@ -152,6 +153,9 @@ func (h *httpsLeg) do(method, suffix, contentType, accept string, body []byte) (
 		return nil, err
 	}
 	h.lastCredentialSent = h.cred != nil && allowed
+	if h.lastCredentialSent {
+		h.usedCredential = true
+	}
 	if resp.StatusCode == http.StatusUnauthorized && h.cred == nil {
 		allowed, denial, authorityErr = h.credentialAllowed()
 		if authorityErr != nil {
@@ -180,6 +184,7 @@ func (h *httpsLeg) do(method, suffix, contentType, accept string, body []byte) (
 			return nil, err
 		}
 		h.lastCredentialSent = true
+		h.usedCredential = true
 	}
 	allowed, denial, authorityErr = h.credentialAllowed()
 	if authorityErr != nil {
@@ -424,7 +429,11 @@ func (b *Broker) serveHTTPS(ctx context.Context, req request, in io.Reader, out 
 	defer h.client.CloseIdleConnections()
 	if req.Service == serviceUploadPack {
 		ev.Set = "read"
-		return h.fetch(in, out)
+		code := h.fetch(in, out)
+		if b.trackImportAccess && h.usedCredential {
+			b.importUsedCredential.Store(true)
+		}
+		return code
 	}
 	return h.push(in, out)
 }
