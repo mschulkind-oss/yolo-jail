@@ -16,7 +16,7 @@ func DecideImportAccess(remote string, approvedRemotes, currentRemotes []string,
 	approvedGrants, currentGrants []brokerscope.Grant) (accessClass string, allowed bool, err error) {
 	transport, err := transportOf(remote)
 	if err != nil {
-		return "", false, fmt.Errorf("Git broker refused import URL: %w", err)
+		return "", false, fmt.Errorf("git broker refused import URL: %w", err)
 	}
 	if err := rejectURLCredentials(remote); err != nil {
 		return "", false, err
@@ -37,5 +37,5 @@ func DecideImportAccess(remote string, approvedRemotes, currentRemotes []string,
 	if transport == transportHTTPS {
 		return ImportAccessAnonymous, true, nil
 	}
-	return "", false, errors.New("the Git broker refused this SSH import: it needs the exact approved remote URL and the current broad Git read grant")
+	return "", false, errors.New("the git broker refused this SSH import: it needs the exact approved remote URL and the current broad Git read grant")
 }

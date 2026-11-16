@@ -61,6 +61,14 @@ var configKeys = map[string]Entry{
 			},
 		},
 	},
+	"skill_imports": everywhere(honored("runContainer and Run's macos-user branch (internal/cli/run/run.go) call "+
+		"Options.resolveFreshSkillImports after the config-change gate; refreshJailBriefings stages only "+
+		"the confined skill projection on every setup (workspaceskills.go, prepare.go)"),
+		"`skill_imports` ‡ — workspace Git skill imports"),
+	"workspace_skill_imports": everywhere(honored("Options.resolveFreshSkillImports (workspaceskills.go) checks "+
+		"config.WorkspaceSkillImportsEnabled before resolving or projecting imports in both fresh-launch "+
+		"paths; false disables them on every setup"),
+		"`workspace_skill_imports` † — disable workspace Git skill imports"),
 	"workspace_readonly": {
 		PodmanLinux: honored("workspaceReadonlyMountArgs (mounts.go) binds each declared path " +
 			"read-only over the workspace bind"),

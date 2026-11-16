@@ -69,7 +69,7 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	}
 	transport, err := transportOf(request.URL)
 	if err != nil {
-		return result, fmt.Errorf("Git broker refused import URL: %w", err)
+		return result, fmt.Errorf("git broker refused import URL: %w", err)
 	}
 	if err := rejectURLCredentials(request.URL); err != nil {
 		return result, err
@@ -79,7 +79,7 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 		if err != nil {
 			return result, err
 		}
-		return result, errors.New("Git broker refused this import URL")
+		return result, errors.New("git broker refused this import URL")
 	}
 	workspace := runtimeidentity.ResolveWorkspace(request.Workspace)
 	gitExecutable, err := exec.LookPath("git")
@@ -218,7 +218,7 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 		}
 	}
 	if !validObjectID(commit) {
-		return result, fmt.Errorf("Git returned an invalid commit object id %q", commit)
+		return result, fmt.Errorf("git returned an invalid commit object id %q", commit)
 	}
 	if err := addImportObjects(ctx, gitEnv, scratch, storeDir, commit); err != nil {
 		return result, fmt.Errorf("add broker-fetched objects to the import store: %w", err)
@@ -237,7 +237,7 @@ func rejectURLCredentials(remote string) error {
 			return fmt.Errorf("invalid import URL: %w", err)
 		}
 		if u.User != nil {
-			return errors.New("Git import URLs may not carry credentials")
+			return errors.New("git import URLs may not carry credentials")
 		}
 	}
 	return nil
@@ -314,14 +314,14 @@ func parseImportRefs(output string) ([]importRef, string, error) {
 		if strings.HasPrefix(line, "ref: ") {
 			fields := strings.Fields(strings.TrimPrefix(line, "ref: "))
 			if len(fields) != 2 || fields[1] != "HEAD" || !strings.HasPrefix(fields[0], "refs/heads/") || defaultRef != "" {
-				return nil, "", fmt.Errorf("Git broker returned a malformed default-branch advertisement %q", line)
+				return nil, "", fmt.Errorf("git broker returned a malformed default-branch advertisement %q", line)
 			}
 			defaultRef = fields[0]
 			continue
 		}
 		fields := strings.Fields(line)
 		if len(fields) != 2 || !validObjectID(fields[0]) || fields[1] == "" {
-			return nil, "", fmt.Errorf("Git broker returned a malformed ref advertisement %q", line)
+			return nil, "", fmt.Errorf("git broker returned a malformed ref advertisement %q", line)
 		}
 		if fields[1] == "HEAD" {
 			continue

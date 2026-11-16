@@ -53,7 +53,7 @@ func (s *Store) resolveWithFetcher(ctx context.Context, entry config.SkillImport
 		return Resolution{}, err
 	}
 	if fetch == nil {
-		return Resolution{}, errors.New("Git broker fetcher is required")
+		return Resolution{}, errors.New("git broker fetcher is required")
 	}
 	var record Resolution
 	err := s.WithLock(func() error {
@@ -80,7 +80,7 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 		return Resolution{}, "", err
 	}
 	if fetch == nil {
-		return Resolution{}, "", errors.New("Git broker fetcher is required")
+		return Resolution{}, "", errors.New("git broker fetcher is required")
 	}
 	if now.IsZero() {
 		now = time.Now()
@@ -91,7 +91,7 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 		return Resolution{}, "", err
 	}
 	if !allowed {
-		return Resolution{}, "", errors.New("the Git broker refused this import")
+		return Resolution{}, "", errors.New("the git broker refused this import")
 	}
 	current, currentOK := s.Resolution(entry.Handle, entry)
 	usable := currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
@@ -112,7 +112,7 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 				current, usable = fresh, true
 				return nil
 			}
-			if usable && entry.Rev == "" && current.ResolvedAt.IsZero() == false {
+			if usable && entry.Rev == "" && !current.ResolvedAt.IsZero() {
 				return nil // fetchAndRecord does not mutate the previous record on failure
 			}
 			return fetchErr

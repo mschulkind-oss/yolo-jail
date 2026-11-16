@@ -491,7 +491,7 @@ func (s *Store) gitLimited(maxBytes int, args ...string) ([]byte, error) {
 		return nil, readErr
 	}
 	if len(data) > maxBytes {
-		return nil, errors.New("Git output exceeds the projection bound")
+		return nil, errors.New("git output exceeds the projection bound")
 	}
 	if waitErr != nil {
 		return nil, fmt.Errorf("git %v: %w: %s", args, waitErr, strings.TrimSpace(stderr.String()))
