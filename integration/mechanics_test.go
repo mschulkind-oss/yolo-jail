@@ -124,6 +124,10 @@ func TestNestedMechanicsTracksAppliedLaunchAndLiveMounts(t *testing.T) {
 	if pending.rc != 0 || !strings.Contains(pending.stderr, "Attaching to existing jail") || !strings.Contains(pending.stdout, "PENDING-MOUNT-ABSENT") {
 		t.Fatalf("non-approving attach did not leave the desired mount pending: rc=%d\n%s", pending.rc, pending.combined())
 	}
+	if strings.Contains(pending.combined(), "Interpreted") || strings.Contains(pending.combined(), "Exact") ||
+		strings.Contains(pending.combined(), "Accept these workspace config changes? [y/N]") {
+		t.Fatalf("non-interactive attach should keep its one-line notice without asking or rendering approval views:\n%s", pending.combined())
+	}
 	if strings.Contains(pending.stdout, liveDest) {
 		t.Fatalf("attach rendered edited desired config instead of authenticated applied facts; pending mount %s appears in the map:\n%s", liveDest, pending.stdout)
 	}
@@ -135,6 +139,15 @@ func TestNestedMechanicsTracksAppliedLaunchAndLiveMounts(t *testing.T) {
 	applied := runYoloCLI(t, workspace, "config", "apply", "--accept-config-changes")
 	if applied.rc != 0 || !strings.Contains(applied.combined(), liveDest+" (read-only): applied now") {
 		t.Fatalf("supported `yolo config apply --accept-config-changes` did not apply the live mount: rc=%d\n%s", applied.rc, applied.combined())
+	}
+	for _, want := range []string{"Interpreted", "was approved", "Exact", "mounts"} {
+		if !strings.Contains(applied.combined(), want) {
+			t.Errorf("accepted config-apply report is missing %q:\n%s", want, applied.combined())
+		}
+	}
+	if strings.Contains(applied.combined(), "Raw JSON comparison") ||
+		strings.Contains(applied.combined(), "Accept these workspace config changes? [y/N]") {
+		t.Errorf("accepted config-apply report must not contain the footer or prompt:\n%s", applied.combined())
 	}
 	updatedSnapshot, updatedMounts := nestedMechanicsRecords(t, cname)
 	if updatedSnapshot.Token != initialSnapshot.Token || updatedMounts.Token != initialSnapshot.Token {

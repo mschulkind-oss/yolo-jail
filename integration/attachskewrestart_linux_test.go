@@ -157,6 +157,22 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+	prompt := strings.ReplaceAll(out.String(), "\r", "")
+	for _, want := range []string{"Interpreted", "Exact", "network.mode", "Raw JSON comparison (read-only, records nothing): yolo config approval-diff"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("approval prompt is missing %q:\n%s", want, prompt)
+		}
+	}
+	interpretedAt := strings.Index(prompt, "Interpreted")
+	exactAt := strings.Index(prompt, "Exact")
+	footerAt := strings.Index(prompt, "Raw JSON comparison (read-only, records nothing): yolo config approval-diff")
+	questionAt := strings.Index(prompt, "Accept these workspace config changes? [y/N]")
+	if !(interpretedAt >= 0 && interpretedAt < exactAt && exactAt < footerAt && footerAt < questionAt) {
+		t.Errorf("config views/footer are not in order before the approval question:\n%s", prompt)
+	}
+	if questionAt >= 0 && footerAt >= 0 && !strings.HasSuffix(prompt[:questionAt], "Raw JSON comparison (read-only, records nothing): yolo config approval-diff\n") {
+		t.Errorf("raw-comparison footer is not immediately above the approval question:\n%s", prompt)
+	}
 	if _, err := master.Write([]byte("y\n")); err != nil {
 		t.Fatalf("approving the fixture network config: %v", err)
 	}
