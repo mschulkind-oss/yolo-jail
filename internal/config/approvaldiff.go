@@ -12,10 +12,12 @@ import (
 // canonical approval trees. ReplayVerified is false when applying the groups cannot
 // reproduce current, including when a resolved-mount change has no printed mount block.
 type ApprovalChangeSet struct {
-	Groups         []ApprovalChangeGroup
-	ReplayVerified bool
-	PreviousTree   *jsonx.OrderedMap
-	CurrentTree    *jsonx.OrderedMap
+	Groups                []ApprovalChangeGroup
+	ReplayVerified        bool
+	PreviousTree          *jsonx.OrderedMap
+	CurrentTree           *jsonx.OrderedMap
+	PreviousRecordPresent bool
+	PreviousRawIdentity   string
 }
 
 // ApprovalChangeGroup is one exact config path (or one unmatched array-table entry).

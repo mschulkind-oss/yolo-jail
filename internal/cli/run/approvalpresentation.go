@@ -211,7 +211,10 @@ func interpretedEffect(group config.ApprovalChangeGroup) string {
 			if group.Verb == "removed" {
 				listLength = group.PreviousListLength
 			}
-			return fmt.Sprintf("%s item %d of %d (table; %d values)", verbFor(group.Verb), group.ArrayIndex+1, listLength, terminalValueCount(value))
+			if _, isTable := value.(*jsonx.OrderedMap); isTable {
+				return fmt.Sprintf("%s item %d of %d (table; %d values)", verbFor(group.Verb), group.ArrayIndex+1, listLength, terminalValueCount(value))
+			}
+			return fmt.Sprintf("%s item %d of %d: %s", verbFor(group.Verb), group.ArrayIndex+1, listLength, tomlLiteral(value))
 		}
 		if group.Verb == "added" {
 			if list, ok := value.([]any); ok && len(list) == 0 {
@@ -283,31 +286,36 @@ func exactGroupLines(group config.ApprovalChangeGroup) []string {
 	}
 	if group.ArrayTableItem && (group.Added || group.Removed) {
 		value := group.Current
-		if group.Removed {
+		if group.Verb == "removed" {
 			value = group.Previous
 		}
-		listLength := group.CurrentListLength
-		if group.Removed {
-			listLength = group.PreviousListLength
+		if _, isTable := value.(*jsonx.OrderedMap); isTable {
+			listLength := group.CurrentListLength
+			if group.Verb == "removed" {
+				listLength = group.PreviousListLength
+			}
+			side := "current"
+			if group.Verb == "removed" {
+				side = "previous"
+			}
+			lines := []string{fmt.Sprintf("  [%d] %s %s (%s item %d of %d; table; %d terminal values)", group.Number, group.Verb, path, side, group.ArrayIndex+1, listLength, terminalValueCount(value))}
+			return append(lines, tableValueLines(path, value)...)
 		}
-		side := "current"
-		if group.Removed {
-			side = "previous"
-		}
-		lines := []string{fmt.Sprintf("  [%d] %s %s (%s item %d of %d; table; %d terminal values)", group.Number, group.Verb, path, side, group.ArrayIndex+1, listLength, terminalValueCount(value))}
-		lines = append(lines, tableValueLines(path, value)...)
-		return lines
 	}
 	if group.Verb == "added" || group.Verb == "removed" {
 		value := group.Current
-		if group.Removed {
+		if group.Verb == "removed" {
 			value = group.Previous
 		}
 		if _, table := value.(*jsonx.OrderedMap); table {
 			lines := []string{fmt.Sprintf("  [%d] %s %s (table; %d terminal values)", group.Number, group.Verb, path, terminalValueCount(value))}
 			return append(lines, tableValueLines(path, value)...)
 		}
-		return []string{fmt.Sprintf("  [%d] %-8s %s", group.Number, group.Verb, path), "        " + tomlLiteral(value)}
+		literal := tomlLiteral(value)
+		if group.Verb == "removed" {
+			return []string{fmt.Sprintf("  [%d] %-8s %s", group.Number, group.Verb, path), "        was  " + literal}
+		}
+		return []string{fmt.Sprintf("  [%d] %-8s %s", group.Number, group.Verb, path), "        " + literal}
 	}
 	if len(group.AddedItems)+len(group.RemovedItems) > 0 {
 		oldList, _ := group.Previous.([]any)
@@ -331,6 +339,8 @@ func exactGroupLines(group config.ApprovalChangeGroup) []string {
 		lines := []string{fmt.Sprintf("  [%d] changed   %s (%s)", group.Number, path, heading)}
 		if wasTable {
 			lines = append(lines, append([]string{"        was"}, tableValueLines(path, oldTable)...)...)
+		} else {
+			lines = append(lines, "        was  "+tomlLiteral(group.Previous))
 		}
 		if nowTable {
 			lines = append(lines, append([]string{"        now"}, tableValueLines(path, newTable)...)...)

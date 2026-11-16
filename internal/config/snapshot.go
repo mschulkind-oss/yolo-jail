@@ -471,10 +471,12 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	fromLabel := "previous workspace config"
 	toLabel := "current workspace config"
 	configSilent := false
+	oldRecordPresent := false
 
 	oldBytes, readErr := os.ReadFile(snapshotPath)
 	switch {
 	case readErr == nil:
+		oldRecordPresent = true
 		oldJSON = respellLegacyRecord(pyRstrip(string(oldBytes)))
 	case !os.IsNotExist(readErr):
 		return false, nil, readErr
@@ -582,7 +584,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 		report.WritableMounts = mountLines(mounts, true)
 		// oq-cx-symlink: and every read-only one, at the destination its source resolves to.
 		report.MountSources = mountLines(mounts, false)
-		if changes := buildApprovalChangeSetFromJSON(oldJSON, currentJSON,
+		if changes := buildApprovalChangeSetFromJSON(oldJSON, currentJSON, oldRecordPresent,
 			len(report.WritableMounts)+len(report.MountSources) > 0); changes != nil {
 			report.ApprovalChanges = changes
 		}
@@ -701,7 +703,7 @@ func isPySpace(r rune) bool {
 	return false
 }
 
-func buildApprovalChangeSetFromJSON(previousJSON, currentJSON string, mountDisclosed bool) *ApprovalChangeSet {
+func buildApprovalChangeSetFromJSON(previousJSON, currentJSON string, previousRecordPresent, mountDisclosed bool) *ApprovalChangeSet {
 	decode := func(text string) (*jsonx.OrderedMap, bool) {
 		value, err := jsonx.Decode([]byte(text))
 		if err != nil {
@@ -723,6 +725,14 @@ func buildApprovalChangeSetFromJSON(previousJSON, currentJSON string, mountDiscl
 		return nil
 	}
 	changes := BuildApprovalChangeSet(previous, current, mountDisclosed)
+	changes.PreviousRecordPresent = previousRecordPresent
+	changes.PreviousRawIdentity = previousJSON
+	previousCanonical, previousErr := SnapshotJSON(previous)
+	currentCanonical, currentErr := SnapshotJSON(current)
+	if (previousRecordPresent && (previousErr != nil || previousCanonical != previousJSON)) ||
+		currentErr != nil || currentCanonical != currentJSON {
+		changes.ReplayVerified = false
+	}
 	return &changes
 }
 

@@ -128,7 +128,7 @@ legacy JSONC (`configedit.PlanEdit`, over `configdoc`'s positioned index).
 
 ## Inspecting the config
 
-The commands in this table inspect state; they do not edit config or approve a change.
+The commands in this table inspect state; they do not edit config or approve a change. Separately, `yolo config apply` is host-only: it approves this workspace's config changes and applies what the running jail can take.
 
 | Command | Answers |
 | :--- | :--- |
@@ -136,7 +136,6 @@ The commands in this table inspect state; they do not edit config or approve a c
 | `yolo config why <key>` | the effective value, each file that set it (and that the files merge, for a list), and what applies without it |
 | `yolo config dump` | the whole computed config, as canonical JSON |
 | `yolo config drift` | whether the workspace config on disk differs from the one this jail has |
-| `yolo config apply` | host only: approve this workspace's config changes and apply what the running jail can take |
 | `yolo config approval-diff` | the raw JSON comparison of the stored and current workspace approval identities; read-only, does not compare scope or grants |
 | `yolo config-ref` | every key, its type and its scope |
 

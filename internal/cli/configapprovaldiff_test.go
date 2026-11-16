@@ -3,12 +3,56 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
+
+func TestConfigApprovalDiffDoesNotReadUserConfigThroughDispatch(t *testing.T) {
+	const childEnv = "YOLO_APPROVAL_DIFF_FIFO_CHILD"
+	if os.Getenv(childEnv) == "1" {
+		var out, errw bytes.Buffer
+		if rc := configRunW([]string{"approval-diff"}, &out, &errw); rc != 0 {
+			t.Fatalf("approval-diff rc=%d stdout=%q stderr=%q", rc, out.String(), errw.String())
+		}
+		return
+	}
+	home, _ := withHomeAndCwd(t)
+	userConfig := filepath.Join(home, ".config", "yolo-jail", paths.UserConfigLegacyJSONCName)
+	if err := os.MkdirAll(filepath.Dir(userConfig), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Mkfifo(userConfig, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^TestConfigApprovalDiffDoesNotReadUserConfigThroughDispatch$")
+	cmd.Env = append(os.Environ(), childEnv+"=1", "YOLO_VERSION=", "HOME="+home)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("approval-diff subprocess failed: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		_ = cmd.Process.Kill()
+		<-done
+		t.Fatal("approval-diff opened the user's config FIFO; dispatch must not read user config")
+	}
+}
 
 func TestConfigApprovalDiffIsReadOnlyThroughDispatch(t *testing.T) {
 	_, workspace := withHomeAndCwd(t)

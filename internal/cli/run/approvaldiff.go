@@ -3,6 +3,7 @@ package run
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -31,7 +32,12 @@ func ConfigApprovalDiff(args []string, stdout, stderr io.Writer, color bool) int
 	opts := NewDefaultOptions()
 	opts.Color = color
 	opts.Stdout, opts.Stderr = stdout, stderr
-	fillDefaults(&opts)
+	opts.Getenv = os.Getenv
+	if wd, err := os.Getwd(); err == nil {
+		opts.Workspace = wd
+	} else {
+		opts.Workspace = "."
+	}
 	return opts.configApprovalDiff()
 }
 

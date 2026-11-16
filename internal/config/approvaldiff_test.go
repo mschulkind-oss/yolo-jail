@@ -163,3 +163,22 @@ func TestBuildApprovalChangeSetDoesNotElideManyPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildApprovalChangeSetPreservesPreviousRecordPresenceAndRawIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, previous      string
+		present, wantReplay bool
+	}{
+		{"missing baseline", "", false, true},
+		{"existing empty record", "", true, false},
+		{"noncanonical empty object", "{ }", true, false},
+		{"canonical empty object", "{}", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildApprovalChangeSetFromJSON(tc.previous, `{}`, tc.present, false)
+			if got == nil || got.ReplayVerified != tc.wantReplay || got.PreviousRecordPresent != tc.present || got.PreviousRawIdentity != tc.previous {
+				t.Fatalf("change set = %+v, want replay=%v present=%v raw=%q", got, tc.wantReplay, tc.present, tc.previous)
+			}
+		})
+	}
+}

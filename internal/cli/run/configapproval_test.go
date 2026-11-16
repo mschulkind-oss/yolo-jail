@@ -626,3 +626,119 @@ func TestConfigApprovalDisplayTreatsMarkupAsLiteralValue(t *testing.T) {
 		t.Fatal("rich-text escaping added non-ASCII to the approval presentation")
 	}
 }
+
+func TestConfigApprovalRemovalShowsPreviousValuesThroughGate(t *testing.T) {
+	for _, tc := range []struct {
+		name, previous, want string
+	}{
+		{"scalar", `{"agents_md_extra":"old"}`, `was  "old"`},
+		{"long scalar", `{"agents_md_extra":"` + strings.Repeat("long", 30) + `"}`, strings.Repeat("long", 30)},
+		{"table", `{"example":{"gone":{"a":1,"b":"old"}}}`, `example.gone.b = "old"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := t.TempDir()
+			o, out := approvalOptions(t, ws, false)
+			approveWorkspaceConfigThroughGate(t, o, ws, tc.previous, out)
+			writeWorkspaceConfig(t, ws, `{}`)
+			if o.checkConfigChanges(nil, "podman") {
+				t.Fatal("removed config without a terminal must refuse")
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Errorf("removed previous value %q missing from gate display:\n%s", tc.want, out.String())
+			}
+		})
+	}
+}
+
+func TestConfigApprovalValueToTableReplacementShowsPreviousLiteralThroughGate(t *testing.T) {
+	for _, tc := range []struct {
+		name, old, want string
+	}{
+		{"scalar", `"old"`, `was  "old"`},
+		{"list", `["old", "value"]`, `was  ["old", "value"]`},
+		{"null", `null`, `was  (null)`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ws := t.TempDir()
+			o, out := approvalOptions(t, ws, false)
+			approveWorkspaceConfigThroughGate(t, o, ws, `{"example":`+tc.old+`}`, out)
+			writeWorkspaceConfig(t, ws, `{"example":{"new":"value"}}`)
+			if o.checkConfigChanges(nil, "podman") {
+				t.Fatal("replacement without a terminal must refuse")
+			}
+			if !strings.Contains(out.String(), tc.want) {
+				t.Errorf("previous %s literal missing from gate display:\n%s", tc.name, out.String())
+			}
+		})
+	}
+}
+
+func TestConfigApprovalMixedArrayScalarOccurrencesUseTheirOwnShapeThroughGate(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"host_files":["a",{"path":"b"}]}`, out)
+	writeWorkspaceConfig(t, ws, `{"host_files":["c",{"path":"b"}]}`)
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("changed config without a terminal must refuse")
+	}
+	output := out.String()
+	if strings.Count(output, "table;") > 1 {
+		t.Errorf("scalar occurrence was described as a table from its list sibling:\n%s", output)
+	}
+	for _, want := range []string{`"a"`, `"c"`, "removed", "added"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("mixed-array gate display missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestConfigApprovalNoncanonicalExistingEmptyRecordFallsBackToRawDiff(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{}`, out)
+	record := config.ApprovalSnapshotPath(ws)
+	if err := os.WriteFile(record, []byte("{ }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("an identity-byte mismatch without a terminal must refuse")
+	}
+	output := out.String()
+	for _, want := range []string{approvalReplayFallback, "previous workspace config", "current workspace config"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("identity mismatch fallback missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "no config-key paths changed") {
+		t.Fatalf("identity-only difference was presented as an empty structural explanation:\n%s", output)
+	}
+}
+
+func TestConfigApprovalExistingEmptyRecordIsNotMissingBaseline(t *testing.T) {
+	t.Run("absent record", func(t *testing.T) {
+		ws := t.TempDir()
+		o, out := approvalOptions(t, ws, false)
+		if !o.checkConfigChanges(nil, "podman") {
+			t.Fatalf("empty first-run config should pass silently: %s", out.String())
+		}
+		if out.Len() != 0 {
+			t.Fatalf("empty first-run config asked for approval: %s", out.String())
+		}
+	})
+	t.Run("existing empty record", func(t *testing.T) {
+		ws := t.TempDir()
+		o, out := approvalOptions(t, ws, false)
+		if err := os.MkdirAll(filepath.Dir(config.ApprovalSnapshotPath(ws)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(config.ApprovalSnapshotPath(ws), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if o.checkConfigChanges(nil, "podman") {
+			t.Fatal("an existing empty record is not the missing-record silent baseline")
+		}
+		if !strings.Contains(out.String(), approvalReplayFallback) || strings.Contains(out.String(), "no config-key paths changed") {
+			t.Fatalf("existing empty record was not shown as an unexplained identity difference:\n%s", out.String())
+		}
+	})
+}
