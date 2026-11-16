@@ -37,15 +37,11 @@ func applyProspectiveTargeted(workspace string, target config.ResolvedEditTarget
 	}
 
 	parentPath := filepath.Dir(target.PhysicalPath)
-	parent, err := os.Open(parentPath)
+	parent, release, err := openLockedParentDirectory(parentPath, options.HeldParentLock)
 	if err != nil {
-		return nil, fmt.Errorf("open prospective config parent %s: %w", parentPath, err)
+		return nil, err
 	}
-	defer parent.Close()
-	if err := lockParentDirectory(parent); err != nil {
-		return nil, fmt.Errorf("lock prospective config parent %s: %w", parentPath, err)
-	}
-	defer unlockParentDirectory(parent)
+	defer release()
 	if options.onProspectiveLocked != nil {
 		options.onProspectiveLocked()
 	}

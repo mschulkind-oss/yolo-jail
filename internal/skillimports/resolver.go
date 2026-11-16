@@ -169,7 +169,7 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 // FetchForCommand prepares a resolution while the command owns the whole config/record
 // transaction. Publication is the caller's final step, after its targeted config edit succeeds.
 func (s *Store) FetchForCommand(ctx context.Context, entry config.SkillImport, authority Authority) (Resolution, error) {
-	if !s.lockHeld {
+	if s.commandLock == nil {
 		return Resolution{}, errors.New("skill command transaction lock is required")
 	}
 	if err := validateResolveEntry(entry); err != nil {

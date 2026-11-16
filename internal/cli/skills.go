@@ -234,7 +234,7 @@ func skillsAddLocked(args []string, store *skillimports.Store) int {
 		entryValue.Set("rev", record.Commit)
 	}
 	mutation.Value = entryValue
-	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{Verify: func(_, _ []byte) error { return store.WriteResolution(record) }})
+	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{HeldParentLock: store.CommandDirectoryLock(), Verify: func(_, _ []byte) error { return store.WriteResolution(record) }})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills add: the import was fetched, but the workspace config edit was refused: %s; no config entry was written. Fix the named config, then retry\n", termsafe.Visible(err.Error()))
 		return 1
@@ -390,7 +390,12 @@ func skillsUpdateLocked(args []string, store *skillimports.Store) int {
 			fresh.Rev = fresh.Commit
 			fresh.ResolvedRef = ""
 			pinMutation.Value = fresh.Commit
-			_, targetErr := configedit.ApplyTargeted(workspace, pinTarget, pinMutation, configedit.ApplyOptions{Verify: func(_, _ []byte) error { return store.WriteResolution(fresh) }})
+			result, targetErr := configedit.ApplyTargeted(workspace, pinTarget, pinMutation, configedit.ApplyOptions{HeldParentLock: store.CommandDirectoryLock(), Verify: func(_, _ []byte) error { return store.WriteResolution(fresh) }})
+			// Configedit deliberately skips Verify on semantic no-ops. Refresh still replaces the
+			// record (including access class and timestamp) under this complete skills transaction.
+			if targetErr == nil && result.Plan.Noop {
+				targetErr = store.WriteResolution(fresh)
+			}
 
 			if targetErr != nil {
 				failures++
@@ -448,7 +453,7 @@ func skillsPinLocked(args []string, store *skillimports.Store) int {
 		fmt.Fprintf(os.Stderr, "%s has no valid stored resolution; it will resolve on the next fresh launch. Nothing was pinned.\n", termsafe.Visible(handle))
 		return 1
 	}
-	if err := setSkillImportRev(workspace, handle, record.Commit); err != nil {
+	if err := setSkillImportRev(workspace, handle, record.Commit, store.CommandDirectoryLock()); err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills pin: config update failed; nothing was pinned: %s\n", termsafe.Visible(err.Error()))
 		return 1
 	}
@@ -463,7 +468,7 @@ func skillsRemove(args []string) int {
 	return withSkillsWriterLock(args, func(args []string, store *skillimports.Store) int { return skillsRemoveLocked(args, store) })
 }
 
-func skillsRemoveLocked(args []string, _ *skillimports.Store) int {
+func skillsRemoveLocked(args []string, store *skillimports.Store) int {
 	handle, err := oneSkillHandle("remove", args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills remove: %v; see `yolo skills --help`\n", err)
@@ -480,7 +485,7 @@ func skillsRemoveLocked(args []string, _ *skillimports.Store) int {
 		return 1
 	}
 	mutation := configedit.Mutation{Action: configedit.Remove, Path: []configdoc.Step{{Key: "skill_imports"}, {Key: handle}}, PruneEmptiedTable: true}
-	path, err := applySkillImportMutation(workspace, mutation)
+	path, err := applySkillImportMutation(workspace, mutation, store.CommandDirectoryLock())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills remove: cannot update the workspace config: %s; fix it, then retry\n", termsafe.Visible(err.Error()))
 		return 1
@@ -641,14 +646,14 @@ func findSkillImport(cfg *jsonx.OrderedMap, handle string) (config.SkillImport, 
 	return config.SkillImport{}, false
 }
 
-func setSkillImportRev(workspace, handle, rev string) error {
+func setSkillImportRev(workspace, handle, rev string, lock *configedit.DirectoryLock) error {
 	mutation := configedit.Mutation{Action: configedit.Set,
 		Path: []configdoc.Step{{Key: "skill_imports"}, {Key: handle}, {Key: "rev"}}, Value: rev}
-	_, err := applySkillImportMutation(workspace, mutation)
+	_, err := applySkillImportMutation(workspace, mutation, lock)
 	return err
 }
 
-func applySkillImportMutation(workspace string, mutation configedit.Mutation) (string, error) {
+func applySkillImportMutation(workspace string, mutation configedit.Mutation, lock *configedit.DirectoryLock) (string, error) {
 	target, err := configedit.ResolveTarget(workspace, mutation, config.EditTargetChoice{Kind: config.EditTargetProject})
 	if err != nil {
 		return "", err
@@ -660,7 +665,7 @@ func applySkillImportMutation(workspace string, mutation configedit.Mutation) (s
 			return "", err
 		}
 	}
-	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{})
+	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{HeldParentLock: lock})
 	if err != nil {
 		return "", err
 	}

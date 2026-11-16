@@ -279,8 +279,8 @@ func (s *Store) ProjectWithBudget(entry config.SkillImport, authority Authority,
 		for name := range directories {
 			selected = append(selected, name)
 		}
-		sort.Strings(selected)
 	}
+	sort.Strings(selected)
 	for _, name := range selected {
 		skillRoot := filepath.Join(root, name)
 		if err := os.Mkdir(skillRoot, 0o700); err != nil {

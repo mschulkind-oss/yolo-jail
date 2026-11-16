@@ -14,6 +14,9 @@ import (
 
 type ApplyOptions struct {
 	DryRun bool
+	// HeldParentLock borrows a live WithDirectoryLock token only when the physical target
+	// parent has that same inode. Apply never unlocks or closes a borrowed lock.
+	HeldParentLock *DirectoryLock
 	// Target binds an effective edit to its caller-declared reader scope and format.
 	Target config.ExplicitEditTarget
 	// OnValidated receives detached diagnostics from the validated planned graph. It is
@@ -22,7 +25,8 @@ type ApplyOptions struct {
 	// ExpectedBytes, when non-nil, refuses to apply over a preimage that changed since planning.
 	ExpectedBytes []byte
 	// Verify compares caller-defined effective meaning after the write. An error restores the
-	// exact preimage while the same physical-target lock is held.
+	// exact preimage while the same physical-target lock is held. Dry runs and semantic
+	// no-ops skip this callback.
 	Verify func(before, after []byte) error
 	// Then are further mutations planned over the first one's result, in order, and written with
 	// it as ONE validated write: an edit that is only valid whole (a renamed key and every
@@ -86,15 +90,11 @@ func applyWithOps(path string, format configdoc.Format, mutation Mutation, optio
 		return nil, fmt.Errorf("resolve config target %s: %w", path, err)
 	}
 	parentPath := filepath.Dir(physical)
-	parent, err := os.Open(parentPath)
+	parent, release, err := openLockedParentDirectory(parentPath, options.HeldParentLock)
 	if err != nil {
-		return nil, fmt.Errorf("open config target parent %s: %w", parentPath, err)
+		return nil, err
 	}
-	defer parent.Close()
-	if err := lockParentDirectory(parent); err != nil {
-		return nil, fmt.Errorf("lock config target parent %s: %w", parentPath, err)
-	}
-	defer unlockParentDirectory(parent)
+	defer release()
 	if err := verifyParentDirectory(parent, parentPath); err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/configedit"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -50,9 +51,9 @@ type Resolution struct {
 
 // Store is host-owned, per-workspace import state. Open computes paths without creating state.
 type Store struct {
-	workspace string
-	directory string
-	lockHeld  bool
+	workspace   string
+	directory   string
+	commandLock *configedit.DirectoryLock
 }
 
 // Open returns the host store partitioned by runtime.FromWorkspace. It does not create files.
@@ -285,29 +286,25 @@ func (s *Store) withLock(fn func() error, nonblocking bool) (bool, error) {
 	if fn == nil {
 		return false, errors.New("lock callback is required")
 	}
-	if s.lockHeld {
-		return true, fn()
+	return s.withDirectoryLock(func(*configedit.DirectoryLock) error { return fn() }, nonblocking)
+}
+
+func (s *Store) withDirectoryLock(fn func(*configedit.DirectoryLock) error, nonblocking bool) (bool, error) {
+	if s.commandLock != nil {
+		return true, fn(s.commandLock)
 	}
-	// Lock the stable real workspace parent read-only, without creating lock artifacts.
-	// Sibling workspaces conservatively serialize. Lock order is this transaction, then
-	// configedit's workspace parent lock; never acquire them in reverse.
-	file, err := os.Open(filepath.Dir(s.workspace))
-	if err != nil {
-		return false, err
+	// Sibling workspaces conservatively serialize without creating lock artifacts. Configedit
+	// borrows this token for an overlapping symlink target; distinct parents lock afterward.
+	return configedit.WithDirectoryLock(filepath.Dir(s.workspace), nonblocking, fn)
+}
+
+// CommandDirectoryLock supplies the active transaction token to configedit. A jailed
+// config-only remove has no Store and passes nil, taking configedit's ordinary target lock.
+func (s *Store) CommandDirectoryLock() *configedit.DirectoryLock {
+	if s == nil {
+		return nil
 	}
-	defer file.Close()
-	mode := syscall.LOCK_EX
-	if nonblocking {
-		mode |= syscall.LOCK_NB
-	}
-	if err := syscall.Flock(int(file.Fd()), mode); err != nil {
-		if nonblocking && (err == syscall.EWOULDBLOCK || err == syscall.EAGAIN) {
-			return false, nil
-		}
-		return false, err
-	}
-	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-	return true, fn()
+	return s.commandLock
 }
 
 func ensurePrivateDir(path string) error {
@@ -351,13 +348,13 @@ func isolatedGitEnv() []string {
 // WithCommandLock keeps declaration rechecks, targeted config edits, record publication and
 // rollback in the same writer transaction. The locked store does not acquire a second lock.
 func (s *Store) WithCommandLock(fn func(*Store) error) error {
-	return s.WithLock(func() error {
+	locked, err := s.withDirectoryLock(func(lock *configedit.DirectoryLock) error {
 		_, statErr := os.Lstat(s.directory)
 		newState := os.IsNotExist(statErr)
 		_, containerErr := os.Lstat(filepath.Dir(s.directory))
 		newContainer := os.IsNotExist(containerErr)
 		locked := *s
-		locked.lockHeld = true
+		locked.commandLock = lock
 		err := fn(&locked)
 		if err != nil && newState {
 			if cleanupErr := os.RemoveAll(s.directory); cleanupErr != nil {
@@ -368,5 +365,12 @@ func (s *Store) WithCommandLock(fn func(*Store) error) error {
 			} // only removes a newly-created empty owned container
 		}
 		return err
-	})
+	}, false)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("blocking import command lock returned without acquiring the lock")
+	}
+	return nil
 }

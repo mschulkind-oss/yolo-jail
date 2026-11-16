@@ -289,7 +289,7 @@ func TestSkillsUpdatePinnedEntryChangesConfigAndRecordTogether(t *testing.T) {
 	fx := newSkillsCLIWorkspace(t, "[skill_imports.acme]\ngit = \"https://example.test/org/repo\"\nref = \"main\"\n")
 	store, oldCommit := seedSkillsCLIStore(t, fx.workspace)
 	newCommit := seedSkillsCLICommit(t, store, "second")
-	if err := setSkillImportRev(fx.workspace, "acme", oldCommit); err != nil {
+	if err := setSkillImportRev(fx.workspace, "acme", oldCommit, nil); err != nil {
 		t.Fatal(err)
 	}
 	entry := config.SkillImport{Handle: "acme", Git: "https://example.test/org/repo", Ref: "main", Rev: oldCommit, Path: "skills"}
