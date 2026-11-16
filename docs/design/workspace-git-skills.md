@@ -1,28 +1,28 @@
 ---
 title: Workspace Git skills use the broker, not unfettered credentials
-status: draft
-stage: SKETCH
-next: Designer closes moving-ref state, Git-broker integration, and resulting approval/disclosure mechanics before a plan is written.
+status: accepted
+stage: DECIDED
+next: Write the implementation plan. Its first step checks the three code seams U5–U7 in §11; none of them changes a decision here.
 depends-on: []
 evidence-date: 2026-11-16
-evidence-snapshot: HEAD @ f282b84ea
+evidence-snapshot: HEAD @ c3ac9c649
 ---
 
 # Workspace Git skills use the broker, not unfettered credentials
 
-**Status:** 2026-11-16 (`f282b84ea`). The original code checks remain bounded evidence, but the owner rulings changed the pinning and fetch-authority assumptions; moving-ref state and Git-broker integration still need design work. Nothing is built.
+**Status:** 2026-11-16 (`c3ac9c649`). Both owner rulings are recorded in the [ledger](#12-decision-ledger). The mechanics they left to the designer are closed in [§6](#6-git-addressing-ref-forms-access-and-state), [§7](#7-decision-and-effects) and [§9](#9-defaults-failures-and-what-the-operator-sees) as designer recommendations ([§13](#13-design-recommendations-not-owner-rulings)), not owner rulings. Three code seams are named but unchecked ([§11](#11-code-checks)). Nothing is built.
 
 > **In short.** A workspace may select Git skill directories by immutable commit or moving ref, and receive those skills—and nothing else—inside the jail. Resolution must use this workspace’s existing Git-broker access filter; it cannot exercise unfettered host credentials.
 
 **Why it matters.** The blanket rule "a workspace cannot cause outside content to enter the jail" blocks the harmless case (five shared skills) in order to block the dangerous one (a pack carrying hooks, programs, mounts, host reads). The owner has directed that skills are allowed, using pins or moving refs and the existing workspace Git broker filter.
 
-**The shape.** A dedicated key, not restricted `packs`. Entries may identify an immutable full commit or a moving ref. Any resolution/fetch must pass through the existing workspace Git broker filter and cannot bypass or widen its access. An allow-list projection admits only skill directories, staged as the lowest-precedence skill layer, and never delivered to `yolo host`. No pack manifest is read, so no pack effect can ride along. The state and approval mechanics for moving refs remain for the designer to close.
+**The shape.** A dedicated key, not restricted `packs`. Entries may identify an immutable full commit or a moving ref. Any resolution/fetch must pass through the existing workspace Git broker filter and cannot bypass or widen its access. An allow-list projection admits only skill directories, staged as the lowest-precedence skill layer, and never delivered to `yolo host`. No pack manifest is read, so no pack effect can ride along. A moving ref's resolved commit is kept in host-side state for this workspace. It advances only at a fresh launch or an explicit command, and the change is reported when it happens.
 
-**Cost.** One new workspace config key, one small CLI group, one projection step on the existing host-side Git fetch and confined staging paths, and a reworded refusal message. It adds no new credential/grant authority. Moving-ref state, refresh and approval mechanics are not yet designed.
+**Cost.** One new workspace config key, one small CLI group, one host-side caller of the Git broker's existing decision and upstream leg, a per-workspace object store and resolution record on the host, one projection step on the confined staging path, and a reworded refusal message. It adds no credential, grant, scope entry or approval record.
 
 **Start at [§3](#3-the-call-a-dedicated-key-not-restricted-packs)** — the selection boundary. [§5](#5-how-far-it-goes) defines what crosses it.
 
-**Needs your ruling:** None. The owner has ruled both ref forms and the broker boundary; the designer now closes the remaining mechanics.
+**Needs your ruling:** None. The owner has ruled both ref forms and the broker boundary. The remaining mechanics are settled here as designer recommendations WGS-P9 to WGS-P14, which the owner may overturn.
 
 **Reads with:** [`pack-system.md` OQ-PK1](../reference/pack-system.md#oq-pk1) (why workspace `packs` is refused) · [`agent-briefings.md` workspace layer](../reference/agent-briefings.md#the-workspace-layer) and [WS-D24](../reference/agent-briefings.md#ws-d24) (skill priority and host exclusion) · [`workspace-packs.md`](workspace-packs.md) (separate open pack-selection design) · [`trust-paths.md` ledger](trust-paths.md#decision-ledger) (user-scope Git authority).
 
@@ -38,7 +38,7 @@ On 2026-11-16 the owner set the direction this document works from, recorded as 
 - It should be "workspaces may not include things whose features are dangerous".
 - Skills from a Git repository are not dangerous in that sense and should be allowed.
 
-This document does not ask that permission again. The owner has ruled on both ref forms and the credential boundary; the remaining work is design completion, not another owner ruling.
+This document does not ask that permission again. The owner has ruled on both ref forms and the credential boundary. Everything else in this document is design work the owner delegated, and is labelled as a recommendation.
 
 ### What "not dangerous" means here
 
@@ -64,6 +64,15 @@ An imported skill **can** influence the agent. It is instruction text, and the a
 | **Skill directory** *(coined here)* | An immediate child directory beneath the import's `path` containing `SKILL.md`. It is not any nested `skills/` directory discovered inside a plugin. |
 | **Import layer** *(coined here)* | Imported skills staged as a separate workspace-derived layer below the workspace's own skills. It is not selected-pack content. |
 | **Admission test** *(coined here)* | The three constraints in [§5](#5-how-far-it-goes) for whether content can cross this key; it is not a test suite or manifest declaration. |
+| **Entry selection** *(coined here)* | What an import entry chooses: one repository, one commit (named directly or through a ref), one `path` and an optional name filter. It is a config decision that passes the config-change gate. It is not the projection, which only reads what was selected. |
+| **Repository identity** | The normalized name the Git broker uses for grants: lowercased host, explicit port kept, user-info dropped, one trailing `.git` removed ([`internal/gitproto/identity.go`](../../internal/gitproto/identity.go)). It is not the URL used to connect, and equal identity does not admit a URL. |
+| **Broker decision** *(coined here)* | The Git broker's existing answer for one fetch of one URL under this workspace's approved scope and the user's read grant: authenticated, anonymous attempt only, or refused ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). It is not a new check and not the admission test above. |
+| **Access class** *(coined here)* | Which broker decision content was obtained under: `authenticated` or `anonymous`. It is recorded with the content and is not a grant. |
+| **Request authority** *(coined here)* | The inputs that decide whether a fetch may happen: the workspace's gate-approved repository scope and the user's read grant. It is not the process that carries the bytes. |
+| **Transport route** *(coined here)* | The path the bytes take: host launch process, then the broker's upstream leg, then the remote. It carries no authority of its own. |
+| **Import store** *(coined here)* | Host-side Git objects fetched for this workspace's imports. It is a cache, not an authority, and not a checkout. |
+| **Resolution record** *(coined here)* | Host-side state, one per handle, naming the commit an import currently resolves to and the access class it was obtained under. It is not a lockfile in the repository, not `packs.lock.json`, and not an approval record. |
+| **Refresh** *(coined here)* | Asking the remote, through the broker decision, what a moving ref points at now, and replacing the resolution record. It is not a re-projection and never happens on attach. |
 
 ## 3. The call: a dedicated key, not restricted `packs`
 
@@ -73,7 +82,7 @@ The repository has user-scope Git packs and a jail-only workspace skill reader, 
 - **The confined workspace skills layer** delivers skills safely, but only from directories already in the checkout.
 - **[workspace-packs.md](workspace-packs.md)** proposes workspace selection of shipped packs by bare name and leans against fetched ones. It is unbuilt and in review.
 
-The fetch machinery and the confined staging discipline are reused. The selection semantics are new.
+The confined staging discipline is reused. The fetch goes through the Git broker's decision and upstream leg, not through the user-scope pack fetch, which runs on the user's own authority ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). The selection semantics are new.
 
 ### Options compared
 
@@ -108,20 +117,28 @@ path = "skills"                 # optional; default "skills"
 only = ["review", "triage"]     # optional; default: every skill directory under path
 ```
 
-A moving-ref entry uses `ref` instead of `rev`; the exact resolved-target state and refresh contract are not yet designed.
+A moving-ref entry has `ref` and no `rev`:
+
+```toml
+[skill_imports.acme-main]
+git = "https://github.com/acme/agent-skills"
+ref = "main"                    # moving form: follows the branch
+```
+
+The mode is read from the fields alone. `rev` present means pinned; `rev` absent means moving ([§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed)).
 
 | Field | Required | Rule |
 |---|---|---|
 | `<handle>` | yes | Same character rules as a `pack_sources` key. Unique by construction, since it is a table key. |
-| `git` | yes | A repository address handled only through the existing workspace Git-broker access filter. Accepted URL/SSH/HTTPS forms and identity mapping follow that broker’s current contract; this design does not independently grant host credentials. |
-| `rev` | One of `rev` or moving `ref` | Full commit object id, with width and hexadecimal alphabet defined by the repository object format. Pin and moving-ref modes are both allowed; exact mutual-exclusion and moving-ref representation/state rules are designer work. |
-| `ref` | One of `rev` or moving `ref` | Tag or branch name. With a pin, it may label the pin; without one, it selects a moving-ref import whose resolution/refresh behavior remains to be designed. |
+| `git` | yes | A repository address in a transport the Git broker supports: `ssh://`, `git+ssh://`, `ssh+git://`, `https://`, or scp-style `[user@]host:path`. Local paths, `http://`, `git://`, `file://`, remote-helper forms and URLs carrying credentials are validation errors, decided from the text alone. A valid address grants nothing; whether it can be fetched is the broker decision in [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker). |
+| `rev` | Required for a pinned import | Full commit object id, with width and hexadecimal alphabet defined by the repository object format. Abbreviated ids are validation errors. When present, the import is pinned and this commit is the only content delivered. |
+| `ref` | Required when `rev` is absent | A branch or tag name, short (`main`, `v2`) or full (`refs/heads/main`, `refs/tags/v2`). Other ref namespaces and `HEAD` are validation errors. Without `rev` it selects a moving-ref import. With `rev` it is only a label that `yolo skills update` uses to re-pin; a launch never resolves it or checks it against `rev`. An entry with neither field is a validation error. |
 | `path` | no | Repository-relative directory whose immediate children are the skills. No absolute path, no `..`, no `.git`. This is the same discipline as `project_dirs` ([`internal/packdecl/projectdirs.go`](../../internal/packdecl/projectdirs.go)). |
 | `only` | no | Unique immediate-child skill directory basenames, not paths: nonempty, not `.` or `..`, with no `/` or `\`. Absent means all; an explicit `[]` means none. Duplicate or invalid names are validation errors. A valid name absent from the resolved tree is reported at resolution; other listed skills remain eligible. |
 
 Why a keyed table rather than a list: generic config merge union-merges lists and merges tables by key ([`internal/config/load.go`](../../internal/config/load.go)). A table lets a local override file change one import's source/ref selection, and gives every message and command a stable name. An absent `only` means all directories only when no lower config layer supplies that field; an explicit empty list means no names at that layer. Because list merge is union, an override cannot clear names supplied by a lower layer. Duplicate TOML table definitions are parse errors; duplicate names inside `only` are validation errors.
 
-The `git+…//subdir?ref=…` address form used by packs is not accepted here. Separate fields keep the selected source and ref mode visible. Exact interaction of pin and moving-ref fields is part of the remaining design work.
+The `git+…//subdir?ref=…` address form used by packs is not accepted here. Separate fields keep the selected source and ref mode visible in review: a diff that removes `rev` turns a pin into a moving ref, and says so on its face.
 
 ### 4.2 CLI
 
@@ -129,12 +146,19 @@ The `yolo skills` command group and both config keys are proposed names; none is
 
 | Command | Effect |
 |---|---|
-| `yolo skills add <url> [--as <handle>] [--ref <ref>] [--path <dir>] [--only a,b]` | Resolves the ref (default: the remote's default branch) to a commit and writes the entry with `rev` and `ref`. |
-| `yolo skills update [<handle>]` | Re-resolves each entry's `ref` and rewrites `rev`. An entry with no `ref` is left alone and reported. |
-| `yolo skills list` | Per import: pin, cached or not, skills that would be delivered, names shadowed, and what the source carries that is not imported. No network. |
-| `yolo skills remove <handle>` | Deletes the entry. |
+| `yolo skills add <url> [--as <handle>] [--ref <ref>] [--track] [--path <dir>] [--only a,b]` | Resolves the ref (default: the remote's default branch, written as its branch name) through the broker decision. Without `--track` it writes a pinned entry with `rev` and `ref`. With `--track` it writes a moving-ref entry with `ref` only. |
+| `yolo skills update [<handle>]` | Pinned entry with a `ref` label: re-resolves the label and rewrites `rev` in the config. Pinned entry with no label: left alone and reported. Moving-ref entry: forces a refresh of the resolution record; the config is not touched. |
+| `yolo skills pin <handle>` | Turns a moving-ref entry into a pinned one by writing the commit in its resolution record as `rev` and keeping `ref` as the label. No network. |
+| `yolo skills list` | Per import: mode, configured ref, recorded commit and when it was resolved, access class, whether the commit is in the import store, skills that would be delivered, names shadowed, and visible paths that are not imported. No network. |
+| `yolo skills remove <handle>` | Deletes the entry. The import store is left alone ([§10](#10-migration)). |
 
-`add`, `update` and `remove` are explicit operator commands that edit the workspace config file. They are the only path by which this feature writes to the repository. A launch never does.
+Pinning is the default for `add` because a pin is reproducible and visible in review. Tracking is one flag away, since the owner allows both.
+
+`add`, `update` on a pinned entry, `pin` and `remove` are explicit operator commands that edit the workspace config file. They are the only path by which this feature writes to the repository. A launch never does.
+
+Every network step in these commands goes through the broker decision in [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker). No command runs host Git with the operator's ambient credentials.
+
+Every message that suggests a next step names one of these commands. The workspace config is ordinary config and may be written by hand, but no message tells anyone to hand-edit the resolution record, the import store, an approval record or `.git/config`.
 
 ### 4.3 Scope
 
@@ -192,31 +216,112 @@ Because safety is equal, the choice is about usefulness and honesty. Projection 
 
 ### 6.1 Both immutable pins and moving refs are allowed
 
-The owner explicitly allows both full commit pins and moving refs. A pinned import identifies immutable content. A moving-ref import follows a named ref whose target may change. The pin-only recommendation is withdrawn.
+The owner explicitly allows both full commit pins and moving refs ([OQ-WGS1](#OQ-WGS1)). The pin-only recommendation is withdrawn. The rest of this subsection is designer recommendation.
 
-A pin change is a workspace-config change and remains subject to the existing config-change gate. A moving ref can resolve to different content without a config-text change; how that content change is noticed, represented in state, approved, refreshed, and observed is not settled here. Do not claim deterministic delivery, a refresh schedule, a lockfile/cache policy, or an approval prompt for such a change until the designer specifies those mechanics.
+| | Pinned import | Moving-ref import |
+|---|---|---|
+| Entry | `rev`, optional `ref` label | `ref`, no `rev` |
+| Content delivered | Exactly the `rev` commit | The commit in the resolution record ([§6.3](#63-state-and-ownership)) |
+| Changes when | The config changes, which the gate sees | A refresh finds the ref at a different commit; the config does not change |
+| Same content on every machine | Yes | No |
+| Network at launch | Only if the commit is not yet in the import store | Only when a refresh is due or nothing is recorded yet ([§6.4](#64-refresh-locking-and-concurrent-launches)) |
 
-No moving-ref mechanism may write to the workspace, silently change a committed file, or convert the import into user-global authority. The exact representation and state ownership are design work, not an owner question.
+**Ref names.** A full name (`refs/heads/…`, `refs/tags/…`) is used as written. A short name is tried as a branch and as a tag. If both exist the import is withheld, and the message asks for the full name; the design does not pick one. An annotated tag resolves to the commit it points at. The resolution record stores the full name that was found.
+
+**Tags are frozen, branches follow.** A ref that resolves to a tag is resolved once and kept until `yolo skills update`. A ref that resolves to a branch is refreshed on the schedule in [§6.4](#64-refresh-locking-and-concurrent-launches). This is the rule user-scope packs already follow for tags and branches.
+
+**What the gate approves.** The config-change gate shows and approves the entry: this repository, this ref, followed over time. That approval covers later movement of the ref. A moved target raises no prompt and creates no approval record; it is reported when it happens ([§9.3](#93-observable-results)). Asking again at every move would make a moving ref a pin with extra steps, which is not what the owner allowed.
+
+**Reproducibility.** A pinned import is reproducible everywhere. A moving-ref import is not: two machines, or one machine on two days, can deliver different commits. Between refreshes on one host, one workspace delivers one commit. `yolo skills list` shows that commit, and `yolo skills pin <handle>` writes it into the config when the team wants everyone on it.
+
+No moving-ref mechanism writes to the workspace, changes a committed file, or turns the import into user-global authority.
 
 ### 6.2 Git access is filtered by the existing workspace broker
 
-Workspace imports may never use host Git credentials unfettered. Repository resolution and fetching must be mediated by the Git broker’s access filter for this workspace. An import declaration cannot grant itself access, broaden the workspace’s existing access, bypass the broker, or invoke an arbitrary host Git helper.
+Workspace imports may never use host Git credentials unfettered; resolution and fetch are filtered through this workspace's existing Git broker access ([OQ-WGS2](#OQ-WGS2)). An import declaration cannot grant itself access, broaden the workspace's existing access, bypass the broker, or invoke a host Git helper. The rest of this subsection is designer recommendation on how that ruling is met.
 
-Authenticated access is available only to the extent the existing workspace Git broker authorizes it. Do not add a separate credential/grant/config route or change any live credential, grant, or config as part of this design update. Exact protocol handoff, repository identity resolution, filtering, cache interaction, and denial behavior require read-only grounding and designer completion.
+**Request authority.** A fetch for an import is decided by the same two inputs that decide a fetch the agent makes from inside the jail ([`git-broker.md`](../reference/git-broker.md#admission-scope-and-read-grant)):
 
-The safety boundary still holds: read committed Git objects without checkout execution; do not run hooks or filters, initialize submodules, or interpret pack manifests. The host fetch path must not become an alternate authority channel.
+- the workspace's repository scope, which is the remote URLs in the checkout's `.git/config`, read as text and approved at the config-change gate;
+- the user's Git read grant, which a workspace cannot create.
 
-### 6.3 State ownership is incomplete for moving refs
+The import's `git` URL is never added to that scope. It is only asked about. No grant, scope entry or config key is created or changed for imports.
 
-| State | Owner | Settled constraint |
+**The broker decision.** For one import URL the broker's existing rules give one of three answers. The import path takes that answer and adds no rule of its own.
+
+| Import URL | Broker decision | Result for the import |
 |---|---|---|
-| Import declaration | Workspace config | Names a repository and either an immutable pin or moving ref. |
-| Resolved ref target | Not yet assigned | Must be designed without workspace writes or user-global authority; moving refs make this necessary. |
-| Fetched objects/cache | Existing Git-broker/cache mechanism to be grounded | Must remain cache, not authority, and access must stay workspace-filtered. |
-| Staged import layer | Launch's staged tree | Only projected skills are delivered; never mutate workspace or selected-pack tree. |
-| Per-import approval record | Not decided | Do not add one by assumption; reconcile moving-ref changes with the existing config-change gate in the design. |
+| Exact URL is in the approved scope, and the user read grant covers its repository identity | Authenticated fetch | Fetched with access class `authenticated` |
+| `https://` URL that does not meet the row above | Anonymous attempt only; no credential can be acquired during the request | Fetched with access class `anonymous` if the server serves it without credentials; otherwise withheld |
+| SSH or scp-style URL that does not meet the first row | Refused | Withheld |
+| Unsupported transport, or credentials in the URL | Refused | Already a validation error ([§4.1](#41-toml-workspace-config)) |
 
-The designer’s next action is to ground these constraints in current Git-broker integration and specify the resolution, refresh, approval, cache, and failure contract before a plan is written.
+Scope matching and identity are separate checks, as they are today: a URL whose repository identity equals an in-scope remote's is not thereby in scope.
+
+The anonymous row is current broker behavior, not a new allowance. The agent inside the jail can already make that same anonymous fetch. Inheriting it means a public skill repository needs no remote, grant or credential, and a private one works only where the workspace already has authenticated access to it.
+
+**No route around the decision.** When the decision is refused, or an anonymous attempt fails, the import is withheld. The import path never fetches directly, never retries outside the broker, and never falls back to the user-scope pack fetch or its lock.
+
+**Transport route.** The jail does not exist when a fresh launch resolves imports, so the bytes do not travel through the jail-side remote helper. The host launch process asks the broker's decision, and the fetch runs on the broker's own upstream leg: host `ssh` for SSH, the host credential helper for HTTPS only when the decision is authenticated. The route carries no authority. Whatever it may do was decided by the request authority above.
+
+**Smallest integration.** The evidence shows the broker serving the jail-side helper and does not show a host-side caller. The integration this design asks for is one host-side caller of the same decision function and the same upstream leg, limited to fetch (`git-upload-pack`), and given the launch's gate-approved scope and grants. It is not a second copy of the checks. Whether such an entry exists today is unchecked (U5 in [§11](#11-code-checks)).
+
+**No workspace-driven host Git.** The fetch never runs Git inside the checkout and never reads the checkout's Git config, so a workspace cannot steer it with `url.*.insteadOf`, `credential.helper`, `core.sshCommand` or similar settings. It reads committed objects only: no checkout, hooks, filters or submodules, and no pack manifest.
+
+**Commands outside a launch.** `yolo skills add` and `update` use the same decision. Run on the host, they use the workspace's last approved scope and the user read grant, which are the inputs an unchanged next launch would use; with no approved scope yet, only the anonymous row is available. Run inside a jail, they go through that jail's own broker access, and they can edit the workspace config but cannot write host state. Where these commands run and whether the approved scope is readable outside a launch are unchecked (U7 in [§11](#11-code-checks)).
+
+### 6.3 State and ownership
+
+The Git broker streams a fetch and keeps no copy, so it has no cache or lock to reuse. The user-scope pack lock (`packs.lock.json`) sits beside user config and rests on user authority, so it is not used either. Imports get their own state, owned by the host and scoped to one workspace.
+
+| State | Owner | Written by | Rule |
+|---|---|---|---|
+| Import declaration | Workspace config | The operator, or the config-editing `yolo skills` commands | Names a repository and either a pin or a moving ref. Passes the config-change gate. |
+| Import store | Host-side state for this workspace: outside the checkout, not beside user config, the same ownership class as the workspace's config-approval record | The resolve step of a fresh launch; host-side `yolo skills add` and `update` | Git objects only, added and never rewritten. A cache, not an authority ([§6.4](#64-refresh-locking-and-concurrent-launches)). Not shared between workspaces, so one workspace's access never supplies another's content. |
+| Resolution record | Same owner as the import store | Same writers | One per handle: the URL as configured, repository identity, full ref name (moving only), commit id, access class, and when it was resolved. |
+| Staged import layer | The launch's staged tree | Fresh launch and attach | Only projected skills are delivered. The workspace and the selected-pack tree are never touched. |
+| Approval | The existing config-change gate | Unchanged | There is no per-import approval record. |
+
+A resolution record is valid only while the entry's `git` and `ref` (or `rev`) still equal what it recorded. If the entry changes, the record is treated as absent. A pinned import has a record too, so that the access class its commit was obtained under is known.
+
+Nothing in this table is in the repository, and nothing in it is user-global. The agent inside the jail cannot write any of it. The exact location of this per-workspace host state is unchecked (U6 in [§11](#11-code-checks)).
+
+**Immutable staging.** Projection and staging read the tree of one commit id from the import store. A commit id names fixed content, so what a launch stages cannot change underneath it, even while another process adds objects or replaces the record.
+
+### 6.4 Refresh, locking and concurrent launches
+
+This subsection is designer recommendation.
+
+**When the network is used.** A fresh launch, after the config-change gate, does this for each import:
+
+1. Take the broker decision for the entry's URL. This is a local check. If it is refused, the import is withheld and nothing stored is used.
+2. Find the commit wanted. For a pin it is `rev`. For a moving ref it is the commit in a valid resolution record, unless a refresh is due.
+3. Use the network only if one of these holds: the commit is not in the import store; there is no valid record; a refresh is due; or the stored content needs a higher access class than the current decision gives (see "Cache is not authority" below).
+
+A healthy pinned import therefore uses the network once. A healthy moving-ref import uses it when a refresh is due.
+
+**When a refresh is due.** A branch is refreshed at a fresh launch once its record is older than the refresh interval user-scope packs already use ([`pack-system.md`](../reference/pack-system.md#fetch-refresh-lock)). It is the same constant, not a second value and not a setting. A tag is never due. `yolo skills update` forces a refresh of either. Attach never refreshes.
+
+**Cache is not authority.** Stored content is delivered only when the current broker decision is at least the access class it was obtained under:
+
+| Stored access class | Current broker decision | Result |
+|---|---|---|
+| `anonymous` | Authenticated or anonymous | Usable |
+| `authenticated` | Authenticated | Usable |
+| `authenticated` | Anonymous only | Must be obtained again anonymously before delivery. If that succeeds the record is rewritten as `anonymous`; if not, the import is withheld. |
+| Either | Refused | Withheld |
+
+So removing a remote from the workspace, or the user withdrawing the read grant, stops delivery of content that was only reachable with credentials, even though the objects are still on disk.
+
+**When the remote cannot be reached.** If the broker decision allows the fetch but the refresh fails (offline, server error, ref deleted upstream), a moving-ref import with a valid record and a usable stored commit delivers that commit, with a warning. With nothing usable, the import is withheld. Either way the launch continues ([§9.2](#92-failures)).
+
+**Locking.** One exclusive lock per workspace import state covers fetch-and-record-write, and nothing else. It is held only by a live process.
+
+- Objects are added, never rewritten. A record is replaced whole, so a reader sees the old record or the new one, never a mixture.
+- Readers take no lock. Projection, attach and `yolo skills list` read the record once and then read by commit id.
+- A launch that wants to refresh and finds the lock held does not wait. It uses the current record as if no refresh were due.
+- A launch with no usable record and the lock held waits for the holder, then reads what the holder wrote. If the holder failed, it tries once itself.
+- Two launches of one workspace may therefore stage different commits only if a refresh lands between their reads. Each stages one whole commit.
 
 ## 7. Decision and effects
 
@@ -226,11 +331,15 @@ Validation and launch share one interpretation of an entry. The phases differ on
 |---|---|---|---|
 | 1. Parse and validate | Pure | Config validation, `yolo check`, launch | Nothing. No network, no cache write, no prompt. |
 | 2. Config-change gate | Existing gate | Fresh launch | Reads workspace config including consumed includes/local override, compares the effective snapshot, and prompts only when a difference needs approval. This is not guaranteed on every first launch; see [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed). |
-| 3. Resolve | Effect | Fresh launch only, after the applicable approval/access checks | Must use the workspace-filtered Git broker. Exact moving-ref timing and cache behavior remain design work. No arbitrary host credential path. |
-| 4. Project | Read-only decision plus tree reads | Fresh launch, attach, `yolo skills list` | Walks the cached commit tree and reads selected blobs. It performs no network or writes. |
-| 5. Stage | Effect | Fresh launch and attach | Writes the workspace-derived skills staging area only, never the workspace or selected-pack tree. Attach refreshes workspace skills from cache while selected packs remain from the running jail's `pack-trees/.live` tree. |
+| 3. Resolve | Effect | Fresh launch only, after the gate has passed and the launch's approved scope and grants are fixed | Takes the broker decision, and uses the network only in the cases listed in [§6.4](#64-refresh-locking-and-concurrent-launches). Writes the import store and resolution record. Never touches the workspace, user config or any approval record. |
+| 4. Project | Read-only decision plus tree reads | Fresh launch, attach, `yolo skills list` | Walks the tree of the recorded commit in the import store and reads selected blobs. No network, no writes, no record change. |
+| 5. Stage | Effect | Fresh launch and attach | Writes the workspace-derived skills staging area only, never the workspace or selected-pack tree. Attach re-stages from the current record and store; selected packs remain from the running jail's `pack-trees/.live` tree. |
 
-Validation never fetches, so a config can be checked offline and in CI. `yolo host` does not read workspace imports, resolve refs, fetch them or deliver them ([§8.3](#83-delivery)). Projection reads the cached tree; only its selection decision is side-effect-free. The existing workspace skill refresh path runs on attach without re-staging selected packs; whether it can resolve or refresh a moving ref is not yet decided.
+Validation never fetches, so a config can be checked offline and in CI. `yolo host` does not read workspace imports, resolve refs, fetch them or deliver them ([§8.3](#83-delivery)).
+
+Entry selection and projection are different things. Entry selection is the config decision of which repository, commit, path and names; it is what the gate approves and what resolve acts on. Projection has no effect of its own: given one commit, it decides which directories are skills, and it cannot fetch, resolve or record anything.
+
+**Attach.** Attach never resolves, refreshes, fetches or writes a resolution record. It passes the config-change gate as it does today, takes the broker decision against live scope (a local check), and re-stages from the current record and import store under the access-class rule in [§6.4](#64-refresh-locking-and-concurrent-launches). If another launch has advanced the record since this jail started, attach stages the newer commit. An import with no valid record or no stored commit is withheld on attach with a line saying it resolves at the next fresh launch.
 
 ## 8. Projection, precedence, delivery
 
@@ -276,34 +385,45 @@ Two properties follow:
 | Feature for a workspace that declares imports | On. `workspace_skill_imports = false` at user scope turns it off. |
 | `path` | `skills` |
 | `only` | Absent: all immediate-child skill directories; `[]`: none |
-| Ref forms | Full commit pins and moving refs are both permitted. |
-| Moving-ref refresh | Not yet designed; no cadence or launch behavior is claimed. |
+| Ref forms | Full commit pins and moving refs are both permitted. `rev` present means pinned; `ref` alone means moving. |
+| `yolo skills add` | Writes a pin. `--track` writes a moving ref. |
+| Moving-ref refresh | Branch: at a fresh launch once the record is older than the existing pack refresh interval, or on `yolo skills update`. Tag: only on `yolo skills update`. Never on attach. |
+| Prompt when a moving ref moves | None. The move is reported ([§9.3](#93-observable-results)). |
 
 ### 9.2 Failures
 
-Imports are additive, lowest-precedence content. Losing one cannot widen anything. Authoring errors stop validation. Runtime denial, withholding and launch-continuation behavior must follow the existing broker contract and are not yet specified.
+Imports are additive, lowest-precedence content. Losing one cannot widen anything. So the rule is: authoring errors stop validation; every runtime failure withholds that one import, prints a warning naming the handle and the reason, and lets the launch continue. No runtime failure of an import stops a launch, and none is silent.
 
 | Situation | Result |
 |---|---|
-| Malformed entry: unsupported source/ref form, invalid handle/filter name, bad `path`, or invalid pin | Validation error, like any other config error. Accepted source/ref syntax follows the existing workspace Git broker; exact validation mapping is part of the design work. |
+| Malformed entry: unsupported transport, credentials in the URL, invalid handle or filter name, bad `path`, abbreviated or malformed `rev`, invalid `ref`, or neither `rev` nor `ref` | Validation error, like any other config error. |
 | Workspace `packs` present | Validation error (unchanged), with the new message. |
-| Broker denies access, source is unavailable, or resolution/fetch fails | The import must not bypass the broker; withholding, warning severity and launch-continuation behavior are to be specified against current broker failure patterns. |
-| Cached objects exist but broker access has changed or the ref moved | Cache authorization, freshness, and delivery behavior are unresolved; a cache must not bypass the current workspace access filter. |
-| A pinned commit is not the requested `rev`, or a moving ref cannot resolve | The import must not deliver different content silently; exact withholding/report behavior is part of the moving-ref and broker failure design. |
+| Broker decision is refused (for example an SSH URL that is not an approved workspace remote, or no user read grant) | Withheld. Nothing stored is used. The warning says the repository is outside this workspace's Git access; it does not suggest a way to widen that access. |
+| Anonymous attempt fails because the server wants credentials | Withheld, with the same wording. No retry with credentials and no fetch outside the broker. |
+| Broker decision allows the fetch, but the remote cannot be reached or the refresh fails | Moving ref with a usable recorded commit: that commit is delivered, with a warning that it may be stale. Pinned commit already in the store: delivered, with no warning, since no network was needed. Otherwise withheld. |
+| Stored content was obtained with credentials and the workspace no longer has authenticated access | Obtained again anonymously if the broker allows an anonymous attempt and it succeeds; otherwise withheld ([§6.4](#64-refresh-locking-and-concurrent-launches)). |
+| The server will not serve the pinned commit, or what arrives is not the `rev` commit | Withheld. The tip of the `ref` label is never delivered in its place. |
+| Moving ref's short name matches both a branch and a tag | Withheld; the message asks for the full ref name. |
+| Moving ref no longer exists upstream | Treated as a failed refresh: the last recorded commit is delivered with a warning naming the missing ref, or the import is withheld if there is none. |
+| Moving ref now points at a different commit | Delivered at the new commit and reported ([§9.3](#93-observable-results)). Rewritten history is treated the same as any other move. |
 | `path` absent in the tree, or contains no skill directory | That import is withheld with an error line. |
 | `only` names a skill that is not there | That name is reported. The rest of the import is delivered. |
 | Entry refused by confinement | That skill is withheld and reported. |
-| Attach to a running jail | Must preserve the rule that attach never fetches or re-stages selected packs; whether a moving ref is resolved from cache or left unchanged is part of the design work. Selected packs remain from the running jail's `pack-trees/.live` tree. |
+| Attach to a running jail | Never fetches, refreshes or re-stages selected packs. Imports are re-staged from the current record and store under the current broker decision; one with nothing usable is withheld until the next fresh launch ([§7](#7-decision-and-effects)). Selected packs remain from the running jail's `pack-trees/.live` tree. |
+| Another launch holds the import lock | A due refresh is skipped and the current record is used. With no usable record, this launch waits for the holder ([§6.4](#64-refresh-locking-and-concurrent-launches)). |
 | User veto set | Nothing is resolved or staged. `yolo skills list` says so. |
 
 ### 9.3 Observable results
 
-A launch with healthy, unchanged imports prints nothing about them. Routine lines for expected configuration bury real failures. The designer must align moving-ref changes and broker denials with the existing Git-broker disclosure contract; exact user-visible event conditions remain to be specified. When disclosure is warranted, it covers:
+A launch with healthy, unchanged imports prints nothing about them. Routine lines for expected configuration bury real failures. Lines are printed only for these events, as labeled rows in the style of the Git broker's launch disclosure:
 
-- first delivery of an import: handle, source/ref identity, resolved-target display, skill count, and whether visible paths outside selected skill directories were left unimported;
-- a resolved-content change since the last delivery, with the exact condition depending on the moving-ref state design;
-- anything withheld, with the reason;
-- shadowed names.
+- **A resolution record is created.** Handle, repository identity, ref or pin, commit id, access class, skill count, and whether visible paths outside selected skill directories were left unimported.
+- **A resolution record changes commit.** Handle, ref, previous commit id and new commit id. This is the report of a moving ref's move.
+- **A stale commit is delivered** because a refresh failed, with the reason.
+- **Anything is withheld**, with the reason.
+- **Names are shadowed.**
+
+The first two are printed by whatever writes the record: the launch that resolved it, or the `yolo skills` command that did. A launch that only reads a record another process wrote prints nothing for it. `yolo skills list` always shows the current commit and when it was resolved.
 
 `yolo skills list` is the on-demand view of import configuration, cache state, selected skills, collisions, and visible unimported paths. It does not read manifests, discover plugin components or claim to inventory every non-skill effect; it reports only paths visible in the resolved tree without activating them.
 
@@ -323,7 +443,8 @@ A launch with healthy, unchanged imports prints nothing about them. Routine line
 
 - A workspace cannot select a pack, shipped or fetched.
 - A workspace cannot cause a hook, program, MCP server, plugin component, mount, host read, environment change or config surface to be delivered.
-- A workspace cannot bypass the workspace Git broker or cause host Git credentials to be used outside the broker’s existing access filter.
+- A workspace cannot bypass the workspace Git broker or cause host Git credentials to be used outside the broker’s existing access filter. An import entry adds nothing to repository scope and creates no grant.
+- Content fetched for one workspace is not delivered to another, and content fetched with credentials is not delivered once the workspace loses that access.
 - A workspace cannot write user-global lock or approval state, and a launch cannot write to the workspace.
 - Nothing workspace-derived reaches `yolo host`.
 - Nothing a workspace supplies outranks user-selected content.
@@ -336,12 +457,13 @@ Existing workspace configs without these keys remain unchanged. A build that pre
 - Imports at user scope.
 - Briefings, slash commands or any second content kind.
 - Per-agent audiences, renaming or exclusion filters.
-- Moving-ref resolution, refresh, approval, cache semantics and Git-broker integration; these are the next design action, not settled details.
-- Cleaning up or garbage-collecting the shared cache.
+- Any change to the Git broker's scope, grants or decision rules, including its anonymous-HTTPS behavior. Imports use them as they are.
+- A setting for the refresh interval, or a per-move approval prompt.
+- Cleaning up or garbage-collecting the import store.
 
 ## 11. Code checks
 
-The evidence packet named four points to verify. All four are resolved against the current checkout; the constraints below replace the former assumptions.
+The evidence packet named four points to verify. All four (U1–U4) are resolved against the current checkout; the constraints below replace the former assumptions. U5–U7 were raised by the broker integration and are not yet checked.
 
 | Check | Finding and design consequence |
 |---|---|
@@ -350,10 +472,21 @@ The evidence packet named four points to verify. All four are resolved against t
 | U3 — older builds | Top-level unknown keys are validation errors. A build predating the proposed key therefore refuses the workspace config rather than silently ignoring the import or delivering it. See [`validate.go`](../../internal/config/validate.go). |
 | U4 — executable bits | The existing confined reader stages any file carrying an execute bit as `0755`; otherwise it stages as `0644`, regardless of source read/write bits. Imported skills inherit this rule, so executable bundled scripts remain executable inside the jail but are never invoked by import. See [`workspaceskills.go`](../../internal/jailcontent/workspaceskills.go). |
 
+Unchecked seams. Each has a stated rule either way, so none changes a decision; the plan checks them first.
+
+| Check | What is unknown | Rule either way |
+|---|---|---|
+| U5 — host-side broker entry | Whether the broker's decision function and upstream leg can be called from the host launch process, or only through the jail-side helper. | If absent, add one caller of the same function, fetch only. Never copy the checks or fetch around them ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). |
+| U6 — state location | Where per-workspace host state such as the config-approval record lives, and whether the import store and resolution record can sit beside it. | Host-owned, per workspace, outside the checkout, not beside user config ([§6.3](#63-state-and-ownership)). |
+| U7 — command context | Whether `yolo skills` commands run on the host, in a jail, or both, and whether the approved scope is readable outside a launch. | Host: last approved scope plus user read grant, else the anonymous row only. Jail: the jail's own broker access, and no host-state writes ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). |
+
 Residual risks the design accepts and names:
 
 - Imported skill text can steer the agent, within the jail's existing authority.
-- A pin bump is opaque in review unless the reviewer inspects the upstream commit diff; moving refs also need an explicit change/approval disclosure contract.
+- A pin bump is opaque in review unless the reviewer inspects the upstream commit diff.
+- A moving ref changes delivered instruction text with no config change and no prompt. The move is reported once, by whichever process recorded it.
+- Two machines, or two launches either side of a refresh, can deliver different commits of a moving ref.
+- A workspace-named HTTPS URL outside scope causes the host to make an anonymous request to that server at launch, after the config-change gate.
 - A projected skill may depend on something that was not imported.
 - A brokered fetch reveals to the authorized server that the workspace requested that repository.
 
@@ -362,8 +495,8 @@ Residual risks the design accepts and names:
 | ID | Ruling / Decision | Date | Settled in | Built |
 |---|---|---|---|---|
 | WGS-R1 | Workspaces may include Git skills; the governing boundary excludes dangerous pack effects, not outside content as such. | 2026-11-16 | [§1](#1-problem-and-owner-direction) | No |
-| <a id="OQ-WGS1"></a>[OQ-WGS1](#OQ-WGS1) | Both full commit pins and moving refs are allowed. Pin-only is not the design; moving-ref state, refresh, and approval mechanics remain for the designer to specify. | 2026-11-16 | [§6](#6-git-addressing-ref-forms-access-and-state) | No |
-| <a id="OQ-WGS2"></a>[OQ-WGS2](#OQ-WGS2) | Imports can never use host credentials unfettered; resolution/fetch must be filtered through this workspace’s existing Git broker access. | 2026-11-16 | [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) | No |
+| <a id="OQ-WGS1"></a>[OQ-WGS1](#OQ-WGS1) | Owner: both full commit pins and moving refs are allowed. Pin-only is not the design. The owner left moving-ref state, refresh and approval to the designer; those are recommendations WGS-P9 and WGS-P11 to WGS-P14 in [§13](#13-design-recommendations-not-owner-rulings), not part of this ruling. | 2026-11-16 | [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed) | No |
+| <a id="OQ-WGS2"></a>[OQ-WGS2](#OQ-WGS2) | Owner: imports can never use host credentials unfettered; resolution/fetch must be filtered through this workspace’s existing Git broker access. How the broker's existing decision is applied, including its anonymous-HTTPS behavior, is recommendation WGS-P10, not part of this ruling. | 2026-11-16 | [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) | No |
 
 ## 13. Design recommendations (not owner rulings)
 
@@ -373,7 +506,13 @@ Residual risks the design accepts and names:
 | WGS-P2 | Allow-list projection to skill directories. No manifest is read, there is no dependency closure, and future kinds are refused by default. | [§5](#5-how-far-it-goes) |
 | WGS-P3 | Mixed sources are projected, not rejected; visible paths outside selected skills are disclosed without claiming exhaustive manifest/plugin inventory. | [§5.4](#54-mixed-sources-project-or-reject) |
 | WGS-P4 | Skills only. `briefing` passes the effect tests but is not admitted. | [§5.2](#52-allowed-and-refused) |
-| WGS-P5 | Validation has no fetch effects. Resolution must follow applicable config approval and workspace-broker access checks; exact moving-ref sequencing remains design work. | [§7](#7-decision-and-effects) |
+| WGS-P5 | Validation has no fetch effects. Resolution runs only at a fresh launch after the config-change gate, or in an explicit command, and always under the broker decision. Attach never resolves. | [§7](#7-decision-and-effects) |
 | WGS-P6 | The import layer is lowest precedence and is not delivered to `yolo host`, under WS-D24. | [§8](#8-projection-precedence-delivery) |
-| WGS-P7 | Authoring errors fail validation. Runtime denial, withholding and continuation behavior must follow the existing broker contract and be specified by the designer. | [§9.2](#92-failures) |
+| WGS-P7 | Authoring errors fail validation. Every runtime failure withholds that one import with a warning, and the launch continues. | [§9.2](#92-failures) |
 | WGS-P8 | On by default, with a user-scope scalar veto. | [§4.3](#43-scope) |
+| WGS-P9 | `rev` present means pinned; `ref` alone means moving. `yolo skills add` pins by default and `--track` follows a ref. Tags are frozen until an explicit update; branches follow. | [§4](#4-syntax), [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed) |
+| WGS-P10 | An import fetch takes the Git broker's existing decision unchanged, including its anonymous-HTTPS attempt. The import URL never enters scope, no grant is created, and nothing is fetched outside the broker when it refuses. The only integration is one host-side caller of the same decision and upstream leg. | [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) |
+| WGS-P11 | Fetched objects and the resolved commit live in host-owned, per-workspace state: an import store and a resolution record. Neither is in the repository, user-global, shared between workspaces, or an approval record. | [§6.3](#63-state-and-ownership) |
+| WGS-P12 | A branch is refreshed at a fresh launch on the existing pack refresh interval, or by `yolo skills update`. There is no new setting. One lock covers fetch-and-record-write; readers take none; a busy lock skips a due refresh. | [§6.4](#64-refresh-locking-and-concurrent-launches) |
+| WGS-P13 | Approving the entry at the config-change gate covers later movement of its ref. A move raises no prompt and is reported by the process that recorded it. | [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed), [§9.3](#93-observable-results) |
+| WGS-P14 | The import store is a cache, not an authority: stored content is delivered only under a current broker decision at least as strong as the access class it was obtained under. A failed refresh delivers the last recorded commit with a warning. | [§6.4](#64-refresh-locking-and-concurrent-launches) |
