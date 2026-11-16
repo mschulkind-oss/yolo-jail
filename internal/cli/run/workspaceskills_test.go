@@ -77,11 +77,16 @@ func wsLink(t *testing.T, root, rel, target string) {
 // root.
 func stageWorkspaceSkills(t *testing.T, o *Options, rt string) string {
 	t.Helper()
+	return stageWorkspaceSkillsWithConfig(t, o, rt, jsonx.NewOrderedMap())
+}
+
+func stageWorkspaceSkillsWithConfig(t *testing.T, o *Options, rt string, cfg *jsonx.OrderedMap) string {
+	t.Helper()
 	root, packs, briefings, err := o.stagePacks(wsSkillsCname)
 	if err != nil {
 		t.Fatalf("stagePacks: %v", err)
 	}
-	staging, err := o.refreshJailBriefings(wsSkillsCname, jsonx.NewOrderedMap(), rt,
+	staging, err := o.refreshJailBriefings(wsSkillsCname, cfg, rt,
 		stagedPacks{root: root, packs: packs, briefings: briefings}, ioprio.Normal)
 	if err != nil {
 		t.Fatalf("refreshJailBriefings: %v", err)

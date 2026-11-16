@@ -77,6 +77,13 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	if err := rejectURLCredentials(request.URL); err != nil {
 		return result, err
 	}
+	if _, allowed, err := DecideImportAccess(request.URL, request.ApprovedRemotes, request.CurrentRemotes,
+		request.ApprovedGrants, request.CurrentGrants); err != nil || !allowed {
+		if err != nil {
+			return result, err
+		}
+		return result, errors.New("Git broker refused this import URL")
+	}
 	workspace := runtimeidentity.ResolveWorkspace(request.Workspace)
 	gitExecutable, err := exec.LookPath("git")
 	if err != nil {
@@ -137,7 +144,7 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	endpoint := filepath.Join(endpointDir, "git-broker.endpoint")
 	stop := make(chan struct{})
 	serveDone := make(chan error, 1)
-	go func() { serveDone <- hostservice.ServeEndpoint(broker.Handle, endpoint, stop) }()
+	go func() { serveDone <- hostservice.ServeLocalEndpoint(broker.Handle, endpoint, stop) }()
 	if err := waitForEndpoint(ctx, endpoint, serveDone); err != nil {
 		close(stop)
 		<-serveDone

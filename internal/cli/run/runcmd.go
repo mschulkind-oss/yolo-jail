@@ -392,6 +392,9 @@ type Options struct {
 	// (config.ScopeCheck.ApprovedGrants; docs/reference/git-broker.md ID-10), set beside
 	// approvedScopes and written to the same scope files.
 	approvedGrants map[string][]brokerscope.Grant
+	// skillImportGatePassed distinguishes a fresh launch's in-memory Git scope approval from
+	// an attach, which must read the saved approval record and never refresh imports.
+	skillImportGatePassed bool
 	// readWithoutScope are the brokered loopholes whose read grant the same gate found applying
 	// over no repository (config.ScopeCheck.ReadWithoutScope), each mapped to the workspace key
 	// that would list one: their scope is empty for want of a remote, not of a grant, and

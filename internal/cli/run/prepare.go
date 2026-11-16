@@ -260,6 +260,9 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		facts.AppliedAgentsMDExtra = extra
 		facts.AppliedWorkspaceSkills = workspaceSkills
 	}
+	workspaceSkills = cloneWorkspaceSkills(workspaceSkills)
+	importProjectionCleanup := o.projectSkillImports(cfg, &workspaceSkills)
+	defer importProjectionCleanup()
 	if hadAppliedFacts {
 		// An authenticated attach snapshot is the running jail's effective briefing state;
 		// current workspace edits are not applied merely by attaching.

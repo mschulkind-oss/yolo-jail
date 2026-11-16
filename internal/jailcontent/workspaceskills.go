@@ -100,6 +100,18 @@ type WorkspaceSkills struct {
 	Dirs []string
 	// PerSide are workspace-relative paths the jail sees its own copy of. Never read.
 	PerSide []string
+	// Imported contains already-projected immutable skill directories. Each Root is the
+	// per-skill confinement boundary; this layer never fetches or resolves an import.
+	Imported []ImportedWorkspaceSkill
+	// ImportRefused are fixed source labels/reasons from resolution or projection.
+	ImportRefused []WorkspaceSkillRefusal
+}
+
+// ImportedWorkspaceSkill is one pre-projected skill directory from a host-owned Git commit.
+type ImportedWorkspaceSkill struct {
+	Handle string
+	Name   string
+	Root   string
 }
 
 // WorkspaceSkillsReport is everything a launch must say about the workspace layer.
@@ -230,6 +242,7 @@ var workspaceCaps = workspaceSkillCaps{bytes: maxWorkspaceSkillBytes, entries: m
 // mid-launch; from scratch, because scratch is yolo's own tree and holds no links at all.
 type workspaceLayer struct {
 	tree   *confinedTree
+	trees  []*confinedTree
 	dir    string // the scratch tree; "" when nothing was staged
 	staged int    // skills copied into it so far, each into a directory named by its number
 	// caps is this launch's cap, and spent what the layer has written into scratch against it:
@@ -257,8 +270,10 @@ type workspaceLayer struct {
 }
 
 type wsSource struct {
-	rel  string // as declared
-	real string // root-relative real path
+	rel      string // as declared
+	real     string // root-relative real path
+	tree     *confinedTree
+	imported bool
 	// entryReals is the real path of every skill directory in this source, winners and losers
 	// alike: the skill-level half of the skip rule.
 	entryReals map[string]bool
@@ -314,16 +329,24 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 		delivered:  map[*wsSource]*deliveryAcc{},
 		caps:       workspaceCaps,
 	}
-	if ws == nil || ws.Root == "" || len(ws.Dirs) == 0 {
+	if ws == nil || len(ws.Dirs) == 0 && len(ws.Imported) == 0 && len(ws.ImportRefused) == 0 {
 		return l, nil
 	}
-	tree, err := openConfinedTree(ws)
-	if err != nil {
-		// Not the clone's doing and not fatal: the layer is simply absent, and SAID to be.
-		l.refuse(".", "the workspace could not be opened for reading skills ("+errnoText(err)+")")
+	if ws.Root != "" {
+		tree, err := openConfinedTree(ws)
+		if err != nil {
+			l.refuse(".", "the workspace could not be opened for reading skills ("+errnoText(err)+")")
+		} else {
+			l.tree = tree
+			l.trees = append(l.trees, tree)
+		}
+	}
+	for _, refused := range ws.ImportRefused {
+		l.refuse(refused.Path, refused.Reason)
+	}
+	if len(ws.Dirs) == 0 && len(ws.Imported) == 0 {
 		return l, nil
 	}
-	l.tree = tree
 	// Whatever this returns an error from, it leaves nothing behind: the tree closed, the
 	// scratch removed.
 	defer func() {
@@ -340,70 +363,113 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 
 	bySource := map[string]*wsSource{}
 	winners := map[string]*wsSkill{}
-	for _, rel := range ws.Dirs {
-		real, reason := tree.resolveSource(rel)
-		if reason != "" {
-			l.refuse(rel, reason)
-			continue
-		}
-		if real == "" {
-			continue // absent: the common case, and silent
-		}
-		l.resolved[rel] = real
-		if _, dup := bySource[real]; dup {
-			continue // a second spelling of a source already in the set (a committed link)
-		}
-		src := &wsSource{rel: rel, real: real, entryReals: map[string]bool{}, names: map[string]bool{}}
-		bySource[real] = src
-		l.sources = append(l.sources, src)
-		names, err := tree.listDir(real)
-		if err != nil {
-			l.refuse(rel, readFailure(err))
-			continue
-		}
-		for _, name := range names {
-			if name == ".git" {
-				continue
-			}
-			display := rel + "/" + name
-			entry := joinRel(real, name)
-			childReal, reason := tree.resolveEntry(entry)
+	tree := l.tree
+	if tree != nil {
+		for _, rel := range ws.Dirs {
+			real, reason := tree.resolveSource(rel)
 			if reason != "" {
-				src.names[name] = true
-				l.refuse(display, reason)
+				l.refuse(rel, reason)
 				continue
 			}
-			if childReal == "" {
-				continue // vanished between the listing and the look
+			if real == "" {
+				continue // absent: the common case, and silent
 			}
-			if containsPath(childReal, real) {
-				// `x → .` or `x → ../..`: a "skill" that is its own source dir, or the whole
-				// workspace, is a cycle before a single file is copied.
-				src.names[name] = true
-				l.refuse(display, "a symlink to a directory that contains it (a cycle)")
+			l.resolved[rel] = real
+			if _, dup := bySource[real]; dup {
+				continue // a second spelling of a source already in the set (a committed link)
+			}
+			src := &wsSource{rel: rel, real: real, tree: tree, entryReals: map[string]bool{}, names: map[string]bool{}}
+			bySource[real] = src
+			l.sources = append(l.sources, src)
+			names, err := tree.listDir(real)
+			if err != nil {
+				l.refuse(rel, readFailure(err))
 				continue
 			}
-			fi, err := tree.root.Lstat(childReal)
-			if err != nil || !fi.IsDir() {
-				// A top-level FILE is not a skill directory, for this layer exactly as for every
-				// other one (the pack layers' reader, hostskills' collectSkills, skips it too).
-				continue
-			}
-			src.names[name] = true
-			src.entryReals[childReal] = true
-			if w, ok := winners[name]; ok {
-				if w.real != childReal {
-					l.collide(name, w.source, src)
+			for _, name := range names {
+				if name == ".git" {
+					continue
 				}
-				continue
-			}
-			if sk := l.stageSkill(src, name, childReal, entry, display); sk != nil {
-				winners[name] = sk
-				l.skills = append(l.skills, sk)
+				display := rel + "/" + name
+				entry := joinRel(real, name)
+				childReal, reason := tree.resolveEntry(entry)
+				if reason != "" {
+					src.names[name] = true
+					l.refuse(display, reason)
+					continue
+				}
+				if childReal == "" {
+					continue // vanished between the listing and the look
+				}
+				if containsPath(childReal, real) {
+					// `x → .` or `x → ../..`: a "skill" that is its own source dir, or the whole
+					// workspace, is a cycle before a single file is copied.
+					src.names[name] = true
+					l.refuse(display, "a symlink to a directory that contains it (a cycle)")
+					continue
+				}
+				fi, err := tree.root.Lstat(childReal)
+				if err != nil || !fi.IsDir() {
+					// A top-level FILE is not a skill directory, for this layer exactly as for every
+					// other one (the pack layers' reader, hostskills' collectSkills, skips it too).
+					continue
+				}
+				src.names[name] = true
+				src.entryReals[childReal] = true
+				if w, ok := winners[name]; ok {
+					if w.real != childReal {
+						l.collide(name, w.source, src)
+					}
+					continue
+				}
+				if sk := l.stageSkill(src, name, childReal, entry, display); sk != nil {
+					winners[name] = sk
+					l.skills = append(l.skills, sk)
+				}
 			}
 		}
 	}
+	for _, imp := range ws.Imported {
+		display := "skill_imports." + imp.Handle + "/" + imp.Name
+		if !validImportedSkillName(imp.Name) || imp.Root == "" {
+			l.refuse(display, "the imported skill has an invalid name or source")
+			continue
+		}
+		importTree, err := openConfinedTree(&WorkspaceSkills{Root: imp.Root})
+		if err != nil {
+			l.refuse(display, "the imported skill directory could not be opened safely")
+			continue
+		}
+		l.trees = append(l.trees, importTree)
+		real, reason := importTree.resolveEntry(".")
+		if reason != "" || real == "" {
+			l.refuse(display, "the imported skill directory could not be resolved safely")
+			continue
+		}
+		info, err := importTree.root.Lstat(real)
+		if err != nil || !info.IsDir() {
+			l.refuse(display, "the imported skill source is not a directory")
+			continue
+		}
+		src := &wsSource{rel: display, real: filepath.Clean(imp.Root), tree: importTree, imported: true,
+			entryReals: map[string]bool{filepath.Clean(imp.Root): true}, names: map[string]bool{imp.Name: true}}
+		l.sources = append(l.sources, src)
+		if winner, ok := winners[imp.Name]; ok {
+			if winner.real != src.real {
+				l.collide(imp.Name, winner.source, src)
+			}
+			continue
+		}
+		if skill := l.stageSkill(src, imp.Name, real, real, display); skill != nil {
+			winners[imp.Name] = skill
+			l.skills = append(l.skills, skill)
+		}
+	}
 	return l, nil
+}
+
+func validImportedSkillName(name string) bool {
+	return name != "" && name != "." && name != ".." && !strings.ContainsAny(name, `/\\`)
 }
 
 // WorkspaceSkillSourceCheck is CheckWorkspaceSkillSource's answer for one source dir.
@@ -450,7 +516,8 @@ func CheckWorkspaceSkillSource(root, dir string) (WorkspaceSkillSourceCheck, err
 // refused by name, so a skill is delivered whole or not at all and the skills before it stay.
 func (l *workspaceLayer) stageSkill(src *wsSource, name, real, entry, display string) *wsSkill {
 	start := l.spent
-	walk := &skillWalk{tree: l.tree, layer: l, linked: map[string]bool{},
+	refusedBefore := len(l.refused)
+	walk := &skillWalk{tree: src.tree, layer: l, linked: map[string]bool{},
 		skillPrefix: len(src.rel) + 1}
 	if !walk.charge(1, 0) {
 		l.refuse(display, l.capReason(walk.crossed, start))
@@ -465,7 +532,7 @@ func (l *workspaceLayer) stageSkill(src *wsSource, name, real, entry, display st
 	if testHookBeforeRead != nil {
 		testHookBeforeRead(real)
 	}
-	fd, err := l.tree.openDir(real)
+	fd, err := src.tree.openDir(real)
 	if err != nil {
 		l.refuse(display, readFailure(err))
 		_ = os.RemoveAll(stored)
@@ -476,6 +543,10 @@ func (l *workspaceLayer) stageSkill(src *wsSource, name, real, entry, display st
 	}
 	walk.copyDir(fd, real, display, stored)
 	_ = unix.Close(fd)
+	if src.imported && len(l.refused) > refusedBefore {
+		_ = os.RemoveAll(stored)
+		return nil
+	}
 	if walk.crossed != nil {
 		_ = os.RemoveAll(stored)
 		l.refuse(display, l.capReason(walk.crossed, start))
@@ -485,7 +556,11 @@ func (l *workspaceLayer) stageSkill(src *wsSource, name, real, entry, display st
 		_ = os.RemoveAll(stored)
 		return nil
 	}
-	return &wsSkill{name: name, source: src, real: real, stored: stored}
+	skillReal := real
+	if src.imported {
+		skillReal = src.real
+	}
+	return &wsSkill{name: name, source: src, real: skillReal, stored: stored}
 }
 
 // close releases the confined tree and deletes the scratch copy.
@@ -493,10 +568,11 @@ func (l *workspaceLayer) close() {
 	if l == nil {
 		return
 	}
-	if l.tree != nil {
-		l.tree.close()
-		l.tree = nil
+	for _, tree := range l.trees {
+		tree.close()
 	}
+	l.trees = nil
+	l.tree = nil
 	if l.dir != "" {
 		_ = os.RemoveAll(l.dir)
 		l.dir = ""
@@ -507,7 +583,7 @@ func (l *workspaceLayer) close() {
 // the layers above left free, honoring the skip rule; a skill whose name is taken is recorded as
 // shadowed rather than delivered.
 func (l *workspaceLayer) deliver(target SkillTarget, skillsDir string, taken map[string]string) error {
-	if l == nil || l.tree == nil {
+	if l == nil || len(l.skills) == 0 {
 		return nil
 	}
 	dest := target.Agent

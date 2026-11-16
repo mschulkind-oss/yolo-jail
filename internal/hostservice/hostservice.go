@@ -495,7 +495,17 @@ func stagingSocketPath(socketPath string) string {
 // (svcendpoint/preamble.go): yolo's host-asserted statement of which jail is on
 // the other end, read below before the request and never confused with one.
 func ServeEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) error {
-	ln, err := svcendpoint.Listen(endpointPath, "")
+	return serveEndpoint(handler, endpointPath, "", stop)
+}
+
+// ServeLocalEndpoint publishes the same authenticated endpoint for a host-local client. It is
+// used by a short-lived broker caller whose helper process runs beside the listener, not in a jail.
+func ServeLocalEndpoint(handler Handler, endpointPath string, stop <-chan struct{}) error {
+	return serveEndpoint(handler, endpointPath, "127.0.0.1", stop)
+}
+
+func serveEndpoint(handler Handler, endpointPath, advertiseHost string, stop <-chan struct{}) error {
+	ln, err := svcendpoint.Listen(endpointPath, advertiseHost)
 	if err != nil {
 		return err
 	}

@@ -881,23 +881,27 @@ their own beside [the audience principles](#the-audience-principles) above:
   repo's business. Which agent its reader runs is not.
 - <a id="ws-p2"></a>**P2. Core knows no agent's paths.** Where an agent reads at project scope is
   a fact about that agent, declared by its pack (`project_dirs`).
-- <a id="ws-p3"></a>**P3. Delivery, never selection.** The layer moves bytes already in the
-  workspace to a path an agent reads. It never fetches, never names a source outside the tree, and
-  never chooses which packs exist, which is the line that separates it from `packs`: no workspace
-  config selects a pack.
+- <a id="ws-p3"></a>**P3. Delivery, never selection.** The native workspace layer moves bytes already
+  in project-scope skills directories to a path an agent reads. It never fetches or names a source
+  outside the tree. The separate `skill_imports` declaration explicitly selects third-party Git
+  content; a host resolver fetches it through the existing broker after the config gate, and the
+  jail staging reader receives only projected commit files. No workspace config selects a pack.
 - <a id="ws-p4"></a>**P4. What lands in the repo is visible in a diff, or is not written.** So in
   a container and on macos-user nothing is ever written into the workspace.
 - <a id="ws-p5"></a>**P5. A cloned repo can never reach the host through this.** The staging runs
   host-side, so any path that dereferenced a committed symlink would be a host read. This is
   forbidden behavior, not a knob.
 
-The **source set** is every
-project-scope skills directory any agent pack declares on its skills destination
-(`project_dirs`, [the `skills` kind](pack-system.md#skills)) — the shipped packs' whether or not
-they are selected, then the selected packs' own. Today that is `.claude/skills`,
+The **native source set** is every project-scope skills directory any agent pack declares on its
+skills destination (`project_dirs`, [the `skills` kind](pack-system.md#skills)) — the shipped packs'
+whether or not they are selected, then the selected packs' own. Today that is `.claude/skills`,
 `.agents/skills`, `.github/skills`, `.codex/skills`, `.opencode/skills` and `.pi/skills`; core
 names none of them. Each source's skill directories are copied, host-side, into every skills
-destination's staging dir, and nothing is ever written into the workspace.
+destination's staging dir, and nothing is ever written into the workspace. Explicit third-party
+imports in `skill_imports` are an additional source set, ordered after every native source; a
+same-named native skill therefore wins. They are projected from the host's per-workspace Git object
+store as individual skill roots, then passed through the same confined reader. The store and
+resolution records are not mounted into a jail.
 
 - **Lowest, so it adds and never shadows.** A workspace skill takes only a name no built-in,
   pack, local-pack skill or yolo's own LSP plugin took. A shadowed name is **disclosed, one line
@@ -916,16 +920,19 @@ destination's staging dir, and nothing is ever written into the workspace.
   name), and the collision is said, naming any agent that reads a losing copy natively and so is
   sent neither. A skill held back for that reason with no collision to explain it gets a line of
   its own.
-- **Nothing outside the workspace is read, and nothing but what was checked.** The reader
-  resolves every link itself, inside the workspace, through an `os.Root` confined to it, and then
-  reads only the real path it classified: every open is a walk from the workspace root that
-  follows no link, so an entry swapped for a link after it was checked is refused, not followed.
-  A link that leaves the workspace, a dangling one, a cycle, a special file, anything resolving
-  into `.git`, `.yolo` or (in a container) a per-side path, an entry whose path inside its skill
-  passes 512 bytes, and one whose copy cannot be written are all **skipped and named** — never
-  fatal — and a skill left with no file to stage is not delivered at all. A refusal names the
-  entry and a fixed reason, never the link's target. An absolute link spelled `/workspace/…` is
-  read as the workspace in a container, since that is how the agent there wrote it.
+- **Nothing outside the workspace is read by the native source reader, and nothing but what was
+  checked.** The reader resolves every native link itself, inside the workspace, through an
+  `os.Root` confined to it, and then reads only the real path it classified: every open is a walk
+  from the workspace root that follows no link, so an entry swapped for a link after it was
+  checked is refused, not followed. Imported Git content is separately projected from immutable
+  commit blobs into private host scratch; each imported skill root becomes its own confinement
+  boundary before the same reader stages it. A link that leaves its root, a dangling one, a cycle,
+  a special file, anything resolving into `.git`, `.yolo` or (in a container) a per-side path, an
+  entry whose path inside its skill passes 512 bytes, and one whose copy cannot be written are all
+  **skipped and named** — never fatal — and a skill left with no file to stage is not delivered at
+  all. A refusal names the entry and a fixed reason, never the link's target. An absolute link
+  spelled `/workspace/…` is read as the workspace in a container, since that is how the agent
+  there wrote it.
 - **One launch copies at most 32 MiB and 4096 files and directories.** Each skill copies the
   trees its links reach, so many skills linking one large in-repo directory copy it once per
   skill. A skill whose copy would pass either cap is **refused whole and named**, with the cap
@@ -933,9 +940,12 @@ destination's staging dir, and nothing is ever written into the workspace.
   delivered. Everything the layer writes counts, a refused skill's partial copy included, and
   every destination copies from that one scratch tree, so none receives more than the cap
   ([`OQ-WS7`](#oq-ws7); the measurement behind the numbers is [WS-D18](#ws-d18)).
-- **Re-read on every invocation**, attach included, so an edit under a declared path reaches the
-  next `yolo` command against a running jail — the same tree the agent there already reads live.
-  Each source that delivered anything gets one `Workspace skills from <dir> mirrored into …` line.
+- **Re-read on every invocation**, attach included, so an edit under a declared native path reaches
+  the next `yolo` command against a running jail — the same tree the agent there already reads live.
+  Imported refs resolve only on a fresh launch after its config gate; attach never fetches or
+  refreshes, and projects only the existing commit when the current broker decision still permits
+  its access class. Each source that delivered anything gets one `Workspace skills from <dir>
+  mirrored into …` line.
 - **The mirror is containers' and `macos-user`'s only.** macos-user receives it through the same
   composed tree it copies; the host notch never does, by ruling ([`OQ-WS5`](#oq-ws5)), and
   `yolo host` writes nothing into the workspace for skills in its place: by the owner's ruling of

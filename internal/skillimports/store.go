@@ -82,7 +82,7 @@ func (s *Store) Resolution(handle string, entry config.SkillImport) (Resolution,
 		return Resolution{}, false
 	}
 	if entry.Rev != "" {
-		if record.Rev != entry.Rev || record.Ref != entry.Ref {
+		if record.Rev != entry.Rev || record.Ref != entry.Ref || !strings.EqualFold(record.Commit, entry.Rev) {
 			return Resolution{}, false
 		}
 	} else if record.Rev != "" || record.Ref != entry.Ref {
@@ -179,10 +179,7 @@ func validResolution(record Resolution, handle string) bool {
 	if record.Rev == "" && record.Ref == "" || record.Ref != "" && !validImportRef(record.Ref) {
 		return false
 	}
-	if record.Rev != "" && record.ResolvedRef != "" {
-		return false
-	}
-	if record.Rev == "" && record.ResolvedRef != "" && !validFullImportRef(record.ResolvedRef) {
+	if record.Rev != "" && record.ResolvedRef != "" || record.Rev == "" && !validFullImportRef(record.ResolvedRef) {
 		return false
 	}
 	return true
@@ -252,23 +249,46 @@ func (s *Store) HasCommit(commit string) bool {
 // WithLock holds one exclusive process-lifetime lock for fetch-and-record writers. Readers do
 // not take the lock; the Git store and records have their own atomicity guarantees.
 func (s *Store) WithLock(fn func() error) error {
+	locked, err := s.withLock(fn, false)
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("blocking import lock returned without acquiring the lock")
+	}
+	return nil
+}
+
+// TryWithLock returns immediately when another live process owns the import lock.
+func (s *Store) TryWithLock(fn func() error) (bool, error) {
+	return s.withLock(fn, true)
+}
+
+func (s *Store) withLock(fn func() error, nonblocking bool) (bool, error) {
 	if fn == nil {
-		return errors.New("lock callback is required")
+		return false, errors.New("lock callback is required")
 	}
 	if err := ensurePrivateDir(s.directory); err != nil {
-		return err
+		return false, err
 	}
 	path := filepath.Join(s.directory, ".lock")
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer file.Close()
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
-		return err
+	mode := syscall.LOCK_EX
+	if nonblocking {
+		mode |= syscall.LOCK_NB
+	}
+	if err := syscall.Flock(int(file.Fd()), mode); err != nil {
+		if nonblocking && (err == syscall.EWOULDBLOCK || err == syscall.EAGAIN) {
+			return false, nil
+		}
+		return false, err
 	}
 	defer syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-	return fn()
+	return true, fn()
 }
 
 func ensurePrivateDir(path string) error {

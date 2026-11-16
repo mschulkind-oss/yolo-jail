@@ -14,23 +14,28 @@ package run
 // 2026-11-07 (docs/reference/agent-briefings.md WS-D24).
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/skillimports"
 )
 
 // workspaceSkillsFor is this launch's workspace layer input, or nil when no pack declares a
 // project-scope skills directory at all.
 func (o *Options) workspaceSkillsFor(cfg *jsonx.OrderedMap, rt string, selected []*packload.Pack) *jailcontent.WorkspaceSkills {
 	dirs := workspaceSkillDirs(selected)
-	if len(dirs) == 0 || o.Workspace == "" {
+	if o.Workspace == "" || len(dirs) == 0 && (!config.WorkspaceSkillImportsEnabled(cfg) || len(config.SkillImports(cfg)) == 0) {
 		return nil
 	}
 	ws := &jailcontent.WorkspaceSkills{Root: o.Workspace, Dirs: dirs}
@@ -42,6 +47,134 @@ func (o *Options) workspaceSkillsFor(cfg *jsonx.OrderedMap, rt string, selected 
 		ws.PerSide = perSideShadowRels(cfg, o.Workspace)
 	}
 	return ws
+}
+
+func cloneWorkspaceSkills(ws *jailcontent.WorkspaceSkills) *jailcontent.WorkspaceSkills {
+	if ws == nil {
+		return nil
+	}
+	copy := *ws
+	copy.Aliases = append([]string(nil), ws.Aliases...)
+	copy.Dirs = append([]string(nil), ws.Dirs...)
+	copy.PerSide = append([]string(nil), ws.PerSide...)
+	copy.Imported = append([]jailcontent.ImportedWorkspaceSkill(nil), ws.Imported...)
+	copy.ImportRefused = append([]jailcontent.WorkspaceSkillRefusal(nil), ws.ImportRefused...)
+	return &copy
+}
+
+func (o *Options) skillImportAuthority(cfg *jsonx.OrderedMap) skillimports.Authority {
+	if o.skillImportGatePassed {
+		label := gitBrokerScopeLabel(cfg)
+		var remotes []string
+		for _, scope := range o.approvedScopes[label] {
+			remotes = append(remotes, scope.Repo)
+		}
+		return skillimports.AuthorityFromWorkspace(o.Workspace, remotes, o.approvedGrants[label])
+	}
+	return skillimports.AuthorityFromWorkspace(o.Workspace, config.ApprovedScope(o.Workspace, "git"),
+		config.ApprovedGrants(o.Workspace, "git"))
+}
+
+func gitBrokerScopeLabel(cfg *jsonx.OrderedMap) string {
+	label := ""
+	for _, lp := range loopholes.NewHostSet(loopholes.LaunchBlock(cfg)).All() {
+		if lp.Brokered == nil || lp.Brokered.Source != "git" {
+			continue
+		}
+		if label != "" {
+			return ""
+		}
+		label = lp.Name
+	}
+	return label
+}
+
+// resolveFreshSkillImports is called only after a fresh-launch config gate succeeds. A failed
+// import is disclosed and withheld, never a reason to stop the jail launch.
+var resolveSkillImportForLaunch = func(ctx context.Context, store *skillimports.Store, entry config.SkillImport,
+	authority skillimports.Authority, now time.Time) (skillimports.Resolution, string, error) {
+	return store.ResolveLaunch(ctx, entry, authority, now)
+}
+
+func (o *Options) resolveFreshSkillImports(cfg *jsonx.OrderedMap) {
+	entries := config.SkillImports(cfg)
+	if !config.WorkspaceSkillImportsEnabled(cfg) || !o.skillImportGatePassed || len(entries) == 0 || o.Workspace == "" {
+		return
+	}
+	store, err := skillimports.Open(o.Workspace)
+	if err != nil {
+		o.pr(o.Stderr).print("[yellow]Workspace skill imports: host state is unavailable; no imported skills were refreshed. Fix the host storage problem, then run `yolo` again.[/yellow]")
+		return
+	}
+	authority := o.skillImportAuthority(cfg)
+	for _, entry := range entries {
+		_, warning, err := resolveSkillImportForLaunch(context.Background(), store, entry, authority, time.Now())
+		if warning != "" {
+			o.pr(o.Stderr).print("[yellow]Workspace skills: " + quoteSafe(entry.Handle) + ": " +
+				displaySafe(warning) + "; run `yolo skills update " + quoteSafe(entry.Handle) + "` to retry.[/yellow]")
+		}
+		if err != nil {
+			o.pr(o.Stderr).print("[yellow]Workspace skills: import " + quoteSafe(entry.Handle) +
+				" was withheld because no broker-authorized commit is available; review this workspace's approved Git scope, " +
+				"then run `yolo skills update " + quoteSafe(entry.Handle) + "`.[/yellow]")
+		}
+	}
+}
+
+// projectSkillImports adds only current-record projections; it has no fetch or record mutation
+// path. Its cleanup must run after jailcontent has copied the per-skill roots into its confined
+// scratch layer.
+func (o *Options) projectSkillImports(cfg *jsonx.OrderedMap, ws **jailcontent.WorkspaceSkills) func() {
+	entries := config.SkillImports(cfg)
+	if !config.WorkspaceSkillImportsEnabled(cfg) || len(entries) == 0 || o.Workspace == "" {
+		return func() {}
+	}
+	if *ws == nil {
+		*ws = &jailcontent.WorkspaceSkills{Root: o.Workspace}
+	}
+	store, err := skillimports.Open(o.Workspace)
+	if err != nil {
+		for _, entry := range entries {
+			(*ws).ImportRefused = append((*ws).ImportRefused, jailcontent.WorkspaceSkillRefusal{
+				Path: "skill_imports." + entry.Handle, Reason: "host import state is unavailable",
+			})
+		}
+		return func() {}
+	}
+	var projections []*skillimports.Projection
+	var budget skillimports.ProjectionBudget
+	authority := o.skillImportAuthority(cfg)
+	for _, entry := range entries {
+		projection, err := store.ProjectWithBudget(entry, authority, &budget)
+		if err != nil {
+			(*ws).ImportRefused = append((*ws).ImportRefused, jailcontent.WorkspaceSkillRefusal{
+				Path: "skill_imports." + entry.Handle, Reason: "the stored import could not be projected safely",
+			})
+			continue
+		}
+		projections = append(projections, projection)
+		for _, skill := range projection.Skills {
+			(*ws).Imported = append((*ws).Imported, jailcontent.ImportedWorkspaceSkill{
+				Handle: skill.Handle, Name: skill.Name, Root: skill.Root,
+			})
+		}
+		for _, refusal := range projection.Refused {
+			(*ws).ImportRefused = append((*ws).ImportRefused, jailcontent.WorkspaceSkillRefusal{
+				Path: refusal.Path, Reason: refusal.Reason,
+			})
+		}
+		for _, missing := range projection.Missing {
+			(*ws).ImportRefused = append((*ws).ImportRefused, jailcontent.WorkspaceSkillRefusal{
+				Path:   "skill_imports." + entry.Handle + "/" + missing,
+				Reason: "the configured skill is absent from the selected commit",
+			})
+		}
+	}
+	return func() {
+		for _, projection := range projections {
+			projection.Close()
+		}
+	}
 }
 
 // workspaceSkillDirs is the SOURCE SET's declaration: every project-scope skills directory any

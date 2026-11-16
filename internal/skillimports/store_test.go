@@ -87,7 +87,7 @@ func TestImportStateIsPerWorkspaceAndOutsideApprovalRecords(t *testing.T) {
 	}
 
 	entry := config.SkillImport{Handle: "acme", Git: "https://example.test/acme/skills", Ref: "main", Path: "skills"}
-	record := Resolution{Version: resolutionVersion, Handle: "acme", Git: entry.Git, Ref: entry.Ref, Repo: "example.test/acme/skills", Commit: strings.Repeat("a", 40),
+	record := Resolution{Version: resolutionVersion, Handle: "acme", Git: entry.Git, Ref: entry.Ref, ResolvedRef: "refs/heads/main", Repo: "example.test/acme/skills", Commit: strings.Repeat("a", 40),
 		AccessClass: AccessAnonymous, ResolvedAt: time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)}
 	if err := first.WriteResolution(record); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestImportStateRecordReplacementIsAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := Resolution{Version: resolutionVersion, Handle: "acme", Git: "https://example.test/acme/skills",
-		Ref: "main", Repo: "example.test/acme/skills", Commit: strings.Repeat("a", 40),
+		Ref: "main", ResolvedRef: "refs/heads/main", Repo: "example.test/acme/skills", Commit: strings.Repeat("a", 40),
 		AccessClass: AccessAnonymous, ResolvedAt: time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)}
 	if err := store.WriteResolution(base); err != nil {
 		t.Fatal(err)
@@ -254,6 +254,98 @@ func runGit(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func TestImportResolverLaunchCacheAndAccessPolicy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	store, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.EnsureObjectStore(); err != nil {
+		t.Fatal(err)
+	}
+	commit := storeCommit(t, store)
+	entry := config.SkillImport{Handle: "acme", Git: "git@fixture.test:o/r.git", Ref: "main", Path: "skills"}
+	authority := Authority{
+		ApprovedRemotes: []string{entry.Git}, CurrentRemotes: []string{entry.Git},
+		ApprovedGrants: []brokerscope.Grant{{Kind: "read", Repo: brokerscope.AnyRepo}},
+		CurrentGrants:  []brokerscope.Grant{{Kind: "read", Repo: brokerscope.AnyRepo}},
+	}
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	old := Resolution{Version: resolutionVersion, Handle: entry.Handle, Git: entry.Git, Ref: entry.Ref,
+		ResolvedRef: "refs/heads/main", Repo: "fixture.test/o/r", Commit: commit,
+		AccessClass: AccessAuthenticated, ResolvedAt: now.Add(-2 * time.Hour)}
+	if err := store.WriteResolution(old); err != nil {
+		t.Fatal(err)
+	}
+	fetchCount := 0
+	fetch := func(_ context.Context, request gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error) {
+		fetchCount++
+		if request.StoreDir != store.ObjectDirectory() || request.URL != entry.Git || request.Ref != entry.Ref {
+			t.Fatalf("launch broker request = %+v", request)
+		}
+		return gitbroker.ImportFetchResult{Commit: commit, ResolvedRef: "refs/heads/main", AccessClass: AccessAuthenticated}, nil
+	}
+	got, warning, err := store.resolveLaunchWithFetcher(context.Background(), entry, authority, now, fetch)
+	if err != nil || warning != "" || got.Commit != commit || fetchCount != 1 {
+		t.Fatalf("due branch refresh = (%+v, %q, %v), fetches=%d", got, warning, err, fetchCount)
+	}
+	got, warning, err = store.resolveLaunchWithFetcher(context.Background(), entry, authority, now, fetch)
+	if err != nil || warning != "" || got.Commit != commit || fetchCount != 1 {
+		t.Fatalf("fresh branch record should be reused: (%+v, %q, %v), fetches=%d", got, warning, err, fetchCount)
+	}
+
+	pinned := config.SkillImport{Handle: "pinned", Git: entry.Git, Rev: commit, Ref: "main", Path: "skills"}
+	pinnedRecord := Resolution{Version: resolutionVersion, Handle: pinned.Handle, Git: pinned.Git, Rev: pinned.Rev,
+		Ref: pinned.Ref, Repo: "fixture.test/o/r", Commit: commit, AccessClass: AccessAuthenticated, ResolvedAt: now.Add(-48 * time.Hour)}
+	if err := store.WriteResolution(pinnedRecord); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.resolveLaunchWithFetcher(context.Background(), pinned, authority, now.Add(365*24*time.Hour), func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error) {
+		fetchCount++
+		return gitbroker.ImportFetchResult{}, errors.New("pinned content was unexpectedly refreshed")
+	}); err != nil || fetchCount != 1 {
+		t.Fatalf("pinned record should not refresh: err=%v fetches=%d", err, fetchCount)
+	}
+
+	public := config.SkillImport{Handle: "public", Git: "https://example.test/acme/skills", Ref: "main", Path: "skills"}
+	privateRecord := Resolution{Version: resolutionVersion, Handle: public.Handle, Git: public.Git, Ref: public.Ref,
+		ResolvedRef: "refs/heads/main", Repo: "example.test/acme/skills", Commit: commit,
+		AccessClass: AccessAuthenticated, ResolvedAt: now}
+	if err := store.WriteResolution(privateRecord); err != nil {
+		t.Fatal(err)
+	}
+	anonymousAuthority := Authority{ApprovedRemotes: []string{public.Git}, CurrentRemotes: []string{public.Git}}
+	got, _, err = store.resolveLaunchWithFetcher(context.Background(), public, anonymousAuthority, now, func(_ context.Context, request gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error) {
+		if len(request.CurrentGrants) != 0 {
+			t.Fatalf("anonymous-only refresh received grants: %+v", request.CurrentGrants)
+		}
+		return gitbroker.ImportFetchResult{Commit: commit, ResolvedRef: "refs/heads/main", AccessClass: AccessAnonymous}, nil
+	})
+	if err != nil || got.AccessClass != AccessAnonymous {
+		t.Fatalf("authenticated cache was not refreshed anonymously: %+v %v", got, err)
+	}
+}
+
+func storeCommit(t *testing.T, store *Store) string {
+	t.Helper()
+	root := t.TempDir()
+	source := filepath.Join(root, "source.git")
+	work := filepath.Join(root, "work")
+	_ = runGit(t, "", "init", "--bare", "--template=", source)
+	_ = runGit(t, "", "clone", source, work)
+	_ = runGit(t, work, "config", "user.name", "skill import test")
+	_ = runGit(t, work, "config", "user.email", "skills@example.test")
+	if err := os.WriteFile(filepath.Join(work, "SKILL.md"), []byte("skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = runGit(t, work, "add", "SKILL.md")
+	_ = runGit(t, work, "commit", "-m", "skill")
+	commit := runGit(t, work, "rev-parse", "HEAD")
+	_ = runGit(t, work, "push", "origin", "HEAD:refs/heads/main")
+	_ = runGit(t, "", "--git-dir", store.ObjectDirectory(), "fetch", "--no-tags", source, commit)
+	return commit
 }
 
 func TestImportStateLockSerializesWriters(t *testing.T) {

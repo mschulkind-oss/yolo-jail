@@ -643,6 +643,9 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun && !o.checkConfigChanges(cfg, rt) {
 			return 1
 		}
+		if !o.DryRun {
+			o.skillImportGatePassed = true
+		}
 		// What the gate granted, on the payload and channel composed above from the approval
 		// record (recomposeForApprovedGrants), as the container arm does after its gate.
 		if channel, jailDaemons, err = o.recomposeForApprovedGrants(cfg, rt, staged.packs, channel, jailDaemons); err != nil {
@@ -1200,6 +1203,7 @@ func Run(opts Options) (rc int) {
 		sp = o.Perf.Span("launch.refresh_jail_briefings")
 		facts := o.mechanicsFactSheet(cname, cfg, rt, staged, storePackagesPlan{}, ctxDelivery.ctx.HostFiles)
 		mechanicsNativeHostFileBackings(facts, ctxDelivery.ctx, cname)
+		o.resolveFreshSkillImports(cfg)
 		staging, err = o.refreshJailBriefings(cname, cfg, rt, staged,
 			appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)), facts)
 		sp.End()
@@ -1784,6 +1788,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	if !o.checkConfigChanges(cfg, rt) {
 		return 1
 	}
+	o.skillImportGatePassed = true
 	// THE GATE'S GRANTS, on what this launch serves: the payload and channel were composed above
 	// the dispatch from the approval record, and the argv below binds what this gate approved.
 	var recomposeErr error
@@ -2444,6 +2449,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 	mechanicsWorkspaceReadonlyFromArgv(o, facts, cfg, runCmd, rt)
 	mechanicsHostFileBackings(facts, hostFiles, runCmd, rt, wsState)
+	o.resolveFreshSkillImports(cfg)
 	_, refreshErr := o.refreshJailBriefings(cname, cfg, rt, staged,
 		appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)), facts)
 	sp.End()

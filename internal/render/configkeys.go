@@ -146,6 +146,10 @@ var hostConfigKeys = map[string]keyCensusEntry{
 		"not run as them; at the host notch the agent already is the user and reads its own fonts"},
 	"macos_user_shared_tmp": {KeyNotApplicable, "opens the shared /tmp to a macos-user launch's " +
 		"profile, in either mode; `yolo host` runs no profile, so the key has no meaning at the host notch"},
+	"skill_imports": {KeyNotApplicable, "declares workspace-only skills staged into a jail; `yolo host` has " +
+		"no workspace skills layer and does not project imported skills"},
+	"workspace_skill_imports": {KeyNotApplicable, "disables workspace imports at the jail boundary; `yolo host` " +
+		"does not stage workspace skills"},
 	"perf_logging": {KeyHonored, "`yolo host --` and `yolo host apply` record their spans when it " +
 		"is on, silently, into the machine-wide host-notch-perf.log (run.HostNotchTimingLog, " +
 		"reading config.PerfLoggingEnabled), as a jail launch records into its workspace's file"},
