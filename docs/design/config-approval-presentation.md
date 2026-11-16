@@ -576,18 +576,20 @@ Read from the tree at `c3ac9c649` by source inspection; no command was run.
 | A7 | What layout do existing disclosures use? | The gate’s scope block is a labeled header, marked rows (`+`, `-`, `~`, blank) with a status word, and a separate counts line. The prompt header, question, accepted-report header and refusal advice are fixed strings quoted in [§1](#1-current-behavior-verified-baseline). The every-launch broker line is a different, compact layout and is not the model here. ([`scopeapproval.go`](../../internal/config/scopeapproval.go), [`preflight.go`](../../internal/cli/run/preflight.go)) |
 | A8 | Is there an existing grouping or description per config key? | No. `SchemaKey` has `Path`, `Scope`, `Type` and `Removal` only. Descriptions live in reference prose. The readable vocabulary has 50 top-level keys, 25 of them user-only. ([`schema.go`](../../internal/config/schema.go), [`workspacescope.go`](../../internal/config/workspacescope.go)) |
 
-### 10.2 Unverified assumptions
+### 10.2 Bounded source checks at `bec6e6204` (2026-11-16)
 
-These do not block the design, because each has a stated safe behavior, but the plan must check them.
+The following checks resolve U1–U6 against the implementation base used by the build plan. They are bounded to the named readers, projections, references and call sites; they do not claim a universal historical search.
 
-| ID | Assumption | If it is wrong |
+| ID | Check | Finding |
 | :--- | :--- | :--- |
-| U1 | The synthetic resolved-mount record sits under a distinguishable key in the approval tree, so the D8 replay can set it aside when a mount block is printed. | The replay treats the difference as unexplained and falls back to the raw diff, which is safe but noisy; the plan then adds the distinguishing rule. |
-| U2 | Approval trees from legacy JSONC workspaces may use either legacy or readable top-level names. | No effect on correctness. Unlabeled names use the fallback row. |
-| U3 | `requests` and `repos` values may be projected out of the config part, like legacy `brokered`. | Their label rows are simply never used. |
-| U4 | The label wording matches the project’s reference prose. | Wording is adjusted at plan time against the CLI reference; the rules in [§6.7](#67-interpreted-view) do not change. |
-| U5 | The approval identity holds no private environment values beyond what today’s prompt diff already prints. | Out of scope either way: this design prints nothing the existing diff does not ([§6.5](#65-secrets)). |
-| U6 | `yolo config apply` has a reusable host-only refusal. | `approval-diff` states its own one-line refusal inside a jail. |
+| U1 | Is the synthetic resolved-mount record distinguishable and disclosed separately? | Yes. `mountRecordKey` is exactly `"(mount sources, resolved)"`, `withMountRecord` adds it only when workspace mounts exist, and `approvalConfigPartWith` keeps it in the same canonical config part. The mount report is produced by the existing writable/read-only mount blocks. Replay may account for this exact root only when that report is printed. ([`mountsrequestbind.go`](../../internal/config/mountsrequestbind.go), [`brokered.go`](../../internal/config/brokered.go), [`preflight.go`](../../internal/cli/run/preflight.go)) |
+| U2 | Which names may the old and current approval trees use? | `ReadWorkspaceForGate` reads the selected readable TOML or legacy workspace config; legacy aliases are transformed where the current loader defines them, while records retain their spelling except for the explicit `respellLegacyRecord` normalization. Diff the trees as actually read; do not rename displayed paths. ([`gateread.go`](../../internal/config/gateread.go), [`readablemerge.go`](../../internal/config/readablemerge.go), [`snapshot.go`](../../internal/config/snapshot.go), [`envlowering.go`](../../internal/config/envlowering.go)) |
+| U3 | Are `requests` and `repos` omitted from approval identity? | No. `approvalConfigPartWith` projects out only `brokered`; all other workspace keys, including `requests` and `repos`, remain in the config identity. Their separate validation/provenance rules do not remove them from the diff. ([`brokered.go`](../../internal/config/brokered.go), [`gateread.go`](../../internal/config/gateread.go)) |
+| U4 | Do the bounded labels match current reference wording? | The `requests` and `repos` labels are grounded in the project config reference: requests ask for user-allowed capabilities, and named repositories are declared by `[repos.<name>]`. Keep the labels `Permission requests` and `Named repositories`; they describe the keys, not an individual change. ([`project-config.md`](../reference/config/project-config.md)) |
+| U5 | Can the approval input introduce user-config or expanded environment values? | No. The gate compares `SnapshotJSON(approvalConfigPartWith(workspaceConfig, resolvedMounts))`; it reads the workspace projection and resolved mount sources, not merged user config or expanded environment contents. Keep display derivation limited to the previous/current approval trees and existing disclosure blocks. ([`snapshot.go`](../../internal/config/snapshot.go), [`gateread.go`](../../internal/config/gateread.go), [`brokered.go`](../../internal/config/brokered.go)) |
+| U6 | Is there a reusable host-only refusal for the inspection verb? | No. `Options.configApply` has an inline guard with predicate `o.inJail() && config.IsJailOwnWorkspace(o.Workspace)`; its tests pin refusal for the jail's own workspace and allow it to serve a nested workspace. `approval-diff` needs its own read-only guard with the same predicate. ([`liveapply.go`](../../internal/cli/run/liveapply.go), [`liveapply_test.go`](../../internal/cli/run/liveapply_test.go)) |
+
+The Unicode display correction in D15 and its examples was completed in commit `3a534db09`; this bounded source check does not alter that contract or the original design baseline.
 
 ## 11. Decision ledger
 
