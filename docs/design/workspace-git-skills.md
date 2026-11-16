@@ -1,8 +1,8 @@
 ---
 title: Workspace Git skills use the broker, not unfettered credentials
-status: draft
-stage: SKETCH
-next: Fable reconciles the command-context and host-state contract in §4.2, §6.2–6.3 and §7
+status: accepted
+stage: DECIDED
+next: Planner writes the implementation plan at the current HEAD against the command contract in §4.2 and §6.2
 depends-on: []
 evidence-date: 2026-11-16
 evidence-snapshot: HEAD @ fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece
@@ -10,19 +10,19 @@ evidence-snapshot: HEAD @ fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece
 
 # Workspace Git skills use the broker, not unfettered credentials
 
-**Status:** 2026-11-16 (`fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece`). The owner rulings are recorded in the [ledger](#12-decision-ledger), and no owner ruling is pending. However, U7 exposes an unresolved contradiction between the proposed jail-command behavior and the host-owned resolution state ([§11](#11-code-checks)). This is an engineering/design gap, not an unsettled owner decision; the document is back in draft while Fable reconciles it. Nothing is built.
+**Status:** 2026-11-16 (`fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece`). The owner rulings are recorded in the [ledger](#12-decision-ledger), and no owner ruling is pending. The command-context contradiction U7 ([§11](#11-code-checks)) is closed by designer recommendation WGS-P15: the commands that fetch or touch host-owned state run on the host, and inside a jail they print the established host-run line and change nothing ([§4.2](#42-cli), [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). Nothing is built.
 
 > **In short.** A workspace may select Git skill directories by immutable commit or moving ref, and receive those skills—and nothing else—inside the jail. Resolution must use this workspace’s existing Git-broker access filter; it cannot exercise unfettered host credentials.
 
 **Why it matters.** The blanket rule "a workspace cannot cause outside content to enter the jail" blocks the harmless case (five shared skills) in order to block the dangerous one (a pack carrying hooks, programs, mounts, host reads). The owner has directed that skills are allowed, using pins or moving refs and the existing workspace Git broker filter.
 
-**The shape.** A dedicated key, not restricted `packs`. Entries may identify an immutable full commit or a moving ref. Any resolution/fetch must pass through the existing workspace Git broker filter and cannot bypass or widen its access. An allow-list projection admits only skill directories, staged as the lowest-precedence skill layer, and never delivered to `yolo host`. No pack manifest is read, so no pack effect can ride along. A moving ref's resolved commit is kept in host-side state for this workspace. It advances only at a fresh launch or an explicit command, and the change is reported when it happens.
+**The shape.** A dedicated key, not restricted `packs`. Entries may identify an immutable full commit or a moving ref. Any resolution/fetch must pass through the existing workspace Git broker filter and cannot bypass or widen its access. An allow-list projection admits only skill directories, staged as the lowest-precedence skill layer, and never delivered to `yolo host`. No pack manifest is read, so no pack effect can ride along. A moving ref's resolved commit is kept in host-side state for this workspace. It advances only at a fresh launch or an explicit `yolo skills` command run on the host, never from inside a jail, and the change is reported when it happens.
 
 **Cost.** One new workspace config key, one small CLI group, one host-side caller of the Git broker's existing decision and upstream leg, a per-workspace object store and resolution record on the host, one projection step on the confined staging path, and a reworded refusal message. It adds no credential, grant, scope entry or approval record.
 
 **Start at [§3](#3-the-call-a-dedicated-key-not-restricted-packs)** — the selection boundary. [§5](#5-how-far-it-goes) defines what crosses it.
 
-**Needs your ruling:** None. The owner has ruled both ref forms and the existing workspace Git broker filter. U7 is an inconsistency in the mechanics left to the designer, not a request for an owner ruling; Fable reconciles it before this design can return to accepted.
+**Needs your ruling:** None. The owner has ruled both ref forms and the existing workspace Git broker filter. Where each `yolo skills` command runs and what it may write is designer recommendation WGS-P15 in [§13](#13-design-recommendations-not-owner-rulings); it adds no credential, grant or host operation, so it raises no owner question.
 
 **Reads with:** [`pack-system.md` OQ-PK1](../reference/pack-system.md#oq-pk1) (why workspace `packs` is refused) · [`agent-briefings.md` workspace layer](../reference/agent-briefings.md#the-workspace-layer) and [WS-D24](../reference/agent-briefings.md#ws-d24) (skill priority and host exclusion) · [`workspace-packs.md`](workspace-packs.md) (separate open pack-selection design) · [`trust-paths.md` ledger](trust-paths.md#decision-ledger) (user-scope Git authority).
 
@@ -69,10 +69,13 @@ An imported skill **can** influence the agent. It is instruction text, and the a
 | **Broker decision** *(coined here)* | The Git broker's existing answer for one fetch of one URL under this workspace's approved scope and the user's read grant: authenticated, anonymous attempt only, or refused ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). It is not a new check and not the admission test above. |
 | **Access class** *(coined here)* | Which broker decision content was obtained under: `authenticated` or `anonymous`. It is recorded with the content and is not a grant. |
 | **Request authority** *(coined here)* | The inputs that decide whether a fetch may happen: the workspace's gate-approved repository scope and the user's read grant. It is not the process that carries the bytes. |
-| **Transport route** *(coined here)* | The path the bytes take: host launch process, then the broker's upstream leg, then the remote. It carries no authority of its own. |
+| **Transport route** *(coined here)* | The path the bytes take: a host process (a fresh launch, or a host command), then the broker's upstream leg, then the remote. It carries no authority of its own. |
 | **Import store** *(coined here)* | Host-side Git objects fetched for this workspace's imports. It is a cache, not an authority, and not a checkout. |
 | **Resolution record** *(coined here)* | Host-side state, one per handle, naming the commit an import currently resolves to and the access class it was obtained under. It is not a lockfile in the repository, not `packs.lock.json`, and not an approval record. |
-| **Refresh** *(coined here)* | Asking the remote, through the broker decision, what a moving ref points at now, and replacing the resolution record. It is not a re-projection and never happens on attach. |
+| **Refresh** *(coined here)* | Asking the remote, through the broker decision, what a moving ref points at now, and replacing the resolution record. It is not a re-projection, never happens on attach, and is never performed by a process inside a jail. |
+| **Host command** *(coined here)* | A `yolo skills` command that takes effect only when run on the host: `add`, `update` and `pin`. It is not a command the jail forwards; inside a jail it prints a line for a human to run and does nothing else. |
+| **Host-run line** | The existing `yolo host-run -C <workspace> -- …` instruction a jailed command prints. It says nothing ran and asks a human to paste one line in a host terminal ([`internal/cli/hostrun.go`](../../internal/cli/hostrun.go)). It is not transparent forwarding and gives the jail process no host process or host write. |
+| **Explicit-command authority** *(coined here)* | The request authority a host command uses outside a launch: the Git scope and grants in this workspace's last config approval, less anything no longer current ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). It is not the operator's own Git access and is never wider than the last approval. |
 
 ## 3. The call: a dedicated key, not restricted `packs`
 
@@ -144,17 +147,26 @@ The `git+…//subdir?ref=…` address form used by packs is not accepted here. S
 
 The `yolo skills` command group and both config keys are proposed names; none is registered in the current CLI or schema ([§11](#11-code-checks)).
 
-| Command | Effect |
-|---|---|
-| `yolo skills add <url> [--as <handle>] [--ref <ref>] [--track] [--path <dir>] [--only a,b]` | Resolves the ref (default: the remote's default branch, written as its branch name) through the broker decision. Without `--track` it writes a pinned entry with `rev` and `ref`. With `--track` it writes a moving-ref entry with `ref` only. |
-| `yolo skills update [<handle>]` | Pinned entry with a `ref` label: re-resolves the label and rewrites `rev` in the config. Pinned entry with no label: left alone and reported. Moving-ref entry: forces a refresh of the resolution record; the config is not touched. |
-| `yolo skills pin <handle>` | Turns a moving-ref entry into a pinned one by writing the commit in its resolution record as `rev` and keeping `ref` as the label. No network. |
-| `yolo skills list` | Per import: mode, configured ref, recorded commit and when it was resolved, access class, whether the commit is in the import store, skills that would be delivered, names shadowed, and visible paths that are not imported. No network. |
-| `yolo skills remove <handle>` | Deletes the entry. The import store is left alone ([§10](#10-migration)). |
+| Command | Effect when run on the host | Inside a jail |
+|---|---|---|
+| `yolo skills add <url> [--as <handle>] [--ref <ref>] [--track] [--path <dir>] [--only a,b]` | Resolves the ref (default: the remote's default branch, written as its branch name) through the broker decision under explicit-command authority. On success it adds the fetched objects to the import store, writes the resolution record, and writes the entry to the workspace config: without `--track` a pinned entry with `rev` and `ref`, with `--track` a moving-ref entry with `ref` only. If the decision is refused or the fetch fails, it writes nothing anywhere. | Prints the host-run line. No config write, no host write, no network. |
+| `yolo skills update [<handle>]` | Acts only on an entry that has a valid resolution record; any other entry is reported as resolving at the next fresh launch and is not contacted. Pinned entry with a `ref` label: re-resolves the label, stores the objects, rewrites `rev` in the workspace config and writes the record. Pinned entry with no label: left alone and reported. Moving-ref entry: forces a refresh of the resolution record; the config is not touched. A refused decision or failed fetch leaves config and record as they were. | Prints the host-run line. No config write, no host write, no network. |
+| `yolo skills pin <handle>` | Turns a moving-ref entry into a pinned one by writing the commit in its valid resolution record as `rev` in the workspace config and keeping `ref` as the label. With no valid record it writes nothing and says the import resolves at the next fresh launch. No network; host state is read, not written. | Prints the host-run line. Nothing is written. |
+| `yolo skills list` | Per import: mode, configured ref, recorded commit and when it was resolved, access class, whether the commit is in the import store, skills that would be delivered, names shadowed, and visible paths that are not imported. No network, no writes. | Prints each declared import from the workspace config (handle, repository, mode, `ref`/`rev`, `path`, `only`), states that resolved commits and store state are host-side and not visible from inside a jail, and prints the host-run line for the full view. No network, no writes. |
+| `yolo skills remove <handle>` | Deletes the entry from the workspace config. The import store and resolution record are left alone ([§10](#10-migration)); a record with no matching entry is ignored. | The same: a workspace-scope config edit, which a jail may already make. Host state is not touched. |
 
 Pinning is the default for `add` because a pin is reproducible and visible in review. Tracking is one flag away, since the owner allows both.
 
-The command rows state intended effects but do not yet specify a consistent execution context for effects that span workspace config and host-owned state. Treat their host/jail behavior as unresolved until U7 is reconciled in [§11](#11-code-checks); no command context or host-state RPC is authorized by implication.
+**Where the commands run** (designer recommendation WGS-P15). `add`, `update` and `pin` are host commands: each needs a fetch under this workspace's approved Git access, the host-owned resolution record, or both, and a process inside a jail has neither. Run inside a jail, they follow the pattern `yolo pack add` and jailed user-scope `yolo config` edits already use: print `yolo host-run -C <workspace> -- yolo skills <arguments as typed>`, say that nothing ran, and return before any effect. A human starts the host command; the jail is not given a host process, a host write, or any operation on import state. `remove` and `list` need only the workspace config inside a jail, so they run there with the reduced effects in the table.
+
+**What each result says.** Every command reports what it actually changed, and nothing it did not:
+
+- `add` on success prints the same "record created" row a launch would ([§9.3](#93-observable-results)), then says the entry was written to the workspace config and is delivered at the next fresh launch or attach once the config-change gate has approved the changed config. It does not claim any running jail has the skills.
+- `update` prints the "record changes commit" row when the commit moved, or says the import is already current. It says running jails keep what they staged until the next attach or fresh launch.
+- `pin` names the commit written. `remove` says the entry is gone from the config and that a running jail keeps the staged skills until its next attach or fresh launch.
+- A jailed `add`, `update` or `pin` says only that nothing ran and gives the one line to paste. It never reports a resolution, because none happened.
+
+Hand-editing an entry in the workspace config, from either side, is legitimate and fetches nothing. The entry resolves at the next fresh launch, after the config-change gate.
 
 `add`, `update` on a pinned entry, `pin` and `remove` are explicit operator commands that edit the workspace config file. They are the only path by which this feature writes to the repository. A launch never does.
 
@@ -264,13 +276,32 @@ The anonymous row is current broker behavior, not a new allowance. The agent ins
 
 **No route around the decision.** When the decision is refused, or an anonymous attempt fails, the import is withheld. The import path never fetches directly, never retries outside the broker, and never falls back to the user-scope pack fetch or its lock.
 
-**Transport route.** The jail does not exist when a fresh launch resolves imports, so the bytes do not travel through the jail-side remote helper. The host launch process asks the broker's decision, and the fetch runs on the broker's own upstream leg: host `ssh` for SSH, the host credential helper for HTTPS only when the decision is authenticated. The route carries no authority. Whatever it may do was decided by the request authority above.
+**Transport route.** The jail does not exist when a fresh launch resolves imports, and a host command is not in one, so the bytes never travel through the jail-side remote helper. The host process (the launch, or the host command) asks the broker's decision, and the fetch runs on the broker's own upstream leg: host `ssh` for SSH, the host credential helper for HTTPS only when the decision is authenticated. The route carries no authority. Whatever it may do was decided by the request authority above, and running on the host adds nothing to it.
 
-**Smallest integration.** The broker serves requests from the jail-side helper; no host-side caller of its Git protocol service exists today (U5 in [§11](#11-code-checks)). The proposed launch-time fetch still needs a host-side caller that reuses the same decision and upstream checks, limited to fetch (`git-upload-pack`) and given the launch's gate-approved scope and grants. It must not copy the checks or fetch around them.
+**Smallest integration.** The broker serves requests from the jail-side helper; no host-side caller of its Git protocol service exists today (U5 in [§11](#11-code-checks)). Import resolution needs one host-side caller that reuses the same decision and upstream checks, limited to fetch (`git-upload-pack`). A fresh launch gives it the launch's gate-approved scope and grants; a host command gives it explicit-command authority (below). It is one caller with two sources of the same two inputs. It must not copy the checks or fetch around them, and it is not the user-scope pack fetch.
 
 **No workspace-driven host Git.** The fetch never runs Git inside the checkout and never reads the checkout's Git config, so a workspace cannot steer it with `url.*.insteadOf`, `credential.helper`, `core.sshCommand` or similar settings. It reads committed objects only: no checkout, hooks, filters or submodules, and no pack manifest.
 
-**Commands outside a launch.** The design currently gives incompatible instructions: it says `add`/`update` run inside a jail through that jail's broker and can edit workspace config but cannot write host state, while the command effects in [§4.2](#42-cli) and state table in [§6.3](#63-state-and-ownership) require `add`/`update` to update the host-owned import store or resolution record. The current host-run path does not execute a jail command on the host transparently: it prints a command for a human to paste. The current jail-side Git helper only requests brokered Git protocol operations and exposes no host-state write. Therefore this draft does not select host-only commands, jail commands plus a host operation, or any new broker RPC. Fable must specify one consistent route and its effect boundary; the settled constraints remain that every fetch is filtered by this workspace's existing broker access and that jail code cannot directly write host-owned records.
+**Commands outside a launch** (designer recommendation WGS-P15). `yolo skills add` and `yolo skills update` resolve imports only when run on the host. No in-jail resolution path exists in this design: the jail-side Git helper carries Git protocol only, and no operation is added that lets a jail process write, or ask the host to write, the import store or a resolution record. The Git broker's operation surface stays fetch and push.
+
+*Explicit-command authority.* A host command is not inside a launch, so it has no live per-launch scope. Its request authority is built from host-owned data only:
+
+- the Git scope and grants in this workspace's last config approval, read once at the start of the command through `config.ApprovedScope(workspace, "git")` and `config.ApprovedGrants(workspace, "git")` ([`internal/config/scopeapproval.go`](../../internal/config/scopeapproval.go));
+- less anything that is no longer current. An approved remote URL that is gone from the checkout's remotes, read as text the way the gate reads them, is treated as absent. So is an approved read grant that current user config no longer carries.
+
+Current state can only narrow this authority. A remote or grant added since the last approval counts for nothing until a fresh launch's gate has recorded it. The host command never runs the config-change gate and never writes an approval record.
+
+The command passes that authority to the same host-side caller a launch uses, and takes the same broker decision from the table above. It is not the operator's own Git access: an import URL outside the approved scope gets no credential even though the person at the host terminal could fetch it by hand. The broker's anonymous-HTTPS attempt applies exactly as it does in a launch; it is existing policy for a public URL, not a fallback after a credentialed attempt, and no credential can be acquired during it.
+
+*No approved scope.* A workspace with no approval record has an empty explicit-command authority. An `https://` import gets the anonymous attempt only. An SSH or scp-style import is refused, and the message says this workspace has no approved Git access recorded yet and that a fresh launch records it. It does not suggest adding a remote or a grant.
+
+*Which entries `update` may contact.* `update` acts only on an entry with a valid resolution record ([§6.3](#63-state-and-ownership)). A record exists only because a fresh launch resolved the entry after the gate, or because `add` was run on the host with that URL on its command line. An entry written or changed by hand, including from inside a jail, has no valid record, so no host command contacts its URL; it resolves at the next fresh launch, after the gate.
+
+*Later launches re-decide.* What a host command stores carries its access class, and every launch and attach applies the cache rule in [§6.4](#64-refresh-locking-and-concurrent-launches) under its own live decision. A command that ran under a since-narrowed approval therefore cannot cause delivery the workspace is no longer entitled to.
+
+*Locking.* A host command takes the import lock for fetch-and-record-write. If a launch holds it, the command waits for the holder rather than skipping, since the operator asked for the resolution explicitly.
+
+*Partial failure.* The store and record are written before the workspace config. A failure in between leaves, at worst, an entry without a valid record or a record without an entry. The first is resolved by the next fresh launch; the second is ignored.
 
 ### 6.3 State and ownership
 
@@ -278,15 +309,15 @@ The Git broker streams a fetch and keeps no copy, so it has no cache or lock to 
 
 | State | Owner | Written by | Rule |
 |---|---|---|---|
-| Import declaration | Workspace config | The operator, or the config-editing `yolo skills` commands | Names a repository and either a pin or a moving ref. Passes the config-change gate. |
-| Import store | Host-side state for this workspace: outside the checkout, not beside user config, the same ownership class as the workspace's config-approval record | The resolve step of a fresh launch; explicit command writers remain subject to U7 in [§11](#11-code-checks) | Git objects only, added and never rewritten. A cache, not an authority ([§6.4](#64-refresh-locking-and-concurrent-launches)). Not shared between workspaces, so one workspace's access never supplies another's content. |
-| Resolution record | Same owner as the import store | Fresh launch; explicit command writers remain subject to U7 in [§11](#11-code-checks) | One per handle: the URL as configured, repository identity, full ref name (moving only), commit id, access class, and when it was resolved. |
+| Import declaration | Workspace config | By hand from either side; `yolo skills add`, `update` (pinned entry with a label) and `pin` on the host; `yolo skills remove` from either side | Names a repository and either a pin or a moving ref. Passes the config-change gate. |
+| Import store | Host-side state for this workspace: outside the checkout, not beside user config, the same ownership class as the workspace's config-approval record | The resolve step of a fresh launch; `yolo skills add` and `update` run on the host. Nothing inside a jail | Git objects only, added and never rewritten. A cache, not an authority ([§6.4](#64-refresh-locking-and-concurrent-launches)). Not shared between workspaces, so one workspace's access never supplies another's content. |
+| Resolution record | Same owner as the import store | The resolve step of a fresh launch; `yolo skills add` and `update` run on the host. Nothing inside a jail. Read by attach and by host `yolo skills list` and `pin` | One per handle: the URL as configured, repository identity, full ref name (moving only), commit id, access class, and when it was resolved. |
 | Staged import layer | The launch's staged tree | Fresh launch and attach | Only projected skills are delivered. The workspace and the selected-pack tree are never touched. |
 | Approval | The existing config-change gate | Unchanged | There is no per-import approval record. |
 
 A resolution record is valid only while the entry's `git` and `ref` (or `rev`) still equal what it recorded. If the entry changes, the record is treated as absent. A pinned import has a record too, so that the access class its commit was obtained under is known.
 
-Nothing in this table is in the repository, and nothing in it is user-global. The agent inside the jail cannot directly write any of it. Whether an explicit command running in a jail may request a host-side operation that writes the record is unresolved; no such broker operation is specified or authorized here (U7 in [§11](#11-code-checks)). The host state uses the workspace identity `runtime.FromWorkspace(workspace)`; a dedicated sibling under `paths.GlobalStorage()` is a plausible location, while the exact import-store leaf remains an implementation choice ([§11](#11-code-checks)).
+Nothing in this table is in the repository, and nothing in it is user-global. Ownership splits by side. The workspace config is the only import state a process inside a jail can read or write. The import store and resolution record are host-only: not mounted in a jail, not readable there, and not writable there directly or by request, because no host operation on them is exposed to a jail ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). What a jail receives is the staged import layer, written for it by the host at fresh launch and attach. The host state uses the workspace identity `runtime.FromWorkspace(workspace)`; a dedicated sibling under `paths.GlobalStorage()` is a plausible location, while the exact import-store leaf remains an implementation choice ([§11](#11-code-checks)).
 
 **Immutable staging.** Projection and staging read the tree of one commit id from the import store. A commit id names fixed content, so what a launch stages cannot change underneath it, even while another process adds objects or replaces the record.
 
@@ -333,11 +364,11 @@ Validation and launch share one interpretation of an entry. The phases differ on
 |---|---|---|---|
 | 1. Parse and validate | Pure | Config validation, `yolo check`, launch | Nothing. No network, no cache write, no prompt. |
 | 2. Config-change gate | Existing gate | Fresh launch | Reads workspace config including consumed includes/local override, compares the effective snapshot, and prompts only when a difference needs approval. This is not guaranteed on every first launch; see [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed). |
-| 3. Resolve | Effect | Fresh launch only, after the gate has passed and the launch's approved scope and grants are fixed | Takes the broker decision, and uses the network only in the cases listed in [§6.4](#64-refresh-locking-and-concurrent-launches). Writes the import store and resolution record. Never touches the workspace, user config or any approval record. |
-| 4. Project | Read-only decision plus tree reads | Fresh launch, attach, `yolo skills list` | Walks the tree of the recorded commit in the import store and reads selected blobs. No network, no writes, no record change. |
+| 3. Resolve | Effect | A fresh launch, after the gate has passed and the launch's approved scope and grants are fixed; or `yolo skills add` / `update` run on the host, under explicit-command authority ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). Never attach, and never a process inside a jail | Takes the broker decision. A launch uses the network only in the cases listed in [§6.4](#64-refresh-locking-and-concurrent-launches); a host command uses it because it was asked to. Writes the import store and resolution record. A launch never touches the workspace; the host commands edit the workspace config as [§4.2](#42-cli) lists. Neither touches user config or any approval record. |
+| 4. Project | Read-only decision plus tree reads | Fresh launch, attach, `yolo skills list` run on the host | Walks the tree of the recorded commit in the import store and reads selected blobs. No network, no writes, no record change. |
 | 5. Stage | Effect | Fresh launch and attach | Writes the workspace-derived skills staging area only, never the workspace or selected-pack tree. Attach re-stages from the current record and store; selected packs remain from the running jail's `pack-trees/.live` tree. |
 
-Validation never fetches, so a config can be checked offline and in CI. `yolo host` does not read workspace imports, resolve refs, fetch them or deliver them ([§8.3](#83-delivery)). The explicit command path for effects that both edit workspace config and write host-owned state is not specified until U7 is reconciled; the table above defines the state transitions, not an implicit RPC or execution-context permission.
+Validation never fetches, so a config can be checked offline and in CI. `yolo host` does not read workspace imports, resolve refs, fetch them or deliver them ([§8.3](#83-delivery)). The explicit commands that both edit workspace config and write host-owned state run on the host only ([§4.2](#42-cli)); inside a jail they print the host-run line and have no effect in any phase. No phase is reachable from a jail process except the workspace-config edits a jail may already make.
 
 Entry selection and projection are different things. Entry selection is the config decision of which repository, commit, path and names; it is what the gate approves and what resolve acts on. Projection has no effect of its own: given one commit, it decides which directories are skills, and it cannot fetch, resolve or record anything.
 
@@ -389,6 +420,7 @@ Two properties follow:
 | `only` | Absent: all immediate-child skill directories; `[]`: none |
 | Ref forms | Full commit pins and moving refs are both permitted. `rev` present means pinned; `ref` alone means moving. |
 | `yolo skills add` | Writes a pin. `--track` writes a moving ref. |
+| Where `yolo skills` commands take effect | `add`, `update`, `pin`: on the host only; inside a jail they print the host-run line. `remove`: either side. `list`: full on the host, declarations only inside a jail. |
 | Moving-ref refresh | Branch: at a fresh launch once the record is older than the existing pack refresh interval, or on `yolo skills update`. Tag: only on `yolo skills update`. Never on attach. |
 | Prompt when a moving ref moves | None. The move is reported ([§9.3](#93-observable-results)). |
 
@@ -413,7 +445,14 @@ Imports are additive, lowest-precedence content. Losing one cannot widen anythin
 | Entry refused by confinement | That skill is withheld and reported. |
 | Attach to a running jail | Never fetches, refreshes or re-stages selected packs. Imports are re-staged from the current record and store under the current broker decision; one with nothing usable is withheld until the next fresh launch ([§7](#7-decision-and-effects)). Selected packs remain from the running jail's `pack-trees/.live` tree. |
 | Another launch holds the import lock | A due refresh is skipped and the current record is used. With no usable record, this launch waits for the holder ([§6.4](#64-refresh-locking-and-concurrent-launches)). |
-| User veto set | Nothing is resolved or staged. `yolo skills list` says so. |
+| User veto set | Nothing is resolved or staged. `yolo skills list` says so. Host `add` and `update` fetch nothing, write nothing, and name the veto. |
+| `add`, `update` or `pin` run inside a jail | Nothing runs. The host-run line is printed. No config, host state or network is touched. |
+| Host `add` when the decision is refused, the anonymous attempt fails, or the remote cannot be reached | Nothing is written: no entry, no objects, no record. The message gives the reason in the wording of the matching row above. |
+| Host `update` when the decision is refused or the fetch fails | Config and record are left as they were, and the handle and reason are reported. Other handles in the same run are still processed. |
+| Host `add` or `update` for a workspace with no approval record | HTTPS: anonymous attempt only. SSH or scp-style: refused, with a message that no approved Git access is recorded yet and that a fresh launch records it. |
+| Host `update` or `pin` on an entry with no valid resolution record | Not contacted and not changed. The message says the import resolves at the next fresh launch. |
+| The last approval lists a remote or grant that is no longer current | Treated as absent by host commands ([§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). The import is then decided as out of scope. |
+| `yolo skills list` inside a jail | Declarations only, with a statement that resolved state is host-side and the host-run line for the full view. |
 
 ### 9.3 Observable results
 
@@ -448,6 +487,8 @@ The first two are printed by whatever writes the record: the launch that resolve
 - A workspace cannot bypass the workspace Git broker or cause host Git credentials to be used outside the broker’s existing access filter. An import entry adds nothing to repository scope and creates no grant.
 - Content fetched for one workspace is not delivered to another, and content fetched with credentials is not delivered once the workspace loses that access.
 - A workspace cannot write user-global lock or approval state, and a launch cannot write to the workspace.
+- A process inside a jail cannot resolve an import, and cannot write or request a write to the import store or a resolution record. Its only import-related write is to the workspace config, which the config-change gate then sees.
+- A host `yolo skills` command has no more Git access than the workspace's last approval gave a launch, and never the operator's ambient credentials.
 - Nothing workspace-derived reaches `yolo host`.
 - Nothing a workspace supplies outranks user-selected content.
 
@@ -465,7 +506,7 @@ Existing workspace configs without these keys remain unchanged. A build that pre
 
 ## 11. Code checks
 
-The evidence packet named four points to verify. U1–U4 are resolved against the current checkout. The planner's current-tree audit also confirms U5 and U6 below. U7 is not merely an unchecked source seam: the normative command and state rules contradict each other, so this design is draft until Fable reconciles the command-context and host-state contract. This gap is not pending an owner ruling; the owner has settled both supported ref forms and the existing Git-broker filter.
+The evidence packet named four points to verify. U1–U4 are resolved against the current checkout. The planner's current-tree audit also confirms U5 and U6 below. U7 was a contradiction between the command rules and the host-owned state rules, not an unchecked source seam. It is closed below by designer recommendation WGS-P15, within the owner's settled rulings on ref forms and the existing Git-broker filter, and without a new owner question.
 
 | Check | Finding and design consequence |
 |---|---|
@@ -479,11 +520,11 @@ The evidence packet named four points to verify. U1–U4 are resolved against th
 | U5 — host-side broker entry | Current code serves Git requests through `Broker.Handle` → `serveRequest`, which reads the launch's live scope and applies remote-URL, read-grant and credential checks ([`broker.go`](../../internal/gitbroker/broker.go), [`https.go`](../../internal/gitbroker/https.go), [`upstream.go`](../../internal/gitbroker/upstream.go)). There is no host-side caller of that Git protocol service; the decision and upstream paths are implementation-private. A host launch resolver would need an explicit caller/reuse seam, not `packsrc` or an unfettered Git fetch. | Any fetch must keep the existing workspace broker decision/filter; no bypass or authority widening. |
 | U6 — state location | Host workspace identity is `runtime.FromWorkspace(workspace)` ([`naming.go`](../../internal/runtime/naming.go)). Host approvals live under `paths.GlobalStorage()/approvals` and are keyed by that name; `paths.ApprovalsDir` is not mounted into jails, and the approval record has a closed file list ([`paths.go`](../../internal/paths/paths.go), [`scopeapproval.go`](../../internal/config/scopeapproval.go)). A separate import store/record may use the same host-owned per-workspace identity, but must not masquerade as approval-record parts. | Keep import state host-owned, per-workspace and outside the checkout/user config; the precise sibling directory is implementation detail. |
 
-U5 and U6 are code-backed integration facts, not decisions about the command execution model. U7 remains the sole design gap for Fable to reconcile; do not treat its absent mechanical contract as a new owner question or as authorization for a broker RPC.
+U5 and U6 are code-backed integration facts. U7 is the command execution model built on them. It uses only mechanisms the tree already has and adds no broker operation.
 
-| Check | Inconsistent contract to reconcile | Settled constraints |
+| Check | Finding | Design consequence |
 |---|---|---|
-| U7 — command context and state effects | The CLI table assigns `add`/`update` fetches and host-state writes, `pin` a read of the host resolution record plus a workspace-config write, and `list` reads of host records/store, but does not name their executor. Section [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) then says jailed `add`/`update` use jail broker access and edit workspace config but cannot write host state. Existing jail Git access exposes only Git protocol, not host-state writes. Which process runs each command, whether it may directly edit workspace config, and how the state reads/writes occur are not specified consistently. | Preserve both owner rulings: pins and moving refs are allowed; imports use the existing workspace Git-broker filter. Jail code cannot directly write host-owned state. Fable chooses a consistent mechanical command/host-state route; no new RPC follows implicitly. |
+| U7 — command context and state effects | The jail form of `yolo host-run` prints a line for a human to paste and runs nothing on the host ([`hostrun.go`](../../internal/cli/hostrun.go)). `yolo pack add`/`remove` and jailed user-scope `yolo config` edits already print that line and return before any effect, while workspace-scope config edits proceed inside a jail ([`packadd.go`](../../internal/cli/packadd.go), [`configeditverbs.go`](../../internal/cli/configeditverbs.go)). The jail-side Git path carries Git protocol only and exposes no write to host state ([`broker.go`](../../internal/gitbroker/broker.go)). `config.ApprovedScope` and `config.ApprovedGrants` report the last approved Git scope and grants to a non-launch host reader ([`scopeapproval.go`](../../internal/config/scopeapproval.go)). Repository-binding ceilings are write-only, so there is no repository-scoped read grant to lean on. | `add`, `update` and `pin` take effect on the host only and print the host-run line inside a jail. `remove` is a workspace-scope config edit on either side. `list` is full on the host and declaration-only inside a jail. Host commands fetch through the U5 caller under explicit-command authority: the last approved scope and grants, narrowed by current state, with the broker's anonymous-HTTPS behavior unchanged. No jail-to-host operation, credential, grant or scope entry is added ([§4.2](#42-cli), [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker), WGS-P15). |
 
 Residual risks the design accepts and names:
 
@@ -491,7 +532,9 @@ Residual risks the design accepts and names:
 - A pin bump is opaque in review unless the reviewer inspects the upstream commit diff.
 - A moving ref changes delivered instruction text with no config change and no prompt. The move is reported once, by whichever process recorded it.
 - Two machines, or two launches either side of a refresh, can deliver different commits of a moving ref.
-- A workspace-named HTTPS URL outside scope causes the host to make an anonymous request to that server at launch, after the config-change gate.
+- A workspace-named HTTPS URL outside scope causes the host to make an anonymous request to that server at launch, after the config-change gate. `yolo skills add` on the host makes the same anonymous request for the URL on its command line before any gate; a human who pastes a host-run line an agent composed should read the URL in it.
+- A host command reads the last approval once. Another session rewriting that record during the command is not detected; the command's result is still re-decided by every later launch and attach before anything is delivered.
+- Resolving or updating an import from inside a jail is not possible. An agent that wants a newer commit must ask a human to run one line on the host, or wait for the next due refresh at a fresh launch.
 - A projected skill may depend on something that was not imported.
 - A brokered fetch reveals to the authorized server that the workspace requested that repository.
 
@@ -511,13 +554,14 @@ Residual risks the design accepts and names:
 | WGS-P2 | Allow-list projection to skill directories. No manifest is read, there is no dependency closure, and future kinds are refused by default. | [§5](#5-how-far-it-goes) |
 | WGS-P3 | Mixed sources are projected, not rejected; visible paths outside selected skills are disclosed without claiming exhaustive manifest/plugin inventory. | [§5.4](#54-mixed-sources-project-or-reject) |
 | WGS-P4 | Skills only. `briefing` passes the effect tests but is not admitted. | [§5.2](#52-allowed-and-refused) |
-| WGS-P5 | Validation has no fetch effects. Resolution runs only at a fresh launch after the config-change gate, or in an explicit command, and always under the broker decision. Attach never resolves. | [§7](#7-decision-and-effects) |
+| WGS-P5 | Validation has no fetch effects. Resolution runs only at a fresh launch after the config-change gate, or in an explicit `yolo skills` command run on the host, and always under the broker decision. Attach never resolves, and nothing inside a jail does. | [§7](#7-decision-and-effects) |
 | WGS-P6 | The import layer is lowest precedence and is not delivered to `yolo host`, under WS-D24. | [§8](#8-projection-precedence-delivery) |
 | WGS-P7 | Authoring errors fail validation. Every runtime failure withholds that one import with a warning, and the launch continues. | [§9.2](#92-failures) |
 | WGS-P8 | On by default, with a user-scope scalar veto. | [§4.3](#43-scope) |
 | WGS-P9 | `rev` present means pinned; `ref` alone means moving. `yolo skills add` pins by default and `--track` follows a ref. Tags are frozen until an explicit update; branches follow. | [§4](#4-syntax), [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed) |
-| WGS-P10 | An import fetch takes the Git broker's existing decision unchanged, including its anonymous-HTTPS attempt. The import URL never enters scope, no grant is created, and nothing is fetched outside the broker when it refuses. The only integration is one host-side caller of the same decision and upstream leg. | [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) |
+| WGS-P10 | An import fetch takes the Git broker's existing decision unchanged, including its anonymous-HTTPS attempt. The import URL never enters scope, no grant is created, and nothing is fetched outside the broker when it refuses. The only integration is one host-side caller of the same decision and upstream leg, used by fresh launches and by host `yolo skills` commands alike. | [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) |
 | WGS-P11 | Fetched objects and the resolved commit live in host-owned, per-workspace state: an import store and a resolution record. Neither is in the repository, user-global, shared between workspaces, or an approval record. | [§6.3](#63-state-and-ownership) |
 | WGS-P12 | A branch is refreshed at a fresh launch on the existing pack refresh interval, or by `yolo skills update`. There is no new setting. One lock covers fetch-and-record-write; readers take none; a busy lock skips a due refresh. | [§6.4](#64-refresh-locking-and-concurrent-launches) |
 | WGS-P13 | Approving the entry at the config-change gate covers later movement of its ref. A move raises no prompt and is reported by the process that recorded it. | [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed), [§9.3](#93-observable-results) |
 | WGS-P14 | The import store is a cache, not an authority: stored content is delivered only under a current broker decision at least as strong as the access class it was obtained under. A failed refresh delivers the last recorded commit with a warning. | [§6.4](#64-refresh-locking-and-concurrent-launches) |
+| WGS-P15 | `yolo skills add`, `update` and `pin` take effect on the host only; inside a jail they print the existing host-run line and change nothing. `remove` edits workspace config on either side; `list` is full on the host and declaration-only in a jail. A host command fetches under the workspace's last approved Git scope and grants, narrowed by current state and never widened, through the same caller as a launch. `update` contacts only entries that already have a valid resolution record. No jail-to-host operation on import state exists. | [§4.2](#42-cli), [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker), [§6.3](#63-state-and-ownership) |
