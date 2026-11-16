@@ -2,7 +2,7 @@
 title: Config approvals show both what changed and what it means
 status: accepted
 stage: DECIDED
-next: Review this design, then write the implementation plan; nothing is built.
+next: Implement serially from the implementation plan; nothing is built.
 date: 2026-11-16
 baseline: HEAD @ 20d40e71d2283172ebbd75a4d99b8679b3cd8ada
 owner-request: "Now that we've switched to Toml for the config file format, it's a little weird that we show JSON diffs in that config approval prompt."
@@ -24,7 +24,7 @@ owner-request: "Now that we've switched to Toml for the config file format, it's
 
 **Needs your ruling:** None. The owner chose both initial views, the on-request raw comparison, and config-only reporting with `--accept-config-changes`. The remaining mechanics are decided in [§4.1](#41-decisions-design-judgement) as design judgement.
 
-**Reads with:** [`config-safety.md`](../reference/config-safety.md) (stale; [§1](#1-current-behavior-verified-baseline) records its limit), [`config/README.md`](../reference/config/README.md), [`live-config-apply.md`](live-config-apply.md), [`report-tiers.md`](../reference/report-tiers.md), [`cli-color.md`](../reference/cli-color.md) and [`config/rulings.md`](../reference/config/rulings.md) for existing accepted-report decisions.
+**Reads with:** [the implementation plan](config-approval-presentation-plan.md) (build order, verified source map and test contract), [`config-safety.md`](../reference/config-safety.md) (stale; [§1](#1-current-behavior-verified-baseline) records its limit), [`config/README.md`](../reference/config/README.md), [`live-config-apply.md`](live-config-apply.md), [`report-tiers.md`](../reference/report-tiers.md), [`cli-color.md`](../reference/cli-color.md) and [`config/rulings.md`](../reference/config/rulings.md) for existing accepted-report decisions.
 
 ---
 

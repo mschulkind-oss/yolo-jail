@@ -53,6 +53,9 @@ needs a ruling or a Mac sits in the others.
      frozen run progress lines wait on [OQ-VP1](cli-visual-polish.md#OQ-VP1).
    - [Launch preparation](../design/launch-update-preparation-plan.md#runtime-2026-11-13)'s two status-wording
      leftovers in [the backlog](BACKLOG.md#launch-prep-runtime-leftovers).
+   - [The config approval presentation](../design/config-approval-presentation.md), with its
+     [implementation plan](../design/config-approval-presentation-plan.md), keeps the approval identity
+     unchanged while replacing the JSON-only prompt view.
 
 ## Waiting on an owner ruling
 
@@ -110,7 +113,6 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
 9. [Which packs a workspace config may select](../design/workspace-packs.md#OQ-WP1), then
    [what a collaborator sees and can refuse](../design/workspace-packs.md) — `mcp_presets` is retired, so until this lands a repository cannot
    give its collaborators the browser, which the presets did. [A separate design for pinned Git skill imports](../design/workspace-git-skills.md) keeps workspace-pack selection distinct.
-   Separate from pack selection, [the config approval presentation design](../design/config-approval-presentation.md) explores a clearer view without changing approval identity.
 
 10. [The VM-local disks](../design/vm-local-volumes.md): [default or opt-in](../design/vm-local-volumes.md#OQ-VL1),
    [`~/.cache`](../design/vm-local-volumes.md#OQ-VL2), [database folders](../design/vm-local-volumes.md#OQ-VL3) and
