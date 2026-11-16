@@ -50,6 +50,8 @@ Subcommands:
                            HOST ONLY. Approve this workspace's config changes and
                            apply to its RUNNING jail what it can take without a
                            restart. It never restarts the jail.
+  approval-diff           Show the stored and current config approval identities;
+                           read-only and host-side.
   drift                    Show whether the WORKSPACE config on disk differs from
                            the config this jail has (what it started with, plus
                            what 'config apply' applied since).
@@ -135,6 +137,8 @@ func configRunW(args []string, out, errw io.Writer) int {
 		return 2
 	case "check":
 		return runConfigCheck(args[1:], out, errw)
+	case "approval-diff":
+		return run.ConfigApprovalDiff(args[1:], out, errw, colorForWriter(out))
 	case "set", "add", "unset":
 		if helpRequested(args[1:], "--file") {
 			writeCLIUsage(out, colorForWriter(out), configEditUsage)
@@ -340,7 +344,7 @@ func writeCLIUsage(out io.Writer, color bool, usage string) {
 
 func configHelpToken(token string) bool {
 	switch token {
-	case "ls", "render", "diff", "reset", "promote", "capture", "set", "add", "unset", "drift", "dump", "apply", "migrate", "why", "secret", "unsecret", "--drop", "--dotenv",
+	case "ls", "render", "diff", "reset", "promote", "capture", "set", "add", "unset", "drift", "dump", "apply", "approval-diff", "migrate", "why", "secret", "unsecret", "--drop", "--dotenv",
 		"--user", "--project", "--local", "--file", "--dry-run",
 		"--help", "-h", "--all", "--explain", "--setup", "--force", "--keys", "--to",
 		"--plan", "--json", "--accept-promotion", "--record-only", "--accept-config-changes", "--yes":
