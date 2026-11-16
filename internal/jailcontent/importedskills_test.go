@@ -102,3 +102,24 @@ func TestImportedSkillsAreBelowWorkspaceBuiltinAndPackSkills(t *testing.T) {
 		t.Fatal("composition did not disclose imported lower-precedence skills")
 	}
 }
+
+func TestRepairImportedStagingRequiresConfinedSkillMarker(t *testing.T) {
+	f := newWSFixture(t)
+	targets(t, map[string][]string{"claude": {".claude/skills"}})
+	noMarker := realTempDir(t)
+	escapeMarker := realTempDir(t)
+	must(t, os.WriteFile(filepath.Join(noMarker, "start.sh"), []byte("not a skill"), 0600))
+	must(t, os.Symlink(f.secret, filepath.Join(escapeMarker, "SKILL.md")))
+	staging, report, err := PrepareSkillsWith("repair-import-marker", &WorkspaceSkills{Root: f.ws, Imported: []ImportedWorkspaceSkill{
+		{Handle: "acme", Name: "hooks", Root: noMarker}, {Handle: "acme", Name: "escape", Root: escapeMarker},
+	}})
+	must(t, err)
+	for _, name := range []string{"hooks", "escape"} {
+		if _, err := os.Stat(filepath.Join(staging, SkillStagingName("claude"), name)); !os.IsNotExist(err) {
+			t.Fatalf("non-skill %s staged: %v", name, err)
+		}
+	}
+	if len(report.Refused) != 2 {
+		t.Fatalf("missing marker refusals: %+v", report.Refused)
+	}
+}

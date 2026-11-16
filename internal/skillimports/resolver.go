@@ -55,6 +55,12 @@ func (s *Store) resolveWithFetcher(ctx context.Context, entry config.SkillImport
 	if fetch == nil {
 		return Resolution{}, errors.New("git broker fetcher is required")
 	}
+	if _, allowed, err := gitbroker.DecideImportAccess(entry.Git, authority.ApprovedRemotes, authority.CurrentRemotes, authority.ApprovedGrants, authority.CurrentGrants); err != nil || !allowed {
+		if err != nil {
+			return Resolution{}, err
+		}
+		return Resolution{}, errors.New("the git broker refused this import")
+	}
 	var record Resolution
 	err := s.WithLock(func() error {
 		var err error
@@ -101,6 +107,7 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 
 	// A launch with a current usable record does not queue behind a refresh it does not own.
 	if usable && refreshDue(entry, current, now) {
+		var refreshWarning string
 		locked, err := s.TryWithLock(func() error {
 			current, currentOK = s.Resolution(entry.Handle, entry)
 			usable = currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
@@ -113,6 +120,7 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 				return nil
 			}
 			if usable && entry.Rev == "" && !current.ResolvedAt.IsZero() {
+				refreshWarning = "the Git broker could not refresh this branch; the last usable commit is staged"
 				return nil // fetchAndRecord does not mutate the previous record on failure
 			}
 			return fetchErr
@@ -123,11 +131,8 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 		if !locked {
 			return current, "", nil
 		}
-		if usable && !refreshDue(entry, current, now) {
-			return current, "", nil
-		}
 		if usable {
-			return current, "the Git broker could not refresh this branch; the last usable commit is staged", nil
+			return current, refreshWarning, nil
 		}
 		return Resolution{}, "", errors.New("no usable import resolution is available")
 	}
@@ -161,7 +166,37 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 	return current, warning, nil
 }
 
+// FetchForCommand prepares a resolution while the command owns the whole config/record
+// transaction. Publication is the caller's final step, after its targeted config edit succeeds.
+func (s *Store) FetchForCommand(ctx context.Context, entry config.SkillImport, authority Authority) (Resolution, error) {
+	if !s.lockHeld {
+		return Resolution{}, errors.New("skill command transaction lock is required")
+	}
+	if err := validateResolveEntry(entry); err != nil {
+		return Resolution{}, err
+	}
+	return s.fetchResolution(ctx, entry, authority, gitbroker.FetchImport)
+}
+
 func (s *Store) fetchAndRecord(ctx context.Context, entry config.SkillImport, authority Authority,
+	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error)) (Resolution, error) {
+	previous, hadPrevious := s.Resolution(entry.Handle, entry)
+	record, err := s.fetchResolution(ctx, entry, authority, fetch)
+	if err != nil {
+		return Resolution{}, err
+	}
+	if err := s.WriteResolution(record); err != nil {
+		return Resolution{}, err
+	}
+	if !hadPrevious {
+		record.Change = &ResolutionChange{}
+	} else if previous.Commit != record.Commit {
+		record.Change = &ResolutionChange{PreviousCommit: previous.Commit}
+	}
+	return record, nil
+}
+
+func (s *Store) fetchResolution(ctx context.Context, entry config.SkillImport, authority Authority,
 	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error)) (Resolution, error) {
 	fetched, err := fetch(ctx, gitbroker.ImportFetchRequest{
 		Workspace: s.workspace, URL: entry.Git, Revision: entry.Rev, Ref: entry.Ref, StoreDir: s.ObjectDirectory(),
@@ -188,9 +223,6 @@ func (s *Store) fetchAndRecord(ctx context.Context, entry config.SkillImport, au
 		Version: resolutionVersion, Handle: entry.Handle, Git: entry.Git, Rev: entry.Rev, Ref: ref,
 		ResolvedRef: fetched.ResolvedRef, Repo: repo, Commit: fetched.Commit,
 		AccessClass: fetched.AccessClass, ResolvedAt: time.Now().UTC(),
-	}
-	if err := s.WriteResolution(record); err != nil {
-		return Resolution{}, err
 	}
 	return record, nil
 }

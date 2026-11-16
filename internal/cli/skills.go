@@ -58,7 +58,7 @@ Examples:
 
 var resolveSkillImportForCommand = func(ctx context.Context, store *skillimports.Store, entry config.SkillImport,
 	authority skillimports.Authority) (skillimports.Resolution, error) {
-	return store.Resolve(ctx, entry, authority)
+	return store.FetchForCommand(ctx, entry, authority)
 }
 
 var readSkillInventorySourcesForCommand = run.ReadSkillInventorySources
@@ -165,6 +165,10 @@ func parseSkillAddArgs(args []string) (skillAddArgs, error) {
 }
 
 func skillsAdd(args []string) int {
+	return withSkillsWriterLock(args, func(args []string, store *skillimports.Store) int { return skillsAddLocked(args, store) })
+}
+
+func skillsAddLocked(args []string, store *skillimports.Store) int {
 	parsed, err := parseSkillAddArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills add: %v; see `yolo skills add --help`\n", err)
@@ -211,11 +215,7 @@ func skillsAdd(args []string) int {
 		fmt.Fprintf(os.Stderr, "yolo skills add: cannot prepare the workspace config edit: %s; fix the workspace config, then retry\n", termsafe.Visible(err.Error()))
 		return 1
 	}
-	store, err := skillimports.Open(workspace)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "yolo skills add: host import state is unavailable: %s; fix host storage, then retry\n", termsafe.Visible(err.Error()))
-		return 1
-	}
+
 	entry := config.SkillImport{Handle: handle, Git: parsed.url, Ref: parsed.ref, Path: parsed.path,
 		Only: parsed.only, OnlySet: len(parsed.only) > 0}
 	record, err := resolveSkillImportForCommand(context.Background(), store, entry, skillImportCommandAuthority(workspace))
@@ -231,17 +231,19 @@ func skillsAdd(args []string) int {
 	if !parsed.track {
 		record.Rev = record.Commit
 		record.ResolvedRef = ""
-		if err := store.WriteResolution(record); err != nil {
-			fmt.Fprintf(os.Stderr, "yolo skills add: fetched content is stored, but its resolution record could not be written: %s; rerun `yolo skills add`\n", termsafe.Visible(err.Error()))
-			return 1
-		}
 		entryValue.Set("rev", record.Commit)
 	}
 	mutation.Value = entryValue
-	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{})
+	result, err := configedit.ApplyTargeted(workspace, target, mutation, configedit.ApplyOptions{Verify: func(_, _ []byte) error { return store.WriteResolution(record) }})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills add: the import was fetched, but the workspace config edit was refused: %s; no config entry was written. Fix the named config, then retry\n", termsafe.Visible(err.Error()))
 		return 1
+	}
+	entry.Ref = record.Ref
+	entry.Rev = record.Rev
+	inspection, inspectErr := store.Inspect(entry, skillImportCommandAuthority(workspace))
+	if inspectErr == nil {
+		fmt.Fprintf(os.Stdout, "%s: resolution created at %s (%s access), ref/pin %s; %d skills; visible paths unimported: %s.\n", termsafe.Visible(handle), record.Commit, termsafe.Visible(record.AccessClass), termsafe.Visible(record.Ref), len(inspection.Skills), displaySkillNames(inspection.Unimported))
 	}
 	mode := "moving ref"
 	if !parsed.track {
@@ -317,6 +319,10 @@ func skillImportVetoRefusal(errw io.Writer) int {
 }
 
 func skillsUpdate(args []string) int {
+	return withSkillsWriterLock(args, func(args []string, store *skillimports.Store) int { return skillsUpdateLocked(args, store) })
+}
+
+func skillsUpdateLocked(args []string, store *skillimports.Store) int {
 	handle, err := oneSkillHandle("update", args, true)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills update: %v; see `yolo skills --help`\n", err)
@@ -345,11 +351,7 @@ func skillsUpdate(args []string) int {
 			return 1
 		}
 	}
-	store, err := skillimports.Open(workspace)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "yolo skills update: host import state is unavailable: %s; fix host storage, then retry\n", termsafe.Visible(err.Error()))
-		return 1
-	}
+
 	authority := skillImportCommandAuthority(workspace)
 	var failures int
 	for _, entry := range entries {
@@ -365,6 +367,17 @@ func skillsUpdate(args []string) int {
 			fmt.Fprintf(os.Stdout, "%s: pinned at %s with no ref label; left unchanged. Add a ref label before updating.\n", termsafe.Visible(entry.Handle), previous.Commit)
 			continue
 		}
+		var pinTarget config.ResolvedEditTarget
+		pinMutation := configedit.Mutation{Action: configedit.Set, Path: []configdoc.Step{{Key: "skill_imports"}, {Key: entry.Handle}, {Key: "rev"}}, Value: entry.Rev}
+		if entry.Rev != "" {
+			var targetErr error
+			pinTarget, targetErr = configedit.ResolveTarget(workspace, pinMutation, config.EditTargetChoice{Kind: config.EditTargetProject})
+			if targetErr != nil {
+				failures++
+				fmt.Fprintf(os.Stderr, "%s: cannot prepare config update: %s; fix the named config, then retry `yolo skills update`\n", termsafe.Visible(entry.Handle), termsafe.Visible(targetErr.Error()))
+				continue
+			}
+		}
 		refresh := entry
 		refresh.Rev = ""
 		fresh, err := resolveSkillImportForCommand(context.Background(), store, refresh, authority)
@@ -376,19 +389,22 @@ func skillsUpdate(args []string) int {
 		if entry.Rev != "" {
 			fresh.Rev = fresh.Commit
 			fresh.ResolvedRef = ""
-			if err := store.WriteResolution(fresh); err != nil {
+			pinMutation.Value = fresh.Commit
+			_, targetErr := configedit.ApplyTargeted(workspace, pinTarget, pinMutation, configedit.ApplyOptions{Verify: func(_, _ []byte) error { return store.WriteResolution(fresh) }})
+
+			if targetErr != nil {
 				failures++
 				_ = store.WriteResolution(previous)
-				fmt.Fprintf(os.Stderr, "%s: could not preserve the pinned resolution record: %s\n", termsafe.Visible(entry.Handle), termsafe.Visible(err.Error()))
+				fmt.Fprintf(os.Stderr, "%s: config update failed; previous record restored: %s; fix the named config, then retry `yolo skills update`\n", termsafe.Visible(entry.Handle), termsafe.Visible(targetErr.Error()))
 				continue
 			}
-			if err := setSkillImportRev(workspace, entry.Handle, fresh.Commit); err != nil {
-				failures++
-				_ = store.WriteResolution(previous)
-				fmt.Fprintf(os.Stderr, "%s: config update failed; previous record restored: %s\n", termsafe.Visible(entry.Handle), termsafe.Visible(err.Error()))
-				continue
-			}
+		} else if err := store.WriteResolution(fresh); err != nil {
+			failures++
+			_ = store.WriteResolution(previous)
+			fmt.Fprintf(os.Stderr, "%s: record update failed: %s; retry `yolo skills update`\n", termsafe.Visible(entry.Handle), termsafe.Visible(err.Error()))
+			continue
 		}
+
 		if fresh.Commit == previous.Commit {
 			fmt.Fprintf(os.Stdout, "%s: already at %s (%s access). Running jails keep their staged skills until the next attach or fresh launch.\n", termsafe.Visible(entry.Handle), fresh.Commit, termsafe.Visible(fresh.AccessClass))
 		} else {
@@ -402,6 +418,10 @@ func skillsUpdate(args []string) int {
 }
 
 func skillsPin(args []string) int {
+	return withSkillsWriterLock(args, func(args []string, store *skillimports.Store) int { return skillsPinLocked(args, store) })
+}
+
+func skillsPinLocked(args []string, store *skillimports.Store) int {
 	handle, err := oneSkillHandle("pin", args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills pin: %v; see `yolo skills --help`\n", err)
@@ -422,11 +442,7 @@ func skillsPin(args []string) int {
 		fmt.Fprintf(os.Stdout, "%s is already pinned at %s.\n", termsafe.Visible(handle), entry.Rev)
 		return 0
 	}
-	store, err := skillimports.Open(workspace)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "yolo skills pin: host import state is unavailable: %s; fix host storage, then retry\n", termsafe.Visible(err.Error()))
-		return 1
-	}
+
 	record, ok := store.Resolution(handle, entry)
 	if !ok || !store.HasCommit(record.Commit) {
 		fmt.Fprintf(os.Stderr, "%s has no valid stored resolution; it will resolve on the next fresh launch. Nothing was pinned.\n", termsafe.Visible(handle))
@@ -441,6 +457,13 @@ func skillsPin(args []string) int {
 }
 
 func skillsRemove(args []string) int {
+	if config.InJail() {
+		return skillsRemoveLocked(args, nil)
+	}
+	return withSkillsWriterLock(args, func(args []string, store *skillimports.Store) int { return skillsRemoveLocked(args, store) })
+}
+
+func skillsRemoveLocked(args []string, _ *skillimports.Store) int {
 	handle, err := oneSkillHandle("remove", args, false)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "yolo skills remove: %v; see `yolo skills --help`\n", err)
@@ -515,8 +538,10 @@ func skillsList(args []string) int {
 	}
 	authority := skillImportCommandAuthority(workspace)
 	inventory, inventoryErr := readSkillInventorySourcesForCommand(workspace)
+	importedOwners := map[string]string{}
+	var inspectionBudget skillimports.ProjectionBudget
 	for _, entry := range entries {
-		inspection, err := store.Inspect(entry, authority)
+		inspection, err := store.InspectWithBudget(entry, authority, &inspectionBudget)
 		if err != nil {
 			fmt.Fprintf(os.Stdout, "  %s: inspection unavailable: %s\n", termsafe.Visible(entry.Handle), termsafe.Visible(err.Error()))
 			continue
@@ -532,6 +557,9 @@ func skillsList(args []string) int {
 		if !inspection.Allowed {
 			fmt.Fprintln(os.Stdout, "    not currently permitted by this workspace's Git broker decision; nothing would be delivered.")
 			continue
+		}
+		for _, refusal := range inspection.Refused {
+			fmt.Fprintf(os.Stdout, "    refused %s: %s; inspect the source, then retry `yolo skills list`\n", termsafe.Visible(refusal.Path), termsafe.Visible(refusal.Reason))
 		}
 		fmt.Fprintf(os.Stdout, "    skills that would be projected: %s\n", displaySkillNames(inspection.Skills))
 		fmt.Fprintf(os.Stdout, "    visible paths not imported: %s\n", displaySkillNames(inspection.Unimported))
@@ -549,6 +577,25 @@ func skillsList(args []string) int {
 		if err != nil {
 			fmt.Fprintf(os.Stdout, "    shadow inventory incomplete: %s; fix the named source, then run `yolo skills list` again.\n", termsafe.Visible(err.Error()))
 			continue
+		}
+		for _, name := range inspection.Skills {
+			if owner := importedOwners[name]; owner != "" {
+				for _, target := range inventory.Targets {
+					destination := "~/" + target.Dest
+					higher := false
+					for _, shadow := range shadows {
+						if shadow.Name == name && shadow.Destination == destination {
+							higher = true
+							break
+						}
+					}
+					if !higher {
+						shadows = append(shadows, jailcontent.ImportedSkillShadow{Name: name, Destination: destination, By: "import " + owner})
+					}
+				}
+			} else {
+				importedOwners[name] = entry.Handle
+			}
 		}
 		if len(shadows) == 0 {
 			fmt.Fprintln(os.Stdout, "    shadowed names: none for the last live pack tree.")
@@ -628,4 +675,28 @@ func printSkillsHostRun(args []string) {
 	command := shquote.Join(append([]string{"yolo", "skills"}, args...))
 	fmt.Fprintf(os.Stderr, "yolo skills: this command runs on the host; nothing ran here. Ask the human to paste this ONE line:\n  yolo host-run -C %s -- %s\n",
 		shquote.QuoteDisplay(workspace), command)
+}
+
+// The skills transaction precedes configedit's physical-target lock. Locked handlers re-read
+// declarations and authority, and Resolve never recursively reacquires the transaction lock.
+func withSkillsWriterLock(args []string, command func([]string, *skillimports.Store) int) int {
+	store, err := skillimports.Open(configEditWorkspace())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "yolo skills: host import state is unavailable: %s; fix host storage, then retry\n", termsafe.Visible(err.Error()))
+		return 1
+	}
+	rc := 1
+	commandFailed := errors.New("skills command did not commit")
+	err = store.WithCommandLock(func(locked *skillimports.Store) error {
+		rc = command(args, locked)
+		if rc != 0 {
+			return commandFailed
+		}
+		return nil
+	})
+	if err != nil && err != commandFailed {
+		fmt.Fprintf(os.Stderr, "yolo skills: transaction failed: %s; fix host storage, then retry\n", termsafe.Visible(err.Error()))
+		return 1
+	}
+	return rc
 }

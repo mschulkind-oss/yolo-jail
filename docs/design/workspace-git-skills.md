@@ -302,9 +302,9 @@ The command passes that authority to the same host-side caller a launch uses, an
 
 *Later launches re-decide.* What a host command stores carries its access class, and every launch and attach applies the cache rule in [§6.4](#64-refresh-locking-and-concurrent-launches) under its own live decision. A command that ran under a since-narrowed approval therefore cannot cause delivery the workspace is no longer entitled to.
 
-*Locking.* A host command takes the import lock for fetch-and-record-write. If a launch holds it, the command waits for the holder rather than skipping, since the operator asked for the resolution explicitly.
+*Locking.* A host command holds one import transaction lock across declaration recheck, fetch, targeted config edit, record publication and rollback. If a launch holds it, the command waits for the holder rather than skipping, since the operator asked for the resolution explicitly.
 
-*Partial failure.* The store and record are written before the workspace config. A failure in between leaves, at worst, an entry without a valid record or a record without an entry. The first is resolved by the next fresh launch; the second is ignored.
+*Partial failure.* Fetched objects are add-only. A command publishes its record only after the targeted config edit succeeds; a record-write failure rolls the config edit back under the same transaction. A refused or failed new add leaves no owned import state directory or lock artifact.
 
 ### 6.3 State and ownership
 
@@ -351,7 +351,7 @@ So removing a remote from the workspace, or the user withdrawing the read grant,
 
 **When the remote cannot be reached.** If the broker decision allows the fetch but the refresh fails (offline, server error, ref deleted upstream), a moving-ref import with a valid record and a usable stored commit delivers that commit, with a warning. With nothing usable, the import is withheld. Either way the launch continues ([§9.2](#92-failures)).
 
-**Locking.** One exclusive lock per workspace import state covers fetch-and-record-write, and nothing else. It is held only by a live process.
+**Locking.** One exclusive writer transaction covers fetch-and-record-write and, for host commands, declaration recheck, config edit and rollback. It is held only by a live process. The implementation locks the existing real workspace-parent directory inode read-only, then takes configedit’s workspace-directory lock: no durable lock pathname is created or deleted. This conservatively serializes sibling-workspace writers, an implementation trade-off; their objects and records remain separate. Readers do not take either writer lock.
 
 - Objects are added, never rewritten. A record is replaced whole, so a reader sees the old record or the new one, never a mixture.
 - Readers take no lock. Projection, attach and `yolo skills list` read the record once and then read by commit id.

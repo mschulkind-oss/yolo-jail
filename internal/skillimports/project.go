@@ -57,14 +57,29 @@ type Inspection struct {
 	HasResolution bool
 	CommitStored  bool
 	Skills        []string
+	Refused       []ProjectionRefusal
 	Unimported    []string
 }
 
 // Inspect reports what a valid current record would project without creating scratch files,
 // changing records, or contacting a remote.
 func (s *Store) Inspect(entry config.SkillImport, authority Authority) (Inspection, error) {
+	return s.InspectWithBudget(entry, authority, &ProjectionBudget{})
+}
+
+// InspectWithBudget inventories the same shared import budget as a launch without staging.
+func (s *Store) InspectWithBudget(entry config.SkillImport, authority Authority, budget *ProjectionBudget) (Inspection, error) {
+	if budget == nil {
+		budget = &ProjectionBudget{}
+	}
 	var out Inspection
 	if err := validateEntry(entry); err != nil {
+		return out, err
+	}
+	if !validProjectionPath(entry.Path) {
+		return out, errors.New("the configured skill path is invalid")
+	}
+	if _, err := gitbroker.TrustedImportGit(s.workspace); err != nil {
 		return out, err
 	}
 	access, allowed, err := gitbroker.DecideImportAccess(entry.Git, authority.ApprovedRemotes,
@@ -82,16 +97,20 @@ func (s *Store) Inspect(entry config.SkillImport, authority Authority) (Inspecti
 	if !allowed || !out.CommitStored || !cacheAccessAllows(record.AccessClass, access) {
 		return out, nil
 	}
+	refusalPath := "skill_imports." + entry.Handle + "/" + entry.Path
 	treeID, err := s.gitOutput("rev-parse", "--verify", record.Commit+":"+entry.Path)
-	if err != nil {
+	if err != nil || !validObjectID(strings.TrimSpace(treeID)) {
+		out.Refused = append(out.Refused, ProjectionRefusal{Path: refusalPath, Reason: "the configured path is absent or is not a Git tree"})
 		return out, nil
 	}
 	listing, err := s.gitLimited(maxTreeListingBytes, "ls-tree", "-z", strings.TrimSpace(treeID))
 	if err != nil {
+		out.Refused = append(out.Refused, ProjectionRefusal{Path: refusalPath, Reason: "the selected Git tree could not be read safely within the projection bound"})
 		return out, nil
 	}
 	directories, _, err := immediateSkillTrees(listing)
 	if err != nil {
+		out.Refused = append(out.Refused, ProjectionRefusal{Path: refusalPath, Reason: "the selected Git tree contains malformed entries"})
 		return out, nil
 	}
 	entries := map[string]bool{}
@@ -117,7 +136,17 @@ func (s *Store) Inspect(entry config.SkillImport, authority Authority) (Inspecti
 			selected[name] = true
 		}
 	}
+	names := make([]string, 0, len(selected))
 	for name := range selected {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := s.materializeSkill(directories[name], "", budget); err != nil {
+			out.Refused = append(out.Refused, ProjectionRefusal{Path: "skill_imports." + entry.Handle + "/" + name, Reason: projectionReason(err)})
+			delete(selected, name)
+			continue
+		}
 		out.Skills = append(out.Skills, name)
 	}
 	sort.Strings(out.Skills)
@@ -170,6 +199,10 @@ func (s *Store) ProjectWithBudget(entry config.SkillImport, authority Authority,
 		projection.Refused = append(projection.Refused, ProjectionRefusal{
 			Path: "skill_imports." + entry.Handle, Reason: "the current Git broker decision does not allow this import",
 		})
+		return projection, nil
+	}
+	if _, err := gitbroker.TrustedImportGit(s.workspace); err != nil {
+		projection.Refused = append(projection.Refused, ProjectionRefusal{Path: "skill_imports." + entry.Handle, Reason: err.Error()})
 		return projection, nil
 	}
 	record, ok := s.Resolution(entry.Handle, entry)
@@ -256,7 +289,7 @@ func (s *Store) ProjectWithBudget(entry config.SkillImport, authority Authority,
 			})
 			continue
 		}
-		used, err := s.materializeSkill(directories[name], skillRoot, *budget)
+		err := s.materializeSkill(directories[name], skillRoot, budget)
 		if err != nil {
 			_ = os.RemoveAll(skillRoot)
 			projection.Refused = append(projection.Refused, ProjectionRefusal{
@@ -264,8 +297,6 @@ func (s *Store) ProjectWithBudget(entry config.SkillImport, authority Authority,
 			})
 			continue
 		}
-		budget.bytes += used.bytes
-		budget.entries += used.entries
 		projection.Skills = append(projection.Skills, ProjectedSkill{Handle: entry.Handle, Name: name, Root: skillRoot})
 	}
 	sort.Strings(projection.Missing)
@@ -277,11 +308,6 @@ type treeEntry struct {
 	typeName string
 	object   string
 	name     string
-}
-
-type projectedLink struct {
-	path   string
-	target string
 }
 
 func immediateSkillTrees(listing []byte) (map[string]string, []string, error) {
@@ -320,96 +346,167 @@ func parseTreeEntry(raw string) (treeEntry, bool) {
 	return treeEntry{mode: fields[0], typeName: fields[1], object: fields[2], name: name}, true
 }
 
-func (s *Store) materializeSkill(treeID, root string, budget ProjectionBudget) (ProjectionBudget, error) {
+// materializeSkill is also the read-only object validator: an empty root inventories the
+// same marker, modes, links and bounds without creating files or reading regular blob bodies.
+// Budget counters monotonically charge attempted work, including discarded partial skills.
+func (s *Store) materializeSkill(treeID, root string, budget *ProjectionBudget) error {
 	listing, err := s.gitLimited(maxTreeListingBytes, "ls-tree", "-r", "-z", treeID)
 	if err != nil {
-		return ProjectionBudget{}, errors.New("tree listing is unreadable or exceeds the projection bound")
+		return errors.New("tree listing is unreadable or exceeds the projection bound")
 	}
 	var entries []treeEntry
-	directories := map[string]bool{}
+	directories := map[string]bool{"": true}
+	objects := map[string]treeEntry{}
+	if budget.entries >= maxImportSkillEntries {
+		return errors.New("skill exceeds the projection entry bound")
+	}
+	budget.entries++
 	for _, raw := range bytes.Split(listing, []byte{0}) {
 		if len(raw) == 0 {
 			continue
 		}
+		if budget.entries >= maxImportSkillEntries {
+			return errors.New("skill exceeds the projection entry bound")
+		}
+		budget.entries++
 		entry, ok := parseTreeEntry(string(raw))
 		if !ok || !validTreePath(entry.name) {
-			return ProjectionBudget{}, errors.New("tree contains an invalid path entry")
+			return errors.New("tree contains an invalid path entry")
 		}
 		if entry.mode == "160000" || entry.typeName == "commit" {
-			return ProjectionBudget{}, errors.New("skill contains a submodule entry")
+			return errors.New("skill contains a submodule entry")
 		}
-		if entry.typeName != "blob" || entry.mode != "100644" && entry.mode != "100755" && entry.mode != "120000" {
-			return ProjectionBudget{}, errors.New("skill contains an unsupported Git object mode")
+		if entry.typeName != "blob" || (entry.mode != "100644" && entry.mode != "100755" && entry.mode != "120000") {
+			return errors.New("skill contains an unsupported Git object mode")
 		}
 		entries = append(entries, entry)
+		objects[entry.name] = entry
 		components := strings.Split(entry.name, "/")
 		for i := 1; i < len(components); i++ {
-			directories[strings.Join(components[:i], "/")] = true
-		}
-		if len(entries)+len(directories)+1 > maxImportSkillEntries-budget.entries {
-			return ProjectionBudget{}, errors.New("skill exceeds the projection entry bound")
+			dir := strings.Join(components[:i], "/")
+			if !directories[dir] {
+				if budget.entries >= maxImportSkillEntries {
+					return errors.New("skill exceeds the projection entry bound")
+				}
+				budget.entries++
+				directories[dir] = true
+			}
 		}
 	}
-	used := ProjectionBudget{}
-	var links []projectedLink
+	if _, ok := objects["SKILL.md"]; !ok {
+		return errors.New("skill has no confined SKILL.md marker")
+	}
+	links := map[string]string{}
 	for _, entry := range entries {
 		sizeOutput, err := s.gitOutput("cat-file", "-s", entry.object)
 		if err != nil {
-			return ProjectionBudget{}, errors.New("skill blob could not be read")
+			return errors.New("skill blob could not be read")
 		}
 		size, err := strconv.ParseInt(strings.TrimSpace(sizeOutput), 10, 64)
 		if err != nil || size < 0 {
-			return ProjectionBudget{}, errors.New("skill blob has an invalid size")
+			return errors.New("skill blob has an invalid size")
 		}
-		maxSize := int64(maxImportSkillBytes) - budget.bytes - used.bytes
-		if entry.mode == "120000" && size > maxLinkTargetBytes || size > maxSize {
-			return ProjectionBudget{}, errors.New("skill exceeds the projection byte or link bound")
+		if size > int64(maxImportSkillBytes)-budget.bytes || (entry.mode == "120000" && size > maxLinkTargetBytes) {
+			return errors.New("skill exceeds the projection byte or link bound")
+		}
+		budget.bytes += size // charge before reading/writing; refusal never refunds attempted work
+		if root == "" && entry.mode != "120000" {
+			continue
 		}
 		data, err := s.gitLimited(int(size)+1, "cat-file", "blob", entry.object)
 		if err != nil || int64(len(data)) != size {
-			return ProjectionBudget{}, errors.New("skill blob could not be read within its declared size")
+			return errors.New("skill blob could not be read within its declared size")
 		}
 		if entry.mode == "120000" {
 			if bytes.IndexByte(data, 0) >= 0 {
-				return ProjectionBudget{}, errors.New("skill symlink target contains a NUL byte")
+				return errors.New("skill symlink target contains a NUL byte")
 			}
-			links = append(links, projectedLink{path: entry.name, target: string(data)})
-			used.bytes += int64(len(data))
+			links[entry.name] = string(data)
 			continue
 		}
 		name := filepath.Join(root, filepath.FromSlash(entry.name))
-		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
-			return ProjectionBudget{}, errors.New("skill directory could not be created")
+		if err := os.MkdirAll(filepath.Dir(name), 0700); err != nil {
+			return errors.New("skill directory could not be created")
 		}
-		mode := os.FileMode(0o644)
+		mode := os.FileMode(0644)
 		if entry.mode == "100755" {
-			mode = 0o755
+			mode = 0755
 		}
 		file, err := os.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, mode)
 		if err != nil {
-			return ProjectionBudget{}, errors.New("skill file could not be created safely")
+			return errors.New("skill file could not be created safely")
 		}
 		_, writeErr := file.Write(data)
 		closeErr := file.Close()
 		if writeErr != nil || closeErr != nil {
-			return ProjectionBudget{}, errors.New("skill file could not be written safely")
-		}
-		used.bytes += size
-	}
-	for _, link := range links {
-		name := filepath.Join(root, filepath.FromSlash(link.path))
-		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
-			return ProjectionBudget{}, errors.New("skill symlink parent could not be created")
-		}
-		if err := os.Symlink(link.target, name); err != nil {
-			return ProjectionBudget{}, errors.New("skill symlink could not be created safely")
+			return errors.New("skill file could not be written safely")
 		}
 	}
-	used.entries = 1 + len(entries) + len(directories)
-	if used.entries+budget.entries > maxImportSkillEntries || used.bytes+budget.bytes > maxImportSkillBytes {
-		return ProjectionBudget{}, errors.New("projection budget exceeded")
+	for name := range links {
+		if _, err := confinedObjectPath(name, objects, directories, links); err != nil {
+			return err
+		}
 	}
-	return used, nil
+	marker, err := confinedObjectPath("SKILL.md", objects, directories, links)
+	if err != nil {
+		return errors.New("skill has no confined SKILL.md marker")
+	}
+	if _, ok := objects[marker]; !ok {
+		return errors.New("skill has no regular SKILL.md marker")
+	}
+	if root != "" {
+		for name, target := range links {
+			full := filepath.Join(root, filepath.FromSlash(name))
+			if err := os.MkdirAll(filepath.Dir(full), 0700); err != nil {
+				return errors.New("skill symlink parent could not be created")
+			}
+			if err := os.Symlink(target, full); err != nil {
+				return errors.New("skill symlink could not be created safely")
+			}
+		}
+	}
+	return nil
+}
+
+// Resolve Git-object links component by component, before creating filesystem links. A link
+// may stay inside this skill only; sibling skills, absolute targets and cycles are refused.
+func confinedObjectPath(name string, objects map[string]treeEntry, dirs map[string]bool, links map[string]string) (string, error) {
+	pending := strings.Split(name, "/")
+	var resolved []string
+	hops := 0
+	for len(pending) > 0 {
+		part := pending[0]
+		pending = pending[1:]
+		if part == "" || part == "." {
+			continue
+		}
+		if part == ".." {
+			if len(resolved) == 0 {
+				return "", errors.New("skill symlink escapes its skill directory")
+			}
+			resolved = resolved[:len(resolved)-1]
+			continue
+		}
+		current := strings.Join(append(append([]string(nil), resolved...), part), "/")
+		if target, ok := links[current]; ok {
+			hops++
+			if hops > 40 {
+				return "", errors.New("skill contains a symlink cycle")
+			}
+			if strings.HasPrefix(target, "/") || strings.Contains(target, "\\") {
+				return "", errors.New("skill symlink escapes its skill directory")
+			}
+			pending = append(strings.Split(target, "/"), pending...)
+			continue
+		}
+		if !dirs[current] {
+			if _, ok := objects[current]; !ok || len(pending) > 0 {
+				return "", errors.New("skill symlink target is absent or not a directory")
+			}
+		}
+		resolved = append(resolved, part)
+	}
+	return strings.Join(resolved, "/"), nil
 }
 
 func validProjectionPath(value string) bool {
@@ -465,7 +562,7 @@ func (s *Store) gitLimited(maxBytes int, args ...string) ([]byte, error) {
 	if maxBytes < 0 {
 		return nil, errors.New("invalid Git output bound")
 	}
-	git, err := exec.LookPath("git")
+	git, err := gitbroker.TrustedImportGit(s.workspace)
 	if err != nil {
 		return nil, err
 	}

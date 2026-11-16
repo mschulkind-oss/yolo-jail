@@ -451,6 +451,16 @@ func stageWorkspaceLayer(ws *WorkspaceSkills) (l *workspaceLayer, err error) {
 			l.refuse(display, "the imported skill source is not a directory")
 			continue
 		}
+		marker, markerReason := importTree.resolveEntry("SKILL.md")
+		if markerReason != "" || marker == "" {
+			l.refuse(display, "the imported skill has no confined SKILL.md marker")
+			continue
+		}
+		markerInfo, markerErr := importTree.root.Lstat(marker)
+		if markerErr != nil || !markerInfo.Mode().IsRegular() {
+			l.refuse(display, "the imported skill has no regular SKILL.md marker")
+			continue
+		}
 		src := &wsSource{rel: display, real: filepath.Clean(imp.Root), tree: importTree, imported: true,
 			entryReals: map[string]bool{filepath.Clean(imp.Root): true}, names: map[string]bool{imp.Name: true}}
 		l.sources = append(l.sources, src)

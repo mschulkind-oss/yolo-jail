@@ -2,10 +2,13 @@ package gitbroker
 
 import (
 	"context"
+	"errors"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 )
@@ -162,5 +165,32 @@ func TestImportFetchRejectsUnsupportedAndCredentialURLsWithoutWriting(t *testing
 		if _, err := os.Stat(store); !os.IsNotExist(err) {
 			t.Errorf("FetchImport(%q) wrote store on validation failure: %v", url, err)
 		}
+	}
+}
+
+func TestRepairImportEndpointStartupFailureReturns(t *testing.T) {
+	f := newFixture(t, "")
+	setFakeSSHPath(t, f.bin)
+	injected := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		_, err := FetchImport(context.Background(), ImportFetchRequest{
+			Workspace: f.ws, URL: origin, Ref: "main", StoreDir: filepath.Join(t.TempDir(), "store.git"),
+			ApprovedRemotes: []string{origin}, CurrentRemotes: []string{origin}, ApprovedGrants: []brokerscope.Grant{readGrant}, CurrentGrants: []brokerscope.Grant{readGrant},
+			serveEndpoint: func(hostservice.Handler, string, <-chan struct{}) error {
+				close(injected)
+				return errors.New("injected startup failure")
+			},
+		})
+		done <- err
+	}()
+	<-injected
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "injected startup failure") {
+			t.Fatalf("startup result=%v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("FetchImport hung after endpoint startup result was consumed")
 	}
 }

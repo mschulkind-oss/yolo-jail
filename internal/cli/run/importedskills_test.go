@@ -184,3 +184,39 @@ func runTestGit(t *testing.T, dir string, args ...string) string {
 	}
 	return string(output)
 }
+
+func TestRepairFreshLaunchPrintsWriterResolutionExactlyOnce(t *testing.T) {
+	o, workspace, stderr := wsSkillsLaunch(t, `["claude", "git"]`)
+	cfg := importLaunchConfig()
+	store, c := prepareRunImportStore(t, workspace)
+	o.skillImportGatePassed = true
+	old := resolveSkillImportForLaunch
+	calls := 0
+	resolveSkillImportForLaunch = func(context.Context, *skillimports.Store, config.SkillImport, skillimports.Authority, time.Time) (skillimports.Resolution, string, error) {
+		e := config.SkillImports(cfg)[0]
+		r := runImportResolution(e, c)
+		calls++
+		if calls == 1 {
+			r.Change = &skillimports.ResolutionChange{}
+		} else if calls == 2 {
+			r.Change = &skillimports.ResolutionChange{PreviousCommit: strings.Repeat("b", 40)}
+		}
+		if err := store.WriteResolution(r); err != nil {
+			t.Fatal(err)
+		}
+		return r, "", nil
+	}
+	t.Cleanup(func() { resolveSkillImportForLaunch = old })
+	o.resolveFreshSkillImports(cfg)
+	o.resolveFreshSkillImports(cfg)
+	o.resolveFreshSkillImports(cfg)
+	out := stderr.String()
+	if strings.Count(out, "resolution created") != 1 || strings.Count(out, "resolution moved from") != 1 || !strings.Contains(out, strings.Repeat("b", 40)) || !strings.Contains(out, c) || !strings.Contains(out, "anonymous") || !strings.Contains(out, "1 skill") || !strings.Contains(out, "unimported") {
+		t.Fatalf("writer creation summary missing/duplicated: %s", out)
+	}
+	before := stderr.Len()
+	stageWorkspaceSkillsWithConfig(t, o, "podman", cfg)
+	if strings.Contains(stderr.String()[before:], "resolution ") {
+		t.Fatal("attach replayed resolution event")
+	}
+}

@@ -45,7 +45,9 @@ func TestImportResolverWritesOnlySuccessfulBrokerResult(t *testing.T) {
 	if resolved.Commit != commit || resolved.ResolvedRef != "refs/heads/main" || resolved.AccessClass != AccessAuthenticated {
 		t.Fatalf("Resolve result = %+v", resolved)
 	}
-	if got, ok := store.Resolution(entry.Handle, entry); !ok || got != resolved {
+	persisted := resolved
+	persisted.Change = nil
+	if got, ok := store.Resolution(entry.Handle, entry); !ok || got != persisted {
 		t.Fatalf("written resolution = (%+v, %v), want %+v", got, ok, resolved)
 	}
 
@@ -376,7 +378,7 @@ func TestImportStateLockSerializesWriters(t *testing.T) {
 		})
 	}()
 	<-secondStarted
-	lockFile, err := os.OpenFile(filepath.Join(store.Directory(), ".lock"), os.O_RDONLY, 0)
+	lockFile, err := os.Open(filepath.Dir(store.workspace))
 	if err != nil {
 		t.Fatal(err)
 	}

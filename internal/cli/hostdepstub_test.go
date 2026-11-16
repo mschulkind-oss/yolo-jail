@@ -47,6 +47,12 @@ import (
 // ambient answers are the developer's own dotfiles and "yolo already rendered those"
 // (isolateTheStagedTree, confighostlayer_test.go, which carries the measurement).
 func TestMain(m *testing.M) {
+	// The import fetcher's installed-yolo helper self-execs this test binary. Dispatch only
+	// its literal protocol entry point, never re-run tests or use a fake resolver on this path.
+	if len(os.Args) > 1 && os.Args[1] == "git-remote" {
+		os.Exit(Main(os.Args))
+	}
+
 	// A SELF-EXEC'D DAEMON RUNS THE DAEMON, never this package's suite. execx.SelfExecArgv
 	// swaps a doctor_cmd's or a spawn's leading "yolo" for os.Executable(), which here is this
 	// test binary, so `yolo loopholes status` over the claude pack execs `<test binary>

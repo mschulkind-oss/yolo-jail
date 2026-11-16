@@ -45,6 +45,7 @@ type ImportFetchRequest struct {
 	helperCommand []string
 	helperEnv     []string
 	rootCAs       *x509.CertPool
+	serveEndpoint func(hostservice.Handler, string, <-chan struct{}) error
 }
 
 // ImportFetchResult identifies the fetched object and the authority class under which the
@@ -82,12 +83,9 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 		return result, errors.New("git broker refused this import URL")
 	}
 	workspace := runtimeidentity.ResolveWorkspace(request.Workspace)
-	gitExecutable, err := exec.LookPath("git")
+	gitExecutable, err := TrustedImportGit(workspace)
 	if err != nil {
-		return result, fmt.Errorf("git executable is unavailable: %w", err)
-	}
-	if why := brokercore.PlacementRefusal("git", workspace, workspace)(gitExecutable); why != "" {
-		return result, errors.New(why)
+		return result, err
 	}
 	storeDir, err := filepath.Abs(request.StoreDir)
 	if err != nil {
@@ -141,7 +139,11 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	endpoint := filepath.Join(endpointDir, "git-broker.endpoint")
 	stop := make(chan struct{})
 	serveDone := make(chan error, 1)
-	go func() { serveDone <- hostservice.ServeLocalEndpoint(broker.Handle, endpoint, stop) }()
+	serve := request.serveEndpoint
+	if serve == nil {
+		serve = hostservice.ServeLocalEndpoint
+	}
+	go func() { defer close(serveDone); serveDone <- serve(broker.Handle, endpoint, stop) }()
 	if err := waitForEndpoint(ctx, endpoint, serveDone); err != nil {
 		close(stop)
 		<-serveDone
@@ -176,14 +178,14 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	if len(request.Revision) == 64 {
 		objectFormat = "sha256"
 	}
-	if err := initImportRepo(ctx, gitEnv, scratch, objectFormat); err != nil {
+	if err := initImportRepo(ctx, gitExecutable, gitEnv, scratch, objectFormat); err != nil {
 		return result, fmt.Errorf("initialize temporary import object store: %w", err)
 	}
 	remote := "yolo::" + request.URL
 	resolvedRef := ""
 	commit := request.Revision
 	if commit == "" {
-		refs, defaultRef, err := listImportRefs(ctx, scratch, remote, gitEnv)
+		refs, defaultRef, err := listImportRefs(ctx, gitExecutable, scratch, remote, gitEnv)
 		if err != nil {
 			return result, err
 		}
@@ -195,24 +197,24 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 			if err := os.RemoveAll(scratch); err != nil {
 				return result, err
 			}
-			if err := initImportRepo(ctx, gitEnv, scratch, "sha256"); err != nil {
+			if err := initImportRepo(ctx, gitExecutable, gitEnv, scratch, "sha256"); err != nil {
 				return result, fmt.Errorf("initialize SHA-256 import object store: %w", err)
 			}
 			objectFormat = "sha256"
 		}
-		if _, err := runImportGit(ctx, gitEnv, "-C", scratch, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head",
+		if _, err := runImportGit(ctx, gitExecutable, gitEnv, "-C", scratch, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head",
 			remote, "+"+resolvedRef+":refs/yolo-import/selected"); err != nil {
 			return result, fmt.Errorf("fetch selected skill ref through the Git broker: %w", err)
 		}
-		commit, err = runImportGit(ctx, gitEnv, "-C", scratch, "rev-parse", "--verify", "refs/yolo-import/selected^{commit}")
+		commit, err = runImportGit(ctx, gitExecutable, gitEnv, "-C", scratch, "rev-parse", "--verify", "refs/yolo-import/selected^{commit}")
 		if err != nil {
 			return result, fmt.Errorf("selected skill ref does not name a commit: %w", err)
 		}
 	} else {
-		if _, err := runImportGit(ctx, gitEnv, "-C", scratch, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote, commit); err != nil {
+		if _, err := runImportGit(ctx, gitExecutable, gitEnv, "-C", scratch, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote, commit); err != nil {
 			return result, fmt.Errorf("fetch pinned skill commit through the Git broker: %w", err)
 		}
-		commit, err = runImportGit(ctx, gitEnv, "-C", scratch, "rev-parse", "--verify", commit+"^{commit}")
+		commit, err = runImportGit(ctx, gitExecutable, gitEnv, "-C", scratch, "rev-parse", "--verify", commit+"^{commit}")
 		if err != nil {
 			return result, fmt.Errorf("pinned skill revision is not a commit: %w", err)
 		}
@@ -220,7 +222,7 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	if !validObjectID(commit) {
 		return result, fmt.Errorf("git returned an invalid commit object id %q", commit)
 	}
-	if err := addImportObjects(ctx, gitEnv, scratch, storeDir, commit); err != nil {
+	if err := addImportObjects(ctx, gitExecutable, gitEnv, scratch, storeDir, commit); err != nil {
 		return result, fmt.Errorf("add broker-fetched objects to the import store: %w", err)
 	}
 	accessClass := ImportAccessAuthenticated
@@ -296,8 +298,8 @@ type importRef struct {
 	sha  string
 }
 
-func listImportRefs(ctx context.Context, scratch, remote string, env []string) ([]importRef, string, error) {
-	output, err := runImportGit(ctx, env, "-C", scratch, "ls-remote", "--symref", remote)
+func listImportRefs(ctx context.Context, git, scratch, remote string, env []string) ([]importRef, string, error) {
+	output, err := runImportGit(ctx, git, env, "-C", scratch, "ls-remote", "--symref", remote)
 	if err != nil {
 		return nil, "", fmt.Errorf("list skill repository refs through the Git broker: %w", err)
 	}
@@ -364,13 +366,13 @@ func selectImportRef(requested string, refs []importRef, defaultRef string) (str
 	return found.name, found.sha, nil
 }
 
-func addImportObjects(ctx context.Context, env []string, source, destination, commit string) error {
+func addImportObjects(ctx context.Context, git string, env []string, source, destination, commit string) error {
 	info, err := os.Lstat(destination)
 	if os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
 			return err
 		}
-		if err := initImportRepo(ctx, env, destination, objectFormatOf(commit)); err != nil {
+		if err := initImportRepo(ctx, git, env, destination, objectFormatOf(commit)); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -378,7 +380,7 @@ func addImportObjects(ctx context.Context, env []string, source, destination, co
 	} else if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("import object store is not a real directory")
 	}
-	if _, err := runImportGit(ctx, env, "-C", destination, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", source, commit); err != nil {
+	if _, err := runImportGit(ctx, git, env, "-C", destination, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", source, commit); err != nil {
 		return err
 	}
 	return nil
@@ -391,13 +393,13 @@ func objectFormatOf(objectID string) string {
 	return "sha1"
 }
 
-func initImportRepo(ctx context.Context, env []string, path, objectFormat string) error {
+func initImportRepo(ctx context.Context, git string, env []string, path, objectFormat string) error {
 	args := []string{"init", "--bare", "--template="}
 	if objectFormat == "sha256" {
 		args = append(args, "--object-format=sha256")
 	}
 	args = append(args, path)
-	_, err := runImportGit(ctx, env, args...)
+	_, err := runImportGit(ctx, git, env, args...)
 	return err
 }
 
@@ -423,11 +425,20 @@ func importGitEnv(helperDir, endpoint string, extra []string) []string {
 	return append(env, extra...)
 }
 
-func runImportGit(ctx context.Context, env []string, args ...string) (string, error) {
+// TrustedImportGit resolves the executable for both fetches and cached import object readers.
+// Every invocation must reject executables an agent can rewrite, even when no fetch is needed.
+func TrustedImportGit(workspace string) (string, error) {
 	git, err := exec.LookPath("git")
 	if err != nil {
 		return "", fmt.Errorf("git executable is unavailable: %w", err)
 	}
+	if why := brokercore.PlacementRefusal("git", workspace)(git); why != "" {
+		return "", errors.New(why)
+	}
+	return git, nil
+}
+
+func runImportGit(ctx context.Context, git string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, git, args...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()

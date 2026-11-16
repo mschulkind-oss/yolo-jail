@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/gitbroker"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	runtimeidentity "github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -26,24 +27,32 @@ const (
 	AccessAnonymous     = "anonymous"
 )
 
+// ResolutionChange is returned only by the writer that committed a new or moved resolution.
+// It is never serialized, so readers and attaches cannot replay a writer disclosure.
+type ResolutionChange struct {
+	PreviousCommit string
+}
+
 // Resolution is host-only state describing the commit last selected for one workspace import.
 type Resolution struct {
-	Version     int       `json:"version"`
-	Handle      string    `json:"handle"`
-	Git         string    `json:"git"`
-	Rev         string    `json:"rev,omitempty"`
-	Ref         string    `json:"ref,omitempty"`
-	ResolvedRef string    `json:"resolved_ref,omitempty"`
-	Repo        string    `json:"repo"`
-	Commit      string    `json:"commit"`
-	AccessClass string    `json:"access_class"`
-	ResolvedAt  time.Time `json:"resolved_at"`
+	Change      *ResolutionChange `json:"-"`
+	Version     int               `json:"version"`
+	Handle      string            `json:"handle"`
+	Git         string            `json:"git"`
+	Rev         string            `json:"rev,omitempty"`
+	Ref         string            `json:"ref,omitempty"`
+	ResolvedRef string            `json:"resolved_ref,omitempty"`
+	Repo        string            `json:"repo"`
+	Commit      string            `json:"commit"`
+	AccessClass string            `json:"access_class"`
+	ResolvedAt  time.Time         `json:"resolved_at"`
 }
 
 // Store is host-owned, per-workspace import state. Open computes paths without creating state.
 type Store struct {
 	workspace string
 	directory string
+	lockHeld  bool
 }
 
 // Open returns the host store partitioned by runtime.FromWorkspace. It does not create files.
@@ -82,7 +91,7 @@ func (s *Store) Resolution(handle string, entry config.SkillImport) (Resolution,
 		return Resolution{}, false
 	}
 	if entry.Rev != "" {
-		if record.Rev != entry.Rev || record.Ref != entry.Ref || !strings.EqualFold(record.Commit, entry.Rev) {
+		if (record.Rev != "" && !strings.EqualFold(record.Rev, entry.Rev)) || record.Ref != entry.Ref || !strings.EqualFold(record.Commit, entry.Rev) {
 			return Resolution{}, false
 		}
 	} else if record.Rev != "" || record.Ref != entry.Ref {
@@ -227,7 +236,11 @@ func (s *Store) EnsureObjectStore() error {
 	if !os.IsNotExist(err) {
 		return err
 	}
-	cmd := exec.Command("git", "init", "--bare", "--template=", objectDir)
+	git, err := gitbroker.TrustedImportGit(s.workspace)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(git, "init", "--bare", "--template=", objectDir)
 	cmd.Env = isolatedGitEnv()
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -241,12 +254,16 @@ func (s *Store) HasCommit(commit string) bool {
 	if !validObjectID(commit) {
 		return false
 	}
-	cmd := exec.Command("git", "--git-dir", s.ObjectDirectory(), "cat-file", "-e", commit+"^{commit}")
+	git, err := gitbroker.TrustedImportGit(s.workspace)
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(git, "--git-dir", s.ObjectDirectory(), "cat-file", "-e", commit+"^{commit}")
 	cmd.Env = isolatedGitEnv()
 	return cmd.Run() == nil
 }
 
-// WithLock holds one exclusive process-lifetime lock for fetch-and-record writers. Readers do
+// WithLock holds one exclusive workspace lock for fetch-and-record writers. Readers do
 // not take the lock; the Git store and records have their own atomicity guarantees.
 func (s *Store) WithLock(fn func() error) error {
 	locked, err := s.withLock(fn, false)
@@ -268,11 +285,13 @@ func (s *Store) withLock(fn func() error, nonblocking bool) (bool, error) {
 	if fn == nil {
 		return false, errors.New("lock callback is required")
 	}
-	if err := ensurePrivateDir(s.directory); err != nil {
-		return false, err
+	if s.lockHeld {
+		return true, fn()
 	}
-	path := filepath.Join(s.directory, ".lock")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	// Lock the stable real workspace parent read-only, without creating lock artifacts.
+	// Sibling workspaces conservatively serialize. Lock order is this transaction, then
+	// configedit's workspace parent lock; never acquire them in reverse.
+	file, err := os.Open(filepath.Dir(s.workspace))
 	if err != nil {
 		return false, err
 	}
@@ -327,4 +346,27 @@ func isolatedGitEnv() []string {
 		env = append(env, item)
 	}
 	return append(env, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_TERMINAL_PROMPT=0")
+}
+
+// WithCommandLock keeps declaration rechecks, targeted config edits, record publication and
+// rollback in the same writer transaction. The locked store does not acquire a second lock.
+func (s *Store) WithCommandLock(fn func(*Store) error) error {
+	return s.WithLock(func() error {
+		_, statErr := os.Lstat(s.directory)
+		newState := os.IsNotExist(statErr)
+		_, containerErr := os.Lstat(filepath.Dir(s.directory))
+		newContainer := os.IsNotExist(containerErr)
+		locked := *s
+		locked.lockHeld = true
+		err := fn(&locked)
+		if err != nil && newState {
+			if cleanupErr := os.RemoveAll(s.directory); cleanupErr != nil {
+				return errors.Join(err, cleanupErr)
+			}
+			if newContainer {
+				_ = os.Remove(filepath.Dir(s.directory))
+			} // only removes a newly-created empty owned container
+		}
+		return err
+	})
 }

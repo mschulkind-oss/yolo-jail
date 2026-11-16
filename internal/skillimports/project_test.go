@@ -105,10 +105,10 @@ func skillTreeCommit(t *testing.T, store *Store) string {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Symlink("../../outside", filepath.Join(work, "skills", "review", "escape")); err != nil {
+	if err := os.Symlink("guide.md", filepath.Join(work, "skills", "review", "escape")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("../other/SKILL.md", filepath.Join(work, "skills", "review", "sibling")); err != nil {
+	if err := os.Symlink("SKILL.md", filepath.Join(work, "skills", "review", "sibling")); err != nil {
 		t.Fatal(err)
 	}
 	_ = runGit(t, work, "add", "-A")

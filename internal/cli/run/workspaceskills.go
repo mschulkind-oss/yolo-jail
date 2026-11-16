@@ -108,7 +108,27 @@ func (o *Options) resolveFreshSkillImports(cfg *jsonx.OrderedMap) {
 	}
 	authority := o.skillImportAuthority(cfg)
 	for _, entry := range entries {
-		_, warning, err := resolveSkillImportForLaunch(context.Background(), store, entry, authority, time.Now())
+		record, warning, err := resolveSkillImportForLaunch(context.Background(), store, entry, authority, time.Now())
+		if err == nil && record.Change != nil {
+			inspection, inspectErr := store.Inspect(entry, authority)
+			count := len(inspection.Skills)
+			projectionSummary := fmt.Sprintf("%d %s; visible paths unimported: %s", count, plural(count, "skill", "skills"), displaySafe(strings.Join(inspection.Unimported, ", ")))
+			if len(inspection.Unimported) == 0 {
+				projectionSummary = fmt.Sprintf("%d %s; visible paths unimported: none", count, plural(count, "skill", "skills"))
+			}
+			if inspectErr != nil {
+				projectionSummary = "projection summary unavailable; run `yolo skills list` to inspect"
+			}
+			event := "resolution created"
+			if record.Change.PreviousCommit != "" {
+				event = "resolution moved from " + record.Change.PreviousCommit + " to"
+			}
+			selector := entry.Ref
+			if entry.Rev != "" {
+				selector = entry.Rev
+			}
+			o.pr(o.Stderr).print("Workspace skills: " + quoteSafe(entry.Handle) + ": " + event + " " + record.Commit + "; repository " + displaySafe(record.Repo) + "; ref/pin " + displaySafe(selector) + "; " + displaySafe(record.AccessClass) + " access; " + projectionSummary + ".")
+		}
 		if warning != "" {
 			o.pr(o.Stderr).print("[yellow]Workspace skills: " + quoteSafe(entry.Handle) + ": " +
 				displaySafe(warning) + "; run `yolo skills update " + quoteSafe(entry.Handle) + "` to retry.[/yellow]")
