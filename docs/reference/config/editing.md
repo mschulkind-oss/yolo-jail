@@ -2,8 +2,8 @@
 title: "yolo's own config: the commands that write it, and what a write does"
 status: current
 stage: CURRENT
-verified: 2026-11-12
-verified_commit: 8dc1bab44
+verified: 2026-11-16
+verified_commit: 0c72bc948
 covers:
   - internal/configedit/edit.go
   - internal/configedit/apply.go
@@ -12,6 +12,8 @@ covers:
   - internal/configdoc/document.go
   - internal/config/editvalidation_target.go
   - internal/cli/config.go
+  - internal/cli/run/approvaldiff.go
+  - internal/config/approvalcomparison.go
   - internal/cli/configeditverbs.go
   - internal/cli/allow.go
   - internal/cli/request.go
@@ -126,6 +128,8 @@ legacy JSONC (`configedit.PlanEdit`, over `configdoc`'s positioned index).
 
 ## Inspecting the config
 
+The commands in this table inspect state; they do not edit config or approve a change.
+
 | Command | Answers |
 | :--- | :--- |
 | `yolo config check` | is the config valid? ([validation.md](validation.md)) |
@@ -133,6 +137,7 @@ legacy JSONC (`configedit.PlanEdit`, over `configdoc`'s positioned index).
 | `yolo config dump` | the whole computed config, as canonical JSON |
 | `yolo config drift` | whether the workspace config on disk differs from the one this jail has |
 | `yolo config apply` | host only: approve this workspace's config changes and apply what the running jail can take |
+| `yolo config approval-diff` | the raw JSON comparison of the stored and current workspace approval identities; read-only, does not compare scope or grants |
 | `yolo config-ref` | every key, its type and its scope |
 
 ## `yolo config` and `yolo surface`

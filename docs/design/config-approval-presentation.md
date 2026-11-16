@@ -1,8 +1,8 @@
 ---
 title: Config approvals show both what changed and what it means
-status: accepted
-stage: DECIDED
-next: Implement serially from the implementation plan; nothing is built.
+status: built
+stage: BUILT
+next: Review implementation, then run the landing gates
 date: 2026-11-16
 baseline: HEAD @ 20d40e71d2283172ebbd75a4d99b8679b3cd8ada
 owner-request: "Now that we've switched to Toml for the config file format, it's a little weird that we show JSON diffs in that config approval prompt."
@@ -10,7 +10,7 @@ owner-request: "Now that we've switched to Toml for the config file format, it's
 
 # Config approvals show both what changed and what it means
 
-**Status:** 2026-11-16 (`c3ac9c649`). The owner rulings [OQ-CAP1](#OQ-CAP1)–[OQ-CAP3](#OQ-CAP3) are recorded and the designer has closed the display mapping, the raw-comparison command and the accepted report. No owner question is open. Nothing is built.
+**Status:** 2026-11-16. The owner rulings [OQ-CAP1](#OQ-CAP1)–[OQ-CAP3](#OQ-CAP3) remain implemented without changing approval identity or prompt predicates. Slices 1–3 and the focused integration-caller assertions are committed; Slice 4 verified the reference updates and implementation status. Implementation was tested at `0c72bc948`, and the targeted integration callers passed at `cb9538b12`. No owner question is open.
 
 > **In short.** Keep the approval identity and gate unchanged. Show two labeled blocks for every config change: an **Interpreted** block (areas and effects) and an **Exact** block (dotted paths and values), cross-referenced by number. `yolo config approval-diff` prints the raw JSON comparison, read-only. `--accept-config-changes` now reports config-only changes.
 
@@ -24,7 +24,7 @@ owner-request: "Now that we've switched to Toml for the config file format, it's
 
 **Needs your ruling:** None. The owner chose both initial views, the on-request raw comparison, and config-only reporting with `--accept-config-changes`. The remaining mechanics are decided in [§4.1](#41-decisions-design-judgement) as design judgement.
 
-**Reads with:** [the implementation plan](config-approval-presentation-plan.md) (build order, verified source map and test contract), [`config-safety.md`](../reference/config-safety.md) (stale; [§1](#1-current-behavior-verified-baseline) records its limit), [`config/README.md`](../reference/config/README.md), [`live-config-apply.md`](live-config-apply.md), [`report-tiers.md`](../reference/report-tiers.md), [`cli-color.md`](../reference/cli-color.md) and [`config/rulings.md`](../reference/config/rulings.md) for existing accepted-report decisions.
+**Reads with:** [the implementation plan](config-approval-presentation-plan.md) (build order, verified source map and test contract), [`config-safety.md`](../reference/config-safety.md) (re-verified in implementation Slice 4), [`config/README.md`](../reference/config/README.md), [`live-config-apply.md`](live-config-apply.md), [`report-tiers.md`](../reference/report-tiers.md), [`cli-color.md`](../reference/cli-color.md) and [`config/rulings.md`](../reference/config/rulings.md) for existing accepted-report decisions.
 
 ---
 
@@ -548,7 +548,7 @@ The D8 fallback prints this same diff inline, preceded by `The change list could
 | Risk: list alignment misleads | Element-equality alignment can show an edit as remove plus add. That is verbose but never wrong. |
 | Risk: long first-launch output | Accepted. It is the truthful size, and the header count warns the reader. |
 | Risk: readers assume the output is pasteable TOML | Mitigated by the parenthesized vocabulary and the provenance line. |
-| Migration | None for records. Legacy JSONC workspaces get the same list, since notation follows the tree and not the file format. `config-safety.md` needs re-verification regardless of this design. |
+| Migration | None for records. Legacy JSONC workspaces get the same list, since notation follows the tree and not the file format. `config-safety.md` was re-verified in Slice 4 against the implemented behavior. |
 | Stderr text consumers | None are known. The packet identified no machine consumer of the diff text, and none is assumed here. |
 | Observability | `yolo config approval-diff` prints the raw JSON comparison of the current approval input with the stored identity, read-only ([§6.8](#68-raw-comparison-on-request)). The prompt and the refusal name it in a one-line footer. |
 
@@ -596,9 +596,9 @@ The Unicode display correction in D15 and its examples was completed in commit `
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | CAP-R1 | The TOML-era approval prompt showing JSON diffs is an issue to explore; this authoring request did not select a format or authorize implementation. | 2026-11-16 | [§1](#1-current-behavior-verified-baseline) | No |
-| <a id="OQ-CAP1"></a>[OQ-CAP1](#OQ-CAP1) | Initially show both the exact dotted-notation view and structured interpreted explanations, using tables or labeled blocks rather than prose paragraphs; the owner may later prune one. | 2026-11-16 | [§5](#5-initial-two-view-output), [§6.7](#67-interpreted-view) | No |
-| <a id="OQ-CAP2"></a>[OQ-CAP2](#OQ-CAP2) | Retain a raw JSON comparison of current approval input with the stored identity, read-only and available on request. | 2026-11-16 | [§6.8](#68-raw-comparison-on-request) | No |
-| <a id="OQ-CAP3"></a>[OQ-CAP3](#OQ-CAP3) | Report config-only accepted changes on the `--accept-config-changes` path; preserve the existing approval identity and no-prompt behavior. | 2026-11-16 | [§6.4](#64-surfaces), [§5.9](#59-accepted-report-on---accept-config-changes) | No |
+| <a id="OQ-CAP1"></a>[OQ-CAP1](#OQ-CAP1) | Initially show both the exact dotted-notation view and structured interpreted explanations, using tables or labeled blocks rather than prose paragraphs; the owner may later prune one. | 2026-11-16 | [§5](#5-initial-two-view-output), [§6.7](#67-interpreted-view) | Yes — `c75895d6a` |
+| <a id="OQ-CAP2"></a>[OQ-CAP2](#OQ-CAP2) | Retain a raw JSON comparison of current approval input with the stored identity, read-only and available on request. | 2026-11-16 | [§6.8](#68-raw-comparison-on-request) | Yes — `0c72bc948` |
+| <a id="OQ-CAP3"></a>[OQ-CAP3](#OQ-CAP3) | Report config-only accepted changes on the `--accept-config-changes` path; preserve the existing approval identity and no-prompt behavior. | 2026-11-16 | [§6.4](#64-surfaces), [§5.9](#59-accepted-report-on---accept-config-changes) | Yes — `c75895d6a` |
 
 The three rows above are owner rulings. Everything the designer chose in order to carry them out is design judgement, recorded as D1–D15 in [§4.1](#41-decisions-design-judgement): the block layout and order, group numbering, the label table and effect phrases, the command name `yolo config approval-diff` and its cases, and the accepted-report details. None of these is an owner ruling, and the owner may change any of them without reopening [OQ-CAP1](#OQ-CAP1)–[OQ-CAP3](#OQ-CAP3).
 

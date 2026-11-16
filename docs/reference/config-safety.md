@@ -6,19 +6,23 @@ covers:
   - internal/config/snapshot.go
   - internal/config/assembled.go
   - internal/cli/run/preflight.go
+  - internal/cli/run/approvalpresentation.go
+  - internal/cli/run/approvaldiff.go
+  - internal/config/approvalcomparison.go
   - internal/cli/check/checkcmd.go
 tags: [config, security, agents, approval, scope]
-summary: "How an agent's config edit reaches a jail: a host-side approval snapshot of the WORKSPACE config only, a unified diff and a y/N prompt at fresh launch (and in `yolo config apply` and an interactive attach), a refusal when there is no terminal, and `--accept-config-changes` as the one per-launch opt-in. Where a brokered loophole starts, the workspace's repository scope, its remotes and its `brokered.<source>.repos` entry, is approved in the same prompt as a labeled block. Host user config is trusted on disk and never prompts."
+summary: "How an agent's config edit reaches a jail: a host-side approval snapshot of WORKSPACE config only; complete Interpreted and Exact change views at fresh launch, config apply and interactive attach; refusal without a terminal; and --accept-config-changes as the per-launch opt-in. The raw JSON identity comparison is available through read-only yolo config approval-diff. Repository scope and grants remain separately disclosed. Host user config is trusted on disk and never prompts."
 ---
 
 # Config-change approval — the gate on agent-editable config
 
-**Status:** CURRENT as of 2026-09-09, verified against `40915b60`.
+**Status:** CURRENT as of 2026-11-16, verified against `0c72bc948`.
 
 An agent inside a jail can edit `yolo-jail.jsonc` — `/workspace` is bind-mounted read-write,
 and asking for a package is ordinary work. **A human must approve that edit before a jail
-launches with it.** The mechanism is a snapshot and a diff: at every fresh launch yolo
-compares the workspace config against the last-approved copy, shows a unified diff, and asks.
+launches with it.** The mechanism compares the workspace config's canonical JSON approval
+identity with the host-side record. When it changes, yolo shows complete Interpreted and Exact
+views of the changed paths and asks; the identity and record remain JSON.
 
 Two properties make the promise hold rather than merely read well. The record of what was
 approved lives **host-side**, where nothing in the jail can rewrite it. And a launch with
@@ -35,8 +39,10 @@ is trusted on disk and prompts nowhere — see [Why user config never prompts](#
 
 | Component | Lives in |
 | :--- | :--- |
-| The comparison, the diff, the refusal, the flag spelling | `internal/config` (`CheckConfigChanges`, `ApprovalSnapshotPath`, `ChangedNonInteractiveError`, `AcceptConfigChangesFlag`, `SnapshotJSON`) |
-| The two launch call sites, and rendering the refusal | `internal/cli/run` (`Options.checkConfigChanges`, `printChangeRefusal`, `changePrompter`) |
+| The comparison, canonical record and approval state | `internal/config` (`CheckConfigChanges`, `ApprovalSnapshotPath`, `SnapshotJSON`, `ApprovalChangeSet`) |
+| Structural and human-readable config views, prompt/refusal/accepted reporting | `internal/cli/run` (`approvalpresentation.go`, `preflight.go`) |
+| Read-only raw comparison | `internal/config` (`CompareApprovalRecord`) and `internal/cli/run` (`ConfigApprovalDiff`) |
+| The launch call sites and rendering the refusal | `internal/cli/run` (`Options.checkConfigChanges`, `printChangeRefusal`, `changePrompter`) |
 | Host-side pre-approval | `internal/cli/check` (`Options.AcceptConfigChanges`) |
 | The delivered merged config, and the frozen boot baseline | `internal/config` (`assembled.go`), `internal/cli/run` (`writeLaunchConfigArtifacts`) |
 | Where the approval record lives | `internal/paths` (`ApprovalsDir`), keyed by `runtime.FromWorkspace` |
@@ -106,7 +112,15 @@ comments cite them by number.
 - **The snapshot is normalized.** It stores canonical JSON (`SnapshotJSON` — 2-space indent,
   sorted keys, ASCII-escaped), so reformatting, comment edits and key reordering do not
   register as changes. That serialization is a frozen contract: one byte of drift fires a
-  spurious prompt for every workspace on the machine.
+  spurious prompt for every workspace on the machine. The Interpreted and Exact display is
+  derived afterward; it never replaces or re-serializes the approval identity.
+- **The config explanation is complete or falls back.** The Exact block lists every changed
+  approval path; the Interpreted block cross-references the same group numbers. Replay
+  verification checks that those groups account for the current identity. If it cannot, both
+  views are dropped and the raw JSON comparison is shown instead.
+- **Raw inspection is read-only.** `yolo config approval-diff` compares the host-side record
+  with the current workspace approval input. It does not approve, repair, prompt, or create
+  approval state; scope and grants are not part of its comparison.
 - **One spelling of the flag.** `config.AcceptConfigChangesFlag` owns it, because the refusal
   message has to name it and the message is composed in that package. `internal/cli`'s parser
   reads the constant back, so the flag a user is told to pass and the flag the parser accepts
@@ -121,10 +135,10 @@ so every branch is testable with no terminal:
 flowchart TD
     S["fresh launch: CheckConfigChanges(wsCfg)"] --> R{"host-side record<br/>exists?"}
     R -->|"no, and wsCfg is empty"| W["write record, proceed<br/>(nothing to approve)"]
-    R -->|"no, wsCfg non-empty"| F["diff against<br/>'none (initial launch)'"]
+    R -->|"no, wsCfg non-empty"| F["show all config paths as added"]
     R -->|yes| C{"canonical JSON<br/>equal?"}
     C -->|yes| P["proceed, silently"]
-    C -->|no| F2["diff previous → current"]
+    C -->|no| F2["show Interpreted + Exact views<br/>or raw JSON fallback"]
     F --> T{"TTY?"}
     F2 --> T
     T -->|yes| Q["y/N prompt — default N"]
@@ -137,7 +151,7 @@ flowchart TD
 The record's absence is the fresh-workspace signal, and an **empty** workspace config is the
 one case that passes silently — there is nothing in `{}` to approve. Deleting the record can
 therefore never smuggle a config past the human: with a declared config, no record means the
-whole thing is shown as a diff against nothing.
+whole thing is shown as newly added paths in the Exact view, not as a source-file diff.
 
 ### The repository scope, the record's second part
 
@@ -164,7 +178,7 @@ rather than a new one (designs:
   remote's rename included ([OQ-WW1](../design/workspace-widening.md#OQ-WW1)). With no recorded
   sources for a repository, as for a record written before the sources record existed, the gate
   records them unasked when every one is a remote, and asks when an entry lists it.
-- A changed scope opens the prompt with a labeled block, before any config diff, naming each
+- A changed scope opens the prompt with a labeled block, before the config presentation, naming each
   repository added, removed or with a changed source, and every source it came from; a count
   line per source sits directly above the question. The header, the question and the refusal's
   headline name the scope when it changed, and only the scope when the config did not. One `y`
@@ -201,13 +215,37 @@ hide the diff a user asked to inspect.
 
 ## The non-interactive refusal
 
-A launch with piped stdin and a changed config **fails**, printing the same coloured diff the
-prompt would have shown plus the paths that produced it: the workspace config, the workspace
-local config when it exists, and the host-side approval record.
+A launch with piped stdin and a changed config **fails**. It prints the same config presentation
+after the existing mount, repository-scope and grant disclosures: both complete structural
+views when replay verifies, or the raw JSON fallback if it does not. The raw-comparison footer
+follows the views and counts; existing refusal advice then names the next step. Nothing is
+recorded.
 
-`yolo-jail.local.jsonc` is listed for a specific reason — it merges **over** `yolo-jail.jsonc`,
-so a reader who diffs only the tracked file against git and finds it clean has been sent to
-the one file that cannot explain the change.
+The Exact view identifies each changed path and prints the values or list occurrences needed to
+show the change. The Interpreted view uses bounded area labels and fixed effect phrases; its
+group numbers match Exact. Both displays are ASCII-only, using TOML-basic-string escapes for
+keys and values. This is display notation only: the compared and stored approval identity stays
+canonical JSON. No user config, defaults, or unchanged siblings are added to the display.
+
+On an interactive prompt the raw-comparison footer is immediately above the unchanged y/N
+question. On a non-interactive refusal it follows the views and counts before the existing
+advice. With `--accept-config-changes`, a changed workspace config is also included in the
+accepted report; its Interpreted heading says `was approved`, and it has no footer or question.
+This report remains before the approval-record write. An empty first workspace config remains
+silent.
+
+### Inspecting the raw comparison
+
+`yolo config approval-diff` prints the stored approval record path, `current: computed now,
+not saved`, and a note that scope and loophole grants are not compared, followed by the raw
+three-context-line JSON diff. Equal identities get a no-difference notice. When the record is
+absent, the command says so and prints the current canonical identity in full. A malformed
+record is compared as text with a notice and is never repaired. Read or config-validation
+errors go to stderr with exit 1; unexpected arguments exit 2.
+
+This inspection is host-side and read-only: it does not prompt, approve, write or create the
+approvals directory. It refuses in a jail for the jail's own workspace and can inspect a nested
+workspace. It calls the same read path used by the gate, not the approval function.
 
 > [!IMPORTANT]
 > **A flag, not an environment variable**, even though this repo's other bypasses
@@ -286,10 +324,10 @@ its baseline and re-prompts, which is the direction to fail in.
 
 | Situation | Behavior |
 | :--- | :--- |
-| No workspace config at all | `{}` is recorded silently. Adding a config later diffs |
-| Config deleted | A diff (previous → empty), so it prompts |
-| Approval record deleted | Fails safe: empty config accepts, non-empty config prompts. The record is out of the jail's reach anyway, so only the human can delete their own baseline |
-| Two agents editing one config | The human sees all changes combined in one diff |
+| No workspace config at all | `{}` is recorded silently. Adding a config later shows its changed paths |
+| Config deleted | The Exact view lists paths removed from the previous identity, so it prompts |
+| Approval record deleted | Fails safe: empty config accepts, non-empty config shows every current path as added and prompts. The record is out of the jail's reach anyway, so only the human can delete their own baseline |
+| Two agents editing one config | The human sees all changes combined in the Interpreted and Exact views |
 | Snapshot write fails | The launch aborts rather than proceeding on an unwritten approval record |
 | Rejected change | The file on disk is still modified; the jail does not start. `git checkout yolo-jail.jsonc` reverts it |
 
@@ -322,7 +360,7 @@ from code comments and sibling docs, and this appendix is where they resolve.
 
 ## Current values
 
-Verified at `40915b60`. The prose above explains what each of these is for; this table is the
+Verified at `0c72bc948`. The prose above explains what each of these is for; this table is the
 only place the values themselves are stated.
 
 | Value | Setting | Defined in |
@@ -331,8 +369,9 @@ only place the values themselves are stated.
 | Retired record path (never read) | `<workspace>/.yolo/config-snapshot.json` | `config.LegacyWorkspaceSnapshotPath` |
 | Per-launch approval flag | `--accept-config-changes` | `config.AcceptConfigChangesFlag` |
 | Prompt default | `N` (anything but `y`/`yes` declines) | `internal/cli/run` (`changePrompter`) |
-| Diff labels, changed config | `previous workspace config` → `current workspace config` | `config.CheckConfigChanges` |
-| Diff labels, fresh workspace | `none (initial launch)` → `workspace config` | `config.CheckConfigChanges` |
+| Config change display | Numbered Interpreted and Exact groups; replay failure uses raw JSON fallback | `internal/cli/run/approvalpresentation.go`, `preflight.go` |
+| Raw comparison command | `yolo config approval-diff`, read-only | `internal/cli/config.go`, `internal/cli/run/approvaldiff.go` |
+| Raw diff labels | `previous config` → `current config` | `internal/config/difflib.go` |
 | Snapshot serialization | 2-space indent, sorted keys, ASCII-escaped | `config.SnapshotJSON` → `jsonx.DumpsSnapshot` |
 | Snapshot file mode | `0o644`, trailing newline | `config.writeSnapshot` |
 | Delivered merged config | `<workspace>/.yolo/config-assembled.json` | `internal/config/assembled.go` |
