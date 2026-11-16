@@ -1,30 +1,32 @@
 ---
-title: Config approval presentation
-status: in-review
-stage: DESIGN
-next: Owner rules on [OQ-CAP1](#OQ-CAP1), [OQ-CAP2](#OQ-CAP2) and [OQ-CAP3](#OQ-CAP3); until then the recommended format and raw-view command remain proposals.
+title: Config approvals show both what changed and what it means
+status: draft
+stage: SKETCH
+next: Designer specifies the paired precise/interpreted output and read-only raw-comparison surface, then updates the approval presentation mechanics before a plan is written.
 date: 2026-11-16
 baseline: HEAD @ 20d40e71d2283172ebbd75a4d99b8679b3cd8ada
 owner-request: "Now that we've switched to Toml for the config file format, it's a little weird that we show JSON diffs in that config approval prompt."
 ---
 
-# Config approval presentation
+# Config approvals show both what changed and what it means
 
-**In short.** The gate compares and stores a canonical JSON identity, then shows its JSON line diff. Keep that identity unchanged and recommend a complete, deterministic key-path change list in TOML-shaped notation as the primary view; the raw JSON view remains secondary, and its exact user command is unresolved.
+**Status:** 2026-11-16 (`f282b84ea`). The owner rulings are recorded; display mapping and read-only raw-comparison command remain design work. Nothing is built.
+
+> **In short.** Keep the approval identity and gate unchanged; initially show both an exact dotted-path change view and a structured interpreted view, with a read-only raw JSON comparison available on request.
 
 **Why it matters.** People author TOML but approve a normalized workspace value tree; line hunks hide path context, removals and ordered-list changes. Resolved mount destinations can change without a config text edit.
 
-**Shape.** A pure presenter compares the stored previous tree with the current approval tree and emits a complete, sorted group per changed config path. Existing mount, repository-scope and grant blocks retain their order and disclosure. Identity, record and prompt predicate do not change.
+**The shape.** A pure presenter compares the stored previous tree with the current approval tree and emits a complete, sorted group per changed config path in both an exact dotted-path view and a structured interpreted view. Existing mount, repository-scope and grant blocks retain their order and disclosure. Identity, record and prompt predicate do not change.
 
-**Cost.** One structural tree walk, deterministic sequence alignment and TOML-literal formatting, plus prompt/refusal tests and re-verification of [`config-safety.md`](../reference/config-safety.md). No record migration or ask/don’t-ask change.
+**Cost.** The two-view renderer and its meaning-preserving mapping need design completion, plus prompt/refusal tests and re-verification of [`config-safety.md`](../reference/config-safety.md). No record migration or ask/don’t-ask change.
 
-**Start at [§4](#4-proposed-shape)** for the recommendation, then [§6](#6-rules-behind-the-mocks) for its completeness rules.
+**Start at [§4](#4-proposed-shape)** for the ruled display direction, then [§6](#6-rules-behind-the-mocks) for the exact-view completeness rules.
 
-**Needs your ruling:** [OQ-CAP1](#OQ-CAP1) (primary view), [OQ-CAP2](#OQ-CAP2) (raw-view command/surface) and [OQ-CAP3](#OQ-CAP3) (flag-path config-only reporting).
+**Needs your ruling:** None. The owner chose both initial views, the on-request raw comparison, and config-only reporting with `--accept-config-changes`; the designer closes remaining presentation mechanics.
 
 **Reads with:** [`config-safety.md`](../reference/config-safety.md) (stale; [§1](#1-current-behavior-verified-baseline) records its limit), [`config/README.md`](../reference/config/README.md), [`live-config-apply.md`](live-config-apply.md), [`report-tiers.md`](../reference/report-tiers.md), [`cli-color.md`](../reference/cli-color.md) and [`config/rulings.md`](../reference/config/rulings.md) for existing accepted-report decisions.
 
-This document is exploration with a recommendation. It does not authorize implementation and does not record an owner choice of format.
+---
 
 ## 1. Current behavior (verified baseline)
 
@@ -52,7 +54,7 @@ These terms are used throughout.
 - **Semantic change** is a difference in the gate’s approval input: merged workspace values after the `brokered` projection, together with resolved mount destinations included in that approval part. It excludes user config and runtime defaults. This is what the person is asked to approve.
 - **Approval identity** is the canonical JSON string whose byte equality decides whether the gate asks and which is stored on acceptance. Repository-scope and loophole-grant identities remain separate.
 
-Today one JSON string serves as both identity and picture. The owner’s request is about presentation; the recommendation leaves identity, stored records, trust boundaries and gate timing unchanged.
+Today one JSON string serves as both identity and picture. The owner’s direction changes the picture only: keep identity, stored records, trust boundaries and gate timing unchanged.
 
 Neither the snapshot nor this proposal describes the fully effective runtime config. User config and built-in defaults are outside both.
 
@@ -66,21 +68,21 @@ Neither the snapshot nor this proposal describes the fully effective runtime con
 
 ## 4. Proposed shape
 
-**Change list** means a complete enumeration of changed workspace key paths in the approval input. The synthetic resolved-mount record is represented by the existing mount disclosure block, not a fabricated config path; repository-scope and grant blocks are separate approval parts. Those blocks stay in the prompt and are outside the config-path count. Groups derive from previous/current values, not source-file text.
+**Change list** means a complete enumeration of changed workspace key paths in the approval input. The owner has ruled that the initial display contains both an exact dotted-path view and a structured interpreted view. Both are tables or labeled blocks; the interpreted view is not a prose paragraph. The designer must specify the schema-to-interpretation mapping without losing any exact path/value detail. The synthetic resolved-mount record is represented by the existing mount disclosure block, not a fabricated config path; repository-scope and grant blocks are separate approval parts. Those blocks stay in the prompt and are outside the config-path count. Groups derive from previous/current values, not source-file text.
 
 ### 4.1 Decisions (design judgement)
 
 | # | Decision | Reason |
 | :--- | :--- | :--- |
 | D1 | The approval identity, its record format and the ask/don't-ask rule are unchanged. | A TOML identity would re-prompt or strand every existing record and buys nothing for the reader. |
-| D2 | The presenter is a pure function of (previous tree, current tree, existing mount/scope/grant reports, width, color) to text; it never decides whether a change exists. | This keeps presentation apart from effectful approval ([§8](#8-pure-presentation-versus-effectful-approval)). |
-| D3 | Paths follow TOML key quoting and dotted-key conventions, with explicit bracketed tokens for array positions; values are TOML literals. The output is *TOML-shaped*, not a TOML document. | The merged tree is not any one file, and a document would suggest a file the person could go and find. |
+| D2 | The presenter is a pure function of (previous tree, current tree, existing mount/scope/grant reports, width, color) to the exact view plus a structured interpreted view; it never decides whether a change exists. | This keeps presentation apart from effectful approval ([§8](#8-pure-presentation-versus-effectful-approval)). |
+| D3 | The exact view uses dotted TOML key notation, explicit bracketed array positions, and TOML literals. The output is *TOML-shaped*, not a TOML document. | The merged tree is not any one file, and a document would suggest a file the person could go and find. |
 | D4 | Verbs are words (`added`, `removed`, `changed`, `reordered`), never bare `+`/`-` glyphs or color alone. | They survive `NO_COLOR`, pipes and screen readers. |
 | D5 | Every changed config path and every value needed to show its full change is printed, with no elision or silent omission. The header counts groups and, where a table is expanded, its terminal values. | Approval must not cover a path the prompt left out ([§6.6](#66-width-color-accessibility-and-bounds)). |
 | D6 | The mount, scope and grant blocks keep their current order, content and textual markers. | That ordering exists so a widening cannot scroll past unnoticed, and this design does not reopen it. |
 | D7 | The change list adds no redaction and no user-config/default values. For a changed value it prints the old/new values needed to explain that change, not unchanged sibling values merely as context. | Redaction hides an approved value; showing unrelated values widens exposure ([§6.5](#65-secrets)). |
 | D8 | If the identity differs but no config path is found, first account for resolved-mount changes already fully shown by the existing mount block. If any identity difference remains unexplained, or the stored record cannot be decoded, say so and fall back to the raw JSON diff. | The gate must never ask with an empty/unexplained report or hide an identity difference. |
-| D9 | One diff walk and one TOML-literal formatter serve the interactive prompt and non-interactive refusal. `--accept-config-changes` uses them only if [OQ-CAP3](#OQ-CAP3) is ruled that way. | The first two surfaces share a report; the accepted-report policy is a separate owner choice. |
+| D9 | One diff walk and shared presentation logic serve the interactive prompt, non-interactive refusal, and `--accept-config-changes` accepted report. | The owner ruled that config-only changes are reported on the flag path; the existing gate and identity remain unchanged. |
 
 ### 4.2 Alternatives and verdicts
 
@@ -88,15 +90,35 @@ Neither the snapshot nor this proposal describes the fully effective runtime con
 | :--- | :--- | :--- |
 | A. TOML-document diff | Serialize both trees as TOML and show a unified line diff. | **Rejected as primary.** It keeps the line-diff problems (context loss, list noise), needs a table-layout policy, and looks like a file diff when it is not one. |
 | B. Plain-language categorized summary only | "Packages: adds ripgrep", driven by a per-key vocabulary. | **Rejected as sole view.** A paraphrase can misstate what changed, the vocabulary drifts as the schema grows, and unknown keys need a fallback anyway. Categories are kept only where they already exist: mounts, scope and grants. |
-| C. Change list plus secondary raw diff | A precise per-path list in TOML notation, with canonical JSON available on request. | **Recommended.** The list is itself exact, so nothing needs expanding for completeness. The raw view remains for debugging identity questions. |
+| C. Exact and interpreted structured views | Complete dotted-path details plus a structured interpretation, initially shown together; raw JSON comparison remains available read-only on request. | **Ruled.** Both views appear initially; the owner may later prune one. |
 | D. Keep JSON, add a caption | Explain that JSON is the normalized form. | **Rejected.** It is the cheapest option but fixes none of gaps 2–5. |
 | E. Per-file TOML text diff | Diff each source file. | **Rejected.** Comment and order edits would appear although they change nothing, resolved-destination changes would not appear, and no previous file text is stored. |
 
-## 5. Proposed prompts
+## 5. Initial two-view output
 
-All blocks are **proposed**. Keys other than `install.nix` are fictional, and the surrounding header and question wording is illustrative. Existing mount, scope and grant block text is abbreviated as `[... existing block ...]`.
+The initial prompt shows both views. The exact view is the source of truth for what changed; the interpreted view explains those same changes in structured labeled fields. Use tables or labeled blocks like existing Git broker disclosures, never free-form explanatory paragraphs. The exact row schema and the mapping from config paths to interpreted fields are for the designer to close; interpretation must not replace or weaken exact values.
 
-### 5.1 Scalar edit
+All examples use fictional keys and abbreviated existing mount/scope/grant blocks.
+
+### 5.1 Scalar edit: exact and interpreted
+
+```text
+Workspace config changed since last approval: 1 change
+
+Exact changes
+| Change  | Path              | Was    | Now     |
+| changed | example.log_level | "info" | "debug" |
+
+Interpreted changes
+| Area    | Setting   | Before | After   |
+| Logging | Log level | info   | debug   |
+
+Approve? [y/N]
+```
+
+The exact dotted path and values remain authoritative; the interpretation is structured, not a prose paraphrase. The precise labels and schema-to-meaning mapping are design work.
+
+### 5.2 Scalar edit: exact-view detail
 
 ```text
 Workspace config changed since last approval: 1 change
@@ -108,7 +130,7 @@ Workspace config changed since last approval: 1 change
 Approve? [y/N]
 ```
 
-### 5.2 Removal, and removal that reveals a lower workspace layer
+### 5.3 Removal, and removal that reveals a lower workspace layer
 
 ```text
 Workspace config changed since last approval: 2 changes
@@ -125,7 +147,7 @@ Workspace config changed since last approval: 2 changes
 
 The second entry is what dropping a local-file override looks like. The merged value changed, so it is reported as `changed`, which is true. The first entry does not guess the fallback value (D7).
 
-### 5.3 Lists: element change and pure reorder
+### 5.4 Lists: element change and pure reorder
 
 ```text
   changed   install.nix   (1 item added)
@@ -138,7 +160,7 @@ The second entry is what dropping a local-file override looks like. The merged v
 
 Indexes in detail lines are one-based and refer to the full previous or current list as labeled. Duplicates remain separate occurrences. Order is part of approval identity; a permutation is explicitly `reordered`, never treated as no change.
 
-### 5.4 Nested named entities
+### 5.5 Nested named entities
 
 ```text
   added     example.servers.alpha   (table; 2 terminal values)
@@ -155,7 +177,7 @@ Indexes in detail lines are one-based and refer to the full previous or current 
 
 A table keyed by name gets its own path. Added/removed table groups expand every terminal value under its full path in sorted key order; the stated count is the number of terminal values, with an empty table/list represented explicitly and counted as one empty value. For arrays of tables there is no guessed identity key: a changed element is a remove plus an add at its old and new one-based positions. Equal duplicate elements remain distinct.
 
-### 5.5 Scope-only change, with what the list covers
+### 5.6 Scope-only change, with what the list covers
 
 ```text
 Approval needed: repository scope changed (workspace config unchanged)
@@ -177,7 +199,7 @@ Workspace config changed since last approval: 3 paths
 
 The current loader tracks per-value origins, but the prior approval snapshot contains only JSON values. This proposal does not promise source-file provenance for a changed or removed path.
 
-### 5.6 Security-sensitive change with no file edit
+### 5.7 Security-sensitive change with no file edit
 
 ```text
 Approval needed: workspace config changed (resolved writable mount changed)
@@ -218,14 +240,14 @@ A removed path always prints its old value in full; the `now` line states only t
 
 | Surface | Behavior |
 | :--- | :--- |
-| Interactive prompt (stderr) | Change list after the existing blocks, then the single y/N. The input grammar is unchanged. |
-| Non-interactive refusal | The identical change list plus the existing advice. Nothing is recorded, as today. |
+| Interactive prompt (stderr) | Both exact and structured interpreted views after the existing blocks, then the single y/N. The input grammar is unchanged. |
+| Non-interactive refusal | The identical two-view report plus the existing advice. Nothing is recorded, as today. |
 | `yolo config apply` and attach | Same presenter. These already share the gate. |
-| `--accept-config-changes` | See [OQ-CAP3](#OQ-CAP3). |
+| `--accept-config-changes` | Reports config-only accepted changes using the same two-view presentation; does not prompt. |
 
 ### 6.5 Secrets
 
-The proposal prints the values the JSON diff prints today, in a different notation. It adds no redaction, because a redacted value is one the person approved without seeing. It adds no user-config or default values, because that would newly expose data outside the approval. Adding redaction later would be an owner decision about disclosure, not a presentation tweak.
+The exact view prints the values the JSON diff prints today, in dotted notation; the interpreted view adds structured explanation of those same changes. It adds no redaction, because a redacted value is one the person approved without seeing. It adds no user-config or default values, because that would newly expose data outside the approval. Adding redaction later would be an owner decision about disclosure, not a presentation tweak.
 
 ### 6.6 Width, color, accessibility and bounds
 
@@ -251,7 +273,7 @@ The proposal prints the values the JSON diff prints today, in a different notati
 | Write record on `y` or on the flag | Effect | No |
 | Turn two trees into text | Pure | **Yes, the whole proposal** |
 
-**Invariant.** The gate still decides whether to ask by comparing the same approval identities. When the config identity changes, the config presenter lists all changed config-key paths and must print at least one line. On a scope-only gate it says `Workspace config: no change.` The existing mount block counts as complete presentation of resolved-mount-record changes; if a config identity difference has no config-key path and no mount block explains it, D8 prints a notice and raw JSON diff rather than an empty list or bare question.
+**Invariant.** The gate still decides whether to ask by comparing the same approval identities. When the config identity changes, the config presenter lists all changed config-key paths and must print at least one line. On a scope-only gate it says `Workspace config: no change.` The existing mount block counts as complete presentation of resolved-mount-record changes; if a config identity difference has no config-key path and no mount block explains it, D8 prints a notice and raw JSON comparison rather than an empty list or bare question.
 
 ## 9. Costs, risks, migration and observability
 
@@ -264,7 +286,7 @@ The proposal prints the values the JSON diff prints today, in a different notati
 | Risk: readers assume the output is pasteable TOML | Mitigated by the parenthesized vocabulary and the provenance line. |
 | Migration | None for records. Legacy JSONC workspaces get the same list, since notation follows the tree and not the file format. `config-safety.md` needs re-verification regardless of this design. |
 | Stderr text consumers | None are known. The packet identified no machine consumer of the diff text, and none is assumed here. |
-| Observability | The raw canonical diff is the fallback and, if [OQ-CAP2](#OQ-CAP2) selects it, an explicit read-only diagnostic view; its command syntax and comparison semantics remain open. |
+| Observability | A read-only raw JSON comparison of the current approval input with the stored identity is available on request. Exact command spelling and how the request is surfaced remain design work. |
 
 ## 10. Verified checks and remaining uncertainty
 
@@ -275,59 +297,18 @@ The evidence packet supplied the first-pass claims. The following bounded source
 | A1 | Can the gate name contributing files in the header? | The loader records a per-value source tree with file origins and writer order ([`sources.go`](../../internal/config/sources.go)). The current gate result keeps that tree private, and the saved approval snapshot contains only JSON values ([`gateread.go`](../../internal/config/gateread.go), [`snapshot.go`](../../internal/config/snapshot.go)). Therefore exact source-file lists are not assumed; the mock uses a generic merged-workspace line, and per-key attribution is a non-goal. |
 | A2 | Can an approval value be JSON `null`? | The JSON value model and snapshot encoder accept `nil` and emit `null`; legacy JSONC input can represent it, and `SchemaTypeAny` fields preserve unconstrained values ([`jsonx.go`](../../internal/jsonx/jsonx.go), [`readablevalidate.go`](../../internal/config/readablevalidate.go), [`schema.go`](../../internal/config/schema.go)). The presenter renders explicit `(null)` distinct from absent; it does not claim every schema path permits null. |
 | A3 | Does list append create JSON comma churn? | Yes, mechanically: the snapshot encoder writes the array separator after the previous item and before the next line ([`jsonx.go`](../../internal/jsonx/jsonx.go)); the unified diff compares those lines ([`difflib.go`](../../internal/config/difflib.go)). Appending `"ripgrep"` after `"jq"` changes the previous line from `"jq"` to `"jq",` and adds the new item line. No approval flow was run. |
-| A4 | Is config-only accepted reporting already ruled? | The inspected [`WW-D20`](workspace-widening.md#WW-D20) covers accepted repository-scope blocks/counts, and [`RC-D24`](../reference/config/rulings.md#RC-D24) covers writable-mount disclosure. Neither inspected ruling covers config-only acceptance reporting. Current code calls `ReportAccepted` only for scope, grants or mount-source changes, so config-only acceptance is silent ([`snapshot.go`](../../internal/config/snapshot.go), [`preflight.go`](../../internal/cli/run/preflight.go)). This is bounded evidence, not a claim that no such ruling exists anywhere; keep [OQ-CAP3](#OQ-CAP3) open. |
+| A4 | Is config-only accepted reporting already ruled? | The inspected [`WW-D20`](workspace-widening.md#WW-D20) covers accepted repository-scope blocks/counts, and [`RC-D24`](../reference/config/rulings.md#RC-D24) covers writable-mount disclosure. Current code calls `ReportAccepted` only for scope, grants or mount-source changes, so config-only acceptance is silent ([`snapshot.go`](../../internal/config/snapshot.go), [`preflight.go`](../../internal/cli/run/preflight.go)). The owner has now ruled config-only accepted-change reporting with `--accept-config-changes`; this update records that direction without changing code or live config. |
 
-No approval record or real workspace config was opened. The only remaining choices are the owner questions below; A1–A4 are no longer unresolved factual assumptions.
+No approval record or real workspace config was opened. A1–A3 remain bounded verified design inputs; A4’s earlier behavior is superseded by the owner ruling recorded in the ledger below.
 
-## 11. Open questions
+## 11. Decision ledger
 
-1. 💬 <a id="OQ-CAP1"></a>**[OQ-CAP1](#OQ-CAP1): Which view should lead an approval of a changed workspace config?**
-
-   You author TOML; today the prompt displays a unified diff of the canonical JSON identity. The choice is whether to replace that primary view, and with what.
-
-   - **(a) TOML-document diff.** Render both trees as TOML and diff those documents. Familiar, but still subject to line-context loss and array punctuation churn, and it resembles a file diff that the gate did not compute.
-   - **(b) Categorized prose only.** Summarize by known config concepts. Shorter for common keys, but it can misstate semantics and needs schema-specific coverage and an unknown-key fallback.
-   - **(c) Complete TOML-shaped path list.** Every changed path and value is described structurally, with deterministic array handling; it is explicit but can be long.
-   - **(d) Keep JSON with a caption.** Smallest change, but it leaves the current readability and context problems.
-
-   <!-- vantage: question id=OQ-CAP1 leaning="(c) complete TOML-shaped path list, with the canonical JSON identity unchanged" -->
-
-   _Leaning:_ (c), as recommended in [§4.2](#42-alternatives-and-verdicts). This is a design recommendation, not an owner selection.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 <a id="OQ-CAP2"></a>**[OQ-CAP2](#OQ-CAP2): If the raw JSON view remains secondary, how does a user invoke it and what does it compare?**
-
-   Today the only display is the prompt/refusal diff, and it is the canonical JSON diff. A recommendation that says “on request” is incomplete without a user-visible path, especially for a non-interactive refusal or later diagnosis. The command spelling, flags, inputs and whether it reads or updates approval state are all unsettled; no syntax is selected here.
-
-   - **(a) No raw view beyond the D8 exceptional fallback.** No new command surface; simplest, but limits ordinary diagnostics.
-   - **(b) Read-only identity view.** A command displays the current canonical approval JSON only; it does not compare with the stored approval. The command syntax remains an owner choice.
-   - **(c) Read-only raw comparison.** A command compares the current approval input with the stored identity and prints the canonical JSON diff; the exact verb, flag and stale/invalid-record behavior remain owner choices.
-   - **(d) Interactive expansion.** A prompt affordance expands the raw diff; it does not serve pipes or non-interactive refusals and changes prompt interaction design.
-
-   <!-- vantage: question id=OQ-CAP2 leaning="Retain a read-only raw comparison, but leave command syntax and inputs to owner choice" -->
-
-   _Leaning:_ Keep a read-only raw view available, but do not choose its command syntax or exact input semantics in this design. This is a real CLI-surface gap, not a plan-level naming detail.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 <a id="OQ-CAP3"></a>**[OQ-CAP3](#OQ-CAP3): Should `--accept-config-changes` disclose a config-only change list before recording it?**
-
-   Today this flag accepts without an interactive prompt, and a config-only change produces no report. The existing accepted-report hook covers repository scope, grants and mounts; its current scope is not a ruling about config-only reports. The question is specifically whether the new list should be printed for a flag-path config-only acceptance; existing sensitive blocks remain unchanged.
-
-   - **(a) Keep config-only acceptance silent.** The flag is explicit opt-in and automation logs stay short.
-   - **(b) Print the same complete list as an “accepted” report before recording.** This leaves a log of which config values the flag consented to, but exposes the config values in the launch stream.
-
-   The bounded source check in [§10](#10-verified-checks-and-remaining-uncertainty) found WW-D20 for accepted scope blocks/counts and RC-D24 for writable-mount disclosure, but no inspected ruling on config-only acceptance reporting. This remains an owner choice; do not infer an answer from those adjacent rulings.
-
-   <!-- vantage: question id=OQ-CAP3 leaning="Print the same list as an accepted report before recording, subject to owner choice" -->
-
-   _Leaning:_ (b), as a presentation recommendation only. This would change disclosure behavior and is not implemented or authorized by this design.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+| ID | Ruling / Decision | Date | Settled in | Built |
+| :--- | :--- | :--- | :--- | :--- |
+| CAP-R1 | The TOML-era approval prompt showing JSON diffs is an issue to explore; this authoring request did not select a format or authorize implementation. | 2026-11-16 | [§1](#1-current-behavior-verified-baseline) | No |
+| <a id="OQ-CAP1"></a>[OQ-CAP1](#OQ-CAP1) | Initially show both the exact dotted-notation view and structured interpreted explanations, using tables or labeled blocks rather than prose paragraphs; the owner may later prune one. | 2026-11-16 | [§4](#4-proposed-shape) | No |
+| <a id="OQ-CAP2"></a>[OQ-CAP2](#OQ-CAP2) | Retain a raw JSON comparison of current approval input with the stored identity, read-only and available on request. | 2026-11-16 | [§9](#9-costs-risks-migration-and-observability) | No |
+| <a id="OQ-CAP3"></a>[OQ-CAP3](#OQ-CAP3) | Report config-only accepted changes on the `--accept-config-changes` path; preserve the existing approval identity and no-prompt behavior. | 2026-11-16 | [§6.4](#64-surfaces) | No |
 
 ## 12. Acceptance examples
 
@@ -343,11 +324,4 @@ The design is met when all of these hold:
 8. A first launch with 200 changed leaf values prints each leaf in deterministic groups; the header group count and each table’s terminal-value count agree with the output.
 9. An identity difference with no unexplained structural path prints the relevant mount block; an unexplained empty structural diff prints the D8 notice and raw diff, never a bare question.
 10. Records written before the change compare as equal after it, with no re-prompt.
-
-## 13. Decision ledger
-
-| ID | Ruling / Decision | Date | Settled in | Built |
-| :--- | :--- | :--- | :--- | :--- |
-| CAP-R1 | The TOML-era approval prompt showing JSON diffs is an issue to explore; this authoring request does not select a format or authorize implementation. | 2026-11-16 | [§1](#1-current-behavior-verified-baseline) | No |
-
-The open questions remain in [§11](#11-open-questions), not in the ledger. The design recommendation is complete as a proposal, but the presentation and raw-view surface remain owner-choice-dependent.
+11. `--accept-config-changes` records config-only acceptance and reports the accepted changes in the two-view format without prompting.
