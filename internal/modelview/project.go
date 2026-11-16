@@ -1,6 +1,8 @@
 // Package modelview applies composer-owned per-agent model menu views at derive boundaries.
 package modelview
 
+// Architecture and invariants: docs/reference/claude-exact-model-menu.md
+
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )

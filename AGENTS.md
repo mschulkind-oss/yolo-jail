@@ -381,6 +381,7 @@ The mechanics behind each of these are in
 | Every config key and pack contribution kind, per setup (backend × host OS) | [`settings-per-setup.md`](userguide/reference/settings-per-setup.md) |
 | Mounts, overlays, home layout | [`jail-home.md`](docs/reference/jail-home.md) |
 | Workspace-selected Git skills, authority and delivery | [`workspace-git-skills/README.md`](docs/reference/workspace-git-skills/README.md) |
+| Agent-scoped model menus and client/shared boundaries | [`claude-exact-model-menu.md`](docs/reference/claude-exact-model-menu.md) |
 | Config approval explanation and raw inspection | [`config-approval-presentation.md`](docs/reference/config-approval-presentation.md) |
 | Briefing generation, skills staging | [`agent-briefings.md`](docs/reference/agent-briefings.md) |
 | MCP/LSP config, the node/npx wrappers | [`mcp-configuration.md`](docs/reference/mcp-configuration.md) |

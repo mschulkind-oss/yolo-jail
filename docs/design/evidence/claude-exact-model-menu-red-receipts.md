@@ -14,7 +14,7 @@ The initial composition/validation regression failed to compile because `ModelsC
 
 `go test ./internal/entrypoint -run 'TestClaudeExactModelMenuProjectsScopedOnlyAtProductionCallers|TestScopedClaudeOnlyLeavesPiAndCopilotRendersByteIdentical' -count=1` first failed because the test fixture inverted the `EnforceModels` boolean pointer. After that was fixed, the Claude render comparison exposed a fixture mistake: it compared a scoped `only` against an add-only baseline rather than the same unscoped `only`. Both fixture defects were corrected; the final selector passes.
 
-A subsequent Pi assertion initially expected the requester's historical wildcard for the current ten-row company-add fixture. The current render instead produces ten explicit native Bedrock model ids, as source-verified in [`claude-exact-model-menu-grounding.md`](../claude-exact-model-menu-grounding.md) and agreed by the supervisor. This was a test expectation correction; no production Pi behavior changed.
+A subsequent Pi assertion initially expected the requester's historical wildcard for the current ten-row company-add fixture. The current render instead produces ten explicit native Bedrock model ids, as source-verified in [the supplied-list reference](../../reference/claude-exact-model-menu.md#client-behavior-and-shared-boundaries) and agreed by the supervisor. This was a test expectation correction; no production Pi behavior changed.
 
 ## Other fixture-only failures
 
