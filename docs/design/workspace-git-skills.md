@@ -24,7 +24,7 @@ evidence-snapshot: HEAD @ fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece
 
 **Needs your ruling:** None. The owner has ruled both ref forms and the existing workspace Git broker filter. Where each `yolo skills` command runs and what it may write is designer recommendation WGS-P15 in [§13](#13-design-recommendations-not-owner-rulings); it adds no credential, grant or host operation, so it raises no owner question.
 
-**Reads with:** [`pack-system.md` OQ-PK1](../reference/pack-system.md#oq-pk1) (why workspace `packs` is refused) · [`agent-briefings.md` workspace layer](../reference/agent-briefings.md#the-workspace-layer) and [WS-D24](../reference/agent-briefings.md#ws-d24) (skill priority and host exclusion) · [`workspace-packs.md`](workspace-packs.md) (separate open pack-selection design) · [`trust-paths.md` ledger](trust-paths.md#decision-ledger) (user-scope Git authority).
+**Reads with:** [`workspace-git-skills-plan.md`](workspace-git-skills-plan.md) (the serial implementation hand-off) · [`pack-system.md` OQ-PK1](../reference/pack-system.md#oq-pk1) (why workspace `packs` is refused) · [`agent-briefings.md` workspace layer](../reference/agent-briefings.md#the-workspace-layer) and [WS-D24](../reference/agent-briefings.md#ws-d24) (skill priority and host exclusion) · [`workspace-packs.md`](workspace-packs.md) (separate open pack-selection design) · [`trust-paths.md` ledger](trust-paths.md#decision-ledger) (user-scope Git authority).
 
 ---
 

@@ -56,6 +56,9 @@ needs a ruling or a Mac sits in the others.
    - [The config approval presentation](../design/config-approval-presentation.md), with its
      [implementation plan](../design/config-approval-presentation-plan.md), keeps the approval identity
      unchanged while replacing the JSON-only prompt view.
+   - [Workspace Git skill imports](../design/workspace-git-skills-plan.md), building on the
+     [accepted design](../design/workspace-git-skills.md), now has a DECIDED implementation hand-off; land
+     serially with approval presentation where its config-key coverage overlaps.
 
 ## Waiting on an owner ruling
 
@@ -112,7 +115,9 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
 
 9. [Which packs a workspace config may select](../design/workspace-packs.md#OQ-WP1), then
    [what a collaborator sees and can refuse](../design/workspace-packs.md) — `mcp_presets` is retired, so until this lands a repository cannot
-   give its collaborators the browser, which the presets did. [A separate design for pinned Git skill imports](../design/workspace-git-skills.md) keeps workspace-pack selection distinct.
+   give its collaborators the browser, which the presets did. [The separate design for pinned Git skill
+   imports](../design/workspace-git-skills.md) keeps workspace-pack selection distinct; its implementation
+   hand-off is listed under [Buildable now](#buildable-now-by-an-agent).
 
 10. [The VM-local disks](../design/vm-local-volumes.md): [default or opt-in](../design/vm-local-volumes.md#OQ-VL1),
    [`~/.cache`](../design/vm-local-volumes.md#OQ-VL2), [database folders](../design/vm-local-volumes.md#OQ-VL3) and

@@ -14,7 +14,7 @@ evidence-snapshot: HEAD @ 0dbe45c4b0db0148a0af4061c2338fabd0173f13
 
 > **In short.** Keep the config approval identity, its canonical JSON bytes, its record, and the ask/don't-ask predicate unchanged. Add a replay-verified structural change set and render it in both Interpreted and Exact blocks at the existing gate callers. Add a read-only `yolo config approval-diff` inspection command. Report config-only acceptance on `--accept-config-changes`.
 
-**Design dependency:** `docs/design/config-approval-presentation.md` (accepted). **Related design:** `docs/design/workspace-git-skills.md` (accepted, implementation plan not yet present at this HEAD). This plan is intentionally for the config approval presentation only; it does not implement Git skill imports.
+**Design dependency:** `docs/design/config-approval-presentation.md` (accepted). **Related design and build plan:** [`docs/design/workspace-git-skills.md`](workspace-git-skills.md) (accepted) and [`docs/design/workspace-git-skills-plan.md`](workspace-git-skills-plan.md) (DECIDED). This plan remains limited to config approval presentation; it does not implement Git skill imports.
 
 ## Precedence and traps
 
@@ -87,12 +87,12 @@ Implement the accepted design's D1–D14 as written, with this necessary D15 cor
 
 ### Cross-feature serial fence: workspace Git skill imports
 
-`docs/design/workspace-git-skills.md` is accepted but its implementation plan is absent at this HEAD; do not guess its exact eventual file list or implement its feature here. `docs/plans/roadmap.md` currently lists this design and the skill-import design under item 9, with this feature described as exploratory; the roadmap does not establish implementation precedence. This artifact is outside `/workspace`, so neither the source roadmap nor planning index is edited here. When the plan is adopted into the repository, update the roadmap description through its normal owner-controlled process, without inventing an ordering between the independent designs. Reconcile shared files against the eventual skill-import plan:
+The accepted skill-import design now has the DECIDED implementation plan [`workspace-git-skills-plan.md`](workspace-git-skills-plan.md). Do not implement its feature from this approval plan or guess its files; its plan owns that work. The roadmap routes it under [Buildable now](../plans/roadmap.md#buildable-now-by-an-agent). The approval-display tasks and gates below remain unchanged. The two features are separate and must land/rebase serially wherever they share a display key or repository surface:
 
-- `internal/cli/config.go`: both features add a `yolo config` verb/group and must coordinate dispatch/help-token/usage edits. No concurrent hunks; whichever lands second rebases on the first and retests the combined registry.
-- `internal/cli/run/preflight.go` and `internal/config/snapshot.go`: this feature changes the gate's presentation/report object; skill imports must resolve only after the existing gate passes and may alter how the workspace config is consumed. Land presentation first, then integrate the skill-import caller against the new code, or serially rebase both with a test of that ordering.
-- The approval label coverage test is tied to workspace-settable readable keys. If skill imports adds `skill_imports` before this task lands, include it with an accurate noun-phrase label (do not allow a generic row to mask a missing intentional label). If imports land later, their schema change must update the presentation label and coverage test in the same skill-import slice.
-- No fence is transferred for Git broker, scope, mount, import-store or jail staging files: this task must not touch them. Resolve conflict by serial landing/rebase, not by broadening this feature or omitting a failing label-coverage assertion.
+- `internal/cli/config.go` belongs to config approval presentation's `yolo config approval-diff`; skill imports registers the top-level `yolo skills` command in `internal/cli/dispatch.go`. Keep these surfaces distinct; recheck common registry/help tests after both land.
+- The approval label-coverage test is tied to workspace-settable readable keys. If skill imports adds `skill_imports` before that test's slice lands, include its accurate noun-phrase label and update coverage in the same skill-import slice. If the approval slice lands first, rebase skill imports and keep its coverage green. Never omit the key or weaken the assertion.
+- This approval plan changes `internal/cli/run/preflight.go` and `internal/config/snapshot.go`; skill imports must resolve after the existing gate, and its plan explicitly avoids these files unless its implementer finds a necessary source change. If that becomes necessary, stop and coordinate/rebase rather than taking a concurrent hunk or changing approval identity/order.
+- The approval plan's gate, display, approval-record, integration-test and command fences remain unchanged. It does not transfer permission to edit Git broker, scope, mount, import-store or jail-staging files. Resolve any new overlap by serial landing and retesting both caller suites.
 
 ## 4. Tests-first implementation slices and exact gates
 
