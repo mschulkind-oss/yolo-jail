@@ -116,6 +116,8 @@ type ChangedNonInteractiveError struct {
 	SnapshotPath string
 	// DiffLines is the unified diff, previous approved config → current.
 	DiffLines []string
+	// ApprovalChanges is the verified structural view; nil requires raw-diff fallback.
+	ApprovalChanges *ApprovalChangeSet
 
 	// ConfigChanged and ScopeChanged say which part of the approval record changed
 	// (docs/design/boundary-broker.md BB-D31). Both false reads as the config-only refusal
@@ -334,10 +336,11 @@ func CheckConfigChanges(workspace string, config *jsonx.OrderedMap, isTTY, accep
 // ChangeReport is everything one fresh launch is asked to approve: the workspace config's
 // diff and the repository scope's labeled block (BB-D31), each only when that part changed.
 type ChangeReport struct {
-	ConfigChanged bool
-	DiffLines     []string
-	ScopeChanged  bool
-	ScopeBlock    []string
+	ConfigChanged   bool
+	DiffLines       []string
+	ApprovalChanges *ApprovalChangeSet
+	ScopeChanged    bool
+	ScopeBlock      []string
 	// ScopeCounts are the count lines, one per changed source, printed directly above the
 	// question, since a long config diff can scroll the block out of view (WW-D20).
 	ScopeCounts []string
@@ -579,6 +582,10 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 		report.WritableMounts = mountLines(mounts, true)
 		// oq-cx-symlink: and every read-only one, at the destination its source resolves to.
 		report.MountSources = mountLines(mounts, false)
+		if changes := buildApprovalChangeSetFromJSON(oldJSON, currentJSON,
+			len(report.WritableMounts)+len(report.MountSources) > 0); changes != nil {
+			report.ApprovalChanges = changes
+		}
 	}
 
 	if !isTTY {
@@ -588,6 +595,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 				WorkspaceLocalConfig: localPath,
 				SnapshotPath:         snapshotPath,
 				DiffLines:            diffLines,
+				ApprovalChanges:      report.ApprovalChanges,
 				ConfigChanged:        configChanged,
 				ScopeChanged:         sc.changed,
 				ScopeBlock:           report.ScopeBlock,
@@ -615,7 +623,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 		// Granted by the flag: shown, then recorded exactly as a `y` does, or the next
 		// launch prompts (or refuses) over the same change all over again. A writable mount
 		// is shown as a scope change is (WW-D20): the flag approves it, but never unseen.
-		if ar, ok := prompter.(AcceptedReporter); ok && (sc.changed || grants.out.changed || len(report.WritableMounts) > 0 || len(report.MountSources) > 0) {
+		if ar, ok := prompter.(AcceptedReporter); ok && (configChanged || sc.changed || grants.out.changed || len(report.WritableMounts) > 0 || len(report.MountSources) > 0) {
 			ar.ReportAccepted(report)
 		}
 		if err := recordAll(); err != nil {
@@ -691,6 +699,31 @@ func isPySpace(r rune) bool {
 		return true
 	}
 	return false
+}
+
+func buildApprovalChangeSetFromJSON(previousJSON, currentJSON string, mountDisclosed bool) *ApprovalChangeSet {
+	decode := func(text string) (*jsonx.OrderedMap, bool) {
+		value, err := jsonx.Decode([]byte(text))
+		if err != nil {
+			return nil, false
+		}
+		mapped, ok := value.(*jsonx.OrderedMap)
+		return mapped, ok
+	}
+	previous := jsonx.NewOrderedMap()
+	if previousJSON != "" {
+		var ok bool
+		previous, ok = decode(previousJSON)
+		if !ok {
+			return nil
+		}
+	}
+	current, ok := decode(currentJSON)
+	if !ok {
+		return nil
+	}
+	changes := BuildApprovalChangeSet(previous, current, mountDisclosed)
+	return &changes
 }
 
 // splitLines splits on the same line boundaries difflib uses.

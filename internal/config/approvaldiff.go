@@ -14,24 +14,30 @@ import (
 type ApprovalChangeSet struct {
 	Groups         []ApprovalChangeGroup
 	ReplayVerified bool
+	PreviousTree   *jsonx.OrderedMap
+	CurrentTree    *jsonx.OrderedMap
 }
 
 // ApprovalChangeGroup is one exact config path (or one unmatched array-table entry).
 type ApprovalChangeGroup struct {
-	Number           int
-	Path             string
-	Verb             string
-	Added            bool
-	Removed          bool
-	Previous         any
-	Current          any
-	HasPrevious      bool
-	HasCurrent       bool
-	AddedItems       []any
-	RemovedItems     []any
-	AddedPositions   []int
-	RemovedPositions []int
-	Reordered        bool
+	Number             int
+	Path               string
+	Verb               string
+	Added              bool
+	Removed            bool
+	Previous           any
+	Current            any
+	HasPrevious        bool
+	HasCurrent         bool
+	AddedItems         []any
+	RemovedItems       []any
+	AddedPositions     []int
+	RemovedPositions   []int
+	Reordered          bool
+	ArrayTableItem     bool
+	ArrayIndex         int
+	PreviousListLength int
+	CurrentListLength  int
 
 	PathParts  []ApprovalPathPart
 	path       []ApprovalPathPart
@@ -79,7 +85,8 @@ func BuildApprovalChangeSet(previous, current *jsonx.OrderedMap, mountDisclosed 
 	}
 	got, gotErr := SnapshotJSON(replayed)
 	want, wantErr := SnapshotJSON(current)
-	return ApprovalChangeSet{Groups: groups, ReplayVerified: gotErr == nil && wantErr == nil && got == want}
+	return ApprovalChangeSet{Groups: groups, ReplayVerified: gotErr == nil && wantErr == nil && got == want,
+		PreviousTree: jsonx.DeepCopyMap(previous), CurrentTree: jsonx.DeepCopyMap(current)}
 }
 
 func walkApprovalValue(out *[]ApprovalChangeGroup, path []ApprovalPathPart, old any, hasOld bool, cur any, hasCur bool) {
@@ -162,6 +169,8 @@ func walkApprovalTables(out *[]ApprovalChangeGroup, path []ApprovalPathPart, old
 		entryPath := append(append([]ApprovalPathPart(nil), path...), ApprovalPathPart{Index: i, ArrayIndex: true})
 		group := makeApprovalGroup(entryPath, item, true, nil, false)
 		group.Verb, group.Removed, group.arrayPath, group.arrayIndex = "removed", true, parent, i
+		group.ArrayTableItem, group.ArrayIndex = true, i
+		group.PreviousListLength, group.CurrentListLength = len(old), len(cur)
 		*out = append(*out, group)
 	}
 	for i, item := range cur {
@@ -171,6 +180,8 @@ func walkApprovalTables(out *[]ApprovalChangeGroup, path []ApprovalPathPart, old
 		entryPath := append(append([]ApprovalPathPart(nil), path...), ApprovalPathPart{Index: i, ArrayIndex: true})
 		group := makeApprovalGroup(entryPath, nil, false, item, true)
 		group.Verb, group.Added, group.arrayPath, group.arrayIndex = "added", true, parent, i
+		group.ArrayTableItem, group.ArrayIndex = true, i
+		group.PreviousListLength, group.CurrentListLength = len(old), len(cur)
 		*out = append(*out, group)
 	}
 }

@@ -442,10 +442,13 @@ func (o *Options) printChangeRefusal(e *config.ChangedNonInteractiveError) {
 	out.printf("\n[bold red]⚠  %s[/bold red]\n", e.Headline())
 	printWritableMounts(out, e.WritableMounts, e.MountSources)
 	printScopeBlock(out, e.ScopeBlock)
-	printScopeCounts(out, e.ScopeCounts)
 	printScopeBlock(out, e.GrantBlock)
+	printApprovalPresentation(out, e.ApprovalChanges, e.ConfigChanged, false, e.DiffLines, approvalPresentationWidth(o))
+	printScopeCounts(out, e.ScopeCounts)
 	printScopeCounts(out, e.GrantCounts)
-	printConfigDiff(out, e.DiffLines)
+	if e.ConfigChanged {
+		out.print(approvalDiffFooter)
+	}
 	out.print("")
 	// The advice names files, one of them the git config the scope was read from, which can
 	// sit in a directory the agent named; it carries no markup of its own.
@@ -660,12 +663,14 @@ func (p *changePrompter) PromptReport(r config.ChangeReport) bool {
 	printWritableMounts(out, r.WritableMounts, r.MountSources)
 	printScopeBlock(out, r.ScopeBlock)
 	printScopeBlock(out, r.GrantBlock)
-	printConfigDiff(out, r.DiffLines)
-	out.print("")
+	printApprovalPresentation(out, r.ApprovalChanges, r.ConfigChanged, false, r.DiffLines, approvalPresentationWidth(p.o))
 	printScopeCounts(out, r.ScopeCounts)
 	printScopeCounts(out, r.GrantCounts)
 	for _, line := range p.preQuestion {
 		out.print(line)
+	}
+	if r.ConfigChanged {
+		out.print(approvalDiffFooter)
 	}
 	if _, err := p.o.Stderr.Write([]byte(question)); err != nil {
 		return false
@@ -707,6 +712,14 @@ func (p *changePrompter) ReportAccepted(r config.ChangeReport) {
 	}
 	if r.GrantsChanged {
 		what = config.ChangedParts(r.ConfigChanged, r.ScopeChanged, true) + " changed since last run"
+	} else if !r.ScopeChanged {
+		if r.ConfigChanged && len(r.WritableMounts)+len(r.MountSources) == 0 {
+			what = "Workspace config changed since last run"
+		} else {
+			what = "Workspace config with " + mounts + " changed since last run"
+		}
+	} else if r.ConfigChanged && len(r.WritableMounts)+len(r.MountSources) > 0 {
+		what = "Repository scope and a config with " + mounts + " changed since last run"
 	}
 	out.print("\n[bold yellow]⚠  " + what + "; " + config.AcceptConfigChangesFlag +
 		" records it as approved:[/bold yellow]\n")
@@ -715,6 +728,7 @@ func (p *changePrompter) ReportAccepted(r config.ChangeReport) {
 	printScopeCounts(out, r.ScopeCounts)
 	printScopeBlock(out, r.GrantBlock)
 	printScopeCounts(out, r.GrantCounts)
+	printApprovalPresentation(out, r.ApprovalChanges, r.ConfigChanged, true, r.DiffLines, approvalPresentationWidth(p.o))
 }
 
 // declineLines is what a `N` at the config-change prompt prints: that nothing was recorded, then

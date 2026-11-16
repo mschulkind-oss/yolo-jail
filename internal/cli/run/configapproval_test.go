@@ -87,7 +87,11 @@ func TestNonInteractiveConfigChangeRefusalIsActionable(t *testing.T) {
 		config.AcceptConfigChangesFlag,
 		filepath.Join(ws, config.WorkspaceConfigName),
 		config.ApprovalSnapshotPath(ws),
-		`+      "htop"`, // the changed value remains visible in the canonical workspace diff
+		"Interpreted",
+		"Exact",
+		"install.nix",
+		"htop",
+		"yolo config approval-diff",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("refusal output does not mention %q:\n%s", want, out)
@@ -458,5 +462,167 @@ func TestUserConfigChangeDoesNotTriggerWorkspacePrompt(t *testing.T) {
 	}
 	if output.Len() != 0 {
 		t.Fatalf("unchanged workspace config produced approval output: %q", output.String())
+	}
+}
+
+func TestConfigApprovalRefusalRendersBothViewsAndRecordsNothing(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"packages":["jq"]}`, out)
+	before, err := os.ReadFile(config.ApprovalSnapshotPath(ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeWorkspaceConfig(t, ws, `{"packages":["jq","ripgrep"]}`)
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("changed config without a terminal must refuse")
+	}
+	for _, want := range []string{"Interpreted", "Exact", "[1]", "install.nix", "ripgrep",
+		"yolo config approval-diff", config.AcceptConfigChangesFlag} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	after, err := os.ReadFile(config.ApprovalSnapshotPath(ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("refusal rewrote the approval identity")
+	}
+}
+
+func TestConfigApprovalInvalidPreviousIdentityFallsBackToRawDiff(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"agents_md_extra":"old"}`, out)
+	path := config.ApprovalSnapshotPath(ws)
+	if err := os.WriteFile(path, []byte("not json\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceConfig(t, ws, `{"agents_md_extra":"new"}`)
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("changed config without a terminal must refuse")
+	}
+	output := out.String()
+	if !strings.Contains(output, "The change list could not account for every difference; showing the raw comparison instead.") ||
+		!strings.Contains(output, "--- previous workspace config") || !strings.Contains(output, "+++ current workspace config") {
+		t.Fatalf("invalid previous identity did not use the complete raw fallback:\n%s", output)
+	}
+	if strings.Contains(output, "Interpreted") || strings.Contains(output, "\nExact\n") {
+		t.Fatalf("fallback printed a partial structured view:\n%s", output)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("refusal repaired or rewrote the malformed approval record")
+	}
+}
+
+func TestConfigApprovalInteractivePromptShowsViewsAndKeepsRecordOnNo(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, true)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"agents_md_extra":"old"}`, out)
+	before, err := os.ReadFile(config.ApprovalSnapshotPath(ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeWorkspaceConfig(t, ws, `{"agents_md_extra":"new"}`)
+	o.IsTTYStderr = func() bool { return true }
+	o.IsTTYStdin = func() bool { return true }
+	o.Stdin = strings.NewReader("n\n")
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("n must refuse a changed config")
+	}
+	output := out.String()
+	footer := strings.Index(output, approvalDiffFooter)
+	question := strings.Index(output, "Accept these workspace config changes? [y/N]")
+	if !strings.Contains(output, "Interpreted") || !strings.Contains(output, "Exact") || !strings.Contains(output, "agents_md_extra") {
+		t.Fatalf("interactive gate omitted the structured views:\n%s", output)
+	}
+	if footer < 0 || question < 0 || footer > question || strings.TrimSpace(output[footer+len(approvalDiffFooter):question]) != "" {
+		t.Fatalf("raw-comparison footer was not immediately above the question:\n%s", output)
+	}
+	after, err := os.ReadFile(config.ApprovalSnapshotPath(ws))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("answering n rewrote the approval identity")
+	}
+}
+
+func TestAcceptConfigChangesReportsConfigOnlyBeforeWritingRecord(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"agents_md_extra":"old"}`, out)
+	writeWorkspaceConfig(t, ws, `{"agents_md_extra":"approved"}`)
+	o.AcceptConfigChanges = true
+	if !o.checkConfigChanges(nil, "podman") {
+		t.Fatalf("--accept-config-changes refused:\n%s", out.String())
+	}
+	output := out.String()
+	for _, want := range []string{"Workspace config changed since last run", "Interpreted", "was approved", "Exact", "approved"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("accepted report missing %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, approvalDiffFooter) || strings.Contains(output, "[y/N]") {
+		t.Fatalf("accepted report included a prompt footer or question:\n%s", output)
+	}
+	record, exists, err := config.ReadApprovalRecord(ws)
+	if err != nil || !exists {
+		t.Fatalf("read accepted record: exists=%v err=%v", exists, err)
+	}
+	current, err := config.ApprovalRecordPart(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record != current {
+		t.Fatalf("accepted identity bytes differ from current gate identity:\nrecord=%s\ncurrent=%s", record, current)
+	}
+}
+
+func TestConfigApprovalDisplayEscapesUnicodeWithoutChangingStoredIdentity(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"agents_md_extra":"before"}`, out)
+	writeWorkspaceConfig(t, ws, `{"agents_md_extra":"emoji 😀 control \u001b bidi \u202e"}`)
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("changed config without a terminal must refuse")
+	}
+	output := out.String()
+	for _, want := range []string{`\U0001F600`, `\u001B`, `\u202E`} {
+		if !strings.Contains(output, want) {
+			t.Errorf("display missing TOML escape %q:\n%s", want, output)
+		}
+	}
+	for _, forbidden := range []string{"😀", "\u202e", "\x1b", `\uD83D\uDE00`} {
+		if strings.Contains(output, forbidden) {
+			t.Errorf("display contains raw/unordered Unicode %q:\n%s", forbidden, output)
+		}
+	}
+}
+
+func TestConfigApprovalDisplayTreatsMarkupAsLiteralValue(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"agents_md_extra":"old"}`, out)
+	writeWorkspaceConfig(t, ws, `{"agents_md_extra":"literal [bold] and [red] text"}`)
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("changed config without a terminal must refuse")
+	}
+	if !strings.Contains(out.String(), `"literal \u005Bbold\u005D and \u005Bred\u005D text"`) {
+		t.Fatalf("rich-text markup in a value was not rendered as an ASCII-safe literal:\n%s", out.String())
+	}
+	if strings.ContainsRune(out.String(), '\u2060') {
+		t.Fatal("rich-text escaping added non-ASCII to the approval presentation")
 	}
 }

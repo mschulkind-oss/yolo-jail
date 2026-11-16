@@ -228,15 +228,17 @@ func TestConfigApplyNetworkPortsWaitsForRestart(t *testing.T) {
 	}
 	out := buf.String()
 	line := "machine.ports: at next restart (yolo stop, then yolo)"
-	diff := strings.Index(out, `+        "host": 2`)
+	diff := strings.Index(out, "Exact")
+	value := strings.Index(out, "machine.ports[1].host = 2")
 	first := strings.Index(out, line)
+	footer := strings.Index(out, approvalDiffFooter)
 	question := strings.Index(out, "[y/N]")
 	last := strings.LastIndex(out, line)
-	if diff < 0 || first < 0 || question < 0 {
-		t.Fatalf("want the diff, the outcome line and the question:\n%s", out)
+	if diff < 0 || value < 0 || first < 0 || footer < 0 || question < 0 {
+		t.Fatalf("want both config views, the full changed value, outcome line and question:\n%s", out)
 	}
-	if !(diff < first && first < question && question < last) {
-		t.Errorf("the outcome block must follow the diff, precede the question, and print again after:\n%s", out)
+	if !(diff < value && value < first && first < footer && footer < question && question < last) {
+		t.Errorf("the outcome block must follow the views, footer must precede the question, and result must print again after:\n%s", out)
 	}
 	if strings.Contains(strings.ToLower(out), "restart now") || strings.Contains(out, "[y/N] ") &&
 		strings.Count(out, "[y/N]") > 1 {

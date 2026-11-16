@@ -280,10 +280,15 @@ func TestTheInteractivePromptShowsTheScopeFirstAndRecordsIt(t *testing.T) {
 			}
 			if c.name == "config and scope" {
 				if diff := strings.Index(out, `"jq"`); diff < 0 || diff < block {
-					t.Fatalf("the config diff must follow the scope block:\n%s", out)
+					t.Fatalf("the config presentation must follow the scope block:\n%s", out)
 				}
-			} else if strings.Contains(out, "Workspace config changed since last run:") {
-				t.Fatalf("a scope-only change used the config-only header:\n%s", out)
+			} else {
+				if strings.Contains(out, "Workspace config changed since last run:") {
+					t.Fatalf("a scope-only change used the config-only header:\n%s", out)
+				}
+				if !strings.Contains(out, "Workspace config: no change.") {
+					t.Fatalf("a scope-only change omitted the config no-change notice:\n%s", out)
+				}
 			}
 			if got := config.ApprovedScope(o.Workspace, "gbsrc"); len(got) != 1 || got[0] != "o/r" {
 				t.Fatalf("the `y` did not record the scope part: %v", got)
