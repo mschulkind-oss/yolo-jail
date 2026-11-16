@@ -91,6 +91,7 @@ var knownTopLevelConfigKeys = set(
 	"setup", "setups",
 	"update_check", "promotion_target", "shipped_skill_prefix", "resource_groups",
 	"providers", "model_facts", "profiles", "profile", "required_capabilities", "adapters",
+	"skill_imports", "workspace_skill_imports",
 	// `agent_profiles` retired 2026-09-01, renamed to `pack_profiles` (the keys were
 	// always CLI names, and core knows packs, not agents — docs/design/
 	// docs/reference/providers.md#declaring-and-selecting-a-profile), which was itself renamed to `use_profiles`

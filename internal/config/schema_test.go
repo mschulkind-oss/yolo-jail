@@ -233,6 +233,7 @@ func TestReadableSchemaKeysDescribeNewVocabularyWithoutActivatingIt(t *testing.T
 		"allow.*.always", "allow.*.on_request", "requests.git.push", "requests.github.repos",
 		"active_provider.default", "active_provider.*", "providers.*.variants.*.model",
 		"providers.*.every_model.accepts", "providers.*.models.*.context", "providers.*.models.*.price.input",
+		"skill_imports", "skill_imports.*.git", "skill_imports.*.only.*", "workspace_skill_imports",
 	} {
 		if _, ok := got[path]; !ok {
 			t.Errorf("readable schema omits %q", path)
@@ -247,7 +248,8 @@ func TestReadableSchemaKeysDescribeNewVocabularyWithoutActivatingIt(t *testing.T
 		t.Error("schema invents machine.network instead of retaining network.mode")
 	}
 	if got["allow.*.always"].Scope != SchemaScopeUserOnly || got["requests.*.repos"].Scope != SchemaScopeWorkspaceOnly ||
-		got["providers.*.variants.*.model"].Scope != SchemaScopeUserOnly {
+		got["providers.*.variants.*.model"].Scope != SchemaScopeUserOnly || got["skill_imports"].Scope != SchemaScopeWorkspaceOnly ||
+		got["skill_imports.*.git"].Scope != SchemaScopeWorkspaceOnly || got["workspace_skill_imports"].Scope != SchemaScopeUserOnly {
 		t.Errorf("readable schema scope contract is incomplete: allow=%v request=%v variant=%v",
 			got["allow.*.always"].Scope, got["requests.*.repos"].Scope, got["providers.*.variants.*.model"].Scope)
 	}
@@ -542,7 +544,7 @@ func TestReadableSchemaScopeAdapterIsNotWholeKeyAuthorization(t *testing.T) {
 			t.Errorf("mixed key %q was authorized as wholly user-only", key)
 		}
 	}
-	if !WorkspaceUserScopeOnlyKey("packs") || WorkspaceUserScopeOnlyKey("runtime") {
+	if !WorkspaceUserScopeOnlyKey("packs") || !WorkspaceUserScopeOnlyKey("workspace_skill_imports") || WorkspaceUserScopeOnlyKey("runtime") {
 		t.Fatal("whole-key scope adapter did not retain its narrow result")
 	}
 }

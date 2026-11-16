@@ -99,6 +99,8 @@ type keyDisposition struct {
 // value like "macos-user" would be judged against the wrong machine) while `packages` is
 // nested-only (nothing in-jail VALIDATES it; an inner launcher BAKES it).
 var inheritCensus = map[string]keyDisposition{
+	"skill_imports":           {reason: "the workspace declaration is read from the mounted workspace; resolved host state is never inherited"},
+	"workspace_skill_imports": {reason: "a host-only veto over resolution; the user setting is not inherited into the jail"},
 	// ---- Both files -------------------------------------------------------------
 	// `loopholes` is the key OQ-LP9 exists for. `yolo loopholes list/status` reads it
 	// in-jail (census site 5), and an inner launcher spawns the daemons from it — so it is

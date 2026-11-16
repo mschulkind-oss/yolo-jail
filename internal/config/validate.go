@@ -126,7 +126,9 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateWorkspaceAllow(config, workspace, errs, edit)
 	if edit == nil {
 		validateRequestsUserScope(config, errs)
+		validateSkillImportScopes(workspace, errs)
 	}
+	validateSkillImports(config, errs)
 	validateWorkspaceReadonly(config, errs)
 	validatePerSidePaths(config, errs)
 	validateLoopholes(config, workspace, resolver, errs, warns, edit)

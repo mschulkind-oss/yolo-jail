@@ -40,6 +40,7 @@ func ReadableRemovalPolicies() []RemovalRule {
 		{Path: "active_provider.default", Policy: RemovalNativeString},
 		{Path: "active_provider.*", Policy: RemovalNativeString},
 		{Path: "packs", Policy: RemovalEmptyList},
+		{Path: "skill_imports.*.only", Policy: RemovalEmptyList},
 		{Path: "mounts", Policy: RemovalEmptyList},
 		{Path: "install.nix", Policy: RemovalEmptyList},
 		{Path: "install.nix.*.outputs", Policy: RemovalEmptyList},

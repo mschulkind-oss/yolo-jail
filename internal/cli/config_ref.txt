@@ -1727,6 +1727,19 @@
     Example (~/.config/yolo-jail/config.toml):
       update_check = false
 
+  [bold]skill_imports[/bold] (workspace-only table): Select Git repositories and ref/path/name filters for imported skills. This is not pack selection.
+    Each `[skill_imports.<handle>]` needs `git` plus a full `rev` pin or moving `ref`; `path` defaults to `skills` and `only` defaults to all immediate child skill directories. Validation is offline; it does not grant Git access. Resolution uses only the workspace's approved Git broker access, stages skills below built-in and pack skills, and never activates pack/plugin effects. See `yolo skills` for host resolution and listing.
+    Example (yolo-jail.toml):
+      [skill_imports.acme]
+      git = "https://github.com/acme/agent-skills"
+      rev = "3f9c2b7e1d4a5c6b8e9f0a1b2c3d4e5f60718293"
+      path = "skills"
+      only = ["review", "triage"]
+
+  [bold]workspace_skill_imports[/bold] (boolean, user-only): Enable workspace-declared Git skill imports. Default TRUE; false parses and lists declarations but does not resolve or stage them. A workspace cannot set this veto.
+    Example (~/.config/yolo-jail/config.toml):
+      workspace_skill_imports = false
+
   [bold]workspace_readonly[/bold] (array of strings): Workspace sub-paths to overlay as read-only.
     Each entry is a relative path inside the workspace (no leading /, no ..).
     Mounted on top of the writable /workspace volume so agents cannot modify
