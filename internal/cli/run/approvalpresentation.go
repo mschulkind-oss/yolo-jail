@@ -25,7 +25,8 @@ var approvalAreaLabels = map[string]string{
 	"mounts": "Paths outside the workspace", "network": "Network mode", "per_side_paths": "Per-side workspace subpaths",
 	"providers": "Provider routes", "provisioners": "Program installation order", "prune": "Disk-usage warning",
 	"repos": "Named repositories", "requests": "Permission requests", "required_capabilities": "Required capabilities",
-	"security": "Blocked-tool shims", "workspace_readonly": "Read-only workspace", "writable_home_dirs": "Writable home directories",
+	"security": "Blocked-tool shims", "skill_imports": "Workspace Git skill imports",
+	"workspace_readonly": "Read-only workspace", "writable_home_dirs": "Writable home directories",
 	// Workspace-readable legacy spellings retain their exact paths and use the replacement key's label.
 	"packages": "Nix packages and mise tools", "mise_tools": "Nix packages and mise tools",
 	"gpu": "GPU, resources, ports and forwarding", "resources": "GPU, resources, ports and forwarding",
