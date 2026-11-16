@@ -428,3 +428,17 @@ func TestEmptyModelListsRetainsEmptyAliasAndPreservesFactPrecedence(t *testing.T
 		})
 	}
 }
+
+func TestEmptyModelListsEvaluatesEachProgramsScopedView(t *testing.T) {
+	p := emptyCheckPack(t, `{}`, `"models":{"one":"one"}`, `{"kind":"models","provider":"target","only":["absent"],"agents":["synthetic"]}`, `{"kind":"program","bin":"other","via":"npm","package":"example/other","protocols":["openai"]}`)
+	p.Decl.ModelListChecks["other"] = p.Decl.ModelListChecks["synthetic"]
+	in := emptyCheckInput(t, p)
+	in.Profiles["other"] = "selected"
+	got := EmptyModelLists(in)
+	if len(got) != 1 || got[0].Program != "synthetic" || got[0].Reason != EmptyModelListSource {
+		t.Fatalf("empty projected list was missed: %+v", got)
+	}
+	if rows := callableModelRows(providerEntry(in.Providers, "target")); len(rows) != 1 || !in.Presence["target"] {
+		t.Fatalf("shared rows/presence narrowed: %v %v", rows, in.Presence)
+	}
+}

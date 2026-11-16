@@ -154,3 +154,26 @@ func TestAnAgentWithNoProfileComposesNoRole(t *testing.T) {
 		t.Fatal("fixture bug: alpha, on a tiered provider, composes no role either")
 	}
 }
+
+func TestAgentEnvScopedViewCannotLeakExcludedRoleAlias(t *testing.T) {
+	packs := []*Pack{rolePack(t, "alpha", ""), gatewayPack(t),
+		modelsPack(t, "policy", `{"kind":"models","provider":"gw","only":["alpha-1"],"agents":["alpha"]}`)}
+	providers, err := ComposeProviders(nil, packs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vars, err := AgentEnv(packs, providers, map[string]string{"alpha": "menu"}, "alpha", "menu",
+		func(string) (string, bool) { return "", false },
+		WithResolvedProfiles(map[string]ResolvedProfile{"menu": {Provider: "gw"}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range vars {
+		if v.Key == "YOLO_MODEL_DEFAULT" && !v.Unset {
+			t.Errorf("excluded beta-2 role leaked: %+v", v)
+		}
+	}
+	if id, _ := stringAt(childMap(providerEntry(providers, "gw"), "models"), "default"); id != "beta-2" {
+		t.Fatalf("fixture has no excluded default: %q", id)
+	}
+}

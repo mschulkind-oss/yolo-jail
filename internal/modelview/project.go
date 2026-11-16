@@ -108,12 +108,11 @@ func agentIDs(views any, agent string) (map[string]bool, bool) {
 		return nil, false
 	}
 	keep := map[string]bool{}
-	if _, structured := objectGet(value, "only"); structured {
-		addIDs(keep, mustObjectGet(value, "only"))
-		addIDs(keep, mustObjectGet(value, "user"))
-		return keep, true
+	if _, structured := objectGet(value, "only"); !structured {
+		return nil, false
 	}
-	addIDs(keep, value)
+	addIDs(keep, mustObjectGet(value, "only"))
+	addIDs(keep, mustObjectGet(value, "user"))
 	return keep, true
 }
 

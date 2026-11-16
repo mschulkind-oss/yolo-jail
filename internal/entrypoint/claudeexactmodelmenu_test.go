@@ -37,11 +37,16 @@ type modelMenuRender struct {
 }
 
 // renderModelMenuCaller runs the boot surface loop and host AgentEnv over the same composed
-// provider table, so deleting either production projection callsite makes these assertions fail.
+// provider table. The excluded-role regression separately pins AgentEnv's pre-Lua projection.
 func renderModelMenuCaller(t *testing.T, agent, scope string, enforce bool) modelMenuRender {
 	t.Helper()
+	return renderModelMenuRoute(t, agent, scope, enforce, false)
+}
+
+func renderModelMenuRoute(t *testing.T, agent, scope string, enforce, bridged bool) modelMenuRender {
+	t.Helper()
 	needs := []string{"bedrock"}
-	if agent == "copilot" {
+	if agent == "copilot" || bridged {
 		needs = append(needs, "wire-bridge")
 	}
 	packs := testPacksForAgent(t, agent, needs...)
@@ -64,7 +69,7 @@ func renderModelMenuCaller(t *testing.T, agent, scope string, enforce bool) mode
 	}
 	enforceModels := enforce
 	via := ""
-	if agent == "copilot" {
+	if agent == "copilot" || bridged {
 		via = "wire-bridge"
 	}
 	resolved, err := resolveShippedProfiles(packs, map[string]packload.UserProfile{
@@ -104,6 +109,7 @@ func renderModelMenuCaller(t *testing.T, agent, scope string, enforce bool) mode
 	case "pi":
 		render.files["pi/settings"] = readRenderedBytes(t, filepath.Join(e.Home, ".pi", "agent", "settings.json"))
 		render.files["pi/models"] = readRenderedBytes(t, piModelsPath(e.Home))
+		render.files["pi/model-lists"] = readRenderedBytes(t, filepath.Join(e.Home, ".pi", "agent", "yolo-model-lists.json"))
 	case "copilot":
 		for _, file := range files {
 			if file.Name == "providers.json" {
@@ -192,6 +198,19 @@ func TestScopedClaudeOnlyLeavesPiAndCopilotRendersByteIdentical(t *testing.T) {
 				if err := json.Unmarshal(before.files["pi/settings"], &settings); err != nil {
 					t.Fatalf("Pi settings are not JSON: %v", err)
 				}
+				var lists map[string]any
+				if err := json.Unmarshal(before.files["pi/model-lists"], &lists); err != nil {
+					t.Fatal(err)
+				}
+				providers, _ := lists["providers"].(map[string]any)
+				native, _ := providers["amazon-bedrock"].(map[string]any)
+				if native["keep_catalog"] != true || native["enforce"] != false {
+					t.Fatalf("native Pi catalog/enforcement changed: %v", native)
+				}
+				models, _ := native["models"].([]any)
+				if len(models) != 10 {
+					t.Errorf("native Pi model-list rows=%d, want 10", len(models))
+				}
 				wantPiIDs := []any{
 					"amazon-bedrock/global.anthropic.claude-fable-5-2",
 					"amazon-bedrock/global.anthropic.claude-haiku-5-5",
@@ -208,6 +227,43 @@ func TestScopedClaudeOnlyLeavesPiAndCopilotRendersByteIdentical(t *testing.T) {
 			if !reflect.DeepEqual(before.env, after.env) || !reflect.DeepEqual(before.vars, after.vars) {
 				t.Errorf("%s host AgentEnv changed under Claude-scoped only: before=%v/%v after=%v/%v",
 					agent, before.env, before.vars, after.env, after.vars)
+			}
+		})
+	}
+}
+
+func TestClaudeScopedOnlyNarrowsBridgedBedrockPicker(t *testing.T) {
+	for _, enforce := range []bool{false, true} {
+		t.Run(map[bool]string{false: "off", true: "on"}[enforce], func(t *testing.T) {
+			got := renderModelMenuRoute(t, "claude", "claude", enforce, true)
+			unscoped := renderModelMenuRoute(t, "claude", "all", enforce, true)
+			if !bytes.Equal(got.files["claude/settings"], unscoped.files["claude/settings"]) {
+				t.Fatalf("bridged scoped/unscoped renders differ")
+			}
+			var settings map[string]any
+			if err := json.Unmarshal(got.files["claude/settings"], &settings); err != nil {
+				t.Fatal(err)
+			}
+			picker, _ := settings["modelPicker"].(map[string]any)
+			options, _ := picker["options"].([]any)
+			ids := []any{}
+			for _, value := range options {
+				row, _ := value.(map[string]any)
+				ids = append(ids, row["model"])
+			}
+			if picker["replaceBuiltInOptions"] != true || !reflect.DeepEqual(ids, claudeExactMenuIDs) {
+				t.Fatalf("bridged picker not exact: %v", picker)
+			}
+			if enforce {
+				if settings["enforceAvailableModels"] != true || !reflect.DeepEqual(settings["availableModels"], claudeExactMenuIDs) {
+					t.Fatalf("bridged allowlist: %v", settings)
+				}
+			} else {
+				for _, key := range []string{"availableModels", "enforceAvailableModels"} {
+					if _, present := settings[key]; present {
+						t.Errorf("off still contains %s", key)
+					}
+				}
 			}
 		})
 	}

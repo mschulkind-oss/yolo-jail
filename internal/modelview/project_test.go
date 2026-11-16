@@ -17,8 +17,8 @@ func TestProjectProviderTableFiltersOnlyTheNamedAgentWithoutMutation(t *testing.
 	options.Set("opus", jsonx.NewOrderedMap())
 	options.Set("custom", jsonx.NewOrderedMap())
 	views := jsonx.NewOrderedMap()
-	views.Set("claude", []any{"fable-id", "opus-id"})
-	views.Set("pi", []any{"custom-id"})
+	views.Set("claude", map[string]any{"only": []any{"fable-id", "opus-id"}})
+	views.Set("pi", map[string]any{"only": []any{"custom-id"}})
 	entry := jsonx.NewOrderedMap()
 	entry.Set("models", models)
 	entry.Set("model_options", options)
@@ -57,7 +57,7 @@ func TestProjectProviderTableFiltersOnlyTheNamedAgentWithoutMutation(t *testing.
 func TestProjectProviderTableStripsUnmatchedViewsAndPreservesIdentityWithoutViews(t *testing.T) {
 	providers := map[string]any{"bedrock": map[string]any{
 		"models": map[string]any{"a": "id-a", "b": "id-b"},
-		ViewsKey: map[string]any{"claude": []any{"id-a"}},
+		ViewsKey: map[string]any{"claude": map[string]any{"only": []any{"id-a"}}},
 	}}
 	projected := ProjectProviderTable(providers, "copilot").(map[string]any)
 	entry := projected["bedrock"].(map[string]any)

@@ -238,7 +238,13 @@ func applyAgentModelViews(out, user *jsonx.OrderedMap, packs []*Pack, note func(
 			}
 		}
 	}
-	for name, shapes := range byProvider {
+	names := make([]string, 0, len(byProvider))
+	for name := range byProvider {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		shapes := byProvider[name]
 		if skip[name] || (restrict != nil && !restrict[name]) {
 			continue
 		}
@@ -269,14 +275,7 @@ func applyAgentModelViews(out, user *jsonx.OrderedMap, packs []*Pack, note func(
 		}
 
 		models := subOrderedOrNil(entry, "models")
-		listed := map[string]bool{}
-		if models != nil {
-			for _, alias := range models.Keys() {
-				if id, ok := stringAt(models, alias); ok {
-					listed[id] = true
-				}
-			}
-		}
+		listed := declaredModelIDs(models)
 		views := subOrdered(entry, ModelsViewsKey)
 		for _, agent := range sortedModelAudiences(shapes, views) {
 			var filters map[string]bool
@@ -324,7 +323,14 @@ func applyAgentModelViews(out, user *jsonx.OrderedMap, packs []*Pack, note func(
 			if len(userIDs) > 0 {
 				view.Set("user", sortedModelIDs(userIDs))
 			}
-			if hasFilter && len(filters) == 0 && len(userIDs) == 0 {
+			keepsListed := false
+			for id := range listed {
+				if filters[id] || userIDs[id] {
+					keepsListed = true
+					break
+				}
+			}
+			if hasFilter && !keepsListed {
 				emit(fmt.Sprintf("provider %q: scoped `only` contributions keep no models for agent %q", name, agent))
 			}
 			views.Set(agent, view)
@@ -500,15 +506,17 @@ func modelEntryFacts(e packdecl.ModelEntry, order int) *jsonx.OrderedMap {
 // or object form, so an `only` note does not call an id nobody added when the user's own
 // config, which writes after it, does.
 func userModelIDs(user *jsonx.OrderedMap, name string) map[string]bool {
-	out := map[string]bool{}
 	entry := providerEntry(user, name)
-	if entry == nil {
-		return out
-	}
-	models := subOrderedOrNil(entry, "models")
+	return declaredModelIDs(subOrderedOrNil(entry, "models"))
+}
+
+// declaredModelIDs uses the readable lowering identity (model or key) and legacy alias id.
+func declaredModelIDs(models *jsonx.OrderedMap) map[string]bool {
+	out := map[string]bool{}
 	if models == nil {
 		return out
 	}
+
 	for _, alias := range models.Keys() {
 		v, _ := models.Get(alias)
 		switch t := v.(type) {
@@ -517,6 +525,9 @@ func userModelIDs(user *jsonx.OrderedMap, name string) map[string]bool {
 		case *jsonx.OrderedMap:
 			if id, ok := stringAt(t, "id"); ok {
 				out[id] = true
+			} else {
+				model, _ := stringAt(t, "model")
+				out[readableModelID(alias, model)] = true
 			}
 		}
 	}

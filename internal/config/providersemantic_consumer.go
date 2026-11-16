@@ -302,6 +302,8 @@ func decodeEffectiveLegacyProviders(composed *jsonx.OrderedMap) ([]packdecl.Prov
 						}
 					}
 				}
+			case packload.ModelsViewsKey:
+				// Composer-owned consumer views do not alter canonical shared declarations.
 			case "models_only":
 				if value == true {
 					differences = append(differences, ProviderModelDifference{Path: path + ".models_only", Reason: "legacy model-list presence enforcement has no provider declaration field"})

@@ -8,7 +8,7 @@ func TestDeriveContextProjectsProviderModelsAndNeverExposesViews(t *testing.T) {
 	providers := map[string]any{"bedrock": map[string]any{
 		"models":        map[string]any{"fable": "fable-id", "opus": "opus-id", "gpt": "gpt-id"},
 		"model_options": map[string]any{"fable": map[string]any{"name": "Fable"}, "gpt": map[string]any{"name": "GPT"}},
-		"models_views":  map[string]any{"claude": []any{"fable-id", "opus-id"}},
+		"models_views":  map[string]any{"claude": map[string]any{"only": []any{"fable-id", "opus-id"}}},
 	}}
 	for _, agent := range []string{"claude", "pi", "copilot"} {
 		t.Run(agent, func(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
 
@@ -68,6 +69,7 @@ func EmptyModelLists(in EmptyModelListInput) []EmptyModelList {
 				profiles = []string{profile}
 			}
 		}
+		projected := modelview.ProjectProviderTable(in.Providers, agent).(*jsonx.OrderedMap)
 		seenProvider := map[string]bool{}
 		for _, profile := range profiles {
 			reach := profileReach(ProfileDisclosureInput{
@@ -80,7 +82,7 @@ func EmptyModelLists(in EmptyModelListInput) []EmptyModelList {
 			if !in.Presence[reach.Provider] {
 				continue
 			}
-			entry := providerEntry(in.Providers, reach.Provider)
+			entry := providerEntry(projected, reach.Provider)
 			if entry == nil {
 				continue
 			}

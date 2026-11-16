@@ -2,15 +2,15 @@
 title: "A models `only` can name the agents it narrows, so one agent's menu goes exact and the others do not move"
 date: 2026-11-16
 status: accepted
-stage: DECIDED
-next: "Planner completes the implementation plan against the tree at or after bec6e62; no ruling is owed"
+stage: BUILT
+next: "Review the repaired candidate, then run the parent-owned combined gates and scoped jail probe"
 tags: [providers, models, pickers, packs, bedrock, claude, audience]
 summary: "An `agents` audience on a `models` contribution's `only`, carried as one composer-owned fact and applied per agent where a derive context is built. Claude's Bedrock menu becomes exact; the shared provider table and every other agent's render stay byte-identical."
 ---
 
 # A models `only` can name the agents it narrows, so one agent's menu goes exact and the others do not move
 
-**Status:** 2026-11-16. Implemented in the isolated candidate at `bec6e62042b5e65e762ca40171444c701f8bc341` plus one feature commit; unit rendering/composition and focused package checks pass. Independent review, the full CI landing gate and nested-jail launch verification remain outstanding. Historical user renders are distinguished from current candidate evidence in [§7](#7-acceptance-tests).
+**Status:** 2026-11-16. Implemented in the isolated candidate, with focused repairs over `261b1aad96ea2bde781b83e941b4edf3338dc781`. Production-caller regressions cover readable user rows, helper-context projection, legacy config editing, host launch selection, native and bridged Claude menus, and unchanged Pi catalog behavior. Independent repair review, the combined CI/integration gates and a scoped-feature jail probe remain outstanding. Current candidate evidence is distinguished from historical requester renders in [§7](#7-acceptance-tests).
 
 **Disposition:** IMPLEMENT
 
@@ -191,7 +191,7 @@ Fixture: a `bedrock` provider with ten declared rows, four of them Anthropic (th
 1. Claude's settings on native Bedrock hold exactly the four rows in provider order (Fable 5.2, Haiku 5.5, Opus 5.5, Sonnet 5.5) with `replaceBuiltInOptions: true`.
 2. With `enforce_models = false`, the same picker renders, and `availableModels` and `enforceAvailableModels` are absent.
 3. With enforcement on, `availableModels` holds the four ids, default first, and `enforceAvailableModels` is true.
-4. `pi`, `pi/models`, `pi/settings` and the Copilot surface are byte-identical with and without the contribution. The current candidate fixture supplies ten rows through a company `models.add`; Pi keeps all ten, and `TestScopedClaudeOnlyLeavesPiAndCopilotRendersByteIdentical` compares its exact rendered bytes. It renders ten explicit `amazon-bedrock/<id>` `enabledModels` entries and no `YOLO_PI_MODEL_LISTS` file in this harness. The request's historical baseline reported `amazon-bedrock/*`, `keep_catalog:true`, and `enforce:false`; that setup is not reproduced by this company-add fixture. Current source behavior is pinned by `TestPiOnBedrockUsesItsOwnConverseClient` in `internal/entrypoint/bedrock_pi_test.go`: a supplied callable native Bedrock list is explicit, while the no-list fallback is a wildcard. Do not change Pi to recreate the historical render.
+4. `pi`, `pi/models`, `pi/model-lists`, `pi/settings` and the Copilot surface are byte-identical with and without the contribution. The company-add fixture supplies ten rows. Pi keeps ten explicit `amazon-bedrock/<id>` enabled models, and its native model-list artifact has `keep_catalog:true` and `enforce:false`. The request's historical `amazon-bedrock/*` enabled-model baseline is not reproduced by this fixture; current no-list fallback remains `amazon-bedrock/**`. Do not change Pi to recreate a historical render.
 5. The composed provider table, with the view key removed, is byte-identical with and without the contribution.
 6. Claude's render with the scoped `only` equals Claude's render with the same `only` unscoped.
 7. On bridged Bedrock, Claude's picker holds the four rows, and the bridge's allowlist is unchanged from the no-contribution case.
@@ -211,7 +211,7 @@ Fixture: a `bedrock` provider with ten declared rows, four of them Anthropic (th
 - **R5. A user-overridden alias.** Where the user re-points a pack's alias at another id, the view keeps the merged facts for that alias. An unscoped `only` would have dropped the pack's facts first. The difference is confined to facts on that one alias.
 - **R6. Selected provider, empty list.** If the provider exists but nothing declares the ids (a fetched list only), today's dropped-id notes fire for a scoped `only` as they do for an unscoped one. The request asks for silence only when the provider is absent.
 - **R7. Fetched rows and the view.** Where a fetched Bedrock list joins the table relative to the projection was not read. The rule is that the projection applies to whatever rows the table holds when the derive context is built.
-- **R8. No live model call.** The candidate is exercised through unit boot rendering and host `AgentEnv`; `TestBedrockRendersEachAgentsOwnClient` also passed, and the matched development bundle completed one nested `podman-self` launch of `true` from a throwaway workspace. That smoke used no packs, so it verifies bundle boot/cleanup, not the scoped feature in a jail. No live agent, model or AWS call was made. The request's earlier live renders remain requester evidence, not candidate evidence.
+- **R8. No live model call.** Candidate boot rendering and host launch selection are exercised without starting coding agents or calling model/AWS APIs. The matched development bundle's earlier no-pack nested launch verifies boot/cleanup only. A selected-pack scoped-feature jail render and the combined CI/integration gates remain parent-owned verification gaps; requester live renders are not candidate evidence.
 
 ## 9. Decision ledger
 

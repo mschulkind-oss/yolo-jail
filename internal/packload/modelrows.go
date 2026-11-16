@@ -179,10 +179,7 @@ func composeProviderModels(provider packdecl.ProviderContribution, catalog map[s
 		state[id] = 1
 		// The id the row lists: its `model`, else its key (MF-D1). The catalog, the maker and the
 		// wire id follow from it, never from a name.
-		listed := row.Model
-		if listed == "" {
-			listed = id
-		}
+		listed := readableModelID(id, row.Model)
 		facts := packdecl.ProviderModel{}
 		compactAt := int64(0)
 		if catalogFacts, ok := catalog[listed]; ok {
@@ -672,4 +669,12 @@ func modelRowValue(value any) any {
 	default:
 		return value
 	}
+}
+
+// readableModelID is the listed identity of a readable row (MF-D1), before wire routing.
+func readableModelID(key, model string) string {
+	if model != "" {
+		return model
+	}
+	return key
 }

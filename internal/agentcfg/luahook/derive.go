@@ -431,6 +431,17 @@ func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSes
 		return nil, fmt.Errorf("luahook: nil derive ctx")
 	}
 
+	// One per-agent context for Lua and Go helpers; never mutate the caller's tables.
+	projectedCtx := *ctx
+	projectedCtx.Tables = make(map[string]map[string]any, len(ctx.Tables))
+	for source, table := range ctx.Tables {
+		projectedCtx.Tables[source] = table
+	}
+	if table := ctx.Tables[sourceProviders]; table != nil {
+		projectedCtx.Tables[sourceProviders] = modelview.ProjectProviderTable(table, ctx.Agent).(map[string]any)
+	}
+	ctx = &projectedCtx
+
 	L := lua.NewState(lua.Options{SkipOpenLibs: true})
 
 	timeout := vm.Timeout
@@ -794,14 +805,6 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		table := ctx.Tables[src]
 		if table == nil {
 			table = map[string]any{}
-		}
-		if src == sourceProviders {
-			// This is the per-agent derive boundary: shared provider consumers never receive
-			// an agent view, and the composer-owned key cannot leak into an agent config.
-			projected, ok := modelview.ProjectProviderTable(table, ctx.Agent).(map[string]any)
-			if ok {
-				table = projected
-			}
 		}
 		if src == sourceMCPServers {
 			eligible := eligibleMCPServers(eligibleRemoteMCPServers(table, ctx.RemoteMCPTransports), have)

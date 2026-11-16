@@ -1,8 +1,8 @@
 ---
 title: "Build plan: agent-scoped exact model menus"
 status: accepted
-stage: DECIDED
-next: "Review the committed candidate; parent owns the combined landing gate"
+stage: BUILT
+next: "Review the repaired candidate; parent runs the combined landing gate and scoped jail feature probe"
 depends-on:
   - claude-exact-model-menu.md
   - claude-exact-model-menu-grounding.md
@@ -12,7 +12,7 @@ summary: "Tree-grounded implementation handoff for the accepted agent-scoped mod
 
 # Plan: agent-scoped exact model menus
 
-**Status:** 2026-11-16. Implementation and focused verification completed against `bec6e62042b5e65e762ca40171444c701f8bc341`; candidate commit and reviewer/parent gates are recorded in the final receipt. The historical Pi wildcard/`keep_catalog` fixture expectation was corrected to current-source behavior in the design's [§7](./claude-exact-model-menu.md#7-acceptance-tests) and grounding evidence.
+**Status:** 2026-11-16. Implementation plus focused diagnostic repairs completed over `261b1aad96ea2bde781b83e941b4edf3338dc781`. The repaired candidate pins readable/legacy user-last rows, Lua/Go helper agreement, legacy config-editor callers, excluded host role aliases, deterministic/empty diagnostics, per-program empty-list inspection, bridged Claude rendering, native Pi catalog/non-enforcement and host launch selection. Review and final combined gates remain parent-owned. Current-source Pi evidence is recorded in the design's [§7](./claude-exact-model-menu.md#7-acceptance-tests) and grounding.
 **Design:** [`claude-exact-model-menu.md`](claude-exact-model-menu.md). **Source grounding:** [`claude-exact-model-menu-grounding.md`](claude-exact-model-menu-grounding.md).
 
 **Precedence:** the design controls behavior; the tree controls facts; this plan is advice. Do not twist code to match a stale map. Stop and report if a required regression does not go red, a named symbol is gone, or implementation would cross this file map.
@@ -26,7 +26,7 @@ summary: "Tree-grounded implementation handoff for the accepted agent-scoped mod
 | `internal/packload/modellists.go` | collect scoped-only facts without changing shared rows/order/`models_only`; record view after user merge; retain existing unscoped path. |
 | `internal/packload/providers.go`, `providerinherits.go` | integrate post-user scoped view composition with parent/child composition and strip it from typed declarations. |
 | `internal/modelview/` (new) | pure projection of generic/composed provider tables; strips the composer key for every agent and narrows only matching agent. |
-| `internal/agentcfg/luahook/derive.go` | apply projection while assembling each Lua context, before any surface or env derive can see the table. |
+| `internal/agentcfg/luahook/derive.go` | project into a shallow per-agent session context before Lua and Go helpers read providers. |
 | `internal/packload/deriveenv.go`, `unnarrowedmenus.go` | project before host role-variable selection and evaluate enforcement-off menu state for the appropriate agent. |
 | `internal/packdecl/models_test.go`, `internal/packload/modellists_test.go`, `internal/packload/providerinherits_test.go` | permanent source-named validation, composition, intersection, alias/order and inheritance coverage. |
 | `internal/modelview/*_test.go`, `internal/agentcfg/luahook/*_test.go` | projection purity/no-mutation and actual derive-boundary key-stripping checks. |
@@ -42,7 +42,7 @@ summary: "Tree-grounded implementation handoff for the accepted agent-scoped mod
 - `packload.ModelsOnlyKey`, `WithModelNotes`, `userModelIDs`, `model_options`, and `jsonx.DeepCopy` are the existing model facts and note conventions.
 - `ComposeProviderDeclarations` already removes composer-only facts; add the view key to that same boundary.
 - `entrypoint.renderClaudeModels` / `ConfigurePackSurfaces` fixtures in `claudemodelpins_test.go`, plus `companyModelsPack` and `testPacksForAgent` in `modelsonlyagents_test.go`, already drive shipped derives through real rendering paths.
-- `luahook.buildDeriveCtxTable` is the shared derivation context assembly point; put the projection there, not in `packs/claude/derive.lua` or individual agent derives.
+- `luahook.newDeriveSession` is the shared session boundary; project its shallow context copy so both Lua and Go helpers read the same tables, not just the Lua marshal in `buildDeriveCtxTable`. Never put the projection in individual agent derives.
 
 ## Traps
 
@@ -90,3 +90,10 @@ summary: "Tree-grounded implementation handoff for the accepted agent-scoped mod
 - No config key, migration, shipped manifest, changelog, generated file, live permission or wire schema changes.
 - No edits to pack derives; no provider-per-agent table composition; no CLI additions; no agent-scoped `add`.
 - Full landing gate, mandatory nested-jail launch verification and final combined integration run remain parent serial gates; do not duplicate the slow full suite here.
+
+## Repair verification and parent-owned completion
+
+- Tests-first red cases: readable/model-key user precedence and false notes, excluded Pi default through the shipped derive, legacy semantic inputs and config-editor callers, and per-program empty-list inspection.
+- Bounded external overlays remove the production `AgentEnv` projection and the session projection separately: the excluded-role test and existing Claude production render test fail respectively. The host launch-selection test also fails without session projection.
+- [`scopedmodelview_test.go`](../../internal/cli/scopedmodelview_test.go) checks the actual pack-lint verb, config set/add/unset and host launch's generated Pi session-home settings at its stubbed exec. No coding agent is run.
+- The parent must regenerate the completion census for the new out-of-package test readers, run the combined landing gates/full launch-path integration, and use its emitted launcher for selected-pack scoped jail rendering. No-pack smoke does not satisfy that feature probe.
