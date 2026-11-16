@@ -64,9 +64,6 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	if request.Workspace == "" || request.StoreDir == "" {
 		return result, errors.New("workspace and object store are required")
 	}
-	if request.Revision == "" && request.Ref == "" {
-		return result, errors.New("a full revision or ref is required")
-	}
 	if request.Revision != "" && !validObjectID(request.Revision) {
 		return result, errors.New("revision must be a full hexadecimal Git object id")
 	}
@@ -186,11 +183,11 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	resolvedRef := ""
 	commit := request.Revision
 	if commit == "" {
-		refs, err := listImportRefs(ctx, scratch, remote, gitEnv)
+		refs, defaultRef, err := listImportRefs(ctx, scratch, remote, gitEnv)
 		if err != nil {
 			return result, err
 		}
-		resolvedRef, commit, err = selectImportRef(request.Ref, refs)
+		resolvedRef, commit, err = selectImportRef(request.Ref, refs, defaultRef)
 		if err != nil {
 			return result, err
 		}
@@ -299,26 +296,48 @@ type importRef struct {
 	sha  string
 }
 
-func listImportRefs(ctx context.Context, scratch, remote string, env []string) ([]importRef, error) {
-	output, err := runImportGit(ctx, env, "-C", scratch, "ls-remote", "--refs", remote)
+func listImportRefs(ctx context.Context, scratch, remote string, env []string) ([]importRef, string, error) {
+	output, err := runImportGit(ctx, env, "-C", scratch, "ls-remote", "--symref", remote)
 	if err != nil {
-		return nil, fmt.Errorf("list skill repository refs through the Git broker: %w", err)
+		return nil, "", fmt.Errorf("list skill repository refs through the Git broker: %w", err)
 	}
+	return parseImportRefs(output)
+}
+
+func parseImportRefs(output string) ([]importRef, string, error) {
 	var refs []importRef
+	defaultRef := ""
 	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
 		if line == "" {
 			continue
 		}
-		sha, name, ok := strings.Cut(line, "\t")
-		if !ok || !validObjectID(sha) || name == "" {
-			return nil, fmt.Errorf("Git broker returned a malformed ref advertisement %q", line)
+		if strings.HasPrefix(line, "ref: ") {
+			fields := strings.Fields(strings.TrimPrefix(line, "ref: "))
+			if len(fields) != 2 || fields[1] != "HEAD" || !strings.HasPrefix(fields[0], "refs/heads/") || defaultRef != "" {
+				return nil, "", fmt.Errorf("Git broker returned a malformed default-branch advertisement %q", line)
+			}
+			defaultRef = fields[0]
+			continue
 		}
-		refs = append(refs, importRef{name: name, sha: sha})
+		fields := strings.Fields(line)
+		if len(fields) != 2 || !validObjectID(fields[0]) || fields[1] == "" {
+			return nil, "", fmt.Errorf("Git broker returned a malformed ref advertisement %q", line)
+		}
+		if fields[1] == "HEAD" {
+			continue
+		}
+		refs = append(refs, importRef{name: fields[1], sha: fields[0]})
 	}
-	return refs, nil
+	return refs, defaultRef, nil
 }
 
-func selectImportRef(requested string, refs []importRef) (string, string, error) {
+func selectImportRef(requested string, refs []importRef, defaultRef string) (string, string, error) {
+	if requested == "" {
+		if !strings.HasPrefix(defaultRef, "refs/heads/") {
+			return "", "", errors.New("the remote did not advertise a default branch; pass --ref <branch> and try again")
+		}
+		requested = defaultRef
+	}
 	if strings.HasPrefix(requested, "refs/") {
 		for _, ref := range refs {
 			if ref.name == requested {

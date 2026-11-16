@@ -92,6 +92,7 @@ var commandHelp = []struct{ name, blurb string }{
 	// config", not "add an agent" — a pack cannot install an agent yet (see packUsage),
 	// and a blurb promising otherwise sends people down a path that does not exist.
 	{"pack", "Add shared skills and agent config via packs: 'pack --help', 'ls', 'install'"},
+	{"skills", "Import third-party Git skills through this workspace's approved Git broker"},
 	{"capture", "Record a vendor installer's output once per machine, for reuse by every jail"},
 	// In-jail only, and the blurb says so: the programs it reports on live in a
 	// jail's per-workspace home, and on the host every one of them would read as

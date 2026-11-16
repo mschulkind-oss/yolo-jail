@@ -2,13 +2,13 @@
 title: Workspace Git skills implementation plan
 status: accepted
 stage: DECIDED
-next: Implement Task 1 serially from this plan; stop on any non-cosmetic tree disagreement
+next: Implementation tasks 1–4 are complete in serial commits; run the final verification gates and review before landing.
 depends-on: []
 ---
 
 # Workspace Git skills implementation plan
 
-**Written against** `b5769ecb393f234c2c36d46750d50b6d8cf4dae2`, 2026-11-16. The tree facts below were checked at that HEAD; this plan is the first implementation hand-off, not evidence that code or tests exist.
+**Written against** `b5769ecb393f234c2c36d46750d50b6d8cf4dae2`, 2026-11-16. The tree facts below were checked at that HEAD; the implementation now follows the four serial task commits below, and this plan remains the verification map.
 
 **Design:** [`workspace-git-skills.md`](workspace-git-skills.md), accepted / DECIDED. It owns behavior; this plan owns the build map. **Reads with:** [`config-approval-presentation-plan.md`](config-approval-presentation-plan.md), whose approval behavior and task sequence remain independent. Its config-key label coverage and any shared paths must be landed/rebased serially as specified in [the fence](#cross-feature-fence-config-approval-presentation).
 

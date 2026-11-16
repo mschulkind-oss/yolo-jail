@@ -181,6 +181,21 @@ func optionalString(entry *jsonx.OrderedMap, key string) (value string, present,
 	return value, true, valid
 }
 
+// ValidSkillImportHandle reports whether a table key satisfies the workspace import handle rules.
+func ValidSkillImportHandle(name string) bool { return validSkillImportHandle(name) }
+
+// ValidateSkillImportDeclaration applies the same offline field validation used by workspace config
+// validation to one proposed command-created entry.
+func ValidateSkillImportDeclaration(handle string, entry *jsonx.OrderedMap) []string {
+	imports := jsonx.NewOrderedMap()
+	imports.Set(handle, entry)
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("skill_imports", imports)
+	var errs []string
+	validateSkillImports(cfg, &errs)
+	return errs
+}
+
 func validSkillImportHandle(name string) bool {
 	return name != "" && name != "." && name != ".." && strings.TrimSpace(name) == name && !strings.ContainsAny(name, `\\:/?#`)
 }

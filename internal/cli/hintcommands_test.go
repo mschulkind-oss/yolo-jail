@@ -94,6 +94,7 @@ type verbDispatcher struct {
 // The verbs themselves are read from that source; this table only says where to look.
 var verbDispatchers = map[string]verbDispatcher{
 	"pack":         {"internal/cli", "packMain", "args[0]", ""},
+	"skills":       {"internal/cli", "skillsMain", "args[0]", ""},
 	"host":         {"internal/cli", "hostMain", "args[0]", ""},
 	"programs":     {"internal/cli", "programsMain", "args[0]", ""},
 	"config":       {"internal/cli", "configRunW", "verb", "configColorVerbs"},

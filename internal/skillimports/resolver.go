@@ -49,7 +49,7 @@ func (s *Store) Resolve(ctx context.Context, entry config.SkillImport, authority
 
 func (s *Store) resolveWithFetcher(ctx context.Context, entry config.SkillImport, authority Authority,
 	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error)) (Resolution, error) {
-	if err := validateEntry(entry); err != nil {
+	if err := validateResolveEntry(entry); err != nil {
 		return Resolution{}, err
 	}
 	if fetch == nil {
@@ -175,8 +175,17 @@ func (s *Store) fetchAndRecord(ctx context.Context, entry config.SkillImport, au
 	if err != nil {
 		return Resolution{}, err
 	}
+	ref := entry.Ref
+	if ref == "" && entry.Rev == "" {
+		switch {
+		case strings.HasPrefix(fetched.ResolvedRef, "refs/heads/"):
+			ref = strings.TrimPrefix(fetched.ResolvedRef, "refs/heads/")
+		case strings.HasPrefix(fetched.ResolvedRef, "refs/tags/"):
+			ref = strings.TrimPrefix(fetched.ResolvedRef, "refs/tags/")
+		}
+	}
 	record := Resolution{
-		Version: resolutionVersion, Handle: entry.Handle, Git: entry.Git, Rev: entry.Rev, Ref: entry.Ref,
+		Version: resolutionVersion, Handle: entry.Handle, Git: entry.Git, Rev: entry.Rev, Ref: ref,
 		ResolvedRef: fetched.ResolvedRef, Repo: repo, Commit: fetched.Commit,
 		AccessClass: fetched.AccessClass, ResolvedAt: time.Now().UTC(),
 	}
@@ -186,8 +195,19 @@ func (s *Store) fetchAndRecord(ctx context.Context, entry config.SkillImport, au
 	return record, nil
 }
 
+func validateResolveEntry(entry config.SkillImport) error {
+	if !validHandle(entry.Handle) || entry.Git == "" || entry.Rev != "" && !validObjectID(entry.Rev) ||
+		entry.Ref != "" && !validImportRef(entry.Ref) {
+		return errors.New("a valid skill import declaration is required")
+	}
+	if _, err := gitproto.Identity(entry.Git); err != nil {
+		return errors.New("a valid broker-supported Git URL is required")
+	}
+	return nil
+}
+
 func validateEntry(entry config.SkillImport) error {
-	if entry.Handle == "" || entry.Git == "" || entry.Rev == "" && entry.Ref == "" {
+	if err := validateResolveEntry(entry); err != nil || entry.Rev == "" && entry.Ref == "" {
 		return errors.New("a valid skill import declaration is required")
 	}
 	return nil

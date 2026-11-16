@@ -194,26 +194,43 @@ func (o *Options) projectSkillImports(cfg *jsonx.OrderedMap, ws **jailcontent.Wo
 // the selected packs in config order, then the rest of the shipped packs by name, each pack's own
 // paths in its agent's precedence order, each path at its first appearance.
 func workspaceSkillDirs(selected []*packload.Pack) []string {
+	shipped := append([]*packload.Pack(nil), packload.Embedded()...)
+	sort.SliceStable(shipped, func(i, j int) bool { return shipped[i].Name < shipped[j].Name })
+	var shippedDirs [][]string
+	for _, pack := range shipped {
+		if pack != nil && pack.Decl != nil {
+			shippedDirs = append(shippedDirs, pack.Decl.ProjectSkillDirs())
+		}
+	}
+	return mergeWorkspaceSkillDirs(selected, shippedDirs)
+}
+
+func workspaceSkillDirsForInventory(selected []*packload.Pack) ([]string, error) {
+	shipped, err := packload.EmbeddedProjectSkillDirs()
+	if err != nil {
+		return nil, err
+	}
+	return mergeWorkspaceSkillDirs(selected, [][]string{shipped}), nil
+}
+
+func mergeWorkspaceSkillDirs(selected []*packload.Pack, shipped [][]string) []string {
 	var out []string
 	seen := map[string]bool{}
-	add := func(p *packload.Pack) {
-		if p == nil || p.Decl == nil {
-			return
-		}
-		for _, d := range p.Decl.ProjectSkillDirs() {
-			if !seen[d] {
-				seen[d] = true
-				out = append(out, d)
+	add := func(dirs []string) {
+		for _, dir := range dirs {
+			if !seen[dir] {
+				seen[dir] = true
+				out = append(out, dir)
 			}
 		}
 	}
-	for _, p := range selected {
-		add(p)
+	for _, pack := range selected {
+		if pack != nil && pack.Decl != nil {
+			add(pack.Decl.ProjectSkillDirs())
+		}
 	}
-	shipped := append([]*packload.Pack(nil), packload.Embedded()...)
-	sort.SliceStable(shipped, func(i, j int) bool { return shipped[i].Name < shipped[j].Name })
-	for _, p := range shipped {
-		add(p)
+	for _, dirs := range shipped {
+		add(dirs)
 	}
 	return out
 }

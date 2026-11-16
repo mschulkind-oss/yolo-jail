@@ -95,9 +95,9 @@ func TestTheJailStagesPackSkillsThroughTheHostComposer(t *testing.T) {
 		"ComposeInto": {"composeSkillLayers"},
 		// The staging refuses a collision over the WHOLE plan before any destination is touched,
 		// as RenderHostSkills does; the launch's pre-flight calls the same function from run.
-		"SkillCollisionError": {"PrepareSkillsWithFactSheet", "PrepareSkillsWithLegacyMechanics"},
-		// One plan, read by the collision check and each fact-driven/legacy staging path.
-		"SkillPlan": {"PrepareSkillsWithFactSheet", "PrepareSkillsWithLegacyMechanics", "SkillCollisionError"},
+		"SkillCollisionError": {"InspectImportedSkillShadows", "PrepareSkillsWithFactSheet", "PrepareSkillsWithLegacyMechanics"},
+		// One plan, read by the read-only inventory, collision check, and each fact-driven/legacy staging path.
+		"SkillPlan": {"InspectImportedSkillShadows", "PrepareSkillsWithFactSheet", "PrepareSkillsWithLegacyMechanics", "SkillCollisionError"},
 	} {
 		if strings.Join(got[callee], ",") != strings.Join(want, ",") {
 			t.Errorf("%s is called from %v, want exactly %v", callee, got[callee], want)

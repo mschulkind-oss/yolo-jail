@@ -30,6 +30,7 @@ var registry = map[string]func(args []string) int{
 	"host":             runHost,
 	"check-deps":       runCheckDeps,
 	"pack":             runPack,
+	"skills":           runSkillsVerb,
 	"capture":          runCapture,
 	"config-ref":       runConfigRef,
 	"features":         runFeatures,

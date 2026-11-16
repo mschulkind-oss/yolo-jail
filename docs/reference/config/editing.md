@@ -20,7 +20,7 @@ covers:
   - internal/cli/requestrepos.go
   - internal/cli/activeprovider.go
   - internal/cli/configwhy.go
-  - internal/cli/surfacecmd.go
+  - internal/cli/skills.go
 tags: [config, cli, editing, splice, toml, jsonc, reference]
 summary: "Which command writes which part of yolo's config, which file it writes, and what the write does to the bytes: one hunk, every other byte untouched, verified after the write and checked by yolo config check. Also the inspection verbs, and why agent surfaces are yolo surface, not yolo config."
 ---
@@ -42,6 +42,11 @@ fix when a line is wrong ([validation.md](validation.md)).
 | Command | Writes | What it does beyond the text |
 | :--- | :--- | :--- |
 | `yolo pack add <entry>`, `yolo pack remove <entry>` | user `packs` | resolves the source, refuses a duplicate, says when it is read |
+| `yolo skills add <url> [--as <handle>] [--ref <ref>] [--track] [--path <dir>] [--only a,b]` | project `[skill_imports.<handle>]` and the host resolution record/store | fetches through the workspace Git broker; defaults to the remote's advertised branch and pins the resolved commit unless `--track`; the default handle is the final repository component with one `.git` suffix removed |
+| `yolo skills update [<handle>]` | host resolution record/store; workspace config only for a labeled pinned entry | refreshes entries with valid records; a pinned entry with a `ref` label updates its `rev`, a moving ref refreshes its record, and an unlabeled pin is left alone |
+| `yolo skills pin <handle>` | project `[skill_imports.<handle>]` | writes the recorded commit as `rev` without network access; needs a valid resolution record |
+| `yolo skills list` | nothing | host shows resolution/store state, selected skill names and exact per-destination shadows; in a jail it shows declarations only |
+| `yolo skills remove <handle>` | project `[skill_imports]` | removes only the config entry; the host object store and resolution record remain |
 | `yolo allow <source> [always\|on_request] <capability>` | user `[allow.<source>]` | then offers this workspace's approval through the gate `yolo config apply` runs |
 | `yolo allow repos <alias> <host>/<path>`, `yolo allow repos.<alias>.<source> …` | user `[repos.<alias>]` and its ceiling | |
 | `yolo request <source> <capability> [resource]` | project `[requests.<source>]` | runs `yolo check` and names the host step that approves it |
@@ -63,7 +68,10 @@ verb. Advice that names a verb is pinned against the verbs themselves
 
 **Inside a jail.** A command that writes the user config (`yolo allow`, `yolo active-provider`,
 `yolo pack add`, a user-scope `config set`) is refused with the line for the human to run on the
-host. `yolo request` and project-scope edits run, and land at the next `yolo config apply` or launch
+host. `yolo skills add`, `update` and `pin` are also host-only; they print one host-run line and do
+nothing in the jail because their fetch and resolution state are host-owned. `yolo skills remove`
+remains a project-config edit, and `yolo skills list` shows declarations only; both run in the jail.
+`yolo request` and other project-scope edits run, and land at the next `yolo config apply` or launch
 through the config-change prompt.
 
 **After the write.** A project edit reaches the jail through the same y/N gate as any project

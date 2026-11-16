@@ -49,6 +49,87 @@ type ProjectionBudget struct {
 	entries int
 }
 
+// Inspection is the host-only, read-only summary used by `yolo skills list`.
+type Inspection struct {
+	CurrentAccess string
+	Allowed       bool
+	Resolution    Resolution
+	HasResolution bool
+	CommitStored  bool
+	Skills        []string
+	Unimported    []string
+}
+
+// Inspect reports what a valid current record would project without creating scratch files,
+// changing records, or contacting a remote.
+func (s *Store) Inspect(entry config.SkillImport, authority Authority) (Inspection, error) {
+	var out Inspection
+	if err := validateEntry(entry); err != nil {
+		return out, err
+	}
+	access, allowed, err := gitbroker.DecideImportAccess(entry.Git, authority.ApprovedRemotes,
+		authority.CurrentRemotes, authority.ApprovedGrants, authority.CurrentGrants)
+	if err != nil {
+		return out, err
+	}
+	out.CurrentAccess, out.Allowed = access, allowed
+	record, ok := s.Resolution(entry.Handle, entry)
+	if !ok {
+		return out, nil
+	}
+	out.Resolution, out.HasResolution = record, true
+	out.CommitStored = s.HasCommit(record.Commit)
+	if !allowed || !out.CommitStored || !cacheAccessAllows(record.AccessClass, access) {
+		return out, nil
+	}
+	treeID, err := s.gitOutput("rev-parse", "--verify", record.Commit+":"+entry.Path)
+	if err != nil {
+		return out, nil
+	}
+	listing, err := s.gitLimited(maxTreeListingBytes, "ls-tree", "-z", strings.TrimSpace(treeID))
+	if err != nil {
+		return out, nil
+	}
+	directories, _, err := immediateSkillTrees(listing)
+	if err != nil {
+		return out, nil
+	}
+	entries := map[string]bool{}
+	for _, raw := range bytes.Split(listing, []byte{0}) {
+		if len(raw) == 0 {
+			continue
+		}
+		item, ok := parseTreeEntry(string(raw))
+		if !ok {
+			return out, nil
+		}
+		entries[safeProjectionName(item.name)] = true
+	}
+	selected := map[string]bool{}
+	if entry.OnlySet {
+		for _, name := range entry.Only {
+			if _, ok := directories[name]; ok {
+				selected[name] = true
+			}
+		}
+	} else {
+		for name := range directories {
+			selected[name] = true
+		}
+	}
+	for name := range selected {
+		out.Skills = append(out.Skills, name)
+	}
+	sort.Strings(out.Skills)
+	for name := range entries {
+		if !selected[name] {
+			out.Unimported = append(out.Unimported, name)
+		}
+	}
+	sort.Strings(out.Unimported)
+	return out, nil
+}
+
 // ProjectionRefusal is a fixed reason and safe source label suitable for a launch disclosure.
 type ProjectionRefusal struct {
 	Path   string

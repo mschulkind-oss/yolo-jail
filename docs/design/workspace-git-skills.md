@@ -2,7 +2,7 @@
 title: Workspace Git skills use the broker, not unfettered credentials
 status: accepted
 stage: DECIDED
-next: Implement serially from workspace-git-skills-plan.md; nothing is built.
+next: Implemented in commits 0a49b801, 643ff063, a9c186c6 and the current CLI slice; complete the required landing gates and review.
 depends-on: []
 evidence-date: 2026-11-16
 evidence-snapshot: HEAD @ fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece
@@ -10,7 +10,8 @@ evidence-snapshot: HEAD @ fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece
 
 # Workspace Git skills use the broker, not unfettered credentials
 
-**Status:** 2026-11-16 (`fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece`). The owner rulings are recorded in the [ledger](#12-decision-ledger), and no owner ruling is pending. The command-context contradiction U7 ([§11](#11-code-checks)) is closed by designer recommendation WGS-P15: the commands that fetch or touch host-owned state run on the host, and inside a jail they print the established host-run line and change nothing ([§4.2](#42-cli), [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). Nothing is built.
+**Status:** 2026-11-16 (`fec51d3229693bf65aa3fbf2bd2dd4ca8a7b5ece`). The owner rulings are recorded in the [ledger](#12-decision-ledger), and no owner ruling is pending. The command-context contradiction U7 ([§11](#11-code-checks)) is closed by designer recommendation WGS-P15: the commands that fetch or touch host-owned state run on the host, and inside a jail they print the established host-run line and change nothing ([§4.2](#42-cli), [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker)). The config, brokered state, confined staging and public command group are implemented in commits `0a49b801`, `643ff063`, `a9c186c6` and the current CLI slice; final gates and review remain.
+
 
 > **In short.** A workspace may select Git skill directories by immutable commit or moving ref, and receive those skills—and nothing else—inside the jail. Resolution must use this workspace’s existing Git-broker access filter; it cannot exercise unfettered host credentials.
 
@@ -145,7 +146,7 @@ The `git+…//subdir?ref=…` address form used by packs is not accepted here. S
 
 ### 4.2 CLI
 
-The `yolo skills` command group and both config keys are proposed names; none is registered in the current CLI or schema ([§11](#11-code-checks)).
+The `yolo skills` command group and both config keys are implemented in the current tree ([§11](#11-code-checks)).
 
 | Command | Effect when run on the host | Inside a jail |
 |---|---|---|
@@ -154,6 +155,8 @@ The `yolo skills` command group and both config keys are proposed names; none is
 | `yolo skills pin <handle>` | Turns a moving-ref entry into a pinned one by writing the commit in its valid resolution record as `rev` in the workspace config and keeping `ref` as the label. With no valid record it writes nothing and says the import resolves at the next fresh launch. No network; host state is read, not written. | Prints the host-run line. Nothing is written. |
 | `yolo skills list` | Per import: mode, configured ref, recorded commit and when it was resolved, access class, whether the commit is in the import store, skills that would be delivered, names shadowed, and visible paths that are not imported. No network, no writes. | Prints each declared import from the workspace config (handle, repository, mode, `ref`/`rev`, `path`, `only`), states that resolved commits and store state are host-side and not visible from inside a jail, and prints the host-run line for the full view. No network, no writes. |
 | `yolo skills remove <handle>` | Deletes the entry from the workspace config. The import store and resolution record are left alone ([§10](#10-migration)); a record with no matching entry is ignored. | The same: a workspace-scope config edit, which a jail may already make. Host state is not touched. |
+
+Without `--as`, the default handle is derived from the validated URL's final non-empty repository path component: one terminal `.git` suffix is removed, and the remaining spelling is preserved. If the URL has no valid component, the command refuses before any fetch or write and suggests `--as <handle>`. An explicit handle is validated by the same rules; an existing handle is refused before effects.
 
 Pinning is the default for `add` because a pin is reproducible and visible in review. Tracking is one flag away, since the owner allows both.
 
@@ -511,14 +514,14 @@ The evidence packet named four points to verify. U1–U4 are resolved against th
 | Check | Finding and design consequence |
 |---|---|
 | U1 — config confirmation | The launch gate strictly reads workspace config, including consumed local overrides/includes, and compares it with the stored snapshot. It prompts for a non-empty first config or a changed config, but an empty first config is recorded silently, unchanged config is silent, and `--accept-config-changes` accepts without an interactive answer. Therefore imports resolve only after the gate passes; the design does not claim a prompt on every first launch or before every host-side effect. See [`gateread.go`](../../internal/config/gateread.go), [`snapshot.go`](../../internal/config/snapshot.go), and [`preflight.go`](../../internal/cli/run/preflight.go). |
-| U2 — names | No `skills` command is registered, and neither `skill_imports` nor `workspace_skill_imports` is a current config key. These remain proposed names, not existing user surface. See [`dispatch.go`](../../internal/cli/dispatch.go) and [`config.go`](../../internal/config/config.go). |
+| U2 — names | The `skills` command is registered, and `skill_imports` plus `workspace_skill_imports` are canonical readable config keys with their intended workspace/user scopes. The proposal's names have shipped; see [`dispatch.go`](../../internal/cli/dispatch.go), [`config.go`](../../internal/config/config.go) and [`skillimports.go`](../../internal/config/skillimports.go). |
 | U3 — older builds | Top-level unknown keys are validation errors. A build predating the proposed key therefore refuses the workspace config rather than silently ignoring the import or delivering it. See [`validate.go`](../../internal/config/validate.go). |
 | U4 — executable bits | The existing confined reader stages any file carrying an execute bit as `0755`; otherwise it stages as `0644`, regardless of source read/write bits. Imported skills inherit this rule, so executable bundled scripts remain executable inside the jail but are never invoked by import. See [`workspaceskills.go`](../../internal/jailcontent/workspaceskills.go). |
 
 | Check | Finding | Design consequence |
 |---|---|---|
-| U5 — host-side broker entry | Current code serves Git requests through `Broker.Handle` → `serveRequest`, which reads the launch's live scope and applies remote-URL, read-grant and credential checks ([`broker.go`](../../internal/gitbroker/broker.go), [`https.go`](../../internal/gitbroker/https.go), [`upstream.go`](../../internal/gitbroker/upstream.go)). There is no host-side caller of that Git protocol service; the decision and upstream paths are implementation-private. A host launch resolver would need an explicit caller/reuse seam, not `packsrc` or an unfettered Git fetch. | Any fetch must keep the existing workspace broker decision/filter; no bypass or authority widening. |
-| U6 — state location | Host workspace identity is `runtime.FromWorkspace(workspace)` ([`naming.go`](../../internal/runtime/naming.go)). Host approvals live under `paths.GlobalStorage()/approvals` and are keyed by that name; `paths.ApprovalsDir` is not mounted into jails, and the approval record has a closed file list ([`paths.go`](../../internal/paths/paths.go), [`scopeapproval.go`](../../internal/config/scopeapproval.go)). A separate import store/record may use the same host-owned per-workspace identity, but must not masquerade as approval-record parts. | Keep import state host-owned, per-workspace and outside the checkout/user config; the precise sibling directory is implementation detail. |
+| U5 — host-side broker entry | `internal/gitbroker/importfetch.go` exposes the host import caller. It narrows approved remotes/grants against current state, uses the existing remote-helper protocol and reuses the broker's decision/credential path; no daemon operation is added. | A fresh launch and explicit host commands call this filtered fetch path; no ambient host Git transport or authority widening is used. |
+| U6 — state location | Host workspace identity is `runtime.FromWorkspace(workspace)` ([`naming.go`](../../internal/runtime/naming.go)). The import store and resolution records are implemented in a separate host-only workspace-keyed directory under `paths.GlobalStorage()`; approvals remain under `approvals/`, are not mounted into jails, and have a closed record file list ([`paths.go`](../../internal/paths/paths.go), [`scopeapproval.go`](../../internal/config/scopeapproval.go), [`internal/skillimports`](../../internal/skillimports)). | Import state stays separate from approval records, checkout and user config; jail readers use projected immutable objects only. |
 
 U5 and U6 are code-backed integration facts. U7 is the command execution model built on them. It uses only mechanisms the tree already has and adds no broker operation.
 
@@ -542,9 +545,9 @@ Residual risks the design accepts and names:
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 |---|---|---|---|---|
-| WGS-R1 | Workspaces may include Git skills; the governing boundary excludes dangerous pack effects, not outside content as such. | 2026-11-16 | [§1](#1-problem-and-owner-direction) | No |
-| <a id="OQ-WGS1"></a>[OQ-WGS1](#OQ-WGS1) | Owner: both full commit pins and moving refs are allowed. Pin-only is not the design. The owner left moving-ref state, refresh and approval to the designer; those are recommendations WGS-P9 and WGS-P11 to WGS-P14 in [§13](#13-design-recommendations-not-owner-rulings), not part of this ruling. | 2026-11-16 | [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed) | No |
-| <a id="OQ-WGS2"></a>[OQ-WGS2](#OQ-WGS2) | Owner: imports can never use host credentials unfettered; resolution/fetch must be filtered through this workspace’s existing Git broker access. How the broker's existing decision is applied, including its anonymous-HTTPS behavior, is recommendation WGS-P10, not part of this ruling. | 2026-11-16 | [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) | No |
+| WGS-R1 | Workspaces may include Git skills; the governing boundary excludes dangerous pack effects, not outside content as such. | 2026-11-16 | [§1](#1-problem-and-owner-direction) | Yes |
+| <a id="OQ-WGS1"></a>[OQ-WGS1](#OQ-WGS1) | Owner: both full commit pins and moving refs are allowed. Pin-only is not the design. The owner left moving-ref state, refresh and approval to the designer; those are recommendations WGS-P9 and WGS-P11 to WGS-P14 in [§13](#13-design-recommendations-not-owner-rulings), not part of this ruling. | 2026-11-16 | [§6.1](#61-both-immutable-pins-and-moving-refs-are-allowed) | Yes |
+| <a id="OQ-WGS2"></a>[OQ-WGS2](#OQ-WGS2) | Owner: imports can never use host credentials unfettered; resolution/fetch must be filtered through this workspace’s existing Git broker access. How the broker's existing decision is applied, including its anonymous-HTTPS behavior, is recommendation WGS-P10, not part of this ruling. | 2026-11-16 | [§6.2](#62-git-access-is-filtered-by-the-existing-workspace-broker) | Yes |
 
 ## 13. Design recommendations (not owner rulings)
 

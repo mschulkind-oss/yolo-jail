@@ -72,6 +72,7 @@ var subcommandUsage = map[string]subUsage{
 	"config":  {text: configUsage, valueFlags: []string{"--file"}},
 	"surface": {text: surfaceUsage},
 	"pack":    {text: packUsage},
+	"skills":  {text: skillsUsage},
 	"apply":   {text: applyUsage},
 	// `host` answers inside hostMain, like pack/config/apply. valueFlags carries the
 	// exec half's -p/--profile so `yolo host -p bedrock --help` is read as help rather

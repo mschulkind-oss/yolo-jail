@@ -94,6 +94,38 @@ func setFakeSSHPath(t *testing.T, dir string) {
 	t.Setenv("PATH", path)
 }
 
+func TestImportResolverUsesRemoteDefaultBranch(t *testing.T) {
+	f := newFixture(t, "")
+	setFakeSSHPath(t, f.bin)
+	commit := mustGit(t, f.bare, "rev-parse", "refs/heads/main")
+	store := filepath.Join(t.TempDir(), "imports.git")
+	got, err := FetchImport(context.Background(), ImportFetchRequest{
+		Workspace: f.ws, URL: origin, StoreDir: store,
+		ApprovedRemotes: []string{origin}, CurrentRemotes: []string{origin},
+		ApprovedGrants: []brokerscope.Grant{readGrant}, CurrentGrants: []brokerscope.Grant{readGrant},
+		helperCommand: []string{os.Args[0], "-test.run=^TestHelperProcess$", "--"},
+		helperEnv:     []string{"GO_HELPER=1"},
+	})
+	if err != nil || got.Commit != commit || got.ResolvedRef != "refs/heads/main" {
+		t.Fatalf("default-branch import = (%+v, %v), want refs/heads/main at %s", got, err, commit)
+	}
+}
+
+func TestImportRefAdvertisementSelectsDefaultBranch(t *testing.T) {
+	refs, defaultRef, err := parseImportRefs("ref: refs/heads/main\tHEAD\n" +
+		strings.Repeat("a", 40) + "\tHEAD\n" + strings.Repeat("a", 40) + "\trefs/heads/main\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, commit, err := selectImportRef("", refs, defaultRef)
+	if err != nil || ref != "refs/heads/main" || commit != strings.Repeat("a", 40) {
+		t.Fatalf("default selection = (%q, %q, %v)", ref, commit, err)
+	}
+	if _, _, err := parseImportRefs("ref: refs/tags/v1\tHEAD\n"); err == nil {
+		t.Fatal("a tag advertised as the default was accepted")
+	}
+}
+
 func TestImportResolverPublicHTTPSIsAnonymousWithoutRead(t *testing.T) {
 	h := newHTTPSFixture(t, httpsOpts{public: true, noRead: true})
 	store := filepath.Join(t.TempDir(), "imports.git")

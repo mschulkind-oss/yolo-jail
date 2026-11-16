@@ -57,8 +57,9 @@ needs a ruling or a Mac sits in the others.
      [implementation plan](../design/config-approval-presentation-plan.md), keeps the approval identity
      unchanged while replacing the JSON-only prompt view.
    - [Workspace Git skill imports](../design/workspace-git-skills-plan.md), building on the
-     [accepted design](../design/workspace-git-skills.md), now has a DECIDED implementation hand-off; land
-     serially with approval presentation where its config-key coverage overlaps.
+     [accepted design](../design/workspace-git-skills.md), is implemented in four serial task slices; its
+     final verification gates and review remain before landing. Keep its config-key coverage serial with
+     approval presentation wherever their workspace-readable-key census overlaps.
 
 ## Waiting on an owner ruling
 
@@ -117,7 +118,7 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    [what a collaborator sees and can refuse](../design/workspace-packs.md) — `mcp_presets` is retired, so until this lands a repository cannot
    give its collaborators the browser, which the presets did. [The separate design for pinned Git skill
    imports](../design/workspace-git-skills.md) keeps workspace-pack selection distinct; its implementation
-   hand-off is listed under [Buildable now](#buildable-now-by-an-agent).
+   is recorded in the build hand-off under [Buildable now](#buildable-now-by-an-agent).
 
 10. [The VM-local disks](../design/vm-local-volumes.md): [default or opt-in](../design/vm-local-volumes.md#OQ-VL1),
    [`~/.cache`](../design/vm-local-volumes.md#OQ-VL2), [database folders](../design/vm-local-volumes.md#OQ-VL3) and

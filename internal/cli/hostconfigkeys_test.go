@@ -26,28 +26,29 @@ import (
 // when a key is classified not-applicable or unbuilt and has no sample here, so the next such
 // key is driven through the report rather than assumed to reach it.
 var undoneKeySamples = map[string]string{
-	"on_request":             `"true"`,
-	"brokered":               `{"github": {"repos": ["org/lib"]}}`,
-	"cache_relocations":      `{"npm": "/srv/cache/npm"}`,
-	"devices":                `[{"usb": "0403:6001"}]`,
-	"ephemeral_storage":      `"tmpfs"`,
-	"gpu":                    `{"enabled": true}`,
-	"host_import_exclusions": `{}`,
-	"kvm":                    `true`,
-	"macos_user_mode":        `"account"`,
-	"macos_user_shared_tmp":  `true`,
-	"setup":                  `"seatbelt-self"`,
-	"setups":                 `{"mac-as-me": {"confinement": "seatbelt"}}`,
-	"share_host_fonts":       `true`,
-	"mise_tools":             `{"node": "22"}`,
-	"mounts":                 `["~/data"]`,
-	"network":                `{"mode": "bridge", "ports": ["3000:3000"]}`,
-	"packages":               `["ripgrep"]`,
-	"per_side_paths":         `[".cargo"]`,
-	"programs":               `{"autoprune": true}`,
-	"resources":              `{"memory": "4g"}`,
-	"workspace_readonly":     `["src"]`,
-	"writable_home_dirs":     `[".pi-lens"]`,
+	"on_request":              `"true"`,
+	"brokered":                `{"github": {"repos": ["org/lib"]}}`,
+	"cache_relocations":       `{"npm": "/srv/cache/npm"}`,
+	"devices":                 `[{"usb": "0403:6001"}]`,
+	"ephemeral_storage":       `"tmpfs"`,
+	"gpu":                     `{"enabled": true}`,
+	"host_import_exclusions":  `{}`,
+	"kvm":                     `true`,
+	"macos_user_mode":         `"account"`,
+	"macos_user_shared_tmp":   `true`,
+	"setup":                   `"seatbelt-self"`,
+	"setups":                  `{"mac-as-me": {"confinement": "seatbelt"}}`,
+	"share_host_fonts":        `true`,
+	"mise_tools":              `{"node": "22"}`,
+	"mounts":                  `["~/data"]`,
+	"network":                 `{"mode": "bridge", "ports": ["3000:3000"]}`,
+	"packages":                `["ripgrep"]`,
+	"per_side_paths":          `[".cargo"]`,
+	"programs":                `{"autoprune": true}`,
+	"resources":               `{"memory": "4g"}`,
+	"workspace_readonly":      `["src"]`,
+	"workspace_skill_imports": `false`,
+	"writable_home_dirs":      `[".pi-lens"]`,
 }
 
 // undoneHostKeys is every live key the host census leaves undone, sorted.
@@ -69,6 +70,11 @@ func TestHostApplyNamesEveryConfigKeyTheHostLeavesUndone(t *testing.T) {
 	}
 	var body []string
 	for _, k := range keys {
+		if k == "skill_imports" {
+			// This workspace-only declaration cannot appear in the user config fixture used by
+			// yolo host apply; it is intentionally not an actionable host omission.
+			continue
+		}
 		v, ok := undoneKeySamples[k]
 		if !ok {
 			t.Fatalf("the host census leaves %q undone and undoneKeySamples has no value for it: "+
@@ -113,12 +119,10 @@ func TestHostApplyNamesEveryConfigKeyTheHostLeavesUndone(t *testing.T) {
 					t.Fatalf("no notch line names config keys:\n%s", report)
 				}
 				for _, k := range keys {
-					if k == "host_import_exclusions" {
-						// This user-only import policy cannot be active under the OWN
-						// posture required by this host-apply report. Its empty fixture
-						// is accepted but is not an actionable host-side omission.
+					if k == "host_import_exclusions" || k == "skill_imports" || k == "workspace_skill_imports" {
+						// These host-only/workspace-only skill settings have no effect in `yolo host`.
 						if countWord(line, k) != 0 {
-							t.Errorf("empty host-only import policy was reported as an active host omission: %q", line)
+							t.Errorf("non-applicable skill policy %q was reported as an active host omission: %q", k, line)
 						}
 						continue
 					}
