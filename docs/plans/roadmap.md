@@ -53,10 +53,12 @@ needs a ruling or a Mac sits in the others.
    - [Scoped broker policy](../design/scoped-broker-policy.md) — complete its [companion seed](../design/scoped-broker-policy-plan.md)
      against the current tree before implementation, because one shared operation policy must precede
      source-specific repairs. The [source-owned matching](../design/scoped-broker-policy.md#38-scope-matching)
-     and [timed-cap contract](../design/scoped-broker-policy.md#51-timed-caps) close the engineering gaps without
-     widening admission or changing historical known-write limits. The full grounded plan is in flight;
-     read its complete output, including [V1–V5](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
-     and their fixed fallbacks, before publishing a build hand-off. The companion remains a seed, not implementation authority.
+     and [timed-cap contract](../design/scoped-broker-policy.md#51-timed-caps) retain admission and historical
+     known-write limits. The accepted repair also fixes [baseline list resolution](../design/scoped-broker-policy.md#32-which-rule-governs),
+     [legacy reads](../design/scoped-broker-policy.md#39-read-cells-zero-one-or-many) and [live apply](../design/scoped-broker-policy.md#8-authority-state-concurrency-withdrawal-failure).
+     Read the corrected full plan, including [V1–V7](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
+     and their fixed fallbacks, and obtain focused review before publishing a build hand-off. The companion
+     remains a seed, not implementation authority; code is not yet authorized.
    - [Managed MCP sign-in build hand-off](../design/managed-mcp-sign-in-plan.md) — ordinary managed-agent
      sign-in, capture and delivery need one coherent implementation, separate from operation-broker policy.
      The [behavioral design](../design/managed-mcp-sign-in.md) owns the contract; the synthetic gate precedes

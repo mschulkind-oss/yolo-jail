@@ -48,6 +48,14 @@ and not a context the workspace or agent may select.
 
 **Origin:** Defined in [scoped broker policy](design/scoped-broker-policy.md#7-execution-contexts-and-routing-proposed), 2026-11-17.
 
+## Implicit read
+
+The unnamed shipped read derived for a generic broker declaration with no read cells and an existing read
+grant kind. It is decided by `read` lines without adding anything to the declaration hash or gate disclosure.
+Not newly granted authority: with neither read cells nor a read grant kind the source has no reads.
+
+**Origin:** Defined by the contract-repair author in [scoped broker policy](design/scoped-broker-policy.md#39-read-cells-zero-one-or-many), 2026-11-17.
+
 ## Managed sign-in point
 
 A sign-in point yolo delivered through a selected pack. Not an externally installed, unmanaged bundle.
@@ -82,7 +90,8 @@ lease, capture source, delivery route or rendered client identity.
 
 The capability word a native manifest ships for its read (`fetch` for git); that word and literal `read`
 are one internal read token in lists and ask keys at every scope. Not a new verb or a write capability;
-writing both words for one scope in one layer is a load error.
+writing both words for one scope in one layer is a load error unless baseline already accepts that pair,
+in which case its baseline result is retained and only a pair involving `never` is an error ([V6 fallback](design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)).
 
 **Origin:** Coined by the native-cap closure author in [scoped broker policy](design/scoped-broker-policy.md#36-spelling), 2026-11-17.
 

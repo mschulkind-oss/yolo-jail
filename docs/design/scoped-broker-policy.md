@@ -3,7 +3,7 @@ title: "Scoped broker policy: one allow / ask / deny contract, with resource sco
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Confirm the five facts in section 13 in the plan's first task"
+next: "Confirm the seven facts in section 13 in the plan's first task"
 depends-on:
   - pack-brokers.md
   - github-write-scopes.md
@@ -14,9 +14,9 @@ summary: "Every operation broker (git, github, aws, circleci) answers each class
 
 # Scoped broker policy: one allow / ask / deny contract, with resource scopes, for every operation broker
 
-**Status:** 2026-11-17 — accepted contract, proposed and unbuilt. No owner question is open; [OQ-SBP1](#OQ-SBP1) was ruled B on 2026-11-17. **Shipped** describes the baseline, not this revision. Everything marked **Proposed** is new behavior. [Section 13](#13-unverified-claims-this-design-relies-on) records which source claims were reproduced, which gaps they confirmed, and five facts still to confirm.
+**Status:** 2026-11-17 — accepted contract, proposed and unbuilt. No owner question is open; [OQ-SBP1](#OQ-SBP1) was ruled B on 2026-11-17. **Shipped** describes the baseline, not this revision. Everything marked **Proposed** is new behavior. [Section 13](#13-unverified-claims-this-design-relies-on) records which source claims were reproduced, which gaps they confirmed, and seven facts still to confirm.
 
-**Design authority:** Fable 5.2's engineering-closure fragment, corrective overlay, and source-scope/native-cap closure, 2026-11-17. The overlay closes hard-deny fact-read handling and declaration-only gate behavior; the later closure specifies source-owned matching and timed caps. These supersede earlier wording where they differ.
+**Design authority:** Fable 5.2's engineering closure, corrective overlay, source-scope/native-cap closure and plan-review contract repair, 2026-11-17. The accepted repair preserves baseline list resolution, supplies the zero-read-cell adapter and bounds actual GitHub producers and live apply. These supersede earlier wording where they differ.
 
 > **In short.** Read and write operations should follow one scoped allow / ask / deny contract across operation brokers, bounded by host authority and served by the existing approval lifecycle.
 
@@ -44,6 +44,7 @@ The existing **cell**, **ceiling**, **ask** and **working set** vocabulary comes
 | **[Anchor (broker scope)](../glossary.md#anchor-broker-scope)** | A declared literal prefix under which a `segment` source's scopes are written. |
 | **[Timed limit](../glossary.md#timed-limit)** | The smallest cap among the entries one timed answer would write. |
 | **[Read word](../glossary.md#read-word)** | The capability word a native manifest ships for its read; the same token as literal `read`. |
+| **[Implicit read](../glossary.md#implicit-read)** | The unnamed shipped read derived for a generic declaration with no read cells and a read grant kind; it adds nothing to the declaration hash. |
 | **Rule** | One line: a scope, a cell (or the kind word `read`), and a value. |
 | **Ceiling** | The user's host config: the most any workspace may hold. **Shipped:** a token sits in the `on_request` or `always` list, or is absent. **Proposed:** a third list, `never`, is an explicit host refusal ([§3.6](#36-spelling)). |
 | **On-switch** *(coined here)* | **Shipped:** a source's source-scope `read` grant, without which every call is refused, writes included. **Proposed:** retired, with a compatibility rule ([§3.7](#37-read-and-write-are-independent)). |
@@ -106,7 +107,7 @@ A rule is *(scope, cell or `read`, value)*. It lives in one of two layers, as to
 
 Both layers accept the same scopes. A scope is the source scope, a root, or a resource inside a root. The source's declaration says how a scope string is matched ([§3.8](#38-scope-matching)); there is no glob and no cross-source string matching. A scope that no approved root contains or lies inside is accepted and inert, and `yolo check` reports it.
 
-**Read cells.** Each source declares at least one read cell. The word `read` at a scope stands for every read cell of the source at that scope. A cell-named line is more specific than `read` at the same scope. No line implies another ([GW-D38](github-write-scopes.md#GW-D38)): `read` never covers a write cell, and a write cell never covers a read. "Read and write on this prefix" is two lines.
+**Read cells.** A source has one implicit read or the read cells it declares ([§3.9](#39-read-cells-zero-one-or-many)). The word `read` at a scope stands for every read cell of the source at that scope. A cell-named line is more specific than `read` at the same scope. No line implies another ([GW-D38](github-write-scopes.md#GW-D38)): `read` never covers a write cell, and a write cell never covers a read. "Read and write on this prefix" is two lines.
 
 **Write cells and tables are unchanged.** `working_set` and `all`, their shipped defaults, the invariant `working_set ≥ all` ([GW-D58](github-write-scopes.md#GW-D58)) and "pick the table first" ([GW-D57](github-write-scopes.md#GW-D57)) hold at every scope. Read cells have no working-set table.
 
@@ -116,10 +117,16 @@ For one operation, in each layer separately:
 
 1. Collect the rules whose scope applies to the operation by [§3.8](#38-scope-matching) and whose cell is the operation's cell (in the picked table, for writes) or `read` (for a read).
 2. The rule with the **most specific scope** governs. This is the owner's "the more specific governs" ([OQ-GW7](github-write-scopes.md#OQ-GW7)) applied to resources.
-3. At the same scope, the cell-named line governs over `read`.
-4. Two lines with the same scope and the same cell in one layer, after file merge, are a config error at load. `yolo check`, a launch and `yolo config apply` refuse the same file.
+3. In the workspace ask at the same scope, the cell-named line governs over `read`. Ceiling tokens follow rule 5 below, preserving baseline list resolution.
+4. In the ask, files merge as shipped: the last file wins per key ([GW-D7](github-write-scopes.md#GW-D7)). Two aliases naming one *(source, resource)* in one layer are a load error ([§3.6](#36-spelling)). In the ceiling, the only new list conflicts are the `never` pairs of rule 5. `yolo check`, a launch and `yolo config apply` refuse the same file.
 
-5. In the ceiling, a cell token (`all.put_objects`, `read.get_objects`) is more specific than a table or kind token (`all`, `read`) at the same scope.
+5. **Within one scope of the ceiling**, a cell's value is found in this order:
+   1. `never` holds the cell's own token (`all.put_objects`, `read.get_objects`): the value is `never`.
+   2. No `never` token at this scope covers the cell: **the shipped rule, unchanged.** `always` if any covering token (cell, table or kind) is in `always`; otherwise `on_request` if any is in `on_request`; otherwise no line at this scope. The same token in both lists is valid and `always` wins. `always = ["all"]` beside `on_request = ["all.<cell>"]` is `always`.
+   3. `never` holds the table or kind token (`all`, `read`) and `always` or `on_request` holds the cell's own token: the higher of those two lists. This is "everything here is refused except this cell".
+   4. Otherwise the value is `never`.
+
+   Step 2 is the baseline, so a ceiling with no `never` resolves as it does today at every scope.
 
 The governing line's value is final for its layer. A scope with no line for the cell does not stop the search; it continues to the next broader scope. So a narrower line overrides a broader one in either direction: a narrower ceiling `never` or ask `false` under a broad grant refuses, and a narrower `always` under a broad `never` runs. A workspace line cannot escalate, because the ceiling still bounds it.
 
@@ -171,7 +178,7 @@ This is the contract. **Shipped** lines keep their spelling and meaning.
 | Tokens | `read`; `all`, `working_set`; `all.<cell>`, `working_set.<cell>` | adds `read.<cell>` for one read cell |
 | Coverage | an `all` or `all.<cell>` token in `always` or `on_request` also covers the working-set table | unchanged; a `never` token covers exactly what it names |
 
-One token in two lists at one scope is a load error. `off` is not used as a list name: `[allow.<pack>] off = true` is the shipped whole-pack switch and keeps that meaning.
+One token in `never` and in `always` or `on_request` at one scope is a load error. One token in both `always` and `on_request` stays valid, as shipped, and `always` wins. A token repeated inside one list keeps its shipped per-list check. The `never` list exists only under an operation broker's tables (`[allow.<source>]` for a `[brokered]` or `[call_broker]` source, `[scopes.<alias>.allow]`, `[repos.<alias>.allow…]`). Under any other pack's table, audio and the other grant-gated services included, `never` is handled exactly as an unknown key is today, and their lists keep their shipped meaning. `off` is not used as a list name: `[allow.<pack>] off = true` is the shipped whole-pack switch and keeps that meaning.
 
 **Values (ask, workspace config).** `read = true | "ask" | false` for every read cell, or a `read` table with one key per read cell; TOML permits only one of the two forms per scope. Write cells keep `[…requests.<source>.all]` and `[…working_set]` with `true | "ask" | false`. This supersedes [GW-D8](github-write-scopes.md#GW-D8): `read = "ask"` is valid.
 
@@ -183,7 +190,7 @@ One token in two lists at one scope is a load error. `off` is not used as a list
 | `github` | `[allow.github]`, `[requests.github]` (shipped) | `[repos.<alias>.allow.github]` and `[repos.<alias>.requests.github]` (shipped for writes). **Proposed:** they accept `read` tokens and values, and `never`. |
 | `git` | `[allow.git]`, `[requests.git]` (shipped) | **Proposed, read only:** `[repos.<alias>.allow]` lists holding the read token, and a read key under `[repos.<alias>.requests]`. Every other git line under a name stays refused as unbuilt, as today. |
 
-**A native source's shipped read word.** A `[brokered]` manifest names its read capability (`read_capability`; git's is `fetch`). That word and the literal `read` are one token: both map to the same internal read, in every list and every ask key, at every scope. Shipped lines and shipped verbs keep writing the shipped word; no verb is added. Writing both words for one scope in one layer is a load error naming both lines, even when they agree. For a source with a single read cell, `read.<cell>` is refused, naming the shipped word.
+**A native source's shipped read word.** A `[brokered]` manifest names its read capability (`read_capability`; git's is `fetch`). That word and the literal `read` are one token: both map to the same internal read, in every list and every ask key, at every scope. Shipped lines and shipped verbs keep writing the shipped word; no verb is added. The literal `read` is a new spelling for a source whose shipped word differs. Writing both words for one scope in one layer is a load error naming both lines, even when they agree. This cannot hit a baseline config if baseline refuses the literal there ([§13](#13-unverified-claims-this-design-relies-on), V6). The shipped word in both `always` and `on_request` is the ordinary same-token case and stays valid. For a source with a single read cell, `read.<cell>` is refused, naming the shipped word.
 
 - An alias is a TOML bare key and a local label. A user scope and a workspace scope match by *(source, resource)*, as `[repos]` tables match by repository identity today.
 - `resource` is validated by core against the source's declaration, with no pack code run ([§3.8](#38-scope-matching)); a string that fails is a load error. Two aliases with one byte-identical *(source, resource)* in one layer are a load error.
@@ -222,7 +229,7 @@ put_objects = true
 
 **Verbs.** This revision adds no named verb form. **Shipped and kept:** `yolo allow <source> always|on_request read`, `yolo request <source> read`, and the `repos` forms. Every other line above is written with the shipped editing verbs, and every refusal or advice message names the exact command:
 
-- `yolo config add allow.aws.never all.delete_objects --user`
+- `yolo config add scopes.reports.allow.never all --user`
 - `yolo config set scopes.reports.resource s3://b/reports/ --user`
 - `yolo config set scopes.team.requests.all.put_objects true --project`
 
@@ -301,6 +308,32 @@ So `s3://a/team/` contains `s3://a/team/x.csv` and not `s3://a/team-other/x.csv`
 
 **Contract and mechanics.** The contract is the TOML keys, the validation, the containment and ordering rules, the table above, and hash inclusion. The plan chooses freely: Go package and file, type and field names, the internal form of a parsed scope, whether `awsclassify.cover` calls the shared function or keeps its own under the parity fixture, and how the mode travels in the launch input.
 
+### 3.9 Read cells: zero, one or many
+
+**Shipped.** Every cell is a write and must list its tables; a cell named `read` is refused. So every existing declaration, TOML or legacy, has no read cell. A classifier reports reads as resource chains with no cell. Read authority is the source's `read` grant kind, with its `requestable_by_default` setting.
+
+**Proposed.** A cell may carry `kind = "read"`. The key is TOML-only; absent means `"write"`. A read cell takes no `tables` and no default, and may take `max_for`. A legacy JSONC or `pack.json` manifest cannot declare one. A cell named `read` stays refused for every kind, permanently.
+
+| Declared read cells | The source's reads | Tokens and ask keys | A classifier read with no cell | A classifier read naming a cell |
+| :--- | :--- | :--- | :--- | :--- |
+| **Zero** (every existing declaration) | one **implicit read**: the shipped read, unnamed | `read` only. `read.<anything>` is a load error. | the implicit read | the classification is refused |
+| **One** | that cell | `read`, or `read.<cell>` | that cell | must be that cell |
+| **Many** | those cells | `read` for all, `read.<cell>` for one | the classification is refused | must be a declared read cell |
+
+**The implicit read.**
+
+- It is decided by `read` lines, at the source scope and at any scope, like a declared read cell.
+- Its only authority is what the declaration already has: the `read` grant kind. A declaration with no `read` grant kind and no read cell has no reads at all: a `read` line for it is a load error and every read is refused. Absence never grants.
+- It is not part of the declaration. An unchanged manifest has a byte-identical hash and gate disclosure, so upgrading yolo raises no declaration prompt.
+- Its timed entry uses the kind `call:read`. That cannot collide with a cell, because no cell may be named `read`. Its cap is the 15-minute default.
+- Its request text is built by core from the resource chain. A classifier that gives no description gets that text.
+
+**Read defaults.** `requestable_by_default` keeps its shipped meaning and applies only to the source-scope `read` kind at the gate. It never applies to `read.<cell>` or to a scoped read. No read cell may declare a default.
+
+**Protocol.** The read's cell and description are optional additions. A classifier written for the shipped protocol stays valid input and lands in the "no cell" column.
+
+**No prerequisite.** Nothing in this design requires a shipped pack to declare read cells. The owner's AWS example needs only scopes over the implicit read. The per-operation AWS read cells of [§9](#9-each-source) are an additive declaration change that goes through the gate when it ships.
+
 ## 4. How one call resolves (pure decision)
 
 The decision is a pure function. Inputs: the classification (ordered operations, each with kind, cell, resource chain and description), admitted roots, the effective rules of both layers, working-set membership, live timed entries, and the execution context identity. It reads no credential, no host environment value and no provider. It files nothing.
@@ -324,7 +357,7 @@ Some classifications need a provider fact first (GitHub: is this number a PR; wh
 3. **A call makes at most four fact reads**, all on the bound scope. A fifth refuses the call.
 4. **A refused cell is never reachable through an approval.** No once or timed answer, old or new, lets a write run while one of its candidates is `refuse` and the fact that would rule that candidate out has not been read.
 5. **A refused fact read stays unread.** No answer to any request forces it.
-6. **A grant that needs a fact's value** (the default branch, a run's actor, a job's run) covers nothing while that fact read is not `run`. The write is then decided as the uncovered write it would otherwise be. No fact is read for it.
+6. **A grant that needs a fact's value** (the default branch, a run's actor, a job's run, and whether a working-set item is still open where the adapter reads that from the provider) covers nothing while that fact read is not `run`. The write is then decided as the uncovered write it would otherwise be. No fact is read for it.
 
 **When a write depends on a fact.** Only when its candidates' decisions differ and at least one is `refuse`. In every other case the write is decided without the fact and is independent of read authority.
 
@@ -350,6 +383,21 @@ For a single-cell write the first three rows are the ordinary decision; the tabl
 | Fourth row, fact read `refuse` | No request exists to answer. | No request exists to answer. |
 
 A prediction never performs a fact read that is not itself `run`; in the fourth row it reports "ask" or "refuse" as above. A write-only grant covers a write that needs no fact; it never covers a fact read.
+
+**Generic sources.** Lookups are read during classification today. Proposed: a lookup whose read is not `run` is withheld, and the classifier is told so. A classifier on the new protocol may then report the write with a candidate list of two or more declared write cells; one on the shipped protocol has the call refused, naming the read line. Generic cell asks already take `true`, `"ask"` and `false`, so every row of the table is reachable there with config an owner can write.
+
+**GitHub in this revision.** The GitHub cell tables of [`github-write-scopes.md`](github-write-scopes.md) stay unbuilt, and nothing here builds them. GitHub's candidate decisions come only from what is built:
+
+| Write | Read `run` | Read `ask` or `refuse` |
+| :--- | :--- | :--- |
+| On a working-set item (comment, edit, approve, merge) | As shipped: the item is read, the shipped defaults decide. | Working-set coverage depends on the item's state, so by rule 6 it covers nothing. The write is decided as a write on a non-member: it asks. No fact is read. Answered once, the bound argv runs with no fact read. |
+| On any other item | As shipped: no fact is read for a non-member; it asks. | The same: it asks. No fact is read. |
+| Under a repository grant that needs a value (dispatch, approve-run, rerun) | As shipped. | Rule 6: not covered; it asks as the uncovered write. |
+
+- No built GitHub right separates a PR cell from an issue cell, so GitHub candidates never disagree. GitHub reaches the "all run" and "all ask" rows only. The fourth row cannot occur for GitHub until its cell keys exist.
+- A request that the shipped path already files without reading a fact (a non-member write under a `run` read) is the baseline request. It is a known write for [§5.1](#51-timed-caps) and keeps its shipped timed maximum.
+- **`never` for GitHub** accepts exactly the tokens the shipped `[allow.github]` `always` and `on_request` lists accept at baseline, plus `read`. That is the implemented capability map: the read kind and the repository-level capability words. `all`, `working_set` and cell paths are refused in `never` with the message they get in the other lists. The plan lists the accepted set from the shipped validator and pins it in a test; it adds no token.
+- A GitHub `never` on a capability refuses that capability at that repository. It is a single known cell, so no candidate question arises.
 
 ## 5. Approvals: what is bound, what is reused
 
@@ -377,7 +425,7 @@ A stored answer made before this revision is never read as covering a read or a 
 | :--- | :--- | :--- |
 | Write, cell known | the cell's `max_for`, else 15 min (shipped) | the source's shipped write maximum, unchanged |
 | Read cell | the read cell's `max_for`, else 15 min | `read_max_for`, else 15 min |
-| Write, unresolved candidate ([§4.1](#41-fact-reads)) | that candidate cell's `max_for`, else 15 min | 15 min, or the shipped write maximum if that is smaller |
+| Write whose fact read was withheld by a read decision ([§4.1](#41-fact-reads)): one entry per candidate, or the one write decided as a non-member | that candidate cell's `max_for`, else 15 min | 15 min, or the shipped write maximum if that is smaller |
 
 - **`read_max_for`** is a new optional key in a native manifest's `[brokered]` table, with the same duration syntax and bounds as a generic cell's `max_for`. It is TOML-only: no legacy JSONC or `pack.json` spelling is added, and a legacy manifest gets the 15-minute default. The shipped `git` and `github` manifests do not set it, so both get 15 minutes. It is part of the declaration hash.
 - **The 15-minute default is one value**: the constant generic cells already fall back to. Native code does not keep a second copy.
@@ -387,7 +435,7 @@ A stored answer made before this revision is never read as covering a read or a 
 
 1. The **limit** of a request is the smallest cap among all the entries its timed answer would write: every asking read, every asking write, every non-refused candidate.
 2. `yolo approve <id> --for D` computes the limit from the current declaration and native policy at that moment. The same computation supplies the maximum the prompt and help show for that request.
-3. `D` above the limit is refused before anything is written. The message gives the limit and names the cell and role that set it. Nothing is clamped.
+3. `D` above the limit is refused before anything is written. The message gives the limit and names the cell and role that set it. Nothing is clamped. A request holding only known writes keeps its shipped over-limit message and code path.
 4. `D` at or below the limit writes every entry with one shared expiry instant, or none. Entries of one answer never have different lifetimes.
 5. `D` that is zero, negative or unparseable is refused, as shipped.
 6. An answer to a request that has expired, closed or been answered is refused, as shipped. Its `--for` value is not examined.
@@ -397,6 +445,7 @@ A stored answer made before this revision is never read as covering a read or a 
 - A native request with only known-cell writes has the limit it has today. Its prompt, help text and accepted maximum do not change.
 - A timed entry already stored keeps its recorded expiry and its coverage. A later change to a cap neither extends nor shortens it.
 - An old entry never covers a read or a candidate; those entry roles did not exist when it was written.
+- Read and candidate entries use entry kinds a pre-revision store already accepts (the `call:<cell>` family). No new kind string is written into a store an older broker may share. If no accepted kind can carry a native read entry ([§13](#13-unverified-claims-this-design-relies-on), V7), a native read request takes a once answer only and `--for` on it is refused.
 
 ## 6. One lifecycle for every broker (proposed)
 
@@ -443,7 +492,7 @@ A call that does not ask is unchanged everywhere: on the generic broker decide a
 
 ### 7.1 Model
 
-- **The source's declaration owns what a context may change.** A `[call_broker]` declaration may carry a context block: named fields (nonsecret strings), for each field the one host environment name it sets, a list of environment names a routed call unsets, and `route_anchors` where [§3.8](#38-scope-matching)'s `segment` mode requires them. Core applies that metadata to a copy of the captured environment. Core has no AWS-specific branch. The block is part of the declaration hash.
+- **The source's declaration owns what a context may change.** A `[call_broker]` declaration may carry a context block: named fields (nonsecret strings), for each field the one host environment name it sets, a list of environment names a routed call unsets, and `route_anchors` where [§3.8](#38-scope-matching)'s `segment` mode requires them. Core applies that metadata to a copy of the captured environment. Core has no AWS-specific branch. The block is part of the declaration hash. A context block is valid only on a CLI-front declaration, because it changes a host program's environment; on an HTTP-front declaration it refuses the declaration.
 - An **execution context** is written in user config only: `[contexts.<name>]` with `source = "<source>"` and one key per declared field. A field value is used exactly as written, with no trimming. It must be non-empty valid UTF-8 of at most 1024 bytes, with no NUL and no control character (U+0000–U+001F, U+007F–U+009F). Spaces and non-ASCII letters are allowed. These are the only limits core imposes: the value is placed in an environment variable and never on a command line, so nothing narrower is needed for safety. The length bound keeps the request record and the identity hash input bounded. A declaration may narrow the rule for its own field; the AWS declaration does not. An undeclared field, a missing field, or a context for a source that declares no context block is a load error.
 - A **route** is written in user config only: the key `context = "<name>"` on a `[scopes.<alias>]` table ([§3.6](#36-spelling)). It uses the source's containment, as rules do. The context block lists `route_anchors`, a non-empty subset of the source's anchors, when the source is in `segment` mode; `context` on a scope under any other anchor is a load error. In `exact` mode the block takes no `route_anchors` and every scope of the source is routable.
 - The shipped behavior is the **default context**: the host environment captured at pin time (`pinCLI`), exactly as today.
@@ -484,7 +533,7 @@ The default context is untouched: there, captured static credentials keep winnin
 
 ### 7.4 What is approval-bound
 
-The **context identity** is a hash of declared, nonsecret facts only: the source, the declaration hash (which includes the set and unset rules), the context's name, its field names and values, and the matched scope's resource. The default context has a fixed identity that adds nothing to the digest. The identity is in new request digests and in timed entry keys. The route is selected again from current user config, and the identity compared, before a request is approved and before a call is dispatched.
+The **context identity** is a hash of declared, nonsecret facts only: the source, the declaration hash (which includes the set and unset rules), the context's name, its field names and values, and the matched scope's resource. The default context has a fixed identity that adds nothing to the digest. The identity is in new request digests and in timed entry keys. In a timed entry it is part of the stored resource string the store merges on, not a side field, so a routed entry and a default-context entry are different entries: neither extends nor satisfies the other. The default context adds nothing, so existing entries keep their keys. The route is selected again from current user config, and the identity compared, before a request is approved and before a call is dispatched.
 
 **The profile name is a selector, not a verified binding.** It picks an entry in host configuration the user owns. This design proves nothing about which account or role that entry reaches.
 
@@ -527,9 +576,10 @@ The approver sees the context's **name** beside the request. The profile name st
 **Live policy snapshot (proposed).** **Shipped:** the gate's cell values are copied into the immutable launch input; `config apply` replaces roots and grant kinds only. **Proposed:**
 
 - The launch input keeps only what cannot change in a launch: declaration, program and classifier identities, environment names.
-- The workspace's gate-approved asks (cells and scoped lines) live in a **snapshot**: a private host file (mode 0600, written by atomic rename) bound to launch ID, source, workspace and declaration hash, with a sequence number.
+- The workspace's gate-approved asks live in a **snapshot**: a private host file (mode 0600, written by atomic rename) bound to launch ID, source, workspace and declaration hash, with a sequence number. It holds **every** workspace ask for the source: the source-scope `read`, the cells and the scoped lines.
+- For a launch that consumes snapshots, the snapshot is the daemon's only source of workspace asks. The separate grant file is not read for the source-scope `read` or for anything else the snapshot holds. There is never a state with an old read grant beside new scoped lines.
 - `config apply` replaces roots and snapshot in **one** replacement under the source lock. There is no state with new roots and old asks.
-- Every effect boundary reads the current snapshot under that lock: decide, file, approve (the standalone `yolo approve` finds it through the validated launch ID), late coverage, spend, dispatch. A snapshot whose binding does not match refuses.
+- Every effect boundary reads the current snapshot under that lock: decide, file, approve (the standalone `yolo approve` finds it through the validated launch ID), late coverage, spend, dispatch. A snapshot whose binding does not match refuses. Approval after a live root change checks the current scope file and the current snapshot, not the roots frozen in the launch input.
 - The ceiling, contexts and routes are not in the snapshot. They are read fresh from user config at the same boundaries, as the ceiling is today.
 
 **When the snapshot cannot be installed.**
@@ -541,6 +591,16 @@ The approver sees the context's **name** beside the request. The profile name st
 | The marker cannot be written either | Apply exits nonzero, states that the running jail still holds the old policy, and names the jail to stop. It never reports success or "restart later". |
 
 This holds for a narrowing and a widening alike. A widening that fails leaves the source refused, not widened.
+
+**Any other file the same apply must write for that source** (the grant file, while other readers still need it) is part of the same outcome. If it fails for a snapshot-consuming launch, apply takes the "install fails" row: the refusal marker is written and the source refuses. It is never downgraded to "next restart" while the rest applies.
+
+**A launch that does not consume snapshots** (a broker started by an older yolo).
+
+- **Shipped.** Such a broker decodes the scope file leniently and ignores keys it does not know, so it would keep its frozen asks beside new roots. It cannot be relied on to reject anything new.
+- **Proposed.** Apply needs positive proof before any effect. A consuming daemon records, in its own launch-bound state when it starts, that it reads snapshots. Apply looks for that record. The launcher does not write it on the daemon's behalf, and absence means "does not consume".
+- If the launch does not consume and **any ask for the source changed**: apply changes **nothing** for that source, roots included. It exits nonzero, says the running jail still holds the old policy, and names the jail to stop. It never reports "applied now" and never applies roots alone.
+- If the launch does not consume and **no ask changed**: the shipped root and grant apply runs as it does today, with its shipped handling of older brokers.
+- No new key is added to a file an older broker reads with the expectation that it will refuse.
 
 **Declaration changes at the gate (proposed).** A source is **inactive** in a workspace when it has no approved root and this gate requests none. An inactive source can run nothing: selection is not authority, and a grant with no root admits nothing.
 
@@ -566,7 +626,7 @@ This holds for a narrowing and a widening alike. A widening that fails leaves th
 | Source | Read cells (proposed) | Scope containment (proposed) | Notes |
 | :--- | :--- | :--- | :--- |
 | `git` | one, `fetch`: a fetch that uses a host credential | A `[repos.<alias>]` repository, matched to remotes by the shipped exact-URL and equivalent-endpoint matcher. Normalized repository identity alone never admits a remote. No containment below it. | Decision points in [§9.1](#91-git-fetch-paths). Push rules, branch and tag grants and the working set are unchanged; a push is decided by its own lines, not by the `fetch` line ([§3.7](#37-read-and-write-are-independent)). The anonymous public HTTPS fetch is never blocked by any line ([OQ-SBP1](#OQ-SBP1), ruled B). |
-| `github` | exactly one in this revision, covering every supported read and every fact read | normalized repository identity, and nothing narrower; `[repos.<name>]` tables are the scope spelling already built | Supersedes [GW-D8](github-write-scopes.md#GW-D8) and the read bound of [GW-D80](github-write-scopes.md#GW-D80). Fact reads follow [§4.1](#41-fact-reads). The unbuilt cell tables of [`github-write-scopes.md`](github-write-scopes.md) stay unbuilt by this design. |
+| `github` | exactly one in this revision, covering every supported read and every fact read | normalized repository identity, and nothing narrower; `[repos.<name>]` tables are the scope spelling already built | Supersedes [GW-D8](github-write-scopes.md#GW-D8) and the read bound of [GW-D80](github-write-scopes.md#GW-D80). Fact reads follow [§4.1](#41-fact-reads). The unbuilt cell tables of [`github-write-scopes.md`](github-write-scopes.md) stay unbuilt by this design and are not a prerequisite of it; `never` takes only the implemented capability tokens ([§4.1](#41-fact-reads)). |
 | `aws` | S3: list, get, head. Cost Explorer: its four queries. | S3: bucket, then prefix ending in `/`, longest match (the shipped root rule). Cost Explorer: operation under `ce://host-login`. | Routes apply to S3 scopes. Cost Explorer stays host-login-wide and takes no route in this revision. |
 | `circleci` | project run listing | exact project root `gh/{owner}/{repo}` | `rerun_workflows` stays refused by the classifier. A rule naming it is accepted, inert, and reported as "declared, not implemented". |
 
@@ -608,9 +668,10 @@ This rule is about git's anonymous HTTPS fetch and import only. It does not crea
 - The on-switch meaning of the read grant is kept under a legacy gate record and retired only through the gate ([§3.7](#37-read-and-write-are-independent)).
 - Two shipped defects stop: a working-set-only ceiling is now honored at dispatch, and a cell-only `config apply` now reaches the running broker or says it did not.
 - Broad read grants, branch and tag grants, repository-level GitHub grants, working-set defaults and historical `--add` entries keep their meaning.
+- List resolution is the shipped one wherever no `never` token covers the cell ([§3.2](#32-which-rule-governs), rule 5). A token in both `always` and `on_request`, and a table token in `always` beside a cell token in `on_request`, resolve to `always` as today.
 - Stored requests, exact answers and timed entries stay readable and valid for what they covered. None gains read or routed coverage.
 - The launch input (`yolo.call-broker-launch/2`) takes a version step: it carries read cells and the context block, and no longer carries the workspace's cell values, which move to the snapshot ([§8](#8-authority-state-concurrency-withdrawal-failure)). A broker and an input of different versions refuse to pair, naming relaunch. Root-bearing format migration stays refused, as documented for AWS.
-- The classifier protocol gains a cell and a description per read. A classifier that reports reads without cells is treated as declaring the source's single read cell if it has exactly one, and is refused otherwise.
+- The classifier protocol gains an optional cell and description per read. A read with no cell is the implicit read for a declaration with no read cell, the single read cell for a declaration with one, and refused for a declaration with several ([§3.9](#39-read-cells-zero-one-or-many)). Every existing pack, legacy manifests included, is in the first case and keeps its shipped read authority.
 - `scopedCeilingReadProblem` and `readableScopedCeiling` change from refusing to accepting, with their tests; the message that pointed at `[allow.<broker>] always` goes.
 
 ## 11. Non-goals
@@ -628,7 +689,7 @@ This rule is about git's anonymous HTTPS fetch and import only. It does not crea
 
 ## 12. Acceptance scenarios
 
-Each is account-free and uses fake host executables or fixtures. "Refused" means no request is filed and nothing is dispatched.
+Each is account-free and uses fake host executables or fixtures. "Refused" means no request is filed and nothing is dispatched. Witnesses below are required proofs, not completed runs.
 
 ### 12.1 Floor and compatibility
 
@@ -636,6 +697,10 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | :--- | :--- | :--- |
 | A1 | Each source selected, nothing granted | Every credentialed read and write is refused. The anonymous public git fetch still works. |
 | A2 | Each source with its existing broad grants, no new-form line | Every run / ask / refuse decision and digest equals baseline. A call that does not ask has baseline timing and exit code. An asking generic call returns 75 after the 30 s hold instead of at once. |
+| A2a | Frozen baseline vector: one token in both `always` and `on_request`, for a call-broker cell, a native capability and the read kind | Loads; resolves to `always`, as at baseline. |
+| A2b | Frozen baseline vector: `always = ["all"]` with `on_request = ["all.<cell>"]` | Loads; the cell resolves to `always` and the write runs, as at baseline. |
+| A2c | The audio pack with `always = ["use"]` and `on_request = ["use"]`; and a `never` key under its table | The first behaves as at baseline. The second is handled as an unknown key is today. |
+| A2d | `never = ["all"]` with `always = ["all.put_objects"]` at one scope | Put runs; every other write there is refused. |
 | A3 | A stored pre-revision exact answer and timed entry | Each still covers what it covered; neither covers a read or a routed call. |
 | A4 | An older launch input, a call needing a read cell | Refused with a message naming relaunch. |
 
@@ -652,7 +717,7 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | B4c | One token in `always` and `never` at one scope; or `never = ["working_set.put_objects"]` beside `always = ["all.put_objects"]` at one scope | Load fails in `yolo check`, launch and `config apply` alike. |
 | B5 | Broad read `always`; ask `false` for `read` on one repository or prefix | Credentialed reads there are refused; public Git fetch/import still proceeds anonymously; elsewhere reads run. |
 | B6 | Ask `true` for a read with no covering ceiling line | Reported at load, counts as absent, refused at run time. |
-| B7 | Two lines, same scope, same cell, one layer | Load fails in `yolo check`, launch and `config apply` alike. |
+| B7 | Two aliases naming the same *(source, resource)* in one layer; or one token in `never` and another list at one scope | Load fails in `yolo check`, launch and `config apply` alike. Valid file merges and `always`/`on_request` pairs retain baseline results. |
 | B8 | Ask `"ask"` on a scope under ceiling `always` | Asks. |
 | B9 | GitHub: read `always` for repository X only | Reads of X run; reads of admitted Y are refused. With the broad grant instead, both run. |
 | B10 | CircleCI: project read `on_request` | The listing asks and runs after an answer. A rerun is refused whatever the rules say. |
@@ -660,6 +725,8 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | B12 | A scope that contains no approved root and lies inside none | Accepted, inert, reported by `yolo check`. No classifier or host program starts for the report. |
 
 ### 12.3 Approvals
+
+**Witness for the candidate rows.** C6, C7, C7a, C7b, C7d–C7h and H18 must be proven on a generic fixture source through the production daemon, with two write cells set to different values and a lookup withheld. For GitHub they are adapter-boundary rows: the shared decision is exercised with injected values, the result is reported as not reachable from any GitHub config, and it is not counted as producer-verified. C7c, C7i, C7j, C7l and C7m must be proven on GitHub with built rights only.
 
 | # | Given | Then |
 | :--- | :--- | :--- |
@@ -674,13 +741,16 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | C7b | Any fact-read decision; every candidate `refuse` | Refused; no request; no provider call. |
 | C7c | Fact read `ask` or `never`; every candidate runs | The write runs with no provider read. |
 | C7d | Fact read `ask` or `never`; candidates `run` and `"ask"`, none refused | Asks; answered once, the bound argv runs with no provider read, before or after the answer. |
-| C7e | **The owner's case.** `comment_prs = false`, `comment_issues = "ask"`, read `never`, `gh issue comment 70` on an item of unknown kind | Refused. No request is filed, so nothing can be answered once or `--for`. No provider call. The message names both lines. |
+| C7e | **The owner's case**, on the generic fixture: cell `a = false`, cell `b = "ask"`, read `never`, a write whose kind the withheld lookup would decide. In GitHub terms this is `comment_prs = false`, `comment_issues = "ask"`, which no built key can express yet. | Refused. No request is filed, so nothing can be answered once or `--for`. No provider call. The message names both lines. |
 | C7f | C7e with a live timed entry for `comment_issues` on item 70 | Still refused. |
 | C7g | C7e, then read is changed to `always` | The fact is read; an issue asks, a PR is refused. |
 | C7h | C6 answered `--for` | Timed entries for the read cell on the repository and the non-refused candidate, or none. The held call reads the fact; a PR is still refused. |
 | C7i | A write with one cell and no fact, read `never` | Decided by its write lines alone. |
 | C7j | A dispatch grant that needs the default branch; fact read `ask` or `never` | The grant does not cover; the write asks as the uncovered write; no provider read. |
 | C7k | A call needing a fifth fact read | Refused. |
+| C7l | GitHub, built rights only: a comment on a working-set item, read `ask` or `never` | Asks as a non-member write. No provider read. Answered once, the bound argv runs with no provider read. |
+| C7m | GitHub: `never` holding `all`, `working_set` or a cell path; `never` holding an implemented capability word | The first is refused as in the other lists. The second loads and refuses that capability at that repository. |
+| C7n | Generic fixture on the shipped classifier protocol; a lookup withheld | The call is refused, naming the read line. |
 | C8 | A prediction on any asking call | Nothing filed, spent, dispatched or fetched. |
 
 ### 12.4 Lifecycle
@@ -741,7 +811,12 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | G3 | Legacy record; broad read grant held | No prompt; no decision changes. |
 | G4 | Marked record; ask `false` for `read` on prefix P | Reads on P refused; a write on P is decided by its write lines. |
 | G5 | Running generic broker; ask `true` → `false`; `config apply` | The next call is refused with no relaunch; apply reports "applied now". |
-| G6 | G5 with the snapshot install made to fail | The source refuses every call; apply exits nonzero. With the marker write failing too, apply exits nonzero and says the old policy is still live. |
+| G6 | G5 with the snapshot install made to fail; separately, with the grant-file write made to fail | Each time the source refuses every call and apply exits nonzero. With the marker write failing too, apply exits nonzero and says the old policy is still live. |
+| G6a | Source `read` `true` → `false` together with a scoped `read` `false` → `true`; apply, with each write failing in turn | Never the old read grant with the new scoped line. Either both are in effect or the source is refused. |
+| G6b | A consuming daemon with a stale grant file holding `read = true` and a snapshot holding `read = false` | Reads are refused; the grant file is not consulted. |
+| G6c | A real pre-revision broker fixture (no consumer record, frozen asks); an ask changes; apply | Nothing changes for the source, roots included. Apply exits nonzero, says the old policy is live, names the jail. |
+| G6d | G6c's fixture; only a root changes | The shipped root apply runs as at baseline. |
+| G6e | A live root change, then `yolo approve` on a pending request under the new root | Approved against the current scope and snapshot. |
 | G7 | A snapshot bound to another launch, source or declaration | Refused. |
 | G8 | Working-set-only ceiling; covered write | Runs through the real transaction. |
 | G9 | G8; membership removed between prediction and dispatch | Not dispatched under `working_set`; decided again on `all`. |
@@ -751,6 +826,7 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | G13 | Git SSH fetch that asks | No `ssh` process before an answer. |
 | G14 | Git HTTPS fetch that asks after a 401 | No credential is filled before an answer. |
 | G15 | An import whose `fetch` decision is `ask` | No request filed; SSH refuses; HTTPS goes anonymous. |
+| G15a | G15 with a live timed `fetch` answer for that remote | The import is credentialed. |
 | G16 | Marked record; push lines; no `fetch` line | The push is decided by its own lines. |
 | G17 | Git read `never` (ceiling) or `false` (ask) on a public HTTPS remote | Fetch and import succeed anonymously; no credential helper runs; no credential is sent. |
 | G18 | G17 on a private HTTPS remote | Fails on the 401 exactly as with no credential; no credential is filled after it. |
@@ -783,14 +859,23 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | H15 | GitHub read request; `--for 20m` | Refused; the message says 15 minutes and names the read cell. `--for 15m` writes the entry. |
 | H16 | GitHub request with one known write and one asking read; `--for 1h` | Refused at the read's 15-minute limit. Nothing is written. |
 | H17 | GitHub write-only request; `--for` at the shipped maximum | Accepted, exactly as at baseline. |
-| H18 | GitHub unresolved-candidate request ([§4.1](#41-fact-reads), third row); `--for 30m` | Refused at 15 minutes. `--for 10m` writes both candidate entries with one expiry. |
+| H18 | Generic fixture, unresolved-candidate request ([§4.1](#41-fact-reads), third row), candidates capped at 1 h and 15 min; `--for 30m` | Refused at 15 minutes. `--for 10m` writes both candidate entries with one expiry. |
+| H18a | GitHub: a working-set comment asked as a non-member because read was withheld (C7l); `--for 30m` | Refused at 15 minutes. |
+| H18b | GitHub: the baseline non-member comment request under a `run` read; `--for` at the shipped maximum | Accepted, as at baseline. |
 | H19 | A native manifest with `read_max_for = "1h"`; read request; `--for 1h` | Accepted. The prompt shows one hour. |
 | H20 | A timed write entry stored before the revision with eleven hours left | Still covers its write for eleven hours; covers no read. |
 | H21 | `--for` on an expired request | Refused as expired. |
 | H22 | `[allow.git]` with `always = ["fetch"]` | Works as at baseline. |
-| H23 | `fetch` and `read` both written for one git scope in one layer, in the same list or different lists | Load error naming both lines. |
+| H23 | `fetch` and `read` both written for one git scope in one layer, in the same list or different lists | Load error naming both lines. `fetch` alone in both `always` and `on_request` loads and is `always`. |
 | H24 | `read.fetch` in a git list | Refused, naming `fetch`. |
 | H25 | `read_max_for` in a legacy JSONC or `pack.json` manifest | Not recognized; the source's read cap is 15 minutes. |
+| H26 | An unchanged pre-revision TOML declaration and a legacy `pack.json` one, each with the read grant held | Reads run as at baseline; the declaration hash is byte-identical; no gate prompt. |
+| H27 | H26's source; a scoped `read` line; `read.x` in a list | The scoped line governs the implicit read. `read.x` is a load error. |
+| H28 | A declaration with no `read` grant kind and no read cell; a `read` line | Load error; every read refused. |
+| H29 | One declared read cell; a classifier read with no cell | Decided as that cell. |
+| H30 | Two declared read cells; a classifier read with no cell, or naming an undeclared cell | The classification is refused; no request. |
+| H31 | A read cell with `tables` or a default; a cell named `read`; `kind = "read"` in a legacy manifest | The first two refuse the declaration. The third is not recognized and the cell is a write as today. |
+| H32 | The implicit read answered `--for` | One `call:read` entry on the chain, capped at 15 minutes. |
 
 ## 13. Unverified claims this design relies on
 
@@ -813,8 +898,12 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | V3 | No GitHub call needs more than four fact reads | The call is refused by the cap; the cap is not raised without a design change. |
 | V4 | At baseline an inactive generic source already refuses before its classifier starts | If it does not, that refusal is built as part of [§8](#8-authority-state-concurrency-withdrawal-failure)'s gate rule; the gate behavior is the same either way. |
 | V5 | At baseline `yolo approve --for` above a request's limit is refused, not shortened | If a shipped front shortens instead, write-only requests on that front keep the shipped behavior. Any request holding a read or a candidate entry is refused above its limit, as [§5.1](#51-timed-caps) says. |
+| V6 | At baseline the literal `read` is refused in a list or ask key of a native source whose shipped word differs (`fetch` for git) | If baseline accepts both words in one layer, that pair keeps its baseline result, and only a pair with one word in `never` is an error. |
+| V7 | A pre-revision store accepts a `call:<cell>` kind for a native read entry | If not, native read requests take once answers only ([§5.1](#51-timed-caps)). |
 
-None of V1–V5 decides policy. Each fallback is the stricter or the unchanged behavior: V1 changes only which command a message names, V2 only whether a git fetch waits, V3 and V4 only refuse, V5 only keeps a shipped answer path as it is.
+None of V1–V7 decides policy. Each fallback is the stricter or the unchanged behavior: V1 changes only which command a message names, V2 only whether a git fetch waits, V3 and V4 only refuse, V5 and V6 only keep a shipped path as it is, V7 only withholds a timed answer.
+
+**Source facts behind the 2026-11-17 plan-review repair.** All reported by the independent plan reviewer and not re-read by the author: `always` winning over `on_request` for one token and for a table token beside a cell token; every shipped cell being a write; the GitHub cell keys being unbuilt and the item read happening only for working-set members; the generic daemon reading the source-scope read from a separate grant file; the lenient scope-file decode in older brokers.
 
 **Source facts behind [§3.8](#38-scope-matching) and [§5.1](#51-timed-caps).** Read directly by the closure author: the AWS and git broker manifests (root spellings, resource types, `max_for`, `read_capability = "fetch"`). Reported by the planner and not re-read by the closure author: `CallBrokerResource` holding only a type and a parent, `validateChain`, `awsclassify.cover`, and GitHub's `Policy.MaxWindow`.
 
@@ -833,7 +922,7 @@ Dates are the date each item was recorded in this document. Owner rulings are re
 | <a id="SBP-D4"></a>SBP-D4 | **Owner's ruling:** AWS must be able to say Cost Explorer always reads, S3 generally asks, with bucket or prefix exceptions that are read-only or read and write. Reads take fine-grained approvals like writes; any reusable scope is explicit | 2026-11-17 | [§3.5](#35-the-owners-aws-example-as-rules), [§5](#5-approvals-what-is-bound-what-is-reused) | no |
 | <a id="SBP-D5"></a>SBP-D5 | **Owner's ruling:** the host routes S3 buckets and prefixes to profiles; the agent never picks a host profile; ordinary supported `aws` commands go through the broker | 2026-11-17 | [§7](#7-execution-contexts-and-routing-proposed) | no |
 | <a id="SBP-D6"></a>SBP-D6 | **Owner's ruling:** `aws-auth` stays separate and unchanged; credentials it delivers can bypass the broker where IAM permits, and that is disclosed as its own boundary. No live credential, grant or IAM change is made automatically | 2026-11-17 | [§7.5](#75-aws-auth-is-a-separate-boundary) | shipped, kept |
-| <a id="SBP-D7"></a>SBP-D7 | The most specific scope with a line governs within a layer and its value is final there; absence continues the search; a cell token beats a table or kind token at the same scope; an exact duplicate is a load error; the stricter layer wins. Applies [OQ-GW7](github-write-scopes.md#OQ-GW7) to resources | 2026-11-17 | [§3.2](#32-which-rule-governs) | no |
+| <a id="SBP-D7"></a>SBP-D7 | The most specific scope with a line governs within a layer and its value is final there; absence continues the search; a cell token beats a table or kind token at the same scope; an exact duplicate is a load error; the stricter layer wins. Applies [OQ-GW7](github-write-scopes.md#OQ-GW7) to resources. The cell-over-table and duplicate wording is amended by [SBP-D31](#SBP-D31) to preserve baseline results | 2026-11-17 | [§3.2](#32-which-rule-governs) | no |
 | <a id="SBP-D8"></a>SBP-D8 | Read and write never imply each other. A read line neither grants nor refuses a write, so read-only under a broader write allowance is a read line plus an explicit ceiling `never` on the write tables. Amended 2026-11-17 from "a read line with no write line". Applies [GW-D38](github-write-scopes.md#GW-D38) | 2026-11-17 | [§3.5](#35-the-owners-aws-example-as-rules), [§3.7](#37-read-and-write-are-independent) | no |
 | <a id="SBP-D9"></a>SBP-D9 | The shipped store, digest, wait, hook and notification machinery is the only approval flow. The generic daemon is brought to parity in its production entry point | 2026-11-17 | [§5](#5-approvals-what-is-bound-what-is-reused), [§6](#6-one-lifecycle-for-every-broker-proposed) | no |
 | <a id="SBP-D10"></a>SBP-D10 | Reads and the context identity enter the digest only when present, so every existing digest and stored answer is unchanged | 2026-11-17 | [§5](#5-approvals-what-is-bound-what-is-reused) | no |
@@ -842,7 +931,7 @@ Dates are the date each item was recorded in this document. Owner rulings are re
 | <a id="SBP-D13"></a>SBP-D13 | An exact answer is held by the workspace and is spendable by a later launch of the same source, checked on a temporary rebound copy with the stored history unchanged, for every broker including generic HTTP. A pending request of an ended launch is not approvable | 2026-11-17 | [§8](#8-authority-state-concurrency-withdrawal-failure) | GitHub only; the generic gap is reproduced |
 | <a id="SBP-D14"></a>SBP-D14 | Credential, sign-in, log, process, serial, audio and adapter services are not operation brokers and get no per-operation approvals here | 2026-11-17 | [§2.2](#22-services-that-are-not-operation-brokers) | — |
 | <a id="SBP-D15"></a>SBP-D15 | A timed answer to a read covers its cell on its full chain in its context for the time, as a timed write answer does; an exact answer covers one canonical query | 2026-11-17 | [§5](#5-approvals-what-is-bound-what-is-reused) | no |
-| <a id="SBP-D16"></a>SBP-D16 | The ceiling gains an explicit refusal: a `never` list beside `always` and `on_request`. It governs like any line and covers exactly the tokens it names. `off` stays the shipped whole-pack switch | 2026-11-17 | [§3.3](#33-how-the-two-layers-combine), [§3.6](#36-spelling) | no |
+| <a id="SBP-D16"></a>SBP-D16 | The ceiling gains an explicit refusal: a `never` list beside `always` and `on_request`. It governs like any line and covers exactly the tokens it names. `off` stays the shipped whole-pack switch. List conflicts and precedence are amended by [SBP-D31](#SBP-D31) | 2026-11-17 | [§3.3](#33-how-the-two-layers-combine), [§3.6](#36-spelling) | no |
 | <a id="SBP-D17"></a>SBP-D17 | Spelling: `[scopes.<alias>]` with `source` and `resource` for call-broker sources; `[repos.<alias>]` for git and GitHub; read tokens `read` and `read.<cell>`; no new named verb, the shipped `yolo config` editing verbs are the surface. Supersedes the "plan work" deferral | 2026-11-17 | [§3.6](#36-spelling) | no |
 | <a id="SBP-D18"></a>SBP-D18 | The read grant stops being a source's on-switch. Under a legacy gate record the on-switch is kept; write lines it held back come alive only as added lines at a gate `y`. No prompt for a workspace that holds the read grant | 2026-11-17 | [§3.7](#37-read-and-write-are-independent) | no |
 | <a id="SBP-D19"></a>SBP-D19 | What a context may set and unset is declared by the source's pack and hashed with its declaration; core applies it generically and has no AWS branch. Contexts and routes are user config only | 2026-11-17 | [§7.1](#71-model), [§7.3](#73-what-a-routed-aws-context-runs-with) | no |
@@ -857,3 +946,9 @@ Dates are the date each item was recorded in this document. Owner rulings are re
 | <a id="SBP-D28"></a>SBP-D28 | A timed answer has one duration, one expiry and one limit: the smallest cap of the entries it would write. Above the limit it is refused, not shortened. Native reads are capped by an optional TOML `read_max_for`, default 15 minutes; native unresolved candidates by 15 minutes; native known-cell writes keep their shipped maximum, and stored entries keep their expiry | 2026-11-17 | [§5.1](#51-timed-caps) | no |
 | <a id="SBP-D29"></a>SBP-D29 | A native source's shipped read word (`fetch` for git) and the literal `read` are one token; writing both for one scope in one layer is a load error. No verb is added | 2026-11-17 | [§3.6](#36-spelling) | no |
 | <a id="SBP-D30"></a>SBP-D30 | Routable scopes are named by `route_anchors` in the context block for a `segment` source; an `exact` source's scopes are all routable. Replaces "routable resource types", which a scope string does not carry | 2026-11-17 | [§7.1](#71-model), [§7.3](#73-what-a-routed-aws-context-runs-with) | no |
+| <a id="SBP-D31"></a>SBP-D31 | List resolution inside one ceiling scope is the shipped rule wherever no `never` token covers the cell: `always` wins over `on_request`, for one token and for a table token beside a cell token. Cell-over-table precedence applies only against `never`. The only new list conflict is a token in `never` and another list. Amends [SBP-D7](#SBP-D7) and [SBP-D16](#SBP-D16), whose wording changed two baseline results. `never` exists only under operation-broker tables | 2026-11-17 | [§3.2](#32-which-rule-governs), [§3.6](#36-spelling) | no |
+| <a id="SBP-D32"></a>SBP-D32 | A declaration with no read cell has one implicit read with the shipped authority, derived and unhashed; one declared read cell absorbs uncelled reads; several require a named cell. `kind = "read"` is TOML-only. Absence of a read grant kind and of read cells means no reads. Amends the "at least one read cell" wording of [§3.1](#31-rules) | 2026-11-17 | [§3.9](#39-read-cells-zero-one-or-many) | no |
+| <a id="SBP-D33"></a>SBP-D33 | The candidate table is witnessed on a generic source. GitHub reaches only what its built rights reach: with read withheld, a working-set write is decided as a non-member write and asks. GitHub `never` takes only implemented capability tokens. The GitHub cell tables are not a prerequisite, and rows that need them are adapter-boundary, not producer-verified | 2026-11-17 | [§4.1](#41-fact-reads) | no |
+| <a id="SBP-D34"></a>SBP-D34 | The snapshot is a consuming daemon's only source of workspace asks, the source-scope read included. Any failed write of the same apply takes the refusal path. Amends [SBP-D20](#SBP-D20) | 2026-11-17 | [§8](#8-authority-state-concurrency-withdrawal-failure) | no |
+| <a id="SBP-D35"></a>SBP-D35 | Apply needs a record written by the daemon itself that the launch consumes snapshots. Without it, a changed ask applies nothing for that source, roots included, and exits nonzero naming the jail; a roots-only change applies as shipped | 2026-11-17 | [§8](#8-authority-state-concurrency-withdrawal-failure) | no |
+| <a id="SBP-D36"></a>SBP-D36 | Context identity is part of a timed entry's merge key; read and candidate entries use store kinds older brokers accept; a context block is refused on an HTTP front; known-write over-limit messages are unchanged | 2026-11-17 | [§5.1](#51-timed-caps), [§7.1](#71-model), [§7.4](#74-what-is-approval-bound) | no |
