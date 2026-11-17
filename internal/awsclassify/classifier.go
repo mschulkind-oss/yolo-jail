@@ -1,6 +1,6 @@
-// Package awsclassify implements the built-in AWS S3 call-broker classifier.
+// Package awsclassify implements the scoped AWS operations call-broker classifier.
 //
-// It is deny-by-default: only the five argv shapes in the aws design's table are
+// It is deny-by-default: only the S3 and Cost Explorer table rows are
 // classified, everything else is refused before anything runs. It never sees or builds a
 // credential, an endpoint, a profile or a region; any such option in the jail's argv is a
 // refusal, so nothing from the jail shapes the host invocation beyond the table.
@@ -52,20 +52,20 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	decoder := json.NewDecoder(io.LimitReader(stdin, 64*1024+1))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
-		fmt.Fprintln(stderr, "S3 classifier input is invalid; retry the selected aws command")
+		fmt.Fprintln(stderr, "AWS classifier input is invalid; retry the selected aws command")
 		return 2
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		fmt.Fprintln(stderr, "S3 classifier input has trailing data; retry the selected aws command")
+		fmt.Fprintln(stderr, "AWS classifier input has trailing data; retry the selected aws command")
 		return 2
 	}
 	if input.Version != protocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
-		fmt.Fprintln(stderr, "S3 classifier protocol is unsupported; rebuild yolo and retry")
+		fmt.Fprintln(stderr, "AWS classifier protocol is unsupported; rebuild yolo and retry")
 		return 2
 	}
 	answer := Classify(input)
 	if err := json.NewEncoder(stdout).Encode(answer); err != nil {
-		fmt.Fprintln(stderr, "S3 classifier could not write its answer")
+		fmt.Fprintln(stderr, "AWS classifier could not write its answer")
 		return 2
 	}
 	return 0
@@ -76,7 +76,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func Classify(input callbroker.CLIInput) callbroker.Answer {
 	answer := callbroker.Answer{Version: input.Version}
 	if input.Version != protocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
-		return refused(answer, "unsupported", "unsupported S3 classifier input", "Use a selected yolo build and retry the aws command")
+		return refused(answer, "unsupported", "unsupported AWS classifier input", "Use a selected yolo build and retry the aws command")
 	}
 	argv := input.Argv
 	if len(argv) == 1 && argv[0] == "--version" {
@@ -85,12 +85,16 @@ func Classify(input callbroker.CLIInput) callbroker.Answer {
 		return refused(answer, "unsupported", "aws --version is not run through the S3 broker",
 			"Run `aws --version` on the host")
 	}
+	flags := commandFlags
+	if argv[0] == "ce" {
+		flags = ceFlags
+	}
 	for _, arg := range argv {
 		if !strings.HasPrefix(arg, "--") {
 			continue
 		}
 		name, _, _ := strings.Cut(arg[2:], "=")
-		if !commandFlags[name] {
+		if !flags[name] {
 			return refused(answer, "credential",
 				"the option "+safe(name)+" is not accepted from the jail",
 				"Set it in the host's AWS configuration or environment; the broker never takes an endpoint, profile, region or signing option from the jail")
@@ -98,6 +102,8 @@ func Classify(input callbroker.CLIInput) callbroker.Answer {
 	}
 	roots := parseRoots(input.Roots)
 	switch argv[0] {
+	case "ce":
+		return classifyCE(answer, input)
 	case "s3":
 		return classifyS3(answer, input, roots)
 	case "s3api":

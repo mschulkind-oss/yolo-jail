@@ -51,6 +51,26 @@ func TestRunInternalDispatchesBuiltinS3Classifier(t *testing.T) {
 	}
 }
 
+func TestRunInternalDispatchesCostExplorerClassifier(t *testing.T) {
+	input := callbroker.CLIInput{Version: "yolo.call-broker-classifier/1", Front: "cli", Argv: []string{"ce", "get-tags", "--time-period", "Start=2026-01-01,End=2026-02-01"}, StdinSHA256: strings.Repeat("a", 64), Roots: []string{"ce://host-login"}}
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeStdin(t, data)
+	rc, out, errs := runMainCaptured(t, "internal", "call-broker-classify", "aws")
+	if rc != 0 {
+		t.Fatalf("CE dispatch rc=%d stderr=%q", rc, errs)
+	}
+	var answer callbroker.Answer
+	if err := json.Unmarshal([]byte(out), &answer); err != nil {
+		t.Fatal(err)
+	}
+	if answer.Classification == nil || len(answer.Classification.Reads) != 1 || answer.Classification.Reads[0][0].ID != "ce://host-login/get-tags" || len(answer.Classification.Writes) != 0 {
+		t.Fatalf("CE caller: %+v", answer)
+	}
+}
+
 func TestRunInternalClassifierDispatchRefusesUnknownSource(t *testing.T) {
 	for _, args := range [][]string{
 		{"internal", "call-broker-classify"},
