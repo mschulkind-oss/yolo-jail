@@ -56,10 +56,12 @@ needs a ruling or a Mac sits in the others.
      remains anonymous when host credentials are denied, and [fact-read approvals](../design/scoped-broker-policy.md#41-fact-reads)
      never pass a hard deny. Confirm [V1–V4](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
      with their fixed fallbacks in the plan's first task. The seed remains SKETCH, not a build hand-off.
-   - [Managed MCP sign-in](../design/managed-mcp-sign-in.md) — complete its [companion seed](../design/managed-mcp-sign-in-plan.md)
-     against the tree before implementation, because ordinary managed-agent sign-in, capture and delivery need
-     one coherent hand-off. The synthetic gate precedes landing; native/rootless/Mac/provider witnesses remain
-     separate verification owed afterward.
+   - [Managed MCP sign-in build hand-off](../design/managed-mcp-sign-in-plan.md) — ordinary managed-agent
+     sign-in, capture and delivery need one coherent implementation, separate from operation-broker policy.
+     The [behavioral design](../design/managed-mcp-sign-in.md) owns the contract; the synthetic gate precedes
+     landing and native/rootless/Mac/provider witnesses remain separate verification owed afterward. MCP work
+     can begin in isolation; integration with the scoped-pack candidate is serial at its effective-declaration
+     seam, never evidence that selected skill directories load as native bundles.
 
 4. Smaller builds no ruling holds:
    - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)

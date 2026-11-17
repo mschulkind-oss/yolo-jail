@@ -22,7 +22,10 @@ managed sign-in point, callback route, source-agent delivery choice, status and 
 The first credential comes from ordinary sign-in inside a yolo-managed agent. No separately installed host
 client and no third `yolo mcp-auth login` ceremony are part of the target contract; [MA-D13](#decision-ledger)
 is withdrawn by [MS-R2](managed-mcp-sign-in.md#decision-ledger). The companion's engineering closure is accepted
-but unbuilt; its plan remains a seed. The sharing boundaries and native-origin gates here stand.
+but unbuilt; its [completed plan](managed-mcp-sign-in-plan.md) is the build hand-off. Its
+[provisioning advice](managed-mcp-sign-in.md#4-the-sign-in-point) is an embedded-FS read only under
+`no sign-in point`, never selection, sharing authority or a delivery route. The sharing boundaries
+and native-origin gates here stand.
 
 **Earlier blocked candidate (superseded):** The first detached Task 12 candidate could promote a workspace-only sign-in into user scope. Its source was not integrated. This record is historical; current source boundary is stated above.
 

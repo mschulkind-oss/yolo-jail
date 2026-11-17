@@ -3,7 +3,7 @@ title: "Managed MCP sign-in: the agent's own sign-in first, then capture, delive
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Complete the companion SKETCH plan against the current tree; native witnesses remain verification owed after the synthetic gate"
+next: "Build Task 1 of the completed companion plan in an isolated candidate; native witnesses remain verification owed after the synthetic gate"
 depends-on: [mcp-auth-sharing.md]
 tags: [design, mcp, oauth, credentials, broker, packs, status, recovery]
 summary: "The first credential for a one-sign-in MCP server comes from the ordinary sign-in inside a yolo-managed agent, at a sign-in point a selected pack delivers. The existing broker captures and refreshes it; the source agent's duplicate plain entry becomes a header route; a token-free, zero-effect `yolo mcp-auth status` and recovery lines say which layer failed and which native server to authenticate. No third login command, no client id invented or borrowed by core."
@@ -11,13 +11,13 @@ summary: "The first credential for a one-sign-in MCP server comes from the ordin
 
 # Managed MCP sign-in: the agent's own sign-in first, then capture, delivery, status and recovery
 
-**Status:** 2026-11-17 — proposed and unbuilt; the parent accepted the engineering closure. MS-E1, MS-E2 and MS-E3 are [closed](#engineering-closure) by MS-D8 to MS-D13; no engineering item is open. The companion plan remains a seed, not a build hand-off. Native witnesses are verification still owed, not proof of behavior.
+**Status:** 2026-11-17 — proposed and unbuilt; the engineering closure and MS-D14 provisioning advice are accepted. MS-E1, MS-E2 and MS-E3 are [closed](#engineering-closure); no engineering item is open. The [completed companion plan](managed-mcp-sign-in-plan.md) is written against `15da1299ffe8c65db4a3f2beef9f8421dabbb99c`. Native witnesses are verification still owed, not proof of behavior.
 
 > **In short.** The existing broker already adopts, refreshes and (for pi) delivers a one-sign-in credential. This document adds the first step it lacks, a declared place to sign in inside a managed agent. It also repairs Claude's duplicate unauthenticated entry, and makes every failure layer visible without printing or spending a token.
 
-**Needs your ruling:** None. The owner's rulings of 2026-11-17 are recorded as MS-R1 to MS-R5; the engineering closure is recorded as MS-D8 to MS-D13.
+**Needs your ruling:** None. The owner's rulings of 2026-11-17 are recorded as MS-R1 to MS-R5; the engineering closure is recorded as MS-D8 to MS-D14.
 
-**Reads with:** [`managed-mcp-sign-in-plan.md`](managed-mcp-sign-in-plan.md) (the companion seed, not a build hand-off), [source-read grounding](../research/managed-mcp-sign-in-grounding.md) (source/public evidence and its limits), [`mcp-auth-sharing.md`](mcp-auth-sharing.md) (the sharing contract).
+**Reads with:** [`managed-mcp-sign-in-plan.md`](managed-mcp-sign-in-plan.md) (the completed build hand-off), [source-read grounding](../research/managed-mcp-sign-in-grounding.md) (source/public evidence and its limits), [`mcp-auth-sharing.md`](mcp-auth-sharing.md) (the sharing contract).
 
 **Authority.** This is a companion to the accepted [`mcp-auth-sharing.md`](mcp-auth-sharing.md) (the *sharing design*), not a second owner of its subject.
 
@@ -32,7 +32,7 @@ summary: "The first credential for a one-sign-in MCP server comes from the ordin
 **Evidence boundary.**
 
 - Shipped-baseline statements come from the [2026-11-17 source-read grounding](../research/managed-mcp-sign-in-grounding.md) at baseline `a97a0e055`, and from the sharing design's text, read in full.
-- No test ran. No agent, credential store, provider or installer was touched.
+- The original design closure ran no tests. Publication checked the existing pure embedded-FS fixture and document rendering/index only; no proposed behavior was tested. No agent, credential store, provider or installer was touched.
 - Everything not under "shipped baseline" is **proposed**.
 
 ## 1. Requirement
@@ -53,6 +53,7 @@ Terms from the sharing design (one-sign-in server, sign-in identity, bundle, pac
 - **[Callback route](../glossary.md#callback-route)**: the path by which the host browser's redirect to a fixed loopback port reaches the agent listening for it.
 - **[Source agent](../glossary.md#source-agent)**: an agent whose pack declares an adoptable store. At baseline that is Claude only.
 - **[Usable record](../glossary.md#usable-record)**: a canonical record that is `live` and unexpired at the moment it is read.
+- **[Provisioning candidate](../glossary.md#provisioning-candidate)**: an unselected shipped pack whose declared bundle original could serve a server with no sign-in point. It is advice, not a sign-in point or authority.
 
 ## 3. Shipped baseline, and what it lacks
 
@@ -155,7 +156,36 @@ What public documents establish (packet, with the sharing design's Appendix C):
 **No sign-in point anywhere** is a named state, not an error at launch:
 
 - The server stays configured, and each agent keeps its baseline behavior ([OQ-MA8](mcp-auth-sharing.md#decision-ledger)).
-- Status and the launch block name the two ways forward: select a pack that delivers a sign-in bundle for the server (for Slack, `yolo pack add slack-mcp`, then relaunch), or set the user's own `oauth.client_id`. Neither line names an install outside yolo.
+- Status and the launch block name the two ways forward: select a pack that delivers a sign-in bundle for the server, or set the user's own `oauth.client_id`. Neither line names an install outside yolo.
+- Which pack to select is **provisioning advice**, below. It is derived, never hardcoded.
+
+**Provisioning advice (MS-D14).** A **[provisioning candidate](../glossary.md#provisioning-candidate)** is a shipped pack, not selected in this launch, whose declared sign-in bundle could serve a one-sign-in server that has no sign-in point. It is advice only.
+
+- **What it never is.** A candidate is never a sign-in point, scope authority, a callback lease, a capture source, a delivery route or a client identity for any render. It becomes a sign-in point only after the user selects the pack and a later launch delivers it, by the rules above.
+- **When it is computed.** Only for a server whose verdict is `no sign-in point`. Resolution, delivery choice, capture and every other verdict never read candidates, so a failure here cannot block a supported selected path.
+- **What is read.** The packs embedded in the yolo binary, through their immutable embedded filesystem. That read materializes, stages and leases nothing. It uses the same `[[mcp_sign_in_bundle]]` parser and the same format-named reader as the inventory, applied to the bundle's original tree.
+- **What is never read.** Unselected user or custom packs on disk, workspace packs, and any credential store. A build with no embedded packs yields no candidate.
+- **Original, not delivered.** The reader takes only server URL, transport and client id from the original tree. It never produces a native name, because a native name exists only for a delivered manifest.
+
+**A shipped pack is a candidate when all of these hold:**
+
+- it is not selected in this launch's composition;
+- the user's configuration does not map its name to a non-embedded source;
+- it declares a sign-in bundle whose `format` at least one selected agent pack loads;
+- that bundle has an entry of the accepted shape, not `ambiguous`, whose URL and transport equal the one-sign-in server's, by the same equality resolution uses;
+- the user's expected client id is unset, or equals that entry's client id.
+
+A pack whose declaration or bundle cannot be read is not a candidate. It causes no error. If the user source mapping cannot be read without an effect, that pack is not a candidate.
+
+**Result, by count.** Candidates are ordered by pack name.
+
+| Candidates | Advice |
+|---|---|
+| One | Names it: `yolo pack add <pack>`, then relaunch. |
+| Several | Lists every one in order and says any one of them serves. Core does not choose. |
+| None | The generic line in [§8](#8-recovery-lines). It names no pack. |
+
+A selected pack whose bundle is unusable is never a candidate. Its sign-in point row already says why.
 
 **Rejected alternatives.**
 
@@ -312,7 +342,8 @@ Public client ids, native server names, expiries, generations and store paths ma
   - pack declarations and delivered bundles that are already staged;
   - the canonical record through the strict reader, over a store description that creates nothing;
   - an unlocked snapshot of each declared source store;
-  - the outcome note and the callback lease, both as plain file reads.
+  - the outcome note and the callback lease, both as plain file reads;
+  - for a server with no sign-in point only, the embedded packs' declarations and bundle originals, through the immutable embedded filesystem ([§4](#4-the-sign-in-point), provisioning advice). This read is separate from the staged, selected bundles that resolve sign-in points, and it is never substituted for them.
 - **Packs not staged.** The sign-in point rows read `not determinable without effect`, with the next step: launch once, or run status inside a jail.
 - **yolo's own lock.** The strict reader takes yolo's canonical lock on an existing lock file for the read, waiting at most 2 seconds, then reports `busy`. It never creates the lock. This is the one lock status takes; it is not an agent's store lock.
 - **In a jail**, it asks this launch's endpoint (`op=status`), under the same contract. That exchange is an authenticated local read on the launch's own loopback endpoint and is the read itself. It is not the provider or egress traffic the contract forbids.
@@ -333,6 +364,7 @@ Public client ids, native server names, expiries, generations and store paths ma
 | Refresher | this launch's broker; launcher session; launch-boundary only; `not determinable without effect` |
 | Delivery, per agent | `header`; `native sign-in point`; `delivered plain` (why); `withheld` (why) |
 | Writeback | `current`; `pending`, when the source entry is older than the record |
+| Provisioning advice, only under `no sign-in point` | `candidate` (pack, origin, revision), one row per candidate in pack-name order; `none derivable` |
 
 **Two additions to the broker (MS-D6).**
 
@@ -378,7 +410,12 @@ A record that outlives its configuration is listed as `retained, unused`.
   - Example: `slack: not signed in. In claude, run /mcp and authenticate <resolved native name>`.
   - Where no callback route is owned, the line adds: `if the browser cannot reach the agent, paste the full callback URL into its prompt`.
   - A line never offers the configured name when that entry cannot register.
-- **`no sign-in point` names provisioning**: `slack: no agent here can sign in. Run: yolo pack add slack-mcp, then relaunch`. It names the user's own `oauth.client_id` as the alternative.
+- **`no sign-in point` names provisioning when it can be derived** ([§4](#4-the-sign-in-point), MS-D14). The pack name always comes from a candidate's own declaration.
+  - One candidate: `<server>: no agent here can sign in. Run: yolo pack add <pack>, then relaunch`. With the shipped `slack-mcp` pack and the motivating configuration, this renders as `slack: no agent here can sign in. Run: yolo pack add slack-mcp, then relaunch`.
+  - Several candidates: the same line lists each `yolo pack add <pack>` in pack-name order and says any one serves.
+  - None: `<server>: no agent here can sign in. Select a pack that delivers a sign-in bundle for <url>, or set your own client: yolo config set mcp_servers.<server>.oauth.client_id <id> --user`.
+  - Every form names the user's own `oauth.client_id` as the alternative.
+  - In a jail, the endpoint computes the advice and returns it with the diagnosis.
 - **`not capturable here` names the mode**: `slack: a sign-in made in this launch is not shared (credential view). Sign in from a bridged managed claude`.
 - **No line names `yolo mcp-auth login`** (MS-R2). The two ways back are an agent sign-in at a named sign-in point, and the user's own `oauth.client_id`.
 - **`delivered plain` explains the duplicate**: `slack is signed in (adopted from plugin:slack:slack); claude lists a second slack entry because <reason>; it needs no sign-in`.
@@ -429,6 +466,7 @@ A record that outlives its configuration is listed as `retained, unused`.
 - Capturing a sign-in made under the credential view or alternate secure storage.
 - Reading bundle servers into `mcp_servers` composition or sharing them generally.
 - Fetching or updating a bundle at launch.
+- Suggesting packs by scanning unselected user or custom packs, or by any name or URL table in core.
 - Changing any live store or grant.
 
 ## 12. Acceptance scenarios
@@ -464,6 +502,9 @@ All fixtures are synthetic, with loopback only where an effect is under test. No
 | A27 | Header request with an expired token on a live record | In a jail: one immediate pass, a wait of at most the injected 5-second budget, and the commit completes after the requester gives up. At the host: refused with no redemption. A dead record is refused in both | the daemon header handler and `cli.Main` |
 | A28 | Status with packs not staged, and with a missing canonical directory | Nothing is staged or created. The sign-in point rows read `not determinable without effect` and the record row reads `none` | `cli.Main` with a write-counting filesystem |
 | A29 | Outcome note | Each outcome code is written under the record lock, holds no fixture token bytes or provider text, and is read back by status after a broker restart | `Pass`, then status |
+| A30 | `no sign-in point`, with one unselected embedded fixture pack whose bundle original matches the server's URL and transport and whose format a selected agent pack loads | The advice row is one `candidate` with pack, origin and revision. The line names `yolo pack add <fixture pack>`. No sign-in point, lease, publication, source poll or render change results. Nothing is materialized, staged or written. The fixture pack and server carry no Slack name | `cli.Main` and the daemon's `op=status`, with a registered embedded fixture filesystem and a write-counting filesystem |
+| A31 | The same, varied: two matching embedded packs; none; URL differs; transport differs; the user's expected client id differs from the bundle's; no selected agent pack loads the format; the pack name is mapped to a non-embedded source; the declaration is malformed; no embedded filesystem is registered | Two: both listed in pack-name order, none chosen. Every other case: `none derivable` and the generic line, exit code 0 | the pure advice function, then `cli.Main` for wording |
+| A32 | An unselected user pack on disk matches; and a server whose verdict is not `no sign-in point` | The user pack is never read and never named. For any other verdict the embedded filesystem is not read at all, asserted by a read counter | `cli.Main` with counting filesystems |
 | A18 | Withdrawal | After `once` or the pack is removed, the next launch renders baseline and status shows `retained, unused`; origin deletion signs out only from a clean parse | producer plus `Pass` |
 | A19 | Existing callsite tests | The host-resident, Apple Container start, keeper and macos-user session tests still pass unchanged | existing |
 
@@ -517,6 +558,7 @@ These are pointer edits only. No ruling changes.
 | MS-D11 | A sign-in point inventory is read from delivered sign-in bundles by a format-named reader and kept apart from `mcp_servers` composition. Closes MS-E3 | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
 | MS-D12 | A sign-in point counts toward replacing the plain entry only when it is capturable. Credential view, alternate storage and Mac host are reported as `not capturable here` and gain no capture support | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | — |
 | MS-D13 | The synthetic gate precedes landing. Native measurements are validation owed afterward; a failed one withdraws the pack's route declaration. Nothing reports provider success before they pass | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | — |
+| MS-D14 | Under `no sign-in point` only, core derives provisioning advice by a pure read of embedded packs' sign-in bundle declarations and originals, matched on URL, transport, loadable format and the user's expected client id. A candidate is advice and nothing else. One is named, several are listed, none gives a generic line. No pack, server or agent name is hardcoded, no field is added, and unselected user packs are never read. This narrows the recovery contract: the exact command appears only when derived | 2026-11-17 | [§4](#4-the-sign-in-point), [§8](#8-recovery-lines) | — |
 
 ## Engineering closure
 

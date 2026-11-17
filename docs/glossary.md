@@ -62,6 +62,14 @@ side effect; status only reads it.
 
 **Origin:** Defined in [managed MCP sign-in](design/managed-mcp-sign-in.md#7-token-free-status), 2026-11-17.
 
+## Provisioning candidate
+
+A shipped pack not selected in this launch whose declared sign-in bundle original could serve a
+one-sign-in server with no sign-in point. Advisory only: not a sign-in point, scope authority, callback
+lease, capture source, delivery route or rendered client identity.
+
+**Origin:** Defined in [managed MCP sign-in](design/managed-mcp-sign-in.md#4-the-sign-in-point), 2026-11-17.
+
 ## Route (broker policy)
 
 A host-only line mapping a scope to an execution context. Not a permission rule or an MCP delivery route.
