@@ -3,7 +3,7 @@ title: "Scoped broker policy: one allow / ask / deny contract, with resource sco
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Confirm the four facts in section 13 in the plan's first task"
+next: "Confirm the five facts in section 13 in the plan's first task"
 depends-on:
   - pack-brokers.md
   - github-write-scopes.md
@@ -14,9 +14,9 @@ summary: "Every operation broker (git, github, aws, circleci) answers each class
 
 # Scoped broker policy: one allow / ask / deny contract, with resource scopes, for every operation broker
 
-**Status:** 2026-11-17 — accepted contract, proposed and unbuilt. No owner question is open; [OQ-SBP1](#OQ-SBP1) was ruled B on 2026-11-17. **Shipped** describes the baseline, not this revision. Everything marked **Proposed** is new behavior. [Section 13](#13-unverified-claims-this-design-relies-on) records which source claims were reproduced, which gaps they confirmed, and four facts still to confirm.
+**Status:** 2026-11-17 — accepted contract, proposed and unbuilt. No owner question is open; [OQ-SBP1](#OQ-SBP1) was ruled B on 2026-11-17. **Shipped** describes the baseline, not this revision. Everything marked **Proposed** is new behavior. [Section 13](#13-unverified-claims-this-design-relies-on) records which source claims were reproduced, which gaps they confirmed, and five facts still to confirm.
 
-**Design authority:** Fable 5.2's engineering-closure fragment and corrective overlay, 2026-11-17. The overlay closes hard-deny fact-read handling and declaration-only gate behavior; it supersedes the earlier closure wording where they differ.
+**Design authority:** Fable 5.2's engineering-closure fragment, corrective overlay, and source-scope/native-cap closure, 2026-11-17. The overlay closes hard-deny fact-read handling and declaration-only gate behavior; the later closure specifies source-owned matching and timed caps. These supersede earlier wording where they differ.
 
 > **In short.** Read and write operations should follow one scoped allow / ask / deny contract across operation brokers, bounded by host authority and served by the existing approval lifecycle.
 
@@ -39,7 +39,11 @@ The existing **cell**, **ceiling**, **ask** and **working set** vocabulary comes
 | **Operation broker** | A host service that classifies each agent call into operations on resources and decides each one. Shipped: `git`, `github`, `aws`, `circleci`. |
 | **Root** | A resource the workspace asked for and a human approved at the config-change gate. A root admits; it grants nothing. |
 | **Cell** | One named kind of operation a source declares. **Shipped:** every cell is a write. **Proposed:** a cell has a kind, `read` or `write`. |
-| **Scope** *(as used here)* | A resource a rule is written for: a root, or a resource inside one by the source's own containment. The **source scope** is "every admitted resource of this source" and is the least specific. |
+| **Scope** *(as used here)* | A resource string a rule is written for, matched by the source's declaration ([§3.8](#38-scope-matching)); it may be a root, narrower or broader than a root. It admits nothing. The **source scope** is "every admitted resource of this source" and is the least specific. |
+| **[Scope nesting](../glossary.md#scope-nesting)** | The declaration-owned `exact` or `segment` matching mode, not resource admission. |
+| **[Anchor (broker scope)](../glossary.md#anchor-broker-scope)** | A declared literal prefix under which a `segment` source's scopes are written. |
+| **[Timed limit](../glossary.md#timed-limit)** | The smallest cap among the entries one timed answer would write. |
+| **[Read word](../glossary.md#read-word)** | The capability word a native manifest ships for its read; the same token as literal `read`. |
 | **Rule** | One line: a scope, a cell (or the kind word `read`), and a value. |
 | **Ceiling** | The user's host config: the most any workspace may hold. **Shipped:** a token sits in the `on_request` or `always` list, or is absent. **Proposed:** a third list, `never`, is an explicit host refusal ([§3.6](#36-spelling)). |
 | **On-switch** *(coined here)* | **Shipped:** a source's source-scope `read` grant, without which every call is refused, writes included. **Proposed:** retired, with a compatibility rule ([§3.7](#37-read-and-write-are-independent)). |
@@ -100,7 +104,7 @@ A rule is *(scope, cell or `read`, value)*. It lives in one of two layers, as to
 - **The ceiling**, user config on the host. Workspace files cannot write it.
 - **The ask**, workspace config, read through the gate (`config.ReadWorkspaceForGate`).
 
-Both layers accept the same scopes. A scope is the source scope, a root, or a resource inside a root. The source declares how its resources contain each other ([§9](#9-each-source)); there is no glob and no cross-source string matching. A scope that no admitted root contains is accepted and inert, and `yolo check` reports it.
+Both layers accept the same scopes. A scope is the source scope, a root, or a resource inside a root. The source's declaration says how a scope string is matched ([§3.8](#38-scope-matching)); there is no glob and no cross-source string matching. A scope that no approved root contains or lies inside is accepted and inert, and `yolo check` reports it.
 
 **Read cells.** Each source declares at least one read cell. The word `read` at a scope stands for every read cell of the source at that scope. A cell-named line is more specific than `read` at the same scope. No line implies another ([GW-D38](github-write-scopes.md#GW-D38)): `read` never covers a write cell, and a write cell never covers a read. "Read and write on this prefix" is two lines.
 
@@ -110,7 +114,7 @@ Both layers accept the same scopes. A scope is the source scope, a root, or a re
 
 For one operation, in each layer separately:
 
-1. Collect the rules whose scope contains the operation's resource and whose cell is the operation's cell (in the picked table, for writes) or `read` (for a read).
+1. Collect the rules whose scope applies to the operation by [§3.8](#38-scope-matching) and whose cell is the operation's cell (in the picked table, for writes) or `read` (for a read).
 2. The rule with the **most specific scope** governs. This is the owner's "the more specific governs" ([OQ-GW7](github-write-scopes.md#OQ-GW7)) applied to resources.
 3. At the same scope, the cell-named line governs over `read`.
 4. Two lines with the same scope and the same cell in one layer, after file merge, are a config error at load. `yolo check`, a launch and `yolo config apply` refuse the same file.
@@ -177,10 +181,12 @@ One token in two lists at one scope is a load error. `off` is not used as a list
 | :--- | :--- | :--- |
 | `aws`, `circleci`, any `[call_broker]` source | `[allow.<source>]`, `[requests.<source>]` (shipped) | **Proposed:** `[scopes.<alias>]` with `source = "<source>"` and `resource = "<canonical resource ID>"`; ceiling lists in `[scopes.<alias>.allow]`; asks in `[scopes.<alias>.requests]` and its `all`, `working_set` and `read` tables |
 | `github` | `[allow.github]`, `[requests.github]` (shipped) | `[repos.<alias>.allow.github]` and `[repos.<alias>.requests.github]` (shipped for writes). **Proposed:** they accept `read` tokens and values, and `never`. |
-| `git` | `[allow.git]`, `[requests.git]` (shipped) | **Proposed, read only:** `[repos.<alias>.allow]` lists holding the token `read`, and `[repos.<alias>.requests] read = …`. Every other git line under a name stays refused as unbuilt, as today. |
+| `git` | `[allow.git]`, `[requests.git]` (shipped) | **Proposed, read only:** `[repos.<alias>.allow]` lists holding the read token, and a read key under `[repos.<alias>.requests]`. Every other git line under a name stays refused as unbuilt, as today. |
+
+**A native source's shipped read word.** A `[brokered]` manifest names its read capability (`read_capability`; git's is `fetch`). That word and the literal `read` are one token: both map to the same internal read, in every list and every ask key, at every scope. Shipped lines and shipped verbs keep writing the shipped word; no verb is added. Writing both words for one scope in one layer is a load error naming both lines, even when they agree. For a source with a single read cell, `read.<cell>` is refused, naming the shipped word.
 
 - An alias is a TOML bare key and a local label. A user scope and a workspace scope match by *(source, resource)*, as `[repos]` tables match by repository identity today.
-- `resource` must be in the source's canonical form ([§9](#9-each-source)); anything else is a load error. Two aliases with one *(source, resource)* in one layer are a load error.
+- `resource` is validated by core against the source's declaration, with no pack code run ([§3.8](#38-scope-matching)); a string that fails is a load error. Two aliases with one byte-identical *(source, resource)* in one layer are a load error.
 - `[scopes.<alias>]` naming `git` or `github` is a load error that names `[repos.<alias>]`.
 - **The invariant, per scope.** For every scope that has a line, the governing values for `working_set.X` and `all.X` at that scope are compared in both layers; `working_set.X` below `all.X` is a load error ([GW-D58](github-write-scopes.md#GW-D58)). In the ceiling the order is `never` < absent < `on_request` < `always`.
 
@@ -237,6 +243,64 @@ These forms are derived from source, not from a run; the plan confirms them ([§
 
 No old grant, answer or record gains read or routed authority by this rule.
 
+### 3.8 Scope matching
+
+**Shipped.** A `[call_broker]` resource type has a name and a parent, nothing else. Core checks that an operation's chain uses declared types and ends, byte for byte, at an approved root (`validateChain`). Which S3 root covers a key is decided inside the AWS classifier (`awsclassify.cover`). Core has no way to tell whether one resource string lies inside another.
+
+**Proposed.** The declaration states one matching mode for the source. Core applies it. Core has no branch on a source's name.
+
+```toml
+# aws-broker loophole.toml
+[call_broker.scope]
+roots = "declared"
+nesting = "segment"          # absent means "exact"
+separator = "/"
+anchors = ["s3://", "ce://"]
+```
+
+| Key | Rule |
+| :--- | :--- |
+| `nesting` | `"exact"` or `"segment"`. Absent is `"exact"`. Any other value refuses the declaration. |
+| `separator` | Required with `"segment"`, refused otherwise. Exactly one printable ASCII byte that is not a letter or digit. |
+| `anchors` | Required and non-empty with `"segment"`, refused otherwise. Literal strings. No anchor may be a prefix of another. |
+
+These keys are part of the declaration hash. They are TOML-only; a legacy manifest cannot declare them and is `exact`.
+
+**What core validates in a scope string.** Always: non-empty valid UTF-8, at most 1024 bytes, no NUL, no control character. In `segment` mode also: it starts with exactly one anchor. The anchor alone is a valid scope and means everything under it (`s3://` is all of S3). Nothing else is checked. The string is compared as bytes: no case folding, no percent-decoding, no Unicode normalization, no `.` or `..` handling, no trimming.
+
+**When a scope applies to an operation.** Scope *S* applies when *S* **contains** at least one ID in the operation's chain.
+
+| Mode | *S* contains ID *B* when |
+| :--- | :--- |
+| `exact` | *B* is byte-identical to *S*. IDs are opaque. Ancestry comes only from the chain the classifier reported. |
+| `segment` | *B* is byte-identical to *S*; or *B* starts with *S* and either *S* ends with the separator or the next byte of *B* is the separator. |
+
+So `s3://a/team/` contains `s3://a/team/x.csv` and not `s3://a/team-other/x.csv`; `s3://b` contains `s3://b/k` and not `s3://bucket2/k`; `ce://host-login` contains `ce://host-login/get-tags`. `s3://b` and `s3://b/` are two different scopes; the second is inside the first.
+
+**Which applying scope is most specific.** Take, for each applying scope, the position of the first chain ID it contains, counting from the operation's own resource. The lower position is more specific. At the same position the longer scope string is more specific. Two applying scopes with the same position and length are byte-identical, which load already refuses. The source scope is always least specific. This order is total, so [§3.2](#32-which-rule-governs) never ties.
+
+**One function, three users.** Rule lookup ([§3.2](#32-which-rule-governs)), route selection ([§7.2](#72-selection)) and the `yolo check` report use this one matching and ordering. A rule and a route may land on different scopes, because each looks only at scopes that carry its kind of line; they can never disagree about which scopes apply.
+
+**Matching is not admission.** A scope admits nothing. An operation is admitted only by the shipped chain-to-root proof, unchanged. A scope broader than a root (`s3://` over the root `s3://b/reports/`) applies to what the root admits and to nothing else.
+
+**Unknown and absent cases.**
+
+| Case | Behavior |
+| :--- | :--- |
+| The declaration has no `nesting` | `exact`. A scope applies only when the classifier names that exact string in a chain. It can never widen or re-read another pack's roots. |
+| The scope's source is not selected in this workspace | The scope is not validated and not applied. `yolo check` reports it as inert. User config is shared across workspaces, so this is never an error. |
+| The scope fails validation and the source is selected | Load error naming the alias and the rule broken. |
+| The scope applies to nothing an approved root admits | Inert; `yolo check` says so. In `exact` mode the report says the scope is not an approved root and applies only if the classifier names it. |
+| The declaration's mode, separator or anchors change | The declaration hash changes; the gate rule of [§8](#8-authority-state-concurrency-withdrawal-failure) applies. |
+
+**No pack code, provider or read grant is used to match.** Validation, matching, ordering and the `yolo check` report are pure string work on config and on a chain the classifier already reported for a real call. `yolo check`, `yolo config why` and load never start a classifier or a host program to find out what a scope means.
+
+**The declaration owner's duty.** In `segment` mode the classifier must report resource IDs byte-identical to what its canonical argv addresses. A parity fixture pins this for AWS (H9): core's containment and the classifier's root cover agree on every pair in the fixture.
+
+**Git and GitHub are not `[call_broker]` sources and take no `nesting`.** A `[repos.<alias>]` scope applies to an operation only after the shipped admission has proven the operation's remote against an approved entry: exact URL and equivalent endpoint for git, the approved repository for GitHub. The rule is then found by the shipped named-repository identity match. Normalized identity alone never admits. There is nothing narrower than a repository.
+
+**Contract and mechanics.** The contract is the TOML keys, the validation, the containment and ordering rules, the table above, and hash inclusion. The plan chooses freely: Go package and file, type and field names, the internal form of a parsed scope, whether `awsclassify.cover` calls the shared function or keeps its own under the parity fixture, and how the mode travels in the launch input.
+
 ## 4. How one call resolves (pure decision)
 
 The decision is a pure function. Inputs: the classification (ordered operations, each with kind, cell, resource chain and description), admitted roots, the effective rules of both layers, working-set membership, live timed entries, and the execution context identity. It reads no credential, no host environment value and no provider. It files nothing.
@@ -281,7 +345,7 @@ For a single-cell write the first three rows are the ordinary decision; the tabl
 
 | Row | Once | `--for` |
 | :--- | :--- | :--- |
-| Third row (no candidate refused) | The bound argv, whichever candidate it really is. Every possibility was approvable. No fact is read. | A timed entry for each candidate cell on the bound chain, each capped by its `max_for`, all or none. |
+| Third row (no candidate refused) | The bound argv, whichever candidate it really is. Every possibility was approvable. No fact is read. | A timed entry for each candidate cell on the bound chain, each capped by its candidate cap ([§5.1](#51-timed-caps)), all or none. |
 | Fourth row, fact read `ask` | The fact reads this call needs on that scope, then the bound argv, in one spend. The answer is spent when the first fact read is sent; there is no refund. If the fact shows a refused candidate, the write is **not sent** and the call is refused naming the line. Otherwise the write is sent under the same answer. | Timed entries for the read cell on the scope and for each non-refused candidate on the bound chain, all or none. The held call then reads the fact as `run` and is decided on its real cell; a refused cell still refuses. |
 | Fourth row, fact read `refuse` | No request exists to answer. | No request exists to answer. |
 
@@ -302,6 +366,37 @@ A prediction never performs a fact read that is not itself `run`; in the fourth 
 | Revalidation | replays argv and stdin hash through the classifier; checks ordered writes, roots, ceilings; always reads the `all` table; requires the stored holder to be the current launch | also checks ordered reads, candidate cells, the governing rules of both layers and the context identity; reads the table the selector picks now ([§4](#4-how-one-call-resolves-pure-decision)); checks a rebound copy of the holder ([§8](#8-authority-state-concurrency-withdrawal-failure)); runs under the caller's execute budget, never an unbounded one |
 
 A stored answer made before this revision is never read as covering a read or a routed context. New authority is never derived from an old record.
+
+### 5.1 Timed caps
+
+**Shipped.** A generic cell's cap is its `max_for`, or core's 15-minute default when the cell declares none (AWS: `put_objects` 1 h, `delete_objects` 15 min). Native manifests declare no cap. Each native source bounds a timed write by its own policy maximum (GitHub: `Policy.MaxWindow`, described in help as up to 12 h).
+
+**Proposed.** Each entry a timed answer would write has a role, and the role fixes its cap.
+
+| Entry role | Generic source | Native source (`git`, `github`) |
+| :--- | :--- | :--- |
+| Write, cell known | the cell's `max_for`, else 15 min (shipped) | the source's shipped write maximum, unchanged |
+| Read cell | the read cell's `max_for`, else 15 min | `read_max_for`, else 15 min |
+| Write, unresolved candidate ([§4.1](#41-fact-reads)) | that candidate cell's `max_for`, else 15 min | 15 min, or the shipped write maximum if that is smaller |
+
+- **`read_max_for`** is a new optional key in a native manifest's `[brokered]` table, with the same duration syntax and bounds as a generic cell's `max_for`. It is TOML-only: no legacy JSONC or `pack.json` spelling is added, and a legacy manifest gets the 15-minute default. The shipped `git` and `github` manifests do not set it, so both get 15 minutes. It is part of the declaration hash.
+- **The 15-minute default is one value**: the constant generic cells already fall back to. Native code does not keep a second copy.
+- **Where the native adapter gets its numbers.** `read_max_for` comes from the selected official pack's parsed declaration, the same one approval discovery already uses to attach native authority. The write maximum stays where it is, in the native policy. Nothing is copied into the request, the user config or a cache.
+
+**One answer, one duration, one limit.**
+
+1. The **limit** of a request is the smallest cap among all the entries its timed answer would write: every asking read, every asking write, every non-refused candidate.
+2. `yolo approve <id> --for D` computes the limit from the current declaration and native policy at that moment. The same computation supplies the maximum the prompt and help show for that request.
+3. `D` above the limit is refused before anything is written. The message gives the limit and names the cell and role that set it. Nothing is clamped.
+4. `D` at or below the limit writes every entry with one shared expiry instant, or none. Entries of one answer never have different lifetimes.
+5. `D` that is zero, negative or unparseable is refused, as shipped.
+6. An answer to a request that has expired, closed or been answered is refused, as shipped. Its `--for` value is not examined.
+
+**History is kept.**
+
+- A native request with only known-cell writes has the limit it has today. Its prompt, help text and accepted maximum do not change.
+- A timed entry already stored keeps its recorded expiry and its coverage. A later change to a cap neither extends nor shortens it.
+- An old entry never covers a read or a candidate; those entry roles did not exist when it was written.
 
 ## 6. One lifecycle for every broker (proposed)
 
@@ -348,9 +443,9 @@ A call that does not ask is unchanged everywhere: on the generic broker decide a
 
 ### 7.1 Model
 
-- **The source's declaration owns what a context may change.** A `[call_broker]` declaration may carry a context block: named fields (nonsecret strings), for each field the one host environment name it sets, a list of environment names a routed call unsets, and the resource types that may be routed. Core applies that metadata to a copy of the captured environment. Core has no AWS-specific branch. The block is part of the declaration hash.
+- **The source's declaration owns what a context may change.** A `[call_broker]` declaration may carry a context block: named fields (nonsecret strings), for each field the one host environment name it sets, a list of environment names a routed call unsets, and `route_anchors` where [§3.8](#38-scope-matching)'s `segment` mode requires them. Core applies that metadata to a copy of the captured environment. Core has no AWS-specific branch. The block is part of the declaration hash.
 - An **execution context** is written in user config only: `[contexts.<name>]` with `source = "<source>"` and one key per declared field. A field value is used exactly as written, with no trimming. It must be non-empty valid UTF-8 of at most 1024 bytes, with no NUL and no control character (U+0000–U+001F, U+007F–U+009F). Spaces and non-ASCII letters are allowed. These are the only limits core imposes: the value is placed in an environment variable and never on a command line, so nothing narrower is needed for safety. The length bound keeps the request record and the identity hash input bounded. A declaration may narrow the rule for its own field; the AWS declaration does not. An undeclared field, a missing field, or a context for a source that declares no context block is a load error.
-- A **route** is written in user config only: the key `context = "<name>"` on a `[scopes.<alias>]` table ([§3.6](#36-spelling)). It uses the source's containment, as rules do. `context` on a scope whose resource type the declaration does not list as routable is a load error.
+- A **route** is written in user config only: the key `context = "<name>"` on a `[scopes.<alias>]` table ([§3.6](#36-spelling)). It uses the source's containment, as rules do. The context block lists `route_anchors`, a non-empty subset of the source's anchors, when the source is in `segment` mode; `context` on a scope under any other anchor is a load error. In `exact` mode the block takes no `route_anchors` and every scope of the source is routable.
 - The shipped behavior is the **default context**: the host environment captured at pin time (`pinCLI`), exactly as today.
 
 ```toml
@@ -370,7 +465,7 @@ The workspace cannot write routes or contexts. The classifier never sees a conte
 
 ### 7.2 Selection
 
-1. The most specific route whose scope contains the call's resource selects the context. No matching route means the default context.
+1. Among the scopes that apply to the operation and carry `context`, the most specific selects the context, by the matching and order of [§3.8](#38-scope-matching). No such scope means the default context.
 2. Two routes at the same scope are a config error at load.
 3. A call whose operations select different contexts is refused. One call runs in one context.
 4. A matched route whose context cannot be built or whose command fails is a failure of that call. It **never falls back** to the default context.
@@ -381,7 +476,7 @@ The AWS pack's declaration states the following; core only executes it.
 
 - Field `profile` sets `AWS_PROFILE`. The host's own `AWS_PROFILE` is ignored for a routed call.
 - `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` are **unset**. Static credentials in the environment would otherwise win over the profile and select the wrong identity silently.
-- Routable resource types: S3 buckets and prefixes. Cost Explorer is not routable.
+- `route_anchors = ["s3://"]`: S3 scopes are routable, including `s3://` itself. Cost Explorer is not.
 - The other captured names (region, config and credentials file paths, endpoint overrides) pass through as trusted host configuration.
 - The profile name is redacted from output like every other declared variable value, as shipped.
 
@@ -477,7 +572,15 @@ This holds for a narrowing and a widening alike. A widening that fails leaves th
 
 Git and GitHub keep their native transports, stores and digests. They adopt the model through their own adapters; nothing here rewrites their wire protocols.
 
-**Canonical resource forms for `[scopes]`.** S3: `s3://<bucket>/` or `s3://<bucket>/<prefix>/`, always ending in `/`. Cost Explorer: `ce://host-login` or `ce://host-login/<operation>`. CircleCI: `gh/<owner>/<repo>`.
+**Scope strings by source** ([§3.8](#38-scope-matching)).
+
+| Source | Mode | Strings a user writes |
+| :--- | :--- | :--- |
+| `aws` | `segment`, separator `/`, anchors `s3://` and `ce://` | The shipped root spellings `s3://<bucket>` and `s3://<bucket>/<prefix>/`; also `s3://`; `ce://host-login`; `ce://host-login/<operation>` |
+| `circleci` | `exact` | `gh/<owner>/<repo>`, byte-identical to the root its remote produces |
+| any other `[call_broker]` source | `exact` unless it declares otherwise | exactly an ID its classifier reports |
+
+Correction: the earlier text gave the bucket form as `s3://<bucket>/`. The shipped root is `s3://<bucket>`; both are valid scope strings and they are different scopes.
 
 ### 9.1 Git fetch paths
 
@@ -554,7 +657,7 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | B9 | GitHub: read `always` for repository X only | Reads of X run; reads of admitted Y are refused. With the broad grant instead, both run. |
 | B10 | CircleCI: project read `on_request` | The listing asks and runs after an answer. A rerun is refused whatever the rules say. |
 | B11 | An unknown service, operation or flag, any rules | Refused by the classifier; no request. |
-| B12 | A scope outside every root | Accepted, inert, reported by `yolo check`. |
+| B12 | A scope that contains no approved root and lies inside none | Accepted, inert, reported by `yolo check`. No classifier or host program starts for the report. |
 
 ### 12.3 Approvals
 
@@ -659,6 +762,36 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | G24 | G23 cancelled | Nothing recorded; the source is refused; the prompt returns at the next launch. |
 | G25 | A remotes-derived source (CircleCI) with a changed remote | The scope block names `.git/config`. |
 
+### 12.8 Scope matching and timed caps
+
+| # | Given | Then |
+| :--- | :--- | :--- |
+| H1 | AWS; scopes `s3://a/team/` and `s3://a/team-other/`; a get of `s3://a/team/x` | Only the first applies. |
+| H2 | Scopes `s3://b` and `s3://bucket2`; a get of `s3://bucket2/k` | Only the second applies. |
+| H3 | Scopes `s3://`, `s3://b`, `s3://b/`, `s3://b/reports/`, each with a line; a get of `s3://b/reports/x` | `s3://b/reports/` governs. With that line removed, `s3://b/` governs, then `s3://b`, then `s3://`. |
+| H4 | Scope `ce://host-login/get-tags` `never`; scope `ce://host-login` `always` | `get-tags` is refused; the other three queries run. |
+| H5 | Root `s3://b/reports/`; scope `s3://` with `always = ["read"]` | A get under the root runs; a get of `s3://b/other/x` is refused by admission. |
+| H6 | A scope with a control character; an AWS scope starting `gs://`; an AWS scope of 1025 bytes | Each is a load error where `aws` is selected. |
+| H7 | The same user config in a workspace that has not selected `aws` | Loads; `yolo check` reports the scopes as inert. |
+| H8 | A synthetic source with no `nesting`; scope `x/a`; root `x/a/b` | The scope does not apply to the root's operations. It applies only when the classifier's chain names `x/a` exactly. |
+| H9 | A fixture of root and key pairs run through core's containment and through the AWS classifier's cover, in a test | They agree on every pair. |
+| H10 | A declaration with `nesting = "glob"`, a two-byte separator, `anchors` without `segment`, or one anchor prefixing another | The declaration is refused. |
+| H11 | `yolo check` and `yolo config why` over any scope configuration | No classifier and no host program start. |
+| H12 | CircleCI scope `gh/Acme/app` beside the root `gh/acme/app` | Inert; reported; the root's listing is decided by the source scope. |
+| H13 | Scope `s3://b/reports/` carries a rule; scope `s3://b` carries `context` | The rule comes from the first, the route from the second; the context identity names `s3://b`. |
+| H14 | A git repository scope whose identity matches a remote the gate has not approved | No rule applies and nothing is admitted. |
+| H15 | GitHub read request; `--for 20m` | Refused; the message says 15 minutes and names the read cell. `--for 15m` writes the entry. |
+| H16 | GitHub request with one known write and one asking read; `--for 1h` | Refused at the read's 15-minute limit. Nothing is written. |
+| H17 | GitHub write-only request; `--for` at the shipped maximum | Accepted, exactly as at baseline. |
+| H18 | GitHub unresolved-candidate request ([§4.1](#41-fact-reads), third row); `--for 30m` | Refused at 15 minutes. `--for 10m` writes both candidate entries with one expiry. |
+| H19 | A native manifest with `read_max_for = "1h"`; read request; `--for 1h` | Accepted. The prompt shows one hour. |
+| H20 | A timed write entry stored before the revision with eleven hours left | Still covers its write for eleven hours; covers no read. |
+| H21 | `--for` on an expired request | Refused as expired. |
+| H22 | `[allow.git]` with `always = ["fetch"]` | Works as at baseline. |
+| H23 | `fetch` and `read` both written for one git scope in one layer, in the same list or different lists | Load error naming both lines. |
+| H24 | `read.fetch` in a git list | Refused, naming `fetch`. |
+| H25 | `read_max_for` in a legacy JSONC or `pack.json` manifest | Not recognized; the source's read cap is 15 minutes. |
+
 ## 13. Unverified claims this design relies on
 
 | # | Claim | Status | Needed before build |
@@ -679,8 +812,11 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | V2 | The git broker can hold a fetch for 30 s after the helper's 30 s dial and acknowledgement has completed | If the hold would fall inside that acknowledgement, an asking fetch returns "pending" at once with the request ID and no hold; nothing else changes. |
 | V3 | No GitHub call needs more than four fact reads | The call is refused by the cap; the cap is not raised without a design change. |
 | V4 | At baseline an inactive generic source already refuses before its classifier starts | If it does not, that refusal is built as part of [§8](#8-authority-state-concurrency-withdrawal-failure)'s gate rule; the gate behavior is the same either way. |
+| V5 | At baseline `yolo approve --for` above a request's limit is refused, not shortened | If a shipped front shortens instead, write-only requests on that front keep the shipped behavior. Any request holding a read or a candidate entry is refused above its limit, as [§5.1](#51-timed-caps) says. |
 
-None of V1–V4 decides policy. Each fallback is the stricter or the unchanged behavior: V1 changes only which command a message names, V2 only whether a git fetch waits, V3 and V4 only refuse.
+None of V1–V5 decides policy. Each fallback is the stricter or the unchanged behavior: V1 changes only which command a message names, V2 only whether a git fetch waits, V3 and V4 only refuse, V5 only keeps a shipped answer path as it is.
+
+**Source facts behind [§3.8](#38-scope-matching) and [§5.1](#51-timed-caps).** Read directly by the closure author: the AWS and git broker manifests (root spellings, resource types, `max_for`, `read_capability = "fetch"`). Reported by the planner and not re-read by the closure author: `CallBrokerResource` holding only a type and a parent, `validateChain`, `awsclassify.cover`, and GitHub's `Policy.MaxWindow`.
 
 The probes are compatibility evidence against baseline. They are not evidence that any proposed behavior works.
 
@@ -717,3 +853,7 @@ Dates are the date each item was recorded in this document. Owner rulings are re
 | <a id="SBP-D24"></a>SBP-D24 | Git's `fetch` cell is decided before SSH starts, at every HTTPS credential check and in the import decision; an import that would ask files nothing. Git scopes match remotes by the shipped exact-URL matcher | 2026-11-17 | [§9.1](#91-git-fetch-paths) | no |
 | <a id="SBP-D25"></a>SBP-D25 | A context field value is used as written: non-empty valid UTF-8, at most 1024 bytes, no NUL or control characters; spaces and non-ASCII allowed. Replaces the earlier 128-character printable-ASCII rule, which could reject a legitimate profile name for no safety gain | 2026-11-17 | [§7.1](#71-model) | no |
 | <a id="SBP-D26"></a>SBP-D26 | A declaration by itself is not a scope change. An inactive source (no approved or requested root) raises no scope prompt and runs no pack code. An active source's declaration change is its own prompt, needs `y`, and refuses the source until answered. Origin wording follows the root mode; an empty block is not rendered. Trust disclosures are unchanged | 2026-11-17 | [§8](#8-authority-state-concurrency-withdrawal-failure) | no |
+| <a id="SBP-D27"></a>SBP-D27 | Scope matching is declared by the source and applied by core with no source-specific branch: `nesting = "exact"` (the default; byte-identical to a chain ID) or `"segment"` (byte prefix on a declared separator under declared anchors). Order is chain position, then length, and is total. Rules, routes and `yolo check` share the one function. Matching never admits, never runs pack code and never needs a read grant. Git and GitHub keep their shipped admission and identity match | 2026-11-17 | [§3.8](#38-scope-matching) | no |
+| <a id="SBP-D28"></a>SBP-D28 | A timed answer has one duration, one expiry and one limit: the smallest cap of the entries it would write. Above the limit it is refused, not shortened. Native reads are capped by an optional TOML `read_max_for`, default 15 minutes; native unresolved candidates by 15 minutes; native known-cell writes keep their shipped maximum, and stored entries keep their expiry | 2026-11-17 | [§5.1](#51-timed-caps) | no |
+| <a id="SBP-D29"></a>SBP-D29 | A native source's shipped read word (`fetch` for git) and the literal `read` are one token; writing both for one scope in one layer is a load error. No verb is added | 2026-11-17 | [§3.6](#36-spelling) | no |
+| <a id="SBP-D30"></a>SBP-D30 | Routable scopes are named by `route_anchors` in the context block for a `segment` source; an `exact` source's scopes are all routable. Replaces "routable resource types", which a scope string does not carry | 2026-11-17 | [§7.1](#71-model), [§7.3](#73-what-a-routed-aws-context-runs-with) | no |

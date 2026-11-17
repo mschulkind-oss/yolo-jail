@@ -52,10 +52,11 @@ needs a ruling or a Mac sits in the others.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
    - [Scoped broker policy](../design/scoped-broker-policy.md) — complete its [companion seed](../design/scoped-broker-policy-plan.md)
      against the current tree before implementation, because one shared operation policy must precede
-     source-specific repairs. Fable 5.2's closure and corrective overlay are accepted; [public Git fetching](../design/scoped-broker-policy.md#91-git-fetch-paths)
-     remains anonymous when host credentials are denied, and [fact-read approvals](../design/scoped-broker-policy.md#41-fact-reads)
-     never pass a hard deny. Confirm [V1–V4](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
-     with their fixed fallbacks in the plan's first task. The seed remains SKETCH, not a build hand-off.
+     source-specific repairs. The [source-owned matching](../design/scoped-broker-policy.md#38-scope-matching)
+     and [timed-cap contract](../design/scoped-broker-policy.md#51-timed-caps) close the engineering gaps without
+     widening admission or changing historical known-write limits. The full grounded plan is in flight;
+     read its complete output, including [V1–V5](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
+     and their fixed fallbacks, before publishing a build hand-off. The companion remains a seed, not implementation authority.
    - [Managed MCP sign-in build hand-off](../design/managed-mcp-sign-in-plan.md) — ordinary managed-agent
      sign-in, capture and delivery need one coherent implementation, separate from operation-broker policy.
      The [behavioral design](../design/managed-mcp-sign-in.md) owns the contract; the synthetic gate precedes

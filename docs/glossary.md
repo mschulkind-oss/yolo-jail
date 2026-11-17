@@ -3,6 +3,14 @@
 Definitions used across design, research and companion seeds. These definitions describe the proposals;
 they do not claim the mechanisms are built.
 
+## Anchor (broker scope)
+
+A literal prefix declared by a source using segment scope nesting; every scope of that source starts with
+exactly one anchor. The anchor alone is a valid scope. Not an approved root or permission to access resources
+outside approved roots.
+
+**Origin:** Coined by the source-scope closure author in [scoped broker policy](design/scoped-broker-policy.md#38-scope-matching), 2026-11-17.
+
 ## Callback lease
 
 A per-user, per-port record naming the launch that owns a host-loopback callback publication. Not a shared
@@ -70,11 +78,27 @@ lease, capture source, delivery route or rendered client identity.
 
 **Origin:** Defined in [managed MCP sign-in](design/managed-mcp-sign-in.md#4-the-sign-in-point), 2026-11-17.
 
+## Read word
+
+The capability word a native manifest ships for its read (`fetch` for git); that word and literal `read`
+are one internal read token in lists and ask keys at every scope. Not a new verb or a write capability;
+writing both words for one scope in one layer is a load error.
+
+**Origin:** Coined by the native-cap closure author in [scoped broker policy](design/scoped-broker-policy.md#36-spelling), 2026-11-17.
+
 ## Route (broker policy)
 
 A host-only line mapping a scope to an execution context. Not a permission rule or an MCP delivery route.
 
 **Origin:** Defined in [scoped broker policy](design/scoped-broker-policy.md#7-execution-contexts-and-routing-proposed), 2026-11-17.
+
+## Scope nesting
+
+How a source's declaration says a scope string is matched: `exact` uses byte identity to a classifier chain
+ID; `segment` uses byte prefixes on a declared separator under declared anchors. Not admission, normalization
+or cross-source matching; only the approved-root proof admits an operation.
+
+**Origin:** Coined by the source-scope closure author in [scoped broker policy](design/scoped-broker-policy.md#38-scope-matching), 2026-11-17.
 
 ## Sign-in bundle
 
@@ -95,6 +119,14 @@ can succeed. Not a yolo command or a delivery route.
 An agent whose pack declares an adoptable store. Not a header-only consumer without that declaration.
 
 **Origin:** Defined in [managed MCP sign-in](design/managed-mcp-sign-in.md#2-vocabulary), 2026-11-17.
+
+## Timed limit
+
+The smallest cap among all entries one timed answer would write: asking reads, asking writes and non-refused
+candidates. Not a shortened duration or a change to a stored entry's expiry; an above-limit answer is refused,
+subject to the write-only baseline fallback recorded with V5.
+
+**Origin:** Coined by the native-cap closure author in [scoped broker policy](design/scoped-broker-policy.md#51-timed-caps), 2026-11-17.
 
 ## Usable record
 
