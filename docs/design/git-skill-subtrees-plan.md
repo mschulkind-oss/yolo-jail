@@ -2,7 +2,7 @@
 title: "Build Git-sourced skill registrations without activating their repository"
 status: accepted
 stage: DECIDED
-next: "Execute Unit 1 tests-first in this candidate; preserve the red checkpoint until its real lint caller passes."
+next: "Complete candidate runtime witnesses and exact-candidate conformance review; retain RED-to-GREEN and caller-removal receipts."
 tags: [packs, skills, git, implementation]
 ---
 
@@ -192,9 +192,15 @@ acquires fork/pack locks, and those paths never acquire skills-record. Do not cl
 whole existing store never holds two mirrors; that is true only of the new sourced path.
 
 **Verified stamp adapter:** `stampPath` is `Store.Dir/stamps/mirrorSlug(Repo)/mirrorSlug(Ref)`,
-not a field of any resolution record. `fetchStep` stamps a successful transport **before**
-content validation. Thus a successfully fetched invalid tip is paced hourly; failed transport
-or failed best-effort stamp write is retried by current policy. Reuse this pair-keyed stamp;
+not a field of any resolution record. Ordinary `fetchStep` stamps at its successful ref step.
+The sourced caller alone defers this stamp until every required ref/pin/blob network step succeeds,
+then writes once with the unchanged best-effort `writeStamp` helper **before** content validation.
+Required pin-fetch failures already recorded by the shared helper are propagated only for the selected
+sourced address; ordinary callers retain their best-effort behavior. Failed required network work,
+including blob completion timeout/cancel, preserves stamp bytes/time for same-clock retry. Deterministic
+local failures after ref success still stamp. Distinguish blob-fetch subprocess failure from local
+resolution/enumeration/bound/OID errors. Thus a completely fetched invalid tip is paced hourly; failed
+transport or failed best-effort stamp write is retried by current policy. Reuse this pair-keyed stamp;
 do not introduce per-record due state. The author's accepted stamp correction replaces
 the initial per-record assumption.
 Ordinary Refresh of the same pair shares the stamp: either successful transport paces the
@@ -206,7 +212,7 @@ entering pack/fork/patch locks. No read-only projection calls those helpers.
 **Constraint:** do not call unmodified `fetchStep` to decide whether a sourced record fetches:
 its absent mirror-local ref arm fetches even with a sourced `R`. Compute sourced fetch
 eligibility from no record/due branch/force, then reuse the existing transport/ref/tag and
-stamp mechanics *when eligible*, without changing ordinary `Refresh`/`fetchStep`. A usable
+stamp mechanics *when eligible*, with an internal sourced mode that defers stamping and propagates required selected-pin errors without changing ordinary `Refresh`/default `fetchStep` behavior. A usable
 recorded full commit and not-due ref do not contact the remote merely because the mirror's
 local ref is absent. Preserve ref classification/error behavior and tag restoration.
 Add event-driven opposing-writer tests, not sleeps.
@@ -366,7 +372,12 @@ Unit 5 repeats rollback through install/launch callers.
 cached/never-fetched; all blobs missing in a promisor mirror; existing record with deleted
 local branch ref, not-due pair stamp and removed remote must resolve by full commit with stamp byte-identical; successful invalid-tip
 fetch paces another sourced invocation, failed transport/stamp write preserves old retry;
-ordinary Refresh success on the same pair shares pacing. Config-defined smudge marker
+ordinary Refresh success on the same pair shares pacing. A controlled local promisor completion failure
+must leave the due stamp/record/payload unchanged, warn and use only valid latest-record fallback;
+same-clock retry completes and stamps, while a complete invalid candidate stays paced. A required
+full-commit pin-fetch failure likewise leaves no fresh stamp/record and retries, with an ordinary
+caller control retaining its ref-success stamp. These test authored local origins only, never upstream.
+Config-defined smudge marker
 must remain absent; ready payload shared by aliases/refs; writer cancellation before record
 save; readonly no mkdir/fetch/write, missing object; rename races and format version identity.
 Object tree includes safe in-root links/cycles, dangling/absolute/escaping links, gitlinks,

@@ -662,6 +662,9 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 		onlineProblems, lines := lintOnline(pr, readSeries)
 		problems = append(problems, onlineProblems...)
 		onlineLines = lines
+		sourceProblems, sourceLines := lintSourcedSkillsOnline(pack)
+		problems = append(problems, sourceProblems...)
+		onlineLines = append(onlineLines, sourceLines...)
 	} else {
 		// OFFLINE, NO REF WAS RESOLVED, and the pass says so where the online lines would be.
 		onlineLines = offlineRefLines(readSeries, lintRoot)
@@ -1599,6 +1602,8 @@ func packExplain(args []string, out, errw io.Writer, color bool) int {
 	res := resolved.Staged
 
 	pr := richtext.Printer{W: out, Color: color}
+	packload.ResolveSelectedSkillPayloads([]*packload.Pack{resolved.Pack}, packsrc.LaunchStore(paths.PacksDir()), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
+	printSourcedSkillProjection(pr, []*packload.Pack{resolved.Pack})
 	pr.Printf("[bold]%s[/bold] → %s", entry.Name, entry.Source)
 	pr.Printf("[green]stages %d file(s)[/green]", len(res.Staged))
 	for _, s := range res.Staged {
@@ -1749,6 +1754,8 @@ func packFootprintLocal(arg string, pr richtext.Printer, errw io.Writer) int {
 // reportFootprint prints the per-pack claims for a set of packs, then their
 // cross-pack collisions and the review summary.
 func reportFootprint(packs []*packload.Pack, pr richtext.Printer) int {
+	packload.ResolveSelectedSkillPayloads(packs, packsrc.LaunchStore(paths.PacksDir()), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
+	printSourcedSkillProjection(pr, packs)
 	for _, p := range packs {
 		fp := packload.FootprintOf(p)
 		pr.Printf("[bold]%s[/bold]", p.Name)
@@ -1968,6 +1975,11 @@ func packInstallPins(out, errw io.Writer, color, repinForks bool) int {
 	for _, gone := range pruned {
 		pr.Printf("[dim]%s removed from config — dropped from the lockfile[/dim]", gone)
 	}
+	sourced, sourcedRC := configuredSourcedSkillProjection(true, true, pr)
+	printSourcedSkillProjection(pr, sourced)
+	if sourcedRC != 0 {
+		rc = sourcedRC
+	}
 	// THE BINARIES the selected packs' loopholes declare, after the fetched packs are in the
 	// store so their manifests are readable: install is the one step that downloads them, and a
 	// launch only reads the cache (packbinaries.go).
@@ -2032,6 +2044,8 @@ func packStatus(out, errw io.Writer, color bool) int {
 		return printPreparationStatus(out, errw, color, "")
 	}
 
+	sourced, _ := configuredSourcedSkillProjection(false, false, pr)
+	printSourcedSkillProjection(pr, sourced)
 	configured := map[string]string{}
 	for _, e := range entries {
 		// EMBEDDED packs are excluded from the drift map deliberately: they have no lock

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent/builtinskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 	"github.com/mschulkind-oss/yolo-jail/internal/treesync"
@@ -67,6 +68,8 @@ type PackSkillSource struct {
 	// record carries the pack's root plugins alone (Plugins), which sit inside none of its sources
 	// and reach a jail whether or not the pack has any (run.jailSkillSources).
 	Dir string
+	// Registration is a typed selected row, never a directory source.
+	Registration *packload.SourcedSkill
 	// Agents is the audience this source names. EMPTY MEANS BROADCAST (P2) — every pack that
 	// ships today, and the only thing a pack with no pack.json can ask for.
 	Agents []string
@@ -206,6 +209,9 @@ func SkillPlan(sources []PackSkillSource, targets []SkillTarget) []hostskills.De
 			// a layer's plugins whether or not it has a source (hostskills.writeLayer).
 			if src.Dir != "" {
 				d.Layers[i].Sources = append(d.Layers[i].Sources, src.Dir)
+			}
+			if src.Registration != nil {
+				d.Layers[i].Registrations = append(d.Layers[i].Registrations, *src.Registration)
 			}
 			// Once per layer, should two records of one pack name one plugin.
 			for _, pl := range src.Plugins {
@@ -379,7 +385,12 @@ func prepareSkillTarget(dest hostskills.Destination, target SkillTarget, skillsD
 			return nil, err
 		}
 	}
-	_, err = treesync.Sync(composed, skillsDir)
+	links := hostskills.RegistrationLinks(dest)
+	if len(links) == 0 {
+		_, err = treesync.Sync(composed, skillsDir)
+	} else {
+		_, err = treesync.SyncOwnedLinks(composed, skillsDir, links)
+	}
 	return notices, err
 }
 

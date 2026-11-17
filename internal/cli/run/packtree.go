@@ -55,6 +55,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -108,7 +109,7 @@ func discardPackTree(cname, dir string) {
 	if dir == "" || filepath.Dir(dir) != paths.PackTreeRoot(cname) {
 		return
 	}
-	_ = os.RemoveAll(dir)
+	_ = packsrc.RemoveSealedSkillTree(paths.PackTreeRoot(cname), dir)
 	// And its delivery record and its per-launch copies, which live and die with it (forkhanded.go,
 	// patchedtrees.go).
 	_ = os.Remove(handedForksPath(dir))
@@ -194,6 +195,9 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 			return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
 		}
 		e.ApplyNaming(p)
+		if err := e.HydrateSourcedSkills(root, p); err != nil {
+			return nil, err
+		}
 		markOfficialFromLayout(p, e.Dir)
 		out = append(out, p)
 	}
@@ -221,7 +225,7 @@ func loadUnrecordedPackTree(root string) ([]*packload.Pack, error) {
 			return nil, err
 		}
 		for _, ent := range entries {
-			if !ent.IsDir() || ent.Name() == officialStagingDir {
+			if !ent.IsDir() || ent.Name() == officialStagingDir || ent.Name() == packload.SkillPayloadTreeDir {
 				continue
 			}
 			name := ent.Name()
@@ -421,6 +425,7 @@ func (o *Options) runningJailPackView(cname, rt string, cfg *jsonx.OrderedMap, f
 		return attachPackView{channel: channel, targetCmd: targetCmd, unreadable: true},
 			&attachPackSkew{dir: dir, unreadable: true, err: err}
 	}
+	packload.MapSkillPayloadTargets(booted, skillPayloadReadingRoot(cname, rt, dir))
 	view := attachPackView{
 		staged:    stagedPacks{root: dir, packs: booted, briefings: quietPackBriefings(booted)},
 		channel:   channel,

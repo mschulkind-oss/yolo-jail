@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/nofollow"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -166,18 +167,39 @@ func acMaterialize(src, targetRel, wsState string) {
 // jail's home on this backend, so through a linked wsState the RemoveAll deleted a host
 // directory of the jail's choosing, and a link left inside the tree would carry the copy out.
 func acMaterializeTree(src, targetRel, wsState string) error {
+	return acMaterializeTreeWithCopy(src, targetRel, wsState, copyTreeBeneath, false)
+}
+
+func acMaterializePackTree(src, targetRel, wsState string) error {
+	return acMaterializeTreeWithCopy(src, targetRel, wsState, copyPackTreeBeneath, true)
+}
+
+func acMaterializeTreeWithCopy(src, targetRel, wsState string, copy func(string, *os.Root, string) error, hasSkillPayloads bool) error {
 	r, err := openStateRoot(wsState)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
+	if hasSkillPayloads {
+		if fi, e := r.Lstat(targetRel); e == nil && fi.IsDir() {
+			err := nofollow.WalkRoot(r, filepath.Join(targetRel, packload.SkillPayloadTreeDir), nil, func(e nofollow.Entry) error {
+				if e.Kind == nofollow.Dir {
+					return e.File.Chmod(e.Perm | 0700)
+				}
+				return nil
+			})
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+	}
 	if err := r.RemoveAll(targetRel); err != nil {
 		return err
 	}
 	if err := mkdirParentBeneath(r, targetRel); err != nil {
 		return err
 	}
-	if err := copyTreeBeneath(src, r, targetRel); err != nil {
+	if err := copy(src, r, targetRel); err != nil {
 		_ = r.RemoveAll(targetRel)
 		return err
 	}

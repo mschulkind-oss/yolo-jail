@@ -10,12 +10,13 @@ import (
 // SourcedSkill is a declaration row, never a local directory governor. Row is
 // its original declaration index, preserved through audience/destination clones.
 type SourcedSkill struct {
-	Row         int
-	By          packdecl.Contribution
-	Outcome     packsrc.SkillPayloadResult
-	Plan        *packsrc.SkillRowPlan
-	PayloadRoot string
-	Withheld    string
+	Row             int
+	By              packdecl.Contribution
+	Outcome         packsrc.SkillPayloadResult
+	Plan            *packsrc.SkillRowPlan
+	PayloadRoot     string
+	PayloadLocation string
+	Withheld        string
 }
 
 // SourcedSkillRows includes unresolved declarations so static claims never depend
@@ -57,12 +58,6 @@ func (p *Pack) SourcedSkillsFor(c packdecl.Contribution) []SourcedSkill {
 // whatever the audience. It never loads a payload as a pack or plugin.
 func ResolveSelectedSkillPayloads(packs []*Pack, store *packsrc.Store, opts packsrc.SkillResolveOptions, write bool) []packsrc.SkillPayloadResult {
 	var requests []packsrc.SkillRequest
-	type selected struct {
-		p       *Pack
-		row     SourcedSkill
-		request packsrc.SkillRequest
-	}
-	var rows []selected
 	for _, p := range packs {
 		if p == nil {
 			continue
@@ -73,7 +68,6 @@ func ResolveSelectedSkillPayloads(packs []*Pack, store *packsrc.Store, opts pack
 			}
 			request := packsrc.SkillRequest{Label: fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row), Source: row.By.Source, License: row.By.License}
 			requests = append(requests, request)
-			rows = append(rows, selected{p, row, request})
 		}
 	}
 	var results []packsrc.SkillPayloadResult
@@ -82,29 +76,49 @@ func ResolveSelectedSkillPayloads(packs []*Pack, store *packsrc.Store, opts pack
 	} else {
 		results = store.ReadSkillPayloads(requests, opts.LockPath)
 	}
-	for _, selected := range rows {
-		a, _ := packsrc.Parse(selected.request.Source)
-		row := selected.row
-		for _, result := range results {
-			if result.Repo == a.Repo && result.Ref == a.Ref {
+	BindSelectedSkillPayloads(packs, results)
+	return results
+}
+
+// BindSelectedSkillPayloads preserves one invocation's validated snapshot across
+// host migration reloads instead of consulting a potentially newer shared record.
+func BindSelectedSkillPayloads(packs []*Pack, results []packsrc.SkillPayloadResult) {
+	for _, p := range packs {
+		if p == nil {
+			continue
+		}
+		for _, row := range p.SourcedSkillRows() {
+			if row.Withheld != "" {
+				continue
+			}
+			label := fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row)
+			a, _ := packsrc.Parse(row.By.Source)
+			for _, result := range results {
+				if result.Repo != a.Repo || result.Ref != a.Ref {
+					continue
+				}
 				row.Outcome = result
 				row.PayloadRoot = result.Payload
+				row.Plan = nil
 				if result.Plan != nil {
 					for i := range result.Plan.Rows {
 						plan := &result.Plan.Rows[i]
-						if plan.Request.Label == selected.request.Label {
+						if plan.Request.Label == label && plan.Request.Source == row.By.Source && plan.Request.License == row.By.License {
 							row.Plan = plan
 							break
 						}
 					}
 				}
+				if result.State == packsrc.SkillReady && row.Plan == nil {
+					row.Outcome.State = packsrc.SkillRefused
+					row.Outcome.Reason = "selection changed during apply — rerun yolo host apply to validate the complete selected pair"
+				}
 				break
 			}
+			if p.sourcedSkills == nil {
+				p.sourcedSkills = map[int]SourcedSkill{}
+			}
+			p.sourcedSkills[row.Row] = row
 		}
-		if selected.p.sourcedSkills == nil {
-			selected.p.sourcedSkills = map[int]SourcedSkill{}
-		}
-		selected.p.sourcedSkills[row.Row] = row
 	}
-	return results
 }

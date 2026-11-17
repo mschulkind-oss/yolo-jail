@@ -65,7 +65,10 @@ type PackTreeEntry struct {
 	// BareStep is Pack.BareStep, the exact command that lists the entry bare, so an attach that
 	// refuses two of the pack's names delivered alike prints the command the launch would.
 	// Absent from an older tree, whose refusal names the step in words.
-	BareStep string `json:"bare_step,omitempty"`
+	BareStep              string         `json:"bare_step,omitempty"`
+	SkillRows             []SkillTreeRow `json:"skill_rows,omitempty"`
+	SourcedSkillsWithheld string         `json:"sourced_skills_withheld,omitempty"`
+	skillPayloads         map[string]SkillPayloadTreeRecord
 }
 
 // ApplyNaming gives p the agent-facing naming its launch recorded, so a reader of the tree delivers
@@ -78,7 +81,8 @@ func (e PackTreeEntry) ApplyNaming(p *Pack) {
 }
 
 type packTreeRecord struct {
-	Packs []PackTreeEntry `json:"packs"`
+	Packs         []PackTreeEntry          `json:"packs"`
+	SkillPayloads []SkillPayloadTreeRecord `json:"skill_payloads,omitempty"`
 }
 
 // WritePackTreeRecord writes root's record from the packs a launch loaded out of it, in the order
@@ -92,6 +96,7 @@ func WritePackTreeRecord(root string, packs []*Pack) error {
 // its identity still distinguishes its record, without making that host path accessible in the jail.
 func WritePackTreeRecordForWorkspace(root string, packs []*Pack, workspace string) error {
 	rec := packTreeRecord{Packs: []PackTreeEntry{}}
+	payloadIDs := map[string]bool{}
 	for _, p := range packs {
 		rel, err := filepath.Rel(root, p.Root)
 		if err != nil || !filepath.IsLocal(rel) {
@@ -107,6 +112,23 @@ func WritePackTreeRecordForWorkspace(root string, packs []*Pack, workspace strin
 			return fmt.Errorf("packs: recording relative patch branches for %s: %w", p.Name, err)
 		}
 		entry.PatchBranches = mappings
+		entry.SourcedSkillsWithheld = p.SourcedSkillsWithheld
+		for _, row := range p.SourcedSkillRows() {
+			if row.PayloadLocation == "" || row.Outcome.State != packsrc.SkillReady || row.Withheld != "" {
+				continue
+			}
+			id := packsrc.SkillPayloadIdentity(row.Outcome.Repo, row.Outcome.Commit)
+			entry.SkillRows = append(entry.SkillRows, SkillTreeRow{Row: row.Row, Source: row.By.Source, Alias: row.By.As, Payload: id})
+			if !payloadIDs[id] {
+				payloadIDs[id] = true
+				plan := row.Outcome.Plan
+				var size int64
+				for _, e := range plan.Entries {
+					size += e.Size
+				}
+				rec.SkillPayloads = append(rec.SkillPayloads, SkillPayloadTreeRecord{ID: id, Repository: row.Outcome.Repo, Commit: row.Outcome.Commit, Location: row.PayloadLocation, Files: plan.Files, Bytes: size, Executables: plan.Executables, Omissions: plan.Omissions})
+			}
+		}
 		rec.Packs = append(rec.Packs, entry)
 	}
 	data, err := json.MarshalIndent(rec, "", "  ")
@@ -172,7 +194,19 @@ func ReadPackTreeRecord(root string) (entries []PackTreeEntry, recorded bool, er
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		return nil, true, fmt.Errorf("the record %s: %w", path, err)
 	}
-	for _, e := range rec.Packs {
+	payloads := map[string]SkillPayloadTreeRecord{}
+	for _, payload := range rec.SkillPayloads {
+		if !validSkillPayloadLocation(payload) {
+			return nil, true, fmt.Errorf("the record %s has invalid skill payload location %q — restore its launch tree or restart", path, payload.Location)
+		}
+		if _, duplicate := payloads[payload.ID]; duplicate {
+			return nil, true, fmt.Errorf("the record %s repeats skill payload %q — restore its launch tree or restart", path, payload.ID)
+		}
+		payloads[payload.ID] = payload
+	}
+	for i := range rec.Packs {
+		e := &rec.Packs[i]
+		e.skillPayloads = payloads
 		if e.Name == "" || !filepath.IsLocal(filepath.FromSlash(e.Dir)) {
 			return nil, true, fmt.Errorf("the record %s names %q at %q, which is not a pack inside the tree",
 				path, e.Name, e.Dir)

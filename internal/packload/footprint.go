@@ -554,6 +554,10 @@ func FootprintOf(p *Pack) Footprint {
 			// so a reader sees what `<bin>` will run without opening the manifest.
 			add(packdecl.KindIntercept, c.Bin, "forwards to "+strings.Join(c.Forward, " "), false)
 		case packdecl.KindSkills:
+			if c.IsSourcedSkill() {
+				add(packdecl.KindSkills, "registration:"+c.SkillBaseName(), audienceDetail(c, "declares Git registration from "+c.Source+"; whole repository supporting data, not upstream activation"), false)
+				continue
+			}
 			// Name the SOURCE, not just the merge rule. `from` was accepted and ignored on
 			// this kind, and a footprint that said only "merged" was one of the reports that
 			// let it stay hidden — an author who moved their skills to `my-skills/` saw a

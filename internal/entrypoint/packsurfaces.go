@@ -141,6 +141,9 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 			}
 			p.LaunchName = entry.Name
 			entry.ApplyNaming(p)
+			if err := entry.HydrateSourcedSkills(root, p); err != nil {
+				return nil, err
+			}
 			p.PatchBranchMappings = map[string]packload.PatchBranchMapping{}
 			for owner, mapping := range entry.PatchBranches {
 				if mapping.Mapped {
@@ -172,7 +175,7 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 			return nil, fmt.Errorf("pack root %s: %w", dir, err)
 		}
 		for _, ent := range entries {
-			if !ent.IsDir() || ent.Name() == "_official" {
+			if !ent.IsDir() || ent.Name() == "_official" || ent.Name() == packload.SkillPayloadTreeDir {
 				continue
 			}
 			p, err := loadJailPack(e, filepath.Join(dir, ent.Name()), ent.Name(), nil)

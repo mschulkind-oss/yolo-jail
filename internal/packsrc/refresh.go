@@ -490,6 +490,10 @@ type fetchMode struct {
 	// forced fetch leaves them moved, which is how install moves to a re-pointed tag; a patched
 	// fork's check never follows a re-pointed tag (PF-D4), forced or not.
 	keepTags bool
+	// sourced defers the pair stamp until required explicit blob completion, and
+	// propagates this address's required pin-fetch failure without changing the
+	// ordinary best-effort pin/stamp contract. Only the sourced adapter sets it.
+	sourced bool
 	// remoteTracking fetches the repository's remote-tracking refs too (refs/remotes/*), which a patch
 	// branch's ?ref= may name (resolvePatchBranchRef). A pack's own fetch leaves them out.
 	remoteTracking bool
@@ -553,8 +557,10 @@ func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, n
 	s.markFetched(repo)
 	// Every ref on the mirror is current after a good fetch, so each address's ref is stamped
 	// from the same one.
-	for _, a := range addrs {
-		s.writeStamp(a, now)
+	if !mode.sourced {
+		for _, a := range addrs {
+			s.writeStamp(a, now)
+		}
 	}
 	switch {
 	case !restore:
@@ -572,6 +578,14 @@ func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, n
 	s.fetchPinnedCommits(b, mirror, addrs)
 	// Then the compaction the fetch's own maintenance no longer does, still under the lock.
 	s.autoGC(mirror)
+	if mode.sourced {
+		for _, a := range addrs {
+			if err, failed := pinnedFetchFailures.Load(s.decidedKey(a)); failed {
+				r.fetchErr = fmt.Errorf("required sourced pin %s could not be fetched: %w", a.Ref, err.(error))
+				break
+			}
+		}
+	}
 	return r
 }
 

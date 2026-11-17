@@ -143,7 +143,7 @@ func sandboxTmpdirEnvAt(root, program string) ([]string, error) {
 			return nil, err
 		}
 		for _, d := range dirs {
-			if d.IsDir() {
+			if d.IsDir() && d.Name() != packload.SkillPayloadTreeDir {
 				entries = append(entries, packload.PackTreeEntry{Name: d.Name(), Dir: d.Name()})
 			}
 		}

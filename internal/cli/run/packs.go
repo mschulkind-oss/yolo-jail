@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/wirebridged"
@@ -260,6 +261,7 @@ func (o *Options) stagePacksInto(stagingRoot string, entries []config.PackEntry)
 		return nil, nil, err
 	}
 	loaded := sel.Packs()
+	packload.ResolveSelectedSkillPayloads(loaded, launchStore(), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
 	var skillDirs []jailcontent.PackSkillSource
 	var briefings []jailcontent.PackBriefing
 	for _, p := range loaded {

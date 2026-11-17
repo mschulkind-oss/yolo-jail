@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostcas"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -645,6 +646,9 @@ func Run(opts Options) (rc int) {
 		}
 		if !o.DryRun {
 			o.skillImportGatePassed = true
+			if !o.prepareFreshSkillPayloads(cname, rt, staged) {
+				return 1
+			}
 		}
 		// What the gate granted, on the payload and channel composed above from the approval
 		// record (recomposeForApprovedGrants), as the container arm does after its gate.
@@ -724,6 +728,7 @@ func Run(opts Options) (rc int) {
 		// never ran the build act would fail and the launch refuse for a missing program, where the
 		// backend's refusal names the setup. Skipped silently, the backend's refusal follows.
 		if o.DryRun {
+			hostskills.PrintSourcedSkillProjection(o.pr(o.Stderr).rt, staged.packs)
 			o.dryRunForkDeliveries()
 			o.dryRunTreeDeliveries()
 		} else if o.macosUserPreflight() {
@@ -1916,6 +1921,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 				"[dim]Remove it with %s and launch again.[/dim]", cname, containerRemoveCommand(rt, cname))
 			return 1
 		}
+	}
+
+	if !o.prepareFreshSkillPayloads(cname, rt, staged) {
+		return 1
 	}
 
 	// No container of this name will be attached to from here: this is a fresh launch. So the

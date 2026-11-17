@@ -64,6 +64,12 @@ func jailSkillSources(p *packload.Pack, sources []packload.SkillsSource) []jailc
 		}
 		out = append(out, record(src.Dir, src.Agents, plugins))
 	}
+	for _, row := range p.SourcedSkillRows() {
+		copy := row
+		src := record("", row.By.Agents, nil)
+		src.Registration = &copy
+		out = append(out, src)
+	}
 	return out
 }
 

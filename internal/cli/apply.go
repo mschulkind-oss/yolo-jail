@@ -34,6 +34,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -673,6 +674,21 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			"read whole, and an incomplete pack set is never applied. Nothing was written.[/bold red]",
 			len(unresolved), plural(len(unresolved), "pack", "packs"))
 		return 1
+	}
+	skillResults := packload.ResolveSelectedSkillPayloads(loaded, packsrc.LaunchStore(paths.PacksDir()),
+		packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, write)
+	hostskills.PrintSourcedSkillProjection(pr, loaded)
+	for _, result := range skillResults {
+		if result.Warning != "" {
+			pr.Printf("  [yellow]skills: %s[/yellow]", richtext.Escape(result.Warning))
+		}
+		if result.State != packsrc.SkillReady {
+			pr.Printf("  skills: %s", richtext.Escape(result.Diagnostic(result.Repo+"?ref="+result.Ref)))
+			if write {
+				pr.Printf("host apply: refused before destination writes — correct the sourced skills row or pin a usable full commit")
+				return 1
+			}
+		}
 	}
 	// reloadPacks re-runs exactly the resolution above. The briefing migration CREATES the local
 	// pack (it moves the user's prose into ~/.config/yolo-jail/local/briefing/local.md), and the

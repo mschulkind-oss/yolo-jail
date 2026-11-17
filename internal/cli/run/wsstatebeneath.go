@@ -545,6 +545,10 @@ func copyLinkIfMissing(src *os.Root, s string, dst *os.Root, d string) error {
 // source's exec bit and nothing else; packs.go says why). rel must not exist: the caller
 // removes it first, so nothing the jail left there is written through.
 func copyTreeBeneath(src string, r *os.Root, rel string) error {
+	return copyTreeBeneathExcept(src, r, rel, "")
+}
+
+func copyTreeBeneathExcept(src string, r *os.Root, rel, skip string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -552,6 +556,9 @@ func copyTreeBeneath(src string, r *os.Root, rel string) error {
 		sub, err := filepath.Rel(src, p)
 		if err != nil {
 			return err
+		}
+		if skip != "" && sub == skip {
+			return filepath.SkipDir
 		}
 		target := filepath.Join(rel, sub)
 		if d.IsDir() {

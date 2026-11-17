@@ -233,6 +233,9 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		// (packload.Pack.MayRunHostHalf; docs/design/host-notch-services.md HS-D27).
 		out.Pack.Official = entry.Embedded()
 		out.Pack.Local = entry.IsLocal() && !entry.Embedded()
+		if len(entry.Only) > 0 {
+			out.Pack.SourcedSkillsWithheld = "legacy only filter withholds every sourced skill; remove only to register these rows"
+		}
 		// The agent-facing naming the config entry computed (docs/reference/pack-system.md#delivered-names).
 		out.Pack.KeepNamesStep, out.Pack.AcceptNamesStep, out.Pack.BareStep =
 			entry.KeepNamesStep, entry.AcceptNamesStep, entry.BareStep

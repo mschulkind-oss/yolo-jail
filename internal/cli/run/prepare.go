@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
@@ -53,6 +54,19 @@ func (o *Options) refreshLegacyJailBriefings(cname string, cfg *jsonx.OrderedMap
 
 func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, rt string, staged stagedPacks,
 	io ioprio.Priority, preserveLegacyMechanics bool, factSheets ...*jailcontent.FactSheet) (string, error) {
+	// Dry-run composition may use READY cached registrations only. Static name
+	// collisions were checked over all declarations before this delivery pass.
+	if o.DryRun {
+		original := jailcontent.PackSkillDirs()
+		var ready []jailcontent.PackSkillSource
+		for _, source := range original {
+			if source.Registration == nil || source.Registration.Withheld != "" || source.Registration.Outcome.State == packsrc.SkillReady {
+				ready = append(ready, source)
+			}
+		}
+		jailcontent.SetPackSkillDirs(ready)
+		defer jailcontent.SetPackSkillDirs(original)
+	}
 	var facts *jailcontent.FactSheet
 	if len(factSheets) > 0 {
 		facts = factSheets[0]

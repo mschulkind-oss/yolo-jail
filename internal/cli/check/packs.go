@@ -330,6 +330,24 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			r.dim(cause)
 		}
 	}
+	packload.ResolveSelectedSkillPayloads(loaded, packsrc.LaunchStore(paths.PacksDir()), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
+	for _, p := range loaded {
+		for _, row := range p.SourcedSkillRows() {
+			label := fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row)
+			if row.Withheld != "" {
+				r.skip(label+": "+row.Withheld, "")
+				continue
+			}
+			switch row.Outcome.State {
+			case packsrc.SkillReady:
+				r.ok(label + ": selected Git registration validated at " + row.Outcome.Commit)
+			case packsrc.SkillNotFetched, packsrc.SkillNotMaterialized:
+				r.skip(row.Outcome.Diagnostic(label), "")
+			default:
+				r.fail(label+": sourced skill REFUSED", row.Outcome.Diagnostic(label))
+			}
+		}
+	}
 	// The readers below resolve over the selection the closure settled on.
 	userProfiles := sync.OnceValues(func() (map[string]packload.UserProfile, error) {
 		return selectableOver(loaded)

@@ -3,6 +3,7 @@ package packsrc
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -16,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nofollow"
 )
@@ -99,13 +102,12 @@ func (r SkillPayloadResult) Diagnostic(row string) string {
 	if r.State == SkillNotFetched {
 		return row + ": not fetched — " + r.Reason + "; run yolo pack install"
 	}
-	return row + ": refused at recorded commit " + r.Commit + " — " + r.Reason + "; every selection naming this repository/ref shares the record; pin source to a usable full commit or correct/remove the row (yolo pack update helps only if upstream moved)"
+	return row + ": refused at commit " + r.Commit + " — " + r.Reason + "; every selection naming this repository/ref shares the record; pin source to a usable full commit or correct/remove the row (yolo pack update helps only if upstream moved)"
 }
 
 // SkillPayloadPath is outside pack trees and agent discovery roots, shared across refs/aliases.
 func (s *Store) SkillPayloadPath(repo, commit string) string {
-	sum := sha256.Sum256([]byte(repo + "\n" + commit + "\n" + skillPayloadFormat))
-	return filepath.Join(s.Dir, "skill-payloads", hex.EncodeToString(sum[:]))
+	return filepath.Join(s.Dir, "skill-payloads", SkillPayloadIdentity(repo, commit))
 }
 
 type skillGroup struct {
@@ -208,13 +210,19 @@ func (s *Store) resolveSkillGroup(g skillGroup, opts SkillResolveOptions) SkillP
 		defer cancel()
 		// Eligibility is already settled. fetchStep's always arm supplies transport,
 		// fsck, pair stamps and tag restoration, not its extra missing-local-ref trigger.
-		step := s.fetchStep(b, r.Repo, []Addr{g.addr}, fetchMode{always: true, keepTags: !opts.Force}, now, BranchRefreshInterval)
+		step := s.fetchStep(b, r.Repo, []Addr{g.addr}, fetchMode{always: true, keepTags: !opts.Force, sourced: true}, now, BranchRefreshInterval)
 		r.Fetched = step.fetched
 		candidateErr = step.fetchErr
 		if candidateErr == nil {
 			candidate, candidateErr = s.revParse(mirror, r.Ref)
-			if candidateErr == nil {
+			if candidateErr == nil && candidate != "" {
 				candidateErr = s.acquireSkillBlobs(b, mirror, candidate)
+			} else if candidateErr == nil {
+				candidateErr = fmt.Errorf("ref %s names no commit after successful transport — correct source or choose an existing ref", r.Ref)
+			}
+			var networkFailure *skillBlobFetchError
+			if !errors.As(candidateErr, &networkFailure) {
+				s.writeStamp(g.addr, now)
 			}
 		}
 	}
@@ -237,7 +245,7 @@ func (s *Store) resolveSkillGroup(g skillGroup, opts SkillResolveOptions) SkillP
 				return c
 			}
 			if created {
-				removeSkillPayload(c.Payload)
+				_ = RemoveSealedSkillTree(s.Dir, c.Payload)
 			}
 			candidateErr = err
 		} else {
@@ -346,7 +354,6 @@ func (s *Store) planSkillPayload(mirror, commit string, rows []SkillRequest) (*S
 		return nil, err
 	}
 	p := &SkillPayloadPlan{}
-	entries := map[string]*SkillEntry{}
 	for _, rec := range bytes.Split(listing, []byte{0}) {
 		if len(rec) == 0 {
 			continue
@@ -373,10 +380,6 @@ func (s *Store) planSkillPayload(mirror, commit string, rows []SkillRequest) (*S
 		}
 		p.Entries = append(p.Entries, e)
 	}
-	for i := range p.Entries {
-		e := &p.Entries[i]
-		entries[e.Path] = e
-	}
 	// Charge every blob before reading any, including entries that will be omitted.
 	if err := s.readSkillBlobs(mirror, p.Entries); err != nil {
 		return nil, err
@@ -390,10 +393,42 @@ func (s *Store) planSkillPayload(mirror, commit string, rows []SkillRequest) (*S
 			}
 		}
 	}
+	return validateSkillPayloadPlan(p, rows)
+}
+
+// Unicode simple-fold classes include variants (such as both sigmas) that
+// lowercasing alone misses. Preserve invalid UTF-8 bytes in Git path names.
+func skillCaseNameKey(name string) string {
+	var b strings.Builder
+	for len(name) > 0 {
+		r, n := utf8.DecodeRuneInString(name)
+		if r == utf8.RuneError && n == 1 {
+			b.WriteByte(name[0])
+			name = name[1:]
+			continue
+		}
+		smallest := r
+		for next := unicode.SimpleFold(r); next != r; next = unicode.SimpleFold(next) {
+			if next < smallest {
+				smallest = next
+			}
+		}
+		b.WriteRune(smallest)
+		name = name[n:]
+	}
+	return b.String()
+}
+
+func validateSkillPayloadPlan(p *SkillPayloadPlan, rows []SkillRequest) (*SkillPayloadPlan, error) {
+	entries := map[string]*SkillEntry{}
+	for i := range p.Entries {
+		e := &p.Entries[i]
+		entries[e.Path] = e
+	}
 	omitted := map[string]string{}
 	caseGroups := map[string][]string{}
 	for _, e := range p.Entries {
-		key := path.Dir(e.Path) + "/" + strings.ToLower(path.Base(e.Path))
+		key := path.Dir(e.Path) + "/" + skillCaseNameKey(path.Base(e.Path))
 		caseGroups[key] = append(caseGroups[key], e.Path)
 	}
 	for _, group := range caseGroups {
@@ -469,7 +504,7 @@ func (s *Store) planSkillPayload(mirror, commit string, rows []SkillRequest) (*S
 }
 
 func skillCleanPath(p string) bool {
-	return p != "" && p != "." && !strings.HasPrefix(p, "/") && path.Clean(p) == p && !strings.ContainsAny(p, "\\\x00\r\n") && !strings.Contains("/"+p+"/", "/../")
+	return p != "" && p != "." && !strings.HasPrefix(p, "/") && path.Clean(p) == p && !strings.ContainsRune(p, '\x00') && !strings.Contains("/"+p+"/", "/../")
 }
 func skillWithin(scope, p string) bool {
 	return scope == "" || p == scope || strings.HasPrefix(p, scope+"/")
@@ -498,7 +533,7 @@ func resolveSkillPath(entries map[string]*SkillEntry, p, scope string, allowCycl
 				if len(e.Target) > skillLinkLimit {
 					return "", fmt.Errorf("link target %s has %d bytes, bound %d — shorten it", prefix, len(e.Target), skillLinkLimit)
 				}
-				if strings.HasPrefix(e.Target, "/") || strings.ContainsAny(e.Target, "\\\x00\r\n") {
+				if strings.HasPrefix(e.Target, "/") || strings.ContainsRune(e.Target, '\x00') {
 					return "", fmt.Errorf("absolute or invalid link %s", prefix)
 				}
 				if seen[prefix] {
@@ -573,12 +608,14 @@ func validateSkillRow(entries map[string]*SkillEntry, omitted map[string]string,
 	if e.Size > skillMarkerLimit {
 		return row, fmt.Errorf("SKILL.md bytes %d exceed bound %d — shorten the marker", e.Size, skillMarkerLimit)
 	}
-	row.Marker = append([]byte(nil), e.Data...)
+	row.Marker = e.Data
 	licensePath := request.License
 	names := []string{"LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING"}
 	if licensePath == "" {
 		for _, n := range names {
 			if entries[dir+"/"+n] != nil {
+				row.LicenseNote = n + " already in selected skill; no license added"
+				sort.Strings(row.Entries)
 				return row, nil
 			}
 		}
@@ -614,13 +651,49 @@ func validateSkillRow(entries map[string]*SkillEntry, omitted map[string]string,
 			return row, fmt.Errorf("license basename %s conflicts with skill entry %s — choose another license path or remove the conflict", row.LicenseName, name)
 		}
 	}
-	row.License = append([]byte(nil), e.Data...)
+	row.License = e.Data
+	row.LicenseNote = "added repository " + licensePath + " as private " + row.LicenseName
 	sort.Strings(row.Entries)
 	return row, nil
 }
 
 func (s *Store) publishSkillPayload(dest string, p *SkillPayloadPlan) error {
-	if fi, err := os.Lstat(dest); err == nil {
+	if err := os.MkdirAll(s.Dir, 0755); err != nil {
+		return err
+	}
+	base, err := os.OpenRoot(s.Dir)
+	if err != nil {
+		return err
+	}
+	defer base.Close()
+	parent, err := filepath.Rel(s.Dir, filepath.Dir(dest))
+	if err != nil || !filepath.IsLocal(parent) {
+		return fmt.Errorf("payload destination is outside its owned store")
+	}
+	if existing, e := base.Lstat(parent); e == nil && !existing.IsDir() {
+		return fmt.Errorf("payload parent %s is a symlink or not a directory — replace it with a real directory and run yolo pack install", parent)
+	}
+	if err := base.MkdirAll(parent, 0755); err != nil {
+		return fmt.Errorf("cannot create payload parent %s: %w — replace any linked ancestor with a real directory and run yolo pack install", parent, err)
+	}
+	fi, err := base.Lstat(parent)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("payload parent %s is a symlink or not a directory — replace the link with a real directory and run yolo pack install", parent)
+	}
+	published, err := base.OpenRoot(parent)
+	if err != nil {
+		return err
+	}
+	defer published.Close()
+	got, err := published.Stat(".")
+	if err != nil || !os.SameFile(fi, got) {
+		return fmt.Errorf("payload parent changed — retry yolo pack install")
+	}
+	leaf := filepath.Base(dest)
+	if fi, err := published.Lstat(leaf); err == nil {
 		if fi.IsDir() {
 			return s.verifySkillPayload(dest, p)
 		}
@@ -628,65 +701,72 @@ func (s *Store) publishSkillPayload(dest string, p *SkillPayloadPlan) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	parent := filepath.Dir(dest)
-	if err := os.MkdirAll(parent, 0755); err != nil {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
-	scratch, err := os.MkdirTemp(parent, ".payload-*")
+	temp := ".payload-" + hex.EncodeToString(nonce[:])
+	if err := published.Mkdir(temp, 0700); err != nil {
+		return err
+	}
+	scratchPath := filepath.Join(s.Dir, parent, temp)
+	defer func() { _ = RemoveSealedSkillTree(s.Dir, scratchPath) }()
+	scratch, err := published.OpenRoot(temp)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		_ = filepath.Walk(scratch, func(p string, fi os.FileInfo, err error) error {
-			if err == nil && fi.Mode()&os.ModeSymlink == 0 {
-				_ = os.Chmod(p, fi.Mode().Perm()|0700)
-			}
-			return nil
-		})
-		_ = os.RemoveAll(scratch)
-	}()
+	defer scratch.Close()
+	var dirs []string
 	for _, e := range p.Entries {
-		full := filepath.Join(scratch, filepath.FromSlash(e.Path))
-		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+		rel := filepath.FromSlash(e.Path)
+		if err := scratch.MkdirAll(filepath.Dir(rel), 0755); err != nil {
 			return err
 		}
 		switch e.Mode {
 		case "040000":
-			err = os.MkdirAll(full, 0755)
+			err = scratch.MkdirAll(rel, 0755)
+			dirs = append(dirs, rel)
 		case "120000":
-			err = os.Symlink(e.Target, full)
+			err = scratch.Symlink(e.Target, rel)
 		default:
 			mode := os.FileMode(0444)
 			if e.Mode == "100755" {
 				mode = 0555
 			}
-			err = os.WriteFile(full, e.Data, mode)
+			var f *os.File
+			f, err = scratch.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+			if err == nil {
+				_, err = f.Write(e.Data)
+				closeErr := f.Close()
+				if err == nil {
+					err = closeErr
+				}
+				if err == nil {
+					err = scratch.Chmod(rel, mode)
+				}
+			}
 		}
 		if err != nil {
 			return err
 		}
 	}
-	if err = filepath.Walk(scratch, func(p string, fi os.FileInfo, err error) error {
-		if err != nil {
+	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
+	for _, dir := range append(dirs, ".") {
+		if err := scratch.Chmod(dir, 0555); err != nil {
 			return err
 		}
-		if fi.IsDir() {
-			return os.Chmod(p, 0555)
-		}
-		return nil
-	}); err != nil {
+	}
+	if err := s.parentCtx().Err(); err != nil {
 		return err
 	}
-	if err = s.parentCtx().Err(); err != nil {
-		return err
-	}
-	if err = os.Rename(scratch, dest); err != nil {
-		if fi, e := os.Lstat(dest); e == nil && fi.IsDir() {
+	if err := published.Rename(temp, leaf); err != nil {
+		if fi, e := published.Lstat(leaf); e == nil && fi.IsDir() {
 			return s.verifySkillPayload(dest, p)
 		}
 		return err
 	}
-	return nil
+	// Prove the winner and its physical ancestors, including our own publication.
+	return s.verifySkillPayload(dest, p)
 }
 
 func isolateSkillGit(cmd *exec.Cmd) {
@@ -777,6 +857,18 @@ func skillRefKind(kind refKind) string {
 	}
 }
 
+// skillBlobFetchError distinguishes failed network work from deterministic
+// local enumeration errors, which still pace a successful sourced ref fetch.
+type skillBlobFetchError struct {
+	cause  error
+	detail string
+}
+
+func (e *skillBlobFetchError) Error() string {
+	return fmt.Sprintf("could not acquire every payload blob: %v: %s — run yolo pack install when the repository is reachable", e.cause, e.detail)
+}
+func (e *skillBlobFetchError) Unwrap() error { return e.cause }
+
 func (s *Store) acquireSkillBlobs(b budget, mirror, commit string) error {
 	listing, err := s.skillObjectRead(mirror, skillListingLimit, "rev-list", "--objects", "--missing=print", commit+"^{tree}")
 	if err != nil {
@@ -799,7 +891,7 @@ func (s *Store) acquireSkillBlobs(b budget, mirror, commit string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("could not acquire every payload blob: %w: %s — run yolo pack install when the repository is reachable", err, strings.TrimSpace(stderr.String()))
+		return &skillBlobFetchError{cause: err, detail: strings.TrimSpace(stderr.String())}
 	}
 	// The common pure validator, not the fetch status, proves object completeness.
 	return nil
@@ -860,12 +952,114 @@ func (s *Store) verifySkillPayload(root string, p *SkillPayloadPlan) error {
 	return nil
 }
 
-func removeSkillPayload(root string) {
-	_ = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
-		if err == nil && fi.Mode()&os.ModeSymlink == 0 {
-			_ = os.Chmod(p, fi.Mode().Perm()|0700)
+// RemoveSealedSkillTree removes an owned scratch/payload tree after its caller
+// has established no live reader owns it. Permission restoration uses no-follow
+// descriptors; neither restoration nor removal follows a planted host link.
+func RemoveSealedSkillTree(base, root string) error {
+	err := nofollow.WalkBelow(base, root, nil, func(e nofollow.Entry) error {
+		if e.Kind == nofollow.Dir {
+			return e.File.Chmod(e.Perm | 0700)
 		}
 		return nil
 	})
-	_ = os.RemoveAll(root)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	relative, err := filepath.Rel(base, root)
+	if err != nil || !filepath.IsLocal(relative) || relative == "." {
+		return fmt.Errorf("skill cleanup root is outside its owned base")
+	}
+	r, err := os.OpenRoot(base)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	return r.RemoveAll(relative)
+}
+
+// ReadSkillPayloadTree validates recorded launch bytes without Git, the store or
+// any fetch capability. It reads every component below root without following
+// payload links, then applies the same effective-tree/selected-row validator.
+func ReadSkillPayloadTree(root string, rows []SkillRequest) (*SkillPayloadPlan, error) {
+	return ReadSkillPayloadTreeBeneath(filepath.Dir(root), root, rows)
+}
+
+// ReadSkillPayloadTreeBeneath confines physical ancestors to the launch tree.
+func ReadSkillPayloadTreeBeneath(base, root string, rows []SkillRequest) (*SkillPayloadPlan, error) {
+	p := &SkillPayloadPlan{}
+	err := nofollow.WalkBelow(base, root, nil, func(e nofollow.Entry) error {
+		if e.Rel == "." {
+			if e.Kind != nofollow.Dir {
+				return fmt.Errorf("payload root is not a directory")
+			}
+			return nil
+		}
+		entry := SkillEntry{Path: filepath.ToSlash(e.Rel)}
+		p.ChargedEntries++
+		if p.ChargedEntries > skillEntryLimit {
+			return fmt.Errorf("payload entries %d exceed bound %d — restore its launch tree or restart the jail", p.ChargedEntries, skillEntryLimit)
+		}
+		switch e.Kind {
+		case nofollow.Dir:
+			entry.Mode = "040000"
+		case nofollow.Symlink:
+			entry.Mode = "120000"
+			entry.Target = e.Target
+			entry.Data = []byte(e.Target)
+			entry.Size = int64(len(e.Target))
+			if len(e.Target) > skillLinkLimit {
+				return fmt.Errorf("link target bytes %d exceed bound %d — restore its launch tree or restart", len(e.Target), skillLinkLimit)
+			}
+		case nofollow.File:
+			entry.Mode = "100644"
+			if e.Perm&0111 != 0 {
+				entry.Mode = "100755"
+			}
+			fi, err := e.File.Stat()
+			if err != nil {
+				return err
+			}
+			entry.Size = fi.Size()
+			if p.ChargedBytes+entry.Size > skillByteLimit {
+				return fmt.Errorf("payload bytes %d exceed bound %d — restore its launch tree or restart", p.ChargedBytes+entry.Size, skillByteLimit)
+			}
+			entry.Data, err = io.ReadAll(io.LimitReader(e.File, entry.Size+1))
+			if err != nil {
+				return err
+			}
+			if int64(len(entry.Data)) != entry.Size {
+				return fmt.Errorf("payload file %s changed during read — retry the attach", entry.Path)
+			}
+		default:
+			return fmt.Errorf("payload path %s has an unsupported file kind — restore its launch tree or restart", entry.Path)
+		}
+		p.ChargedBytes += entry.Size
+		p.Entries = append(p.Entries, entry)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return validateSkillPayloadPlan(p, rows)
+}
+
+// CopySkillPayload copies only an already-valid supporting tree, preserving its
+// safe relative links (cycles included). Invalid links/modes/case groups are not
+// silently copied around. The destination is an exclusive, owned launch path.
+func CopySkillPayload(src, dst string) error {
+	p, err := ReadSkillPayloadTree(src, nil)
+	if err != nil {
+		return err
+	}
+	if len(p.Omissions) != 0 {
+		return fmt.Errorf("payload copy has omitted path %s: %s — restore the validated tree", p.Omissions[0].Path, p.Omissions[0].Reason)
+	}
+	store := &Store{Dir: filepath.Dir(dst)}
+	return store.publishSkillPayload(dst, p)
+}
+
+// SkillPayloadIdentity is the opaque name a tree record uses, not a manifest path.
+func SkillPayloadIdentity(repo, commit string) string {
+	sum := sha256.Sum256([]byte(repo + "\n" + commit + "\n" + skillPayloadFormat))
+	return hex.EncodeToString(sum[:])
 }

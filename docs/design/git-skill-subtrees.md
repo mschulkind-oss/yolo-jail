@@ -10,8 +10,8 @@ tags: [packs, skills, git, design]
 
 **Disposition:** IMPLEMENT
 
-**Status:** 2026-11-17. Nothing built: docs and a preserved intentional lint RED only.
-Canonical copy includes the accepted Fable concurrency/stamp/reader amendments below.
+**Status:** 2026-11-17. Candidate implementation is in progress; the permanent lint regression is GREEN. Production-caller and controlled synthetic-script receipts are being collected; exact-candidate review and backend runtime verification remain pending.
+Canonical copy includes the accepted Fable concurrency/stamp/reader amendments below. Ledger Built flags await the completed candidate's conformance review.
 Tree grounded at `566ef01f` (production at `b5a5fe32`); no upstream fetch/execution,
 launch or host apply. No feature-green claim.
 
@@ -224,7 +224,7 @@ Process pairs one at a time:
 
 **Lock order:** existing `lockMirror(repo)` → **new skills-record lock**. This leaf is held only for short record read-modify-write, never across fetch or validation; nothing is acquired and no existing pack/fork/patch code is called below it. Existing fork-record→mirror ordering, ordinary Refresh releasing mirror before its pack-record save, and sorted multi-mirror patch locking remain unchanged. A sourced transaction never holds two mirror locks.
 
-**Due stamp:** reuse `Store.Dir/stamps/mirrorSlug(Repo)/mirrorSlug(Ref)`, written on successful transport before content validation. No per-record due state. Successfully fetched invalid contents are paced hourly; failed transport or failed stamp write retains the existing retry policy. Ordinary Refresh of the same pair shares this pacing: either successful transport paces the other. Read-only surfaces never consult a stamp for a decision, nor create, write or touch it.
+**Due stamp:** reuse `Store.Dir/stamps/mirrorSlug(Repo)/mirrorSlug(Ref)`, written once on successful sourced transport before content validation. Successful sourced transport includes the ref fetch, any required selected full-commit pin fetch, and explicit promisor-blob completion. The sourced caller suppresses the shared ref-step stamp; ordinary Refresh keeps its ref-step stamp and existing best-effort pin-failure behavior. A failed required network subprocess, including timeout or cancel, preserves the stamp's bytes and time, leaving the pair due for an immediate same-clock retry. A local failure after successful ref transport — resolving the commit, enumerating missing objects, exceeding the listing bound, or receiving an invalid missing OID — still stamps. Completion-fetch errors must therefore remain distinguishable from local errors. No per-record due state. Successfully fetched invalid contents are paced hourly; failed transport or failed best-effort stamp write retains the existing retry policy. Ordinary Refresh of the same pair shares this pacing: either successful transport paces the other. Read-only surfaces never consult a stamp for a decision, nor create, write or touch it.
 
 Every sourced row a selected pack declares is resolved, whatever its audience. Resolution is one level deep, because nothing in the payload is read as a declaration. Early attach comparison reads declarations/cache only; new sourced writer work waits for the fresh-launch disposition. Attach uses the running tree, never this transaction.
 
@@ -510,7 +510,7 @@ The fixture repository is mixed on purpose: a root `VERSION` and `LICENSE`; a se
 | GSS-D18 | One directory may be registered under several names; aliases share the payload and never a `SKILL.md` | 2026-11-17 | [§7.2](#72-name-and-aliases) | No |
 | GSS-D19 | Footprint and explain report the deployed payload and the registered skills as separate claims | 2026-11-17 | [§8.3](#83-reader-states-and-commands) | No |
 | GSS-D20 | Filtering a whole Git pack, and other kinds reading a payload, are not built | 2026-11-17 | [§4.1](#41-why-sharing-a-payload-beats-filtering-a-whole-pack) | No |
-| GSS-D21 | Immutable selection; whole-pair-group mirror→new skills-record leaf transaction; one result per pair; readers revalidate, never fetch or touch stamps; sourced adapter uses existing pair stamp without extra triggers | 2026-11-17 | [§6.2](#62-resolution-sequence-and-transaction), [§8.3](#83-reader-states-and-commands) | No |
+| GSS-D21 | Immutable selection; whole-pair-group mirror→new skills-record leaf transaction; one result per pair; readers revalidate, never fetch or touch stamps; sourced adapter uses existing pair stamp without extra triggers; stamps once after required ref/pin/blob network steps and before validation, preserves stamp on required network failure, stamps deterministic local failures, leaves ordinary Refresh unchanged | 2026-11-17 | [§6.2](#62-resolution-sequence-and-transaction), [§8.3](#83-reader-states-and-commands) | No |
 | GSS-D22 | No durable per-selection history; moving shared record can invalidate next resolution. Full-commit pin is durable remedy | 2026-11-17 | [§8.3](#83-reader-states-and-commands) | No |
 | GSS-D23 | NOT MATERIALIZED is a distinct derived reader skip with exact diagnostic, no writes or false delivery; REFUSED takes precedence | 2026-11-17 | [§8.3](#83-reader-states-and-commands) | No |
 | GSS-D24 | Not-due writer repairs from local objects without fetch/stamp/mirror change; install/update keep force semantics | 2026-11-17 | [§8.3](#83-reader-states-and-commands) | No |

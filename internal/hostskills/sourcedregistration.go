@@ -148,9 +148,16 @@ func writeSourcedRegistrations(dir string, l Layer, req ComposeRequest, preOwned
 			}
 			fail := func(err error) ([]Result, error) { _ = os.RemoveAll(scratch); return results, err }
 			for entry, data := range files {
-				if err := os.WriteFile(filepath.Join(scratch, entry), data, 0644); err != nil {
+				file := filepath.Join(scratch, entry)
+				if err := os.WriteFile(file, data, 0644); err != nil {
 					return fail(err)
 				}
+				if err := os.Chmod(file, 0644); err != nil {
+					return fail(err)
+				}
+			}
+			if err := os.Chmod(scratch, 0755); err != nil {
+				return fail(err)
 			}
 			for entry, target := range links {
 				if err := os.Symlink(target, filepath.Join(scratch, entry)); err != nil {

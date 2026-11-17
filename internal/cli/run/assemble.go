@@ -963,7 +963,7 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 	// was made from until the container is known gone, since an attach reads it.
 	if in.packStaging != "" {
 		if rt == "container" { // parity: HonoredBy — the jail still gets the pack tree, as a per-launch ws_state COPY rather than a :ro bind AC would ignore
-			if err := acMaterializeTree(in.packStaging, acPackRootRel, in.wsState); err != nil {
+			if err := acMaterializePackTree(in.packStaging, acPackRootRel, in.wsState); err != nil {
 				// NO SILENT DROP. Saying nothing here is the whole of issue #44: the jail
 				// comes up with guardrails, briefings and a managed settings.json, looks
 				// provisioned, and has no agent in it. An unset YOLO_PACK_ROOT is the

@@ -36,6 +36,10 @@ func TestSkillPayloadSelectedRefusalsAndSupportingOmissions(t *testing.T) {
 			writeSkillFixture(t, r, "skills/chosen/A", "a", 0644)
 			writeSkillFixture(t, r, "skills/chosen/a", "b", 0644)
 		}},
+		{name: "selected-unicode-case", want: "case-collision", setup: func(t *testing.T, r string) {
+			writeSkillFixture(t, r, "skills/chosen/Σ", "a", 0644)
+			writeSkillFixture(t, r, "skills/chosen/ς", "b", 0644)
+		}},
 		{name: "missing-marker", want: "SKILL.md", setup: func(t *testing.T, r string) {
 			if err := os.Remove(filepath.Join(r, "skills/chosen/SKILL.md")); err != nil {
 				t.Fatal(err)

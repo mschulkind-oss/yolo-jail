@@ -51,8 +51,10 @@ const (
 
 // Entry is one walked entry. Rel is its path relative to the root, separated by the platform's
 // separator ("." for the root). Perm is its permission bits, from the fstat of what was opened (a
-// directory or file) or the lstat of a symlink or special file. File is open only for the visit's
-// duration and closed by the walk.
+// directory or file) or the lstat of a symlink or special file. File holds the
+// directory/file descriptor only for the visit's duration and is closed by the walk.
+// Directory visitors may Chmod that descriptor without reopening a raced path;
+// only Kind File is a byte stream, and visitors must not close either descriptor.
 type Entry struct {
 	Rel    string
 	Kind   Kind
@@ -332,7 +334,7 @@ func walkAt(parent int, name, rel string, skip map[string]bool, visit func(Entry
 		}
 		d := os.NewFile(uintptr(fd), rel)
 		defer d.Close()
-		if err := visit(Entry{Rel: rel, Kind: Dir, Perm: os.FileMode(got.Mode & 0o777)}); err != nil {
+		if err := visit(Entry{Rel: rel, Kind: Dir, Perm: os.FileMode(got.Mode & 0o777), File: d}); err != nil {
 			return err
 		}
 		names, err := d.Readdirnames(-1)
