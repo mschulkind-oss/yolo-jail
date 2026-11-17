@@ -31,11 +31,16 @@ needs a ruling or a Mac sits in the others.
 
 ## Buildable now by an agent
 
-1. Shorten [the `internal/cli/run` package's serial run](BACKLOG.md#landing-gate-flakes-2026-11-12) — about 7.5
+1. [Direct user-level scoped TOML pack imports](../design/toml-scoped-pack-imports-plan.md) —
+   first by the owner's explicit priority: selected upstream skills must reach every project
+   without wrapper packs or workspace-only installation. The [behavioral design](../design/toml-scoped-pack-imports.md)
+   owns the contract and the [grounding](../research/toml-scoped-pack-imports.md) proves the current gap.
+
+2. Shorten [the `internal/cli/run` package's serial run](BACKLOG.md#landing-gate-flakes-2026-11-12) — about 7.5
    minutes, with several tests waiting out 15 s production limits — which outgrows the landing gate's timeout under
    load; the classifier-deadline tests in the same entry still race a 1–2 s budget. Every other listed flake is fixed.
 
-2. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
+3. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
    the maintainer set its order on 2026-10-23: brokered sources with read and write sets, actionable toasts, a host
    CLI to view and approve, a web UI out of tree on that CLI, then a talk about merging it. The agent steps now:
    - [The approval queue's history](../design/approval-experience/request-history-and-privacy.md): build the opt-in
@@ -56,7 +61,7 @@ needs a ruling or a Mac sits in the others.
      one coherent hand-off. The synthetic gate precedes landing; native/rootless/Mac/provider witnesses remain
      separate verification owed afterward.
 
-3. Smaller builds no ruling holds:
+4. Smaller builds no ruling holds:
    - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)
      follow Linux integration: first count repeated reads/peak retained bytes before any optimization.
    - [Readable pack model-row filtering](BACKLOG.md#readable-pack-model-row-filtering) follows the
