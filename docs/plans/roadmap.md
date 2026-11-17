@@ -78,6 +78,13 @@ needs a ruling or a Mac sits in the others.
      leftovers in [the backlog](BACKLOG.md#launch-prep-runtime-leftovers).
 
 
+## Independent design review
+
+[A local startup-message gallery](../design/startup-message-gallery.md) — after the broker/MCP
+foundation in priority, because making output reviewable must not delay the access contracts.
+Review the capture/source-mapping design without queuing implementation; its eventual maintenance
+rule is separate from the initial useful slice. Publication remains design-only.
+
 ## Waiting on an owner ruling
 
 Each entry names the 💬 questions that hold it. Defects whose repair waits on a ruling come first.
