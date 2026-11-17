@@ -2,8 +2,8 @@
 title: "One AWS broker: per-service tables behind the jail's aws, admitted by declared roots"
 date: 2026-11-16
 status: accepted
-stage: DECIDED
-next: "Review the isolated implementation candidate, then run combined landing gates"
+stage: BUILT
+next: "Graduate the implemented contract and preserve native/provider verification limits."
 depends-on:
   - pack-brokers.md
   - approval-experience/service-mediation.md
@@ -15,7 +15,7 @@ summary: "The aws-s3 pack is replaced outright by an aws pack: one CLI call brok
 
 **Disposition:** IMPLEMENT
 
-**Status:** 2026-11-17. Implemented in an isolated candidate, not yet accepted or landed. The bounded review repair covers planned-edit allowance parity and root spelling/provenance diagnostics; the original Task 5 launcher receipt is pre-final, so acceptance requires fresh matched-source evidence. Focused classifier/CLI/config/manifest/core-fixture tests and the three reached nested AWS tests pass; production dispatch and full-check callsite deletion controls turn the permanent tests red and restoration turns them green. The companion plan records evidence limits. Planning source facts were checked at `b5a5fe32a326109371656162623b690a3c790427`; the [fact packet](../research/aws-operation-broker-grounding.md#aws-documentation-check) checks published CLI v1/v2 spellings. No real AWS request, live credential read or native Mac proof.
+**Status:** 2026-11-17. Implemented on main at `bde502e4a`. MEASURED: synthetic Linux mediation and nested gate interaction; UNMEASURED: installed AWS CLI/provider/native Mac behavior. Combined landing gates remain pending. The bounded review repair covers planned-edit allowance parity and root spelling/provenance diagnostics; the original Task 5 launcher receipt is pre-final, so acceptance requires fresh matched-source evidence. Focused classifier/CLI/config/manifest/core-fixture tests and the three reached nested AWS tests pass; production dispatch and full-check callsite deletion controls turn the permanent tests red and restoration turns them green. The companion plan records evidence limits. Planning source facts were checked at `b5a5fe32a326109371656162623b690a3c790427`; the [fact packet](../research/aws-operation-broker-grounding.md#aws-documentation-check) checks published CLI v1/v2 spellings. No real AWS request, live credential read or native Mac proof.
 
 > **In short.** Widening S3 mediation to "AWS operations" needs no new authority machinery;
 > one generic config-format bridge ([AWS-D13](#AWS-D13)) lets TOML declare call roots.

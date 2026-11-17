@@ -1,8 +1,8 @@
 ---
 title: "A pack skill sourced from Git: whole repository deployed, only selected skills registered"
 status: accepted
-stage: DECIDED
-next: "Review the committed candidate against the complete ledger, then run the combined landing gate. Native Mac and agent-discovery evidence remains distinct."
+stage: BUILT
+next: "Graduate the implemented contract; preserve native checks and unmeasured costs separately."
 tags: [packs, skills, git, design]
 ---
 
@@ -10,7 +10,7 @@ tags: [packs, skills, git, design]
 
 **Disposition:** IMPLEMENT
 
-**Status:** 2026-11-17. Candidate implementation and focused production-caller gates are complete. The permanent lint regression is GREEN. A matched nested Podman fresh launch and recorded attach execute the synthetic registration after private cache/origin removal, and stopped-jail verification passes. Exact-candidate review and the combined landing gate remain pending; native Mac and native agent discovery are not claimed.
+**Status:** 2026-11-17. Implemented on main at `bde502e4a`; accepted candidate review repairs and reached combined seam tests are green. MEASURED: synthetic Linux registration execution and recorded nested attach. UNMEASURED: native Mac, agent discovery and maximum-payload cost. Whole combined landing gates remain pending.
 Canonical copy includes the accepted Fable concurrency/stamp/reader amendments below. Ledger Built flags await the completed candidate's conformance review.
 Tree grounded at `566ef01f` (production at `b5a5fe32`); no upstream fetch/execution,
 launch or host apply. No feature-green claim.

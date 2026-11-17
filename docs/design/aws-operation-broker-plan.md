@@ -2,8 +2,8 @@
 title: "AWS operation broker: tree-grounded build hand-off"
 date: 2026-11-16
 status: accepted
-stage: DECIDED
-next: "Review the isolated candidate and run the combined landing gates once"
+stage: BUILT
+next: "Graduate the implemented contract; preserve provider/native verification separately."
 depends-on:
   - aws-operation-broker.md
   - pack-brokers.md
@@ -14,7 +14,7 @@ summary: "Four AWS units plus serial Task 5: generic TOML declared roots and bou
 
 # AWS operation broker: tree-grounded build hand-off
 
-**Status:** 2026-11-17. The original four-unit base is reviewed; Task 5 has green real config/gate/edit callers, safe migration refusal and a TOML nested live gate. Review found that its emitted-launcher receipt predates the final user-scope fence: that receipt is pre-final, not matched-source evidence. The bounded repair makes declared pack grants and call-cell ceilings share planned-edit validation without mixing their authority, rejects legacy JSONC `call_roots`, and repairs root provenance/why diagnostics. Acceptance requires a fresh matched-source probe, repair review and combined landing gates. Permanent dispatch and CE rows failed before their implementations; shipped shim→front→classifier→core→fake-host CE failed at the old fixture (252) before the independent CE fixture was added. Focused package gates and all three reached nested AWS tests pass. Dispatch and full-check callsite deletion controls fail and restoration passes. Combined census/check-ci/full integration/clean `just done`, native Mac/rootless-host and live AWS remain separate gates. Written against clean `b5a5fe32a326109371656162623b690a3c790427`; allocation was verified at clean `a85e2734a579e9eab2f7a340ba3200faa2a51f06`.
+**Status:** 2026-11-17. Implemented on main at `bde502e4a`. MEASURED: Linux synthetic mediation and nested gate. UNMEASURED: provider/native verification. The original four-unit base is reviewed; Task 5 has green real config/gate/edit callers, safe migration refusal and a TOML nested live gate. Review found that its emitted-launcher receipt predates the final user-scope fence: that receipt is pre-final, not matched-source evidence. The bounded repair makes declared pack grants and call-cell ceilings share planned-edit validation without mixing their authority, rejects legacy JSONC `call_roots`, and repairs root provenance/why diagnostics. Acceptance requires a fresh matched-source probe, repair review and combined landing gates. Permanent dispatch and CE rows failed before their implementations; shipped shim→front→classifier→core→fake-host CE failed at the old fixture (252) before the independent CE fixture was added. Focused package gates and all three reached nested AWS tests pass. Dispatch and full-check callsite deletion controls fail and restoration passes. Combined census/check-ci/full integration/clean `just done`, native Mac/rootless-host and live AWS remain separate gates. Written against clean `b5a5fe32a326109371656162623b690a3c790427`; allocation was verified at clean `a85e2734a579e9eab2f7a340ba3200faa2a51f06`.
 **Design:** [canonical contract](aws-operation-broker.md), including the request-count,
 exact-grammar and nested-value amendments. **Evidence:** [source and CLI packet](../research/aws-operation-broker-grounding.md).
 The original S3 contract is baseline evidence, not authority to retain the old pack name.

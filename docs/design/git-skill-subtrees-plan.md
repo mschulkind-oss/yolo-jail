@@ -1,17 +1,14 @@
 ---
 title: "Build Git-sourced skill registrations without activating their repository"
 status: accepted
-stage: DECIDED
-next: "Complete candidate runtime witnesses and exact-candidate conformance review; retain RED-to-GREEN and caller-removal receipts."
+stage: BUILT
+next: "Graduate the implemented contract; preserve native checks and cost measurement as separate follow-up."
 tags: [packs, skills, git, implementation]
 ---
 
 # Plan: whole-repository payloads, selected skill registrations
 
-**Status:** 2026-11-17. Grounded against clean candidate
-`566ef01fa6339697d58defddd0c859a0b12b6921`; production matches
-`b5a5fe32a326109371656162623b690a3c790427`. Planning only; the permanent real-caller
-lint test remains deliberately RED. No behavior is enabled.
+**Status:** 2026-11-17. Implemented on main at `bde502e4a`; permanent lint and reached caller tests are green. MEASURED: synthetic Linux host/jail registration and recorded attach. UNMEASURED: native Mac and agent discovery, maximum payload copy cost. Combined gates remain the landing owner's responsibility.
 
 **Design:** [the accepted design](git-skill-subtrees.md). Its behavior wins; the tree
 wins on cosmetic fact drift; this plan is advice and the first thing to be wrong.
