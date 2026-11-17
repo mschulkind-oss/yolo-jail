@@ -95,7 +95,7 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 			// Direct replacement is an explicit historical fixture delta, not a loader alias.
 			if key == "aws-s3__aws-s3-broker" {
 				want.Name = "aws-broker"
-				want.Description = "Run scoped S3 commands and read-only Cost Explorer queries with the host AWS login; financial data is sensitive and AWS requests may be billable."
+				want.Description = "Run scoped S3 commands and read-only Cost Explorer queries with the host AWS login; financial data is sensitive and AWS requests may be billable. Declared host env values are redacted from output, which can alter returned data."
 				want.Access = "read S3 and sensitive Cost Explorer data under declared service roots; AWS requests may be billable; S3 writes ask first"
 				want.Grants[0].Text = "read S3 objects/listings and sensitive Cost Explorer financial data under declared service roots; AWS requests may be billable"
 				want.CallBroker.Source = "aws"

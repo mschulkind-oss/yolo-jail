@@ -29,7 +29,7 @@ by [pack-brokers §19](../pack-brokers.md#19-what-done-looks-like).
 **Needs your ruling:** None for this bounded slice.
 
 **Reads with:** [implementation plan](service-conformance-plan.md),
-[service recipe](service-mediation.md), [S3 contract](aws-s3.md).
+[service recipe](service-mediation.md), [AWS operations contract](../aws-operation-broker.md) (the S3/CE tables).
 
 ---
 

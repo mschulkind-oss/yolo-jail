@@ -65,6 +65,8 @@ func newS3BrokerJail(t *testing.T, userConfig string) *s3BrokerJail {
 	env := []string{
 		"PATH=" + bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"AWS_ENDPOINT_URL_S3=" + server.URL(),
+		"AWS_ENDPOINT_URL=" + server.URL(),
+		"YOLO_NO_PROGRAM_READINESS=1", "YOLO_NO_AUTO_CAPTURE=1", "YOLO_NO_UPDATE_CHECK=1",
 		"AWS_ACCESS_KEY_ID=" + s3fixture.AccessKeyID,
 		"AWS_SECRET_ACCESS_KEY=" + s3fixture.SecretAccessKey,
 		"AWS_REGION=" + s3fixture.Region,
@@ -72,7 +74,7 @@ func newS3BrokerJail(t *testing.T, userConfig string) *s3BrokerJail {
 		"XDG_CONFIG_HOME=" + filepath.Join(os.Getenv("HOME"), ".config"),
 		"YOLO_NO_AUTO_IMAGE_REAP=1",
 	}
-	opts := []runOption{withEnv(env...)}
+	opts := []runOption{withEnv(env...), withoutFixtureProgramInstall()}
 	workspace := writeProject(t, `{"brokered":{"aws":{"roots":["s3://bkt/team/"]}}}`)
 	hostGit(t, workspace, "init", "-q", "-b", "main")
 

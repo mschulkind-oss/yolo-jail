@@ -3,7 +3,7 @@ title: "One AWS broker: per-service tables behind the jail's aws, admitted by de
 date: 2026-11-16
 status: accepted
 stage: DECIDED
-next: "Build the companion plan after its source-fact preflight"
+next: "Review the isolated implementation candidate, then run combined landing gates"
 depends-on:
   - pack-brokers.md
   - approval-experience/service-mediation.md
@@ -15,7 +15,7 @@ summary: "The aws-s3 pack is replaced outright by an aws pack: one CLI call brok
 
 **Disposition:** IMPLEMENT
 
-**Status:** 2026-11-16. Nothing built. Source facts verified against `b5a5fe32a326109371656162623b690a3c790427`; Cost Explorer spellings checked against the published AWS CLI v1 and v2 references in the [fact packet](../research/aws-operation-broker-grounding.md#aws-documentation-check). No live AWS request, credential read or software test was made during planning.
+**Status:** 2026-11-17. Implemented in an isolated candidate, not yet accepted or landed. Focused classifier/CLI/config/manifest/core-fixture tests and the three reached nested AWS tests pass; production dispatch and full-check callsite deletion controls turn the permanent tests red and restoration turns them green. The companion plan records evidence limits. Planning source facts were checked at `b5a5fe32a326109371656162623b690a3c790427`; the [fact packet](../research/aws-operation-broker-grounding.md#aws-documentation-check) checks published CLI v1/v2 spellings. No real AWS request, live credential read or native Mac proof.
 
 > **In short.** Widening S3 mediation to "AWS operations" needs no new core machinery. The
 > existing call broker already gives per-service admission, provided each service owns its own
@@ -25,7 +25,7 @@ summary: "The aws-s3 pack is replaced outright by an aws pack: one CLI call brok
 
 **The shape.** Pack `aws`, source `aws`, one classifier with a table per service (`s3`, `s3api`, `ce`), core's CLI executor running the host `aws` under the host's own login. `aws-auth` is not touched.
 
-**Cost.** Pack `aws-s3`, its source name and its config namespace stop being recognized, with no alias; old approval records remain inert and are never consulted by `aws`. A user cannot allow S3 while refusing Cost Explorer at user scope; that choice is per workspace, at the config-change gate.
+**Cost.** Pack `aws-s3`, its source dispatch and its config namespace stop being active, with no alias; old approval records remain inert and are never consulted by `aws`. Generic `yolo approve --json` may display them as removed-source, deny-only history; that inventory is not executable authority, migration or compatibility. A user cannot allow S3 while refusing Cost Explorer at user scope; that choice is per workspace, at the config-change gate.
 
 **Start at [§5](#5-service-admission-and-scope)** — admission by root scheme is the design; the tables fill it in.
 
@@ -67,8 +67,8 @@ Evidence, read at `b5a5fe32a`:
 
 | Fact | Where |
 | :--- | :--- |
-| Pack `aws-s3` intercepts the whole jail command `aws` and forwards it to one call-broker loophole; intercepts are exclusive by name | [`pack.toml`](../../packs/aws-s3/pack.toml), [`aws-s3.md` §8](approval-experience/aws-s3.md#8-handoff-to-ec2-and-a-third-service) |
-| The manifest declares source `aws-s3`, a `read` grant, declared roots, resource types `location`, `prefix`, `object`, and write cells `put_objects`, `delete_objects` | [`loophole.toml`](../../packs/aws-s3/loopholes/aws-s3-broker/loophole.toml) |
+| Pack `aws-s3` intercepts the whole jail command `aws` and forwards it to one call-broker loophole; intercepts are exclusive by name | [successor `pack.toml`](../../packs/aws/pack.toml), [`aws-s3.md` §8](approval-experience/aws-s3.md#8-handoff-to-ec2-and-a-third-service) |
+| The manifest declares source `aws-s3`, a `read` grant, declared roots, resource types `location`, `prefix`, `object`, and write cells `put_objects`, `delete_objects` | [successor `loophole.toml`](../../packs/aws/loopholes/aws-broker/loophole.toml) |
 | Read admission is the literal grant kind `read`, per pack. No other grant kind is consulted | `currentAuthority` in [`authority.go`](../../internal/callbroker/authority.go) |
 | A call with no writes is a standing read; cell policy is applied to writes only | `decideCall` in [`decision.go`](../../internal/callbroker/decision.go) |
 | Core refuses any classification whose chain does not end in a parentless resource whose id equals a gate-approved root, verbatim | `validateChain` in [`classifier.go`](../../internal/callbroker/classifier.go) |
@@ -129,11 +129,19 @@ A call runs only when all three hold:
 
 ### 5.2 Roots
 
-All roots live in one workspace list, `brokered.aws.roots`.
+All roots live in one workspace list, `brokered.aws.roots`. **Current format limit:** this root list is supported in a legacy JSONC workspace (`yolo-jail.jsonc`), not in workspace TOML. User TOML `[allow.aws]` is supported independently. `[brokered.aws]` in TOML is refused, and `requests.aws.roots` is not an existing replacement. No root migration or generic config-framework change is part of this candidate; the missing readable/TOML root surface remains an explicit usability gap.
+
+Supported workspace example (legacy JSONC):
+
+```json
+{"brokered":{"aws":{"roots":["s3://bkt/team/","ce://host-login"]}}}
+```
+
+Validate with `yolo config check`, then approve on the host with `yolo config apply`. This example does not grant the user allowance or bypass the config-change gate.
 
 | Service | Root grammar | Covers |
 | :--- | :--- | :--- |
-| S3 | `s3://B` or `s3://B/R/`, exactly as [`aws-s3.md` §4](approval-experience/aws-s3.md#4-scope) defines names, coverage and longest-root choice | Objects and listings under that bucket or prefix |
+| S3 | `s3://B` or `s3://B/R/`, with the names, coverage and longest-root choice below | Objects and listings under that bucket or prefix |
 | Cost Explorer | The single literal `ce://host-login` | The four queries in [§6.3](#63-cost-explorer-rows), for whatever accounts the host login's IAM policy shows |
 
 `ce://host-login` names the real boundary: the broker adds no account filter, so the root admits "Cost Explorer as the host login sees it". Any other `ce://` string covers nothing.
@@ -147,7 +155,16 @@ All roots live in one workspace list, `brokered.aws.roots`.
 | A root no grammar accepts (`ce://other`, `ec2://x`) | Ignored | Ignored |
 | The same root twice | Refused by core config validation, as today | Same |
 
-A `scope` refusal names the key and the step: add the root to `brokered.aws.roots` in the workspace config, then run `yolo config apply` on the host.
+A `scope` refusal names the key and the step: add the root to `brokered.aws.roots` in the legacy JSONC workspace config, then run `yolo config apply` on the host. Do not infer that this old key works in a TOML file.
+
+**S3 names and coverage (unchanged):**
+
+- Bucket: `^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`, no `..`, no dotted quad or ARN.
+- Object key: 1–1024 bytes of `[A-Za-z0-9._=/-]`, no leading/trailing slash, empty segment, `.` or `..` segment. Spaces, `+`, `%` and non-ASCII refuse.
+- Listing prefix: the same alphabet and 1024-byte bound; may be empty or end in one slash, otherwise the same segment restrictions.
+- `s3://B` is a bucket root. A prefix root has a nonempty valid listing prefix ending in `/`. `s3://B/`, an invalid bucket or a prefix without the trailing slash covers nothing. No malformed root is repaired.
+- A root covers only its own bucket and keys/listing prefixes starting with its prefix (empty for a bucket root). The longest covering root string is the chain's `location`, verbatim. Thus `s3://B/p/` does not cover listing `s3://B/p`.
+- Timed write answers cover the entire chain. Adding a longer root changes the chain and causes the write to ask again rather than reuse a shorter-root answer.
 
 ### 5.3 Grants and cells
 
@@ -186,7 +203,7 @@ A `scope` refusal names the key and the step: add the root to `brokered.aws.root
 | W1 | `s3 cp - s3://B/K` | same; stdin digest bound | write `put_objects` | `object s3://B/K` < `location ROOT` |
 | W2 | `s3 rm s3://B/K` | same | write `delete_objects` | `object s3://B/K` < `location ROOT` |
 
-Name grammar, write descriptions and the 3 MiB stdin limit are those of [`aws-s3.md` §3](approval-experience/aws-s3.md#3-the-classification-table).
+The name grammar is [§5.2](#52-roots). R1 accepts `--recursive` before or after its one URL, and `s3://B` canonicalizes to `s3://B/`. W1's description is `create or replace object s3://B/K from standard input`; W2's is `delete object s3://B/K`. Core binds W1's stdin digest and keeps its 3 MiB stdin limit. No S3 pagination or host retry behavior is changed.
 
 ### 6.3 Cost Explorer rows
 
@@ -364,6 +381,7 @@ It needs no core change and no new pack. A service that cannot be expressed as e
 | **R4. Audit does not name the service** | An operator cannot count Cost Explorer calls from the audit log alone. Accepted; extending the event is a core change for all brokers |
 | **R5. Token alphabet guess** | If AWS issues a page token outside printable ASCII or beginning with `-`, that page is refused `unsupported`. Narrow the time period or raise it as a table fix |
 | **R6. Old and new CLI differences** | Canonical forms use only options present in AWS CLI 1 and 2; neither real CLI was run against them |
+| **R7. Missing readable root surface** | The current core reads declared call roots from legacy JSONC `brokered.<source>.roots` only; workspace TOML refuses the old key and has no root-list replacement. JSONC nested proof does not establish normal-format usability; this gap is disclosed, not repaired by an invented key |
 
 ## 14. Acceptance evidence
 
@@ -377,7 +395,7 @@ The design is built as intended when all of the following are observed with no A
 6. **Escapes refused.** Each global option listed in [§6.5](#65-refusals-and-check-order) refuses `credential`. `--filter file:///etc/passwd`, `--filter fileb://x`, `--search-string file://x`, `--tag-key https://x` and `--next-page-token file://x` refuse `unsupported`. The fake host `aws` never receives such a word.
 7. **Value grammar.** Bad dates, `HOURLY`, a duplicate filter key, over-deep or over-large filters, three group-bys and repeated flags refuse. The word and JSON forms of one query produce the same canonical argv. Also cover empty/duplicate/unknown MatchOptions, duplicate Values, duplicate/mixed group-by forms, depth 5/6, 50/51 leaves, 8192/8193 received bytes, and equivalent leaf key/MatchOptions orders. Empty/omitted Values refuses even with `ABSENT`. Accepted nested cases include Tags Key `file://x` with Values `-x`, `file://x`, `https://x`; word group `Type=TAG,Key=file://x`; JSON group Key `-x`. Raw filter/list operands and direct tag/search/token values with those prefixes refuse, including equals forms. Record exact canonical argv and ensure host values pass the boundary guard.
 8. **No credential leak.** The synthetic secret appears in no jail-visible output and in no classifier input.
-9. **Old names are gone.** Selecting `aws-s3`, declaring `brokered.aws-s3.roots`, and the classifier word `aws-s3` each fail as unknown. A store record left under source `aws-s3` authorizes nothing.
+9. **Old names are gone.** Resolving/selecting the shipped pack `aws-s3`, declaring `brokered.aws-s3.roots` with only `aws` selected, and dispatching classifier word `aws-s3` each fail. Generic removed-source inventory may display historical records as `removed`, `deny-only`; they are never active `aws` requests. An old request cannot be approved to execute; old Allow-once and timed records authorize nothing and are not spent by `aws`. This is inert history, not a live alias or transition. The actual caller regression is `TestAWSNeverConsultsRetiredSourceRequestsOrAnswers`.
 10. **Nested jail.** One Cost Explorer read, one Cost Explorer `scope` refusal, and the S3 nested cases pass.
 
 **Test conditions.**

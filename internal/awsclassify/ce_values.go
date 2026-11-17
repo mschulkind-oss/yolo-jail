@@ -98,7 +98,7 @@ func ceEnumList(raw, order []string, max int) ([]string, bool) {
 
 func cePeriod(s string) (string, bool) {
 	fields := map[string]string{}
-	if strings.HasPrefix(s, "{") {
+	if strings.HasPrefix(strings.TrimSpace(s), "{") {
 		v, err := ceJSON(s)
 		if err != nil {
 			return "", false
@@ -152,7 +152,7 @@ type ceGroup struct {
 
 func ceGroups(raw []string) (string, bool) {
 	groups := []ceGroup{}
-	if strings.HasPrefix(raw[0], "[") {
+	if strings.HasPrefix(strings.TrimSpace(raw[0]), "[") {
 		if len(raw) != 1 {
 			return "", false
 		}

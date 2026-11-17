@@ -1,9 +1,9 @@
 ---
 title: "AWS S3 slice 1: build hand-off"
 date: 2026-11-09
-status: accepted
-stage: BUILT
-next: "Backlog only: prefix-scoped get-object and multipart; native-host verification of the local S3-D5 warning"
+status: deprecated
+stage: SUPERSEDED
+next: "Use ../aws-operation-broker-plan.md; this is historical build evidence only"
 depends-on:
   - aws-s3.md
   - service-mediation.md
@@ -13,6 +13,8 @@ summary: "Tree-grounded hand-off for the first mediated S3 slice: an aws-s3 pack
 ---
 
 # AWS S3 slice 1: build hand-off
+
+**Superseded by [the AWS operations plan](../aws-operation-broker-plan.md).** Old names, paths and commands below describe the historical S3 slice, not current build advice or selectable aliases. No migration or broader-operation backlog is authorized by retaining this record.
 
 **Status:** 2026-11-10. Tasks 1, 2 and 3 are built (classifier, dispatch and pack; fixture service and fake host CLI; in-process and nested-jail end-to-end tests). S3-D5's diagnostic is built and integrated in `main` at `b913b6b7d`, with the legacy-key and no-profile repair at `f83f75164` (based on `62b8bbda3`); the remaining [Ships with](#ships-with) backlog is prefix-scoped `get-object` and multipart. **MEASURED:** `TestCheckWarnsForAWSS3WithUnnarrowedAWSAuth` exercises the production full-check caller with paired un-narrowed, narrowed and absent selections; no AWS or API calls. Native-host verification of this warning is unperformed. The slice-1 hand-off was written against `04f300a9e`. **Design:** [`aws-s3.md`](aws-s3.md); recipe: [`service-mediation.md`](service-mediation.md).
 Precedence: the design wins on behavior, the tree wins on cosmetic fact, this plan is advice and the first thing to be wrong. Stop and report, without committing, when a test does not fail as predicted, a named symbol is gone, a fix needs a file outside the task's fence, or a gate fails outside the task's scope.

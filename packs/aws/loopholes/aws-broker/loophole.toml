@@ -1,10 +1,10 @@
 # The aws broker: a CLI-front call broker. Core runs the host `aws` program with the
 # canonical argv the classifier produced, using the host's own AWS login (HOME plus the
 # declared env_from_host); nothing of that login is shown to the jail or the classifier.
-# It does NOT change aws-auth's credential route: an aws-auth credential with S3 reach
+# It does NOT change aws-auth's credential route: an aws-auth credential with S3 or CE reach
 # bypasses this broker, which is the user's narrowing to control.
 name = "aws-broker"
-description = "Run scoped S3 commands and read-only Cost Explorer queries with the host AWS login; financial data is sensitive and AWS requests may be billable."
+description = "Run scoped S3 commands and read-only Cost Explorer queries with the host AWS login; financial data is sensitive and AWS requests may be billable. Declared host env values are redacted from output, which can alter returned data."
 version = 1
 access = "read S3 and sensitive Cost Explorer data under declared service roots; AWS requests may be billable; S3 writes ask first"
 transport = "loopback-tls"

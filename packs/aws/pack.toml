@@ -5,10 +5,10 @@
 # workspace's config declares under `brokered.aws.roots`.
 #
 # This pack does NOT change the aws-auth credential route. A jail that also selects
-# `aws-auth` (or otherwise holds AWS credentials) with S3 reach can call S3 directly and
+# `aws-auth` (or otherwise holds AWS credentials) with S3 or CE reach can call AWS directly and
 # bypasses this broker entirely; narrowing that credential is the user's to control.
 name = "aws"
-description = "Broker scoped S3 reads and approved writes plus read-only Cost Explorer queries through the host aws login. Declared service roots admit access; financial data is sensitive and AWS requests may be billable. Credentials from another route bypass this mediation."
+description = "Broker scoped S3 reads and approved writes plus read-only Cost Explorer queries through the host aws login. Declared service roots admit access; financial data is sensitive and AWS requests may be billable. Credentials from another route bypass this mediation. Declared host env values are redacted from output, which can alter returned data."
 
 [[loophole]]
 from = "loopholes/aws-broker"

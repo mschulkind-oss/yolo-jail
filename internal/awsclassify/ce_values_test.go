@@ -43,6 +43,7 @@ func TestCEValueGrammarsThroughClassify(t *testing.T) {
 		args     []string
 		ok       bool
 	}{
+		{"period JSON whitespace", "get-tags", []string{"--time-period", ` {"Start":"2026-01-01","End":"2026-02-01"} `}, true},
 		{"leap year", "get-tags", []string{"--time-period", "End=2024-03-01,Start=2024-02-29"}, true},
 		{"first year", "get-tags", []string{"--time-period", "Start=2000-01-01,End=2000-01-02"}, true},
 		{"last year", "get-tags", []string{"--time-period", "Start=2099-12-30,End=2099-12-31"}, true},
@@ -123,7 +124,7 @@ func TestCEGroupsCanonicalJSONAndBoundaries(t *testing.T) {
 	}{
 		{[]string{"Type=DIMENSION,Key=SERVICE"}, `[{"Type":"DIMENSION","Key":"SERVICE"}]`},
 		{[]string{"Type=TAG,Key=file://x", "Type=COST_CATEGORY,Key=-x"}, `[{"Type":"TAG","Key":"file://x"},{"Type":"COST_CATEGORY","Key":"-x"}]`},
-		{[]string{`[{"Key":"a=b","Type":"TAG"}]`}, `[{"Type":"TAG","Key":"a=b"}]`},
+		{[]string{` [{"Key":"a=b","Type":"TAG"}] `}, `[{"Type":"TAG","Key":"a=b"}]`},
 	}
 	for _, c := range valid {
 		argv := ceQuery(t, "get-cost-and-usage", ceUsageArgs("group-by", c.raw...), "")

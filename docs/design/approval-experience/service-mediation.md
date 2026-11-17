@@ -3,7 +3,7 @@ title: "Service mediation: adding a service should be filling in a table, and he
 date: 2026-11-09
 status: accepted
 stage: DECIDED
-next: "Walk the recipe once with the S3 slice (aws-s3-plan.md); revisit the shared-helper question after a second service"
+next: "Use the AWS operations contract for S3 and Cost Explorer; revisit helpers only with measured need"
 depends-on:
   - ../pack-brokers.md
 tags: [design, broker, packs, recipe, testing, approvals]
@@ -12,9 +12,10 @@ summary: "The repeatable recipe for mediating one more service through a pack ca
 
 # Service mediation: adding a service should be filling in a table, and here is the table
 
-**Status:** 2026-11-09. Every decision is ledgered; the first walk of the recipe, the
-[S3 slice](aws-s3.md), is built (`packs/aws-s3`).
-Evidence checked against `04f300a9e`.
+**Status:** 2026-11-17. The first S3 walk is historical baseline. Its successor is the
+[AWS operations contract](../aws-operation-broker.md), implemented in an isolated candidate
+with S3 unchanged and four read-only Cost Explorer rows under distinct service roots. Core
+approval and credential policy are unchanged; live-provider and native-host proof remain separate.
 
 > **In short.** The [pack call-broker contract](../pack-brokers.md) already owns decision,
 > approval and execution, so a new service owes only three artifacts: a classification table, a
@@ -35,7 +36,7 @@ expands silently) still needs design work; the recipe makes that visible, not fr
 
 **Needs your ruling:** None.
 
-**Reads with:** [`aws-s3.md`](aws-s3.md) (the worked example),
+**Reads with:** [AWS operations](../aws-operation-broker.md) (the current S3/Cost Explorer example),
 [`pack-brokers.md`](../pack-brokers.md) (the contract this applies; it wins on any conflict),
 [`pack-brokers-http.md`](../pack-brokers-http.md) (the HTTP front's status),
 [the umbrella](README.md) (intent, [§6.3](README.md#63-complete-coverage-inventory)'s service
@@ -80,7 +81,7 @@ are defined in [`pack-brokers.md` §2](../pack-brokers.md#2-terms), with **cell*
 
 ## 4. The classification table format
 
-[`aws-s3.md` §3](aws-s3.md#3-the-classification-table) is the worked example; copy its shape.
+[AWS operations §6](../aws-operation-broker.md#6-classification-tables) is the worked example; copy its shape. Shared `read` is not enough: each service requires its own declared, gate-approved root scheme.
 
 ### 4.1 Admitted forms
 
@@ -245,7 +246,7 @@ Every service design carries a bypass table stating, separately:
 
 The confinement claim is then exactly: *the broker governs calls through the intercepted
 command; it confines the service only when no other credential for it reaches the jail.*
-[`aws-s3.md` §6](aws-s3.md#6-bypass-analysis-and-the-confinement-claim) is the example.
+[AWS operations §8](../aws-operation-broker.md#8-trust-boundary-and-bypass) is the example; `aws-auth` remains an independent credential route.
 
 ## 11. Walking it a second time
 

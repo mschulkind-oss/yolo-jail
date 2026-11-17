@@ -3,7 +3,7 @@ title: "AWS operation broker: tree-grounded build hand-off"
 date: 2026-11-16
 status: accepted
 stage: DECIDED
-next: "Task 1: replace the pack/source/dispatch identity atomically, with caller tests first"
+next: "Review the isolated candidate and run the combined landing gates once"
 depends-on:
   - aws-operation-broker.md
   - pack-brokers.md
@@ -14,9 +14,7 @@ summary: "Four serial, bounded implementation units: direct identity replacement
 
 # AWS operation broker: tree-grounded build hand-off
 
-**Status:** 2026-11-16. Written against clean `b5a5fe32a326109371656162623b690a3c790427`;
-source gap confirmed by reading the production dispatch and complete S3 classifier. No `ce`
-branch or CE parser exists. No software behavior was changed or tested in this planning pass.
+**Status:** 2026-11-17. All four units are implemented in an isolated candidate, not yet accepted or landed. Permanent dispatch and CE rows failed before their implementations; shipped shim→front→classifier→core→fake-host CE failed at the old fixture (252) before the independent CE fixture was added. Focused package gates and all three reached nested AWS tests pass. Dispatch and full-check callsite deletion controls fail and restoration passes. Combined census/check-ci/full integration/clean `just done`, native Mac/rootless-host and live AWS remain separate gates. Written against clean `b5a5fe32a326109371656162623b690a3c790427`; allocation was verified at clean `a85e2734a579e9eab2f7a340ba3200faa2a51f06`.
 **Design:** [canonical contract](aws-operation-broker.md), including the request-count,
 exact-grammar and nested-value amendments. **Evidence:** [source and CLI packet](../research/aws-operation-broker-grounding.md).
 The original S3 contract is baseline evidence, not authority to retain the old pack name.
@@ -46,8 +44,7 @@ Core changes discovered to be necessary require a new decision, not a broadened 
   classifier dispatch word with `aws`. No alias, `formerly`, migration, wrapper or compatibility.
   Pack `aws` still intercepts the whole command `aws`; there is no service-specific executable.
 - Every admitted call requires pack `read` plus a covering declared root for its service plus
-  one exact row. Roots live at workspace `brokered.aws.roots`; S3 sees only valid `s3://`
-  roots, CE only the exact `ce://host-login`. Other schemes/malformed roots cover nothing.
+  one exact row. Roots live at workspace `brokered.aws.roots`, supported only in legacy JSONC in this tree; user TOML `[allow.aws]` works independently. Workspace TOML refuses `brokered` and has no root replacement. Do not invent `requests.aws.roots`, claim migration preserves roots or treat JSONC proof as TOML proof. This is a disclosed usability gap, pending author disposition; no generic schema change has been made. S3 sees only valid `s3://` roots, CE only the exact `ce://host-login`. Other schemes/malformed roots cover nothing.
   Core checks the top resource id against the gate-approved roots verbatim.
 - `location` remains parentless; S3 leaf types remain `prefix`/`object`. CE adds `cost_query`
   under `location`, id `ce://host-login/<operation>`. CE is reads only, has no approval cell.
@@ -136,24 +133,23 @@ option names may be echoed. Each refusal names supported forms/host, host AWS se
 
 ## Map
 
-New paths below are planned, not files already in this checkout. Package/file renames are
-advice to keep one source spelling and source discoverability; preserve the S3 functions/tests.
+The map retains the original replacement work, but its links now resolve to the candidate's successor paths. Package/file renames preserve one source spelling and the existing S3 functions/tests.
 
 | Existing path | Work |
 | :--- | :--- |
-| [S3 pack](../../packs/aws-s3/pack.toml) | Move to `packs/aws/pack.toml`; direct names/forward argv; disclose CE and bypass |
-| [S3 manifest](../../packs/aws-s3/loopholes/aws-s3-broker/loophole.toml) | Move to `packs/aws/loopholes/aws-broker/loophole.toml`; identity, text, classifier word, cost_query; unchanged env/path/cells |
+| [AWS pack](../../packs/aws/pack.toml) | Direct replacement of `packs/aws-s3`; new forwarding, CE/bypass/redaction disclosures |
+| [AWS manifest](../../packs/aws/loopholes/aws-broker/loophole.toml) | New identity/text/classifier word and cost_query; unchanged env/path/cells |
 | [Embedding](../../packs/embed.go) | Replace explicit `all:aws-s3` with `all:aws` |
-| [Classifier](../../internal/s3classify/classifier.go), [tests](../../internal/s3classify/classifier_test.go) | Move package to `internal/awsclassify`; same exported Run/Classify contracts; keep S3 helpers, gain CE dispatch/grammar in new `ce.go`, `ce_values.go`, `ce_filter.go`, corresponding source-named tests |
-| [Internal CLI](../../internal/cli/internal.go), [caller tests](../../internal/cli/aws_s3_internal_test.go) | Import/dispatch awsclassify on `aws`, remove old source; rename caller test file `aws_internal_test.go` |
-| [Warning](../../internal/cli/check/awss3bypass.go), [tests](../../internal/cli/check/awss3bypass_test.go), [caller](../../internal/cli/check/check.go) | Rename files/symbol to AWS, retarget selection/text/call; preserve check-only and auth mode semantics |
+| [Classifier](../../internal/awsclassify/classifier.go), [tests](../../internal/awsclassify/classifier_test.go) | Renamed package; same exported Run/Classify contracts and S3 helpers; CE grammar in `ce.go`, `ce_values.go`, `ce_filter.go`, source-named tests |
+| [Internal CLI](../../internal/cli/internal.go), [caller tests](../../internal/cli/aws_internal_test.go) | Import/dispatch awsclassify on `aws`, remove old source; rename caller test file `aws_internal_test.go` |
+| [Warning](../../internal/cli/check/awsbypass.go), [tests](../../internal/cli/check/awsbypass_test.go), [caller](../../internal/cli/check/check.go) | Rename files/symbol to AWS, retarget selection/text/call; preserve check-only and auth mode semantics |
 | [Manifest table](../../internal/loopholedecl/shipped_test.go), [loader table](../../internal/loopholes/shipped_test.go) | Replace pack/loophole IDs |
 | [Historical manifest fixture](../../internal/loopholedecl/testdata/legacy-shipped/aws-s3__aws-s3-broker.json), [equivalence test](../../internal/loopholedecl/shippedtoml_test.go) | Keep frozen JSON untouched. Test-only pairing maps this historical fixture to the new shipped module and names expected identity/text/cost_query deltas; no production alias or old module |
 | [Grant comments](../../internal/config/loopholegrants.go), [readable comments](../../internal/config/readablescope.go), [cell tests](../../internal/config/loopholegrants_callbrokercell_test.go), [approval tests](../../internal/cli/approvepack_test.go) | Retarget examples/current fixtures; add old source isolation/rejection tests, no parser special case |
 | [Config tests](../../internal/config/callbroker_test.go) | Current selected-source roots acceptance/new root gate and old source rejection; core readers unchanged |
 | [S3 E2E](../../internal/callbroker/s3_e2e_test.go), [conformance](../../internal/callbroker/conformance_s3_test.go), [build env proof](../../internal/callbroker/s3_buildenv_test.go) | Retarget identity, preserve S3 lifecycle; share existing setup for new `ce_e2e_test.go` and `conformance_ce_test.go`; protect original build env |
 | [Fake host CLI](../../internal/s3fixture/client.go), [service](../../internal/s3fixture/server.go), [fixture tests](../../internal/s3fixture/s3fixture_test.go), [fixture entry](../../internal/s3fixture/cmd/s3fixture/main.go) | Advice: extend existing test-only fixture with `ce_client.go`, `ce_server.go`, source-named tests and argv/invocation observations; keep S3 implementation/entry and independent parsers |
-| [Nested proof](../../integration/aws_s3_broker_test.go) | Rename pack-facing file/tests to AWS; retain S3 tests; add CE read/own-root refusal in `integration/aws_ce_broker_test.go` |
+| [Nested proof](../../integration/aws_broker_test.go) | Rename pack-facing file/tests to AWS; retain S3 tests; add CE read/own-root refusal in `integration/aws_ce_broker_test.go` |
 | [Current docs index](approval-experience/README.md), [S3 design](approval-experience/aws-s3.md), [S3 plan](approval-experience/aws-s3-plan.md) | Retire old current pack advice with a superseded status/link to canonical AWS contract; preserve S3 rows as baseline until incorporated; no product compatibility |
 | [Recipe](approval-experience/service-mediation.md), [conformance](approval-experience/service-conformance.md), [conformance plan](approval-experience/service-conformance-plan.md), [broker design](pack-brokers.md), [broker plan](pack-brokers-plan.md) | Replace current pack/source/test names and false S3-only admission claims, repair inbound links |
 | [Design](aws-operation-broker.md), this plan | Keep status evidence honest after builds; no BUILT stamp until measured |
@@ -165,7 +161,7 @@ advice to keep one source spelling and source discoverability; preserve the S3 f
   [protocol](../../internal/callbroker/classifier.go). There is no parser field for region,
   profile, account or service; choose the table from argv[0], not a new protocol key.
 - **Advice:** keep current `Run`, `read`, `write`, `refused`, `safe`, `checkBucket`, `checkKey`,
-  `parseRoots`, `cover` from the [classifier](../../internal/s3classify/classifier.go); they
+  `parseRoots`, `cover` from the [classifier](../../internal/awsclassify/classifier.go); they
   already bind stdin/resource chains and preserve S3 behavior. CE needs a separate exact-root check.
 - **Advice:** mirror existing command option parsing for `--x=v` normalization but use explicit
   CE row vocabularies/list widths, not the broad S3 `commandFlags` as CE permission.
@@ -184,10 +180,10 @@ advice to keep one source spelling and source discoverability; preserve the S3 f
   from [S3 conformance](../../internal/callbroker/conformance_s3_test.go). CE conformance asserts
   no writes/requests filed and the core's chain validation, not a duplicated validator.
 - **Advice:** reuse `newS3BrokerJail`, `hostYolo`, `runCommand`, `ghScript` in
-  [nested proof](../../integration/aws_s3_broker_test.go), adjusting only synthetic fixture roots.
+  [nested proof](../../integration/aws_broker_test.go), adjusting only synthetic fixture roots.
   `requireJail(t)` remains; no t.Parallel. Nested proof does not prove native/rootless reachability.
 - **Constraint:** keep the Check caller, not a direct warning-helper-only test. Existing
-  [warning tests](../../internal/cli/check/awss3bypass_test.go) ensure deleted callsites turn red.
+  [warning tests](../../internal/cli/check/awsbypass_test.go) ensure deleted callsites turn red.
 
 ## Traps
 
@@ -253,7 +249,7 @@ currently fails at new `aws` dispatch (64). Record the actual failure; no softwa
 Also retarget current selection/embedding tests and assert old pack selection is unknown and old
 `brokered.aws-s3.roots` has no selected declaration when only `aws` is selected. Reuse config
 validation fixtures, no new special-case refusal or formerly entry. Put old approval records
-in a synthetic old source store and prove selecting only `aws` never lists/spends them; do not delete records.
+in a synthetic old source store and prove selecting only `aws` never activates or spends them; do not delete records. **Source-fact correction:** generic `yolo approve --json` inventories historical stores as `removed`/`deny-only`; it may list inert old grant and timed-answer IDs, but these are not active `aws` requests or authority. `TestAWSNeverConsultsRetiredSourceRequestsOrAnswers` drives that actual caller and proves the selected/removed distinction, failed approval, no execution/replay and no old-grant spending. The original whole-inventory absence clause contradicted core's intentional removed-source inventory; no core/UI change or alias was introduced.
 
 **Change:** atomic pack/loophole/package rename, embed, CLI caller/help, warning symbol/caller,
 registry rows, current S3/grant/approval test fixtures. In the shipped TOML equivalence test,

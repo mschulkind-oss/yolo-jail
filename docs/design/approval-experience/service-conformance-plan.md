@@ -266,7 +266,7 @@ error. These two error-substring assertions initially failed, then passed with t
 actual caller diagnostics; no production behavior was changed to make them green.
 
 **New cross-package readers for root's combined census:** the S3 conformance tests reuse
-`newS3E2E`, which reads `packs/aws-s3` to generate the shim and loads its selected
+`newS3E2E`, which now reads the directly replaced `packs/aws` to generate the shim and loads its selected
 loophole declaration, and builds `cmd/yolo` and `internal/s3fixture/cmd/s3fixture`.
 The tasks conformance tests reuse the selected fixture's generated pack/config/input
 and `internal/callbroker/testdata/classifier`; their approver helper builds `cmd/yolo`
