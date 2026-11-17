@@ -20,7 +20,8 @@ const approvalReplayFallback = "The change list could not account for every diff
 
 var approvalAreaLabels = map[string]string{
 	"agents_md_extra": "Extra briefing text", "briefing_provenance": "Briefing origin labels",
-	"devices": "Device access requests", "env": "Environment variables", "ephemeral_storage": "Temporary storage",
+	"call_roots": "Declared call roots",
+	"devices":    "Device access requests", "env": "Environment variables", "ephemeral_storage": "Temporary storage",
 	"host_files": "Files provisioned into the environment", "include_if_found": "Optional included config files",
 	"install": "Nix packages and mise tools", "kvm": "KVM device access", "lsp_servers": "Language servers",
 	"machine": "GPU, resources, ports and forwarding", "mcp_servers": "MCP servers", "model_facts": "Model metadata",
