@@ -3,7 +3,7 @@
 // never shipped, never imported by shipped code, and never contacts AWS: every
 // credential here is a synthetic literal and every endpoint is the loopback.
 //
-// It deliberately imports neither internal/callbroker nor internal/s3classify, so the
+// It deliberately imports neither internal/callbroker nor internal/awsclassify, so the
 // code that mediates a call and the service the call lands on cannot share a bug.
 package s3fixture
 

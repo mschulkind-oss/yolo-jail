@@ -55,7 +55,11 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 	for _, fixture := range legacy {
 		key := strings.TrimSuffix(filepath.Base(fixture), ".json")
 		t.Run(key, func(t *testing.T) {
-			dir, ok := modules[key]
+			moduleKey := key
+			if key == "aws-s3__aws-s3-broker" {
+				moduleKey = "aws__aws-broker"
+			}
+			dir, ok := modules[moduleKey]
 			if !ok {
 				t.Fatalf("no shipped module for fixture %s", key)
 			}
@@ -66,7 +70,11 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want, err := loopholedecl.Decode(old, dir)
+			legacyDir := dir
+			if key == "aws-s3__aws-s3-broker" {
+				legacyDir = filepath.Join(filepath.Dir(dir), "aws-s3-broker")
+			}
+			want, err := loopholedecl.Decode(old, legacyDir)
 			if err != nil {
 				t.Fatalf("legacy fixture does not decode: %v", err)
 			}
@@ -83,6 +91,16 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 			got, err := loopholedecl.LoadDir(dir)
 			if err != nil {
 				t.Fatalf("loophole.toml does not decode strictly: %v", err)
+			}
+			// Direct replacement is an explicit historical fixture delta, not a loader alias.
+			if key == "aws-s3__aws-s3-broker" {
+				want.Name = "aws-broker"
+				want.Description = "Run scoped S3 commands and read-only Cost Explorer queries with the host AWS login; financial data is sensitive and AWS requests may be billable."
+				want.Access = "read S3 and sensitive Cost Explorer data under declared service roots; AWS requests may be billable; S3 writes ask first"
+				want.Grants[0].Text = "read S3 objects/listings and sensitive Cost Explorer financial data under declared service roots; AWS requests may be billable"
+				want.CallBroker.Source = "aws"
+				want.CallBroker.Classifier = []string{"yolo", "internal", "call-broker-classify", "aws"}
+				want.CallBroker.Resources = append(want.CallBroker.Resources, loopholedecl.CallBrokerResource{Type: "cost_query", Parent: "location"})
 			}
 			// The other intended delta is that module's description (GW-D75): the frozen fixture
 			// names the retired `brokered.github.repos` and `brokered.github.grants` keys, the

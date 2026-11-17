@@ -21,7 +21,7 @@ import (
 // closes the quoted command around it.
 var requestIDInRefusal = regexp.MustCompile("yolo approve (r-[0-9a-f]+)")
 
-// s3BrokerJail is a workspace selecting the shipped aws-s3 pack against an in-process fake S3
+// s3BrokerJail is a workspace selecting the shipped aws pack against an in-process fake S3
 // service on 127.0.0.1, with a fake host `aws` (the s3fixture binary installed under that name)
 // first on the host PATH. No AWS account, credential or endpoint is involved: every value is
 // the fixture's synthetic constant. Its roots are `s3://bkt/team/`, approved by a host
@@ -36,7 +36,7 @@ func newS3BrokerJail(t *testing.T, userConfig string) *s3BrokerJail {
 	t.Helper()
 	requireJail(t)
 	if rt := detectRuntime(); rt != "podman" {
-		t.Skipf("the aws-s3 broker smoke needs podman, runtime is %q", rt)
+		t.Skipf("the aws broker smoke needs podman, runtime is %q", rt)
 	}
 	goTool := filepath.Join(gobuild.Default.GOROOT, "bin", "go")
 	if _, err := os.Stat(goTool); err != nil {
@@ -73,12 +73,12 @@ func newS3BrokerJail(t *testing.T, userConfig string) *s3BrokerJail {
 		"YOLO_NO_AUTO_IMAGE_REAP=1",
 	}
 	opts := []runOption{withEnv(env...)}
-	workspace := writeProject(t, `{"brokered":{"aws-s3":{"roots":["s3://bkt/team/"]}}}`)
+	workspace := writeProject(t, `{"brokered":{"aws":{"roots":["s3://bkt/team/"]}}}`)
 	hostGit(t, workspace, "init", "-q", "-b", "main")
 
 	checked := runCommand(t, workspace, []string{"check", "--no-build", config.AcceptConfigChangesFlag}, opts...)
 	if checked.rc != 0 {
-		t.Fatalf("yolo check did not approve the aws-s3 roots (rc=%d):\n%s", checked.rc, checked.combined())
+		t.Fatalf("yolo check did not approve the aws roots (rc=%d):\n%s", checked.rc, checked.combined())
 	}
 	return &s3BrokerJail{server: server, workspace: workspace, opts: opts}
 }
@@ -122,16 +122,16 @@ func awaitMarker(file string) string {
 	return "for i in $(seq 240); do [ -f " + file + " ] && break; sleep 1; done; [ -f " + file + " ]"
 }
 
-// TestAWSS3BrokerMediatesReadsAndAsksForWrites runs the shipped aws-s3 pack in a real (nested)
+// TestAWSBrokerMediatesReadsAndAsksForWrites runs the shipped aws pack in a real (nested)
 // jail: the jail's `aws` is intercepted, the production classifier decides, and the fake host
 // `aws` talks to the fake S3 service.
 //
 // It covers a read that runs, a write that asks and changes nothing, the host's
 // `yolo approve` after which the same write lands, and a refusal that never reaches the
 // service. The in-process twin is internal/callbroker/s3_e2e_test.go.
-func TestAWSS3BrokerMediatesReadsAndAsksForWrites(t *testing.T) {
+func TestAWSBrokerMediatesReadsAndAsksForWrites(t *testing.T) {
 	// The user ceiling: reads always; the put cell may be asked for (never run unasked).
-	fx := newS3BrokerJail(t, `{"packs":["aws-s3"],"allow":{"aws-s3":{"always":["read"],"on_request":["all.put_objects"]}}}`)
+	fx := newS3BrokerJail(t, `{"packs":["aws"],"allow":{"aws":{"always":["read"],"on_request":["all.put_objects"]}}}`)
 	server, workspace, opts := fx.server, fx.workspace, fx.opts
 	refusal, marker := filepath.Join(workspace, ".put-refusal"), filepath.Join(workspace, ".approved")
 
@@ -206,15 +206,15 @@ func TestAWSS3BrokerMediatesReadsAndAsksForWrites(t *testing.T) {
 	}
 }
 
-// TestAWSS3BrokerTimedAnswerIsCappedAndCoversItsResource is the nested conformance of a timed
-// pack answer (pack-brokers.md BX-D17, BX-D19) through the shipped aws-s3 pack: the jail's put
+// TestAWSBrokerTimedAnswerIsCappedAndCoversItsResource is the nested conformance of a timed
+// pack answer (pack-brokers.md BX-D17, BX-D19) through the shipped aws pack: the jail's put
 // and rm ask; the host's `yolo approve <id> --for <duration>` is refused above the cell's
 // max_for (1h for put_objects, the 15-minute default for delete_objects, which declares none)
 // and stores nothing; a shorter one is accepted. The timed answer then covers its cell on its
 // object for the window, more than once and for a different body, while a put to another
 // object still asks and never reaches the service.
-func TestAWSS3BrokerTimedAnswerIsCappedAndCoversItsResource(t *testing.T) {
-	fx := newS3BrokerJail(t, `{"packs":["aws-s3"],"allow":{"aws-s3":{"always":["read"],"on_request":["all.put_objects","all.delete_objects"]}}}`)
+func TestAWSBrokerTimedAnswerIsCappedAndCoversItsResource(t *testing.T) {
+	fx := newS3BrokerJail(t, `{"packs":["aws"],"allow":{"aws":{"always":["read"],"on_request":["all.put_objects","all.delete_objects"]}}}`)
 	server, workspace := fx.server, fx.workspace
 
 	// One host-side answer: the over-cap --for, which must be refused naming the cap, then the

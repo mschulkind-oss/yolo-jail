@@ -183,7 +183,7 @@ func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, e
 	}
 	_, _, _, err = resolveGateReadableAllowance(workspace, user, userSources, read, selected, declarations, settings)
 	// Only the retired key is reported. These declarations come from the selected packs, not
-	// from the launch's running scope brokers (call brokers such as aws-s3 among them), so any
+	// from the launch's running scope brokers (call brokers such as aws among them), so any
 	// other resolution error here may be one the launch does not raise.
 	var retired *RetiredReposKeyError
 	if errors.As(err, &retired) {

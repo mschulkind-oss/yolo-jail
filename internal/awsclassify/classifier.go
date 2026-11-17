@@ -1,10 +1,10 @@
-// Package s3classify implements the built-in AWS S3 call-broker classifier.
+// Package awsclassify implements the built-in AWS S3 call-broker classifier.
 //
-// It is deny-by-default: only the five argv shapes in the aws-s3 design's table are
+// It is deny-by-default: only the five argv shapes in the aws design's table are
 // classified, everything else is refused before anything runs. It never sees or builds a
 // credential, an endpoint, a profile or a region; any such option in the jail's argv is a
 // refusal, so nothing from the jail shapes the host invocation beyond the table.
-package s3classify
+package awsclassify
 
 import (
 	"encoding/json"
@@ -41,11 +41,11 @@ var commandFlags = map[string]bool{
 	"human-readable": true, "summarize": true, "request-payer": true, "exact-timestamps": true,
 }
 
-// Run handles `yolo internal call-broker-classify aws-s3`. It reads only the versioned
+// Run handles `yolo internal call-broker-classify aws`. It reads only the versioned
 // classifier protocol and writes one answer; it never runs AWS.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if len(args) != 1 || args[0] != "aws-s3" {
-		fmt.Fprintln(stderr, "use the selected aws-s3 pack's classifier dispatch")
+	if len(args) != 1 || args[0] != "aws" {
+		fmt.Fprintln(stderr, "use the selected aws pack's classifier dispatch")
 		return 64
 	}
 	var input callbroker.CLIInput
@@ -103,7 +103,7 @@ func Classify(input callbroker.CLIInput) callbroker.Answer {
 	case "s3api":
 		return classifyS3API(answer, input, roots)
 	}
-	return unsupported(answer, "this AWS service is not enabled by the aws-s3 pack")
+	return unsupported(answer, "this AWS service is not enabled by the aws pack")
 }
 
 func classifyS3(answer callbroker.Answer, input callbroker.CLIInput, roots []root) callbroker.Answer {
@@ -173,13 +173,13 @@ func classifyS3(answer callbroker.Answer, input callbroker.CLIInput, roots []roo
 		id := "s3://" + bucket + "/" + key
 		return write(answer, input, []string{"s3", "rm", id}, "delete_objects", id, "delete object "+id, loc)
 	}
-	return unsupported(answer, "this s3 command is not enabled by the aws-s3 pack")
+	return unsupported(answer, "this s3 command is not enabled by the aws pack")
 }
 
 func classifyS3API(answer callbroker.Answer, input callbroker.CLIInput, roots []root) callbroker.Answer {
 	argv := input.Argv
 	if len(argv) < 2 || argv[1] != "head-object" {
-		return unsupported(answer, "only s3api head-object is enabled by the aws-s3 pack")
+		return unsupported(answer, "only s3api head-object is enabled by the aws pack")
 	}
 	var bucket, key string
 	seen := map[string]bool{}
@@ -363,7 +363,7 @@ func write(answer callbroker.Answer, input callbroker.CLIInput, argv []string, c
 
 func outOfScope(answer callbroker.Answer) callbroker.Answer {
 	return refused(answer, "scope", "no approved S3 root covers that bucket and key",
-		"Add the root to `brokered.aws-s3.roots` in this workspace's config, then run `yolo config apply` on the host")
+		"Add the root to `brokered.aws.roots` in this workspace's config, then run `yolo config apply` on the host")
 }
 
 func unsupported(answer callbroker.Answer, reason string) callbroker.Answer {

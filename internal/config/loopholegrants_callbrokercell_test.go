@@ -7,7 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
-// A shipped call-broker pack whose source is named like the pack (circleci, aws-s3) keeps its
+// A shipped call-broker pack whose source is named like the pack (circleci, aws) keeps its
 // grant kinds and its cell ceilings in one table: `yolo allow <source> on_request all.<cell>`
 // writes `all.<cell>` beside the pack's `read`. The grant reader must leave the cell entries to
 // the call-broker reader instead of refusing the whole config, or no write cell of such a pack
@@ -18,9 +18,9 @@ func TestLoopholeGrantsLeaveSameNamedCallBrokerCellCeilingsToTheCallBroker(t *te
 	table := jsonx.NewOrderedMap()
 	table.Set("always", []any{"read"})
 	table.Set("on_request", []any{"all.put_objects", "working_set.put_objects", "all.delete_objects"})
-	allow.Set("aws-s3", table)
+	allow.Set("aws", table)
 	user.Set("allow", allow)
-	decl := LoopholeGrantDeclaration{Pack: "aws-s3", Loophole: "aws-s3-broker",
+	decl := LoopholeGrantDeclaration{Pack: "aws", Loophole: "aws-broker",
 		Grants: []loopholedecl.Grant{{Kind: "read", Text: "read objects"}}}
 	plan, err := ResolveLoopholeGrants(LoopholeGrantInput{User: user, Workspace: jsonx.NewOrderedMap(),
 		Declarations: []LoopholeGrantDeclaration{decl}})

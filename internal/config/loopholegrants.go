@@ -273,7 +273,7 @@ func loopholeCeilingOf(allow *jsonx.OrderedMap, d LoopholeGrantDeclaration, orig
 		for _, kind := range kinds {
 			g, declared := loopholeGrantByKind(d.Grants, kind)
 			if !declared && isCallBrokerCellToken(kind) {
-				// A call-broker source named like its pack (circleci, aws-s3) keeps its cell
+				// A call-broker source named like its pack (circleci, aws) keeps its cell
 				// ceilings in this same table; the call-broker reader owns them
 				// (callBrokerCeiling). A `table.cell` token is never a grant kind, whose
 				// spelling has no dot, so skipping it widens no grant.

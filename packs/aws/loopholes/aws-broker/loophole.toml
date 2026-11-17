@@ -1,25 +1,25 @@
-# The aws-s3 broker: a CLI-front call broker. Core runs the host `aws` program with the
+# The aws broker: a CLI-front call broker. Core runs the host `aws` program with the
 # canonical argv the classifier produced, using the host's own AWS login (HOME plus the
 # declared env_from_host); nothing of that login is shown to the jail or the classifier.
 # It does NOT change aws-auth's credential route: an aws-auth credential with S3 reach
 # bypasses this broker, which is the user's narrowing to control.
-name = "aws-s3-broker"
-description = "Run scoped S3 commands on the host with the host's AWS login."
+name = "aws-broker"
+description = "Run scoped S3 commands and read-only Cost Explorer queries with the host AWS login; financial data is sensitive and AWS requests may be billable."
 version = 1
-access = "read S3 objects and listings under this workspace's declared roots; writes ask first"
+access = "read S3 and sensitive Cost Explorer data under declared service roots; AWS requests may be billable; S3 writes ask first"
 transport = "loopback-tls"
 lifecycle = "spawned"
 
 [[grants]]
 kind = "read"
-text = "read S3 objects and listings under the declared roots"
+text = "read S3 objects/listings and sensitive Cost Explorer financial data under declared service roots; AWS requests may be billable"
 requestable_by_default = true
 
 [call_broker]
-source = "aws-s3"
+source = "aws"
 front = "cli"
 program = "aws"
-classifier = ["yolo", "internal", "call-broker-classify", "aws-s3"]
+classifier = ["yolo", "internal", "call-broker-classify", "aws"]
 executor = "core"
 credential_paths = ["~/.aws"]
 env_from_host = [
@@ -28,8 +28,8 @@ env_from_host = [
   "AWS_SESSION_TOKEN", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_S3",
 ]
 
-# Roots are declared per workspace (`brokered.aws-s3.roots`): `s3://<bucket>` or
-# `s3://<bucket>/<prefix>/`.
+# Roots are declared per workspace (`brokered.aws.roots`): `s3://<bucket>` or
+# `s3://<bucket>/<prefix>/`, or exactly `ce://host-login` for Cost Explorer.
 [call_broker.scope]
 roots = "declared"
 
@@ -42,6 +42,10 @@ parent = "location"
 
 [[call_broker.resource]]
 type = "object"
+parent = "location"
+
+[[call_broker.resource]]
+type = "cost_query"
 parent = "location"
 
 # Writes always ask: there is no default answer for either cell.

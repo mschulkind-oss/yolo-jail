@@ -123,3 +123,24 @@ func TestUndeclaredCallBrokerCeilingTokenIsNamed(t *testing.T) {
 		t.Fatalf("errs=%v warns=%v", errs, warns)
 	}
 }
+
+func TestAWSDirectReplacementRejectsOldDeclaredSource(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_VERSION", "")
+	workspace := t.TempDir()
+	for _, raw := range []string{
+		`{"packs":["aws"],"brokered":{"aws-s3":{"roots":["s3://bkt"]}}}`,
+	} {
+		errs, _ := ValidateConfig(decode(t, raw), workspace, nil)
+		if len(errs) == 0 {
+			t.Fatalf("retired identity was accepted: %s", raw)
+		}
+	}
+	if _, err := ResolvePack(EmbeddedPackEntry("aws-s3"), ResolvePackSpec{}); err == nil {
+		t.Fatal("retired pack resolved")
+	}
+	errs, _ := ValidateConfig(decode(t, `{"packs":["aws"],"brokered":{"aws":{"roots":["s3://bkt","ce://host-login"]}}}`), workspace, nil)
+	if len(errs) != 0 {
+		t.Fatalf("new declared roots: %v", errs)
+	}
+}

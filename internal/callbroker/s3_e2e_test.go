@@ -31,9 +31,9 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
-// s3E2E is the AE-E4 path for the shipped aws-s3 pack, in process: the generated `aws` shim,
+// s3E2E is the AE-E4 path for the shipped aws pack, in process: the generated `aws` shim,
 // `yolo internal call-broker-forward`, the authenticated front, the real handler, the real
-// classifier (the built `yolo internal call-broker-classify aws-s3`), the approval store, a
+// classifier (the built `yolo internal call-broker-classify aws`), the approval store, a
 // host `yolo approve`, and core's CLI executor running a fake host `aws` against a local
 // fake S3 service. No AWS account, credential or endpoint is involved.
 type s3E2E struct {
@@ -111,7 +111,7 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 		t.Fatal(err)
 	}
 	userPath := filepath.Join(configDir, "config.toml")
-	user := "packs = ['aws-s3']\n[allow.aws-s3]\nalways = [\"read\"]\non_request = [\"all.put_objects\", \"all.delete_objects\"]\n"
+	user := "packs = ['aws']\n[allow.aws]\nalways = [\"read\"]\non_request = [\"all.put_objects\", \"all.delete_objects\"]\n"
 	if err := os.WriteFile(userPath, []byte(user), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -119,29 +119,29 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 	// The SHIPPED declaration, read by the same loader production uses.
 	packs, complete := config.UserScopeSelectedPacks()
 	if !complete {
-		t.Fatalf("aws-s3 pack selection incomplete: %+v", packs)
+		t.Fatalf("aws pack selection incomplete: %+v", packs)
 	}
 	var module *loopholedecl.Manifest
 	var moduleName string
 	for _, pack := range packs {
-		if pack.Name != "aws-s3" {
+		if pack.Name != "aws" {
 			continue
 		}
 		modules, refusals, warnings, err := packload.ReadableLoopholeModules(pack)
 		if err != nil || len(refusals)+len(warnings) != 0 {
-			t.Fatalf("read shipped aws-s3 declaration: %v %v %v", err, refusals, warnings)
+			t.Fatalf("read shipped aws declaration: %v %v %v", err, refusals, warnings)
 		}
 		for _, m := range modules {
-			if m.Decl != nil && m.Decl.CallBroker != nil && m.Decl.CallBroker.Source == "aws-s3" {
+			if m.Decl != nil && m.Decl.CallBroker != nil && m.Decl.CallBroker.Source == "aws" {
 				module, moduleName = m.Decl, m.Name
 			}
 		}
 	}
 	if module == nil {
-		t.Fatal("shipped aws-s3 pack declares no aws-s3 call broker")
+		t.Fatal("shipped aws pack declares no aws call broker")
 	}
 	b := module.CallBroker
-	if !slices.Equal(b.Classifier, []string{"yolo", "internal", "call-broker-classify", "aws-s3"}) || b.Front != "cli" || b.Program != "aws" || b.Executor != "core" {
+	if !slices.Equal(b.Classifier, []string{"yolo", "internal", "call-broker-classify", "aws"}) || b.Front != "cli" || b.Program != "aws" || b.Executor != "core" {
 		t.Fatalf("shipped declaration changed shape: %+v", b)
 	}
 
@@ -151,7 +151,7 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 		"put_objects":    {Tables: map[string]config.CallBrokerTablePolicy{"all": put, "working_set": put}},
 		"delete_objects": {Tables: map[string]config.CallBrokerTablePolicy{"all": put}},
 	}
-	input := callbrokerinput.Launch{Version: "yolo.call-broker-launch/2", Loophole: moduleName, Pack: "aws-s3",
+	input := callbrokerinput.Launch{Version: "yolo.call-broker-launch/2", Loophole: moduleName, Pack: "aws",
 		DeclarationHash: callbrokerinput.DeclarationHash(b), Source: b.Source, Front: b.Front, Program: b.Program,
 		Classifier: b.Classifier, Executor: b.Executor, HostEnvNames: append([]string(nil), b.EnvFromHost...),
 		ProgramIdentities: map[string]loopholedecl.CallBrokerProgramIdentity{}, Roots: roots,
@@ -170,7 +170,7 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 		t.Fatal(err)
 	}
 	input.ScopeFile = scopePath
-	block := loopholegrant.Block{Pack: "aws-s3", Workspace: home, Container: scope.Container, PID: scope.PID, LaunchID: id,
+	block := loopholegrant.Block{Pack: "aws", Workspace: home, Container: scope.Container, PID: scope.PID, LaunchID: id,
 		Kinds: map[string]loopholegrant.Kind{"read": {Standing: loopholegrant.Granted, Text: "read"}}}
 	grantData, err := loopholegrant.Merge([]byte("{}"), block)
 	if err != nil {
@@ -222,7 +222,7 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 	}
 	h.classifier.Argv = append([]string{"{program:classifier}"}, b.Classifier[1:]...)
 	h.classifier.Identities = map[string]loopholedecl.CallBrokerProgramIdentity{
-		"classifier": {Pack: "aws-s3", Bin: "classifier", Path: resolved, SHA256: hex.EncodeToString(sum[:])}}
+		"classifier": {Pack: "aws", Bin: "classifier", Path: resolved, SHA256: hex.EncodeToString(sum[:])}}
 
 	start, err := brokerstore.NewStartID()
 	if err != nil {
@@ -279,7 +279,7 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 	// The shim comes from the shipped pack's own intercept declaration: the pack tree is
 	// copied, so a change to the pack changes what this test generates.
 	packRoot := filepath.Join(home, "packroot")
-	if err := os.CopyFS(filepath.Join(packRoot, "aws-s3"), os.DirFS("../../packs/aws-s3")); err != nil {
+	if err := os.CopyFS(filepath.Join(packRoot, "aws"), os.DirFS("../../packs/aws")); err != nil {
 		t.Fatal(err)
 	}
 	jailHome := filepath.Join(home, "jail-home")

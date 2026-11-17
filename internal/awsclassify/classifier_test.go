@@ -1,4 +1,4 @@
-package s3classify
+package awsclassify
 
 import (
 	"bytes"
@@ -217,7 +217,7 @@ func TestS3ClassifierStringPrefixIsNotDirectoryCoverage(t *testing.T) {
 			if a.Refused == nil || a.Refused.Class != "scope" || a.Classification != nil {
 				t.Fatalf("string-prefix trap not refused as scope: %+v", a)
 			}
-			if !strings.Contains(a.Refused.NextStep, "brokered.aws-s3.roots") || !strings.Contains(a.Refused.NextStep, "yolo config apply") {
+			if !strings.Contains(a.Refused.NextStep, "brokered.aws.roots") || !strings.Contains(a.Refused.NextStep, "yolo config apply") {
 				t.Fatalf("scope next step: %q", a.Refused.NextStep)
 			}
 		})
@@ -384,7 +384,7 @@ func TestS3ClassifierUsesActualProtocolDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if rc := Run([]string{"aws-s3"}, bytes.NewReader(raw), &stdout, &stderr); rc != 0 {
+	if rc := Run([]string{"aws"}, bytes.NewReader(raw), &stdout, &stderr); rc != 0 {
 		t.Fatalf("dispatch rc=%d stderr=%s", rc, stderr.String())
 	}
 	var answer callbroker.Answer
@@ -397,7 +397,7 @@ func TestS3ClassifierUsesActualProtocolDispatch(t *testing.T) {
 }
 
 func TestS3ClassifierRunRefusesWrongSource(t *testing.T) {
-	for _, args := range [][]string{nil, {"circleci"}, {"aws-s3", "x"}} {
+	for _, args := range [][]string{nil, {"circleci"}, {"aws", "x"}} {
 		var stdout, stderr bytes.Buffer
 		if rc := Run(args, strings.NewReader("{}"), &stdout, &stderr); rc != 64 || stdout.Len() != 0 || stderr.Len() == 0 {
 			t.Fatalf("args %q rc=%d stdout=%q stderr=%q", args, rc, stdout.String(), stderr.String())
@@ -419,7 +419,7 @@ func TestS3ClassifierRejectsMalformedProtocol(t *testing.T) {
 		`{` + good + `,"stdin_sha256":"` + strings.Repeat("a", 70*1024) + `"}`,
 	} {
 		var stdout, stderr bytes.Buffer
-		if rc := Run([]string{"aws-s3"}, strings.NewReader(raw), &stdout, &stderr); rc != 2 || stdout.Len() != 0 {
+		if rc := Run([]string{"aws"}, strings.NewReader(raw), &stdout, &stderr); rc != 2 || stdout.Len() != 0 {
 			t.Fatalf("malformed input %.60q rc=%d stdout=%q stderr=%q", raw, rc, stdout.String(), stderr.String())
 		}
 	}

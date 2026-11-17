@@ -185,7 +185,7 @@ func Check(opts Options) int {
 	// same problem into a refused boot. Offline: never fetches.
 	o.sectionPacks(r, merged)
 	// S3-D5: diagnose delegated credentials beside S3 mediation only in the full check.
-	o.reportAWSS3CredentialBypass(r, merged)
+	o.reportAWSCredentialBypass(r, merged)
 	// Content addressed to an agent no selected pack provides: skipped, never refused (FS-D6).
 	o.sectionPackAudiences(r)
 	if r.failed > 0 {

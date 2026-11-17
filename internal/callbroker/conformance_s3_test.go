@@ -11,7 +11,7 @@ import (
 )
 
 const conformanceS3UnsupportedNext = "Use `aws s3 ls s3://<bucket>[/<prefix>] [--recursive]`, `aws s3 cp s3://<bucket>/<key> -`, `aws s3 cp - s3://<bucket>/<key>`, `aws s3 rm s3://<bucket>/<key>` or `aws s3api head-object --bucket <bucket> --key <key>`, or run the command on the host"
-const conformanceS3ScopeNext = "Add the root to `brokered.aws-s3.roots` in this workspace's config, then run `yolo config apply` on the host"
+const conformanceS3ScopeNext = "Add the root to `brokered.aws.roots` in this workspace's config, then run `yolo config apply` on the host"
 
 func conformanceS3Refusal(class, reason, next string) Answer {
 	return Answer{Version: "yolo.call-broker-classifier/1", Refused: &Refusal{Class: class, Reason: reason, NextStep: next}}
@@ -77,7 +77,7 @@ func conformanceS3Refusals() []struct {
 		answer Answer
 	}{
 		{"credential endpoint", []string{"--endpoint-url", "http://127.0.0.1:1", "s3", "ls", s3Root}, conformanceS3Refusal("credential", "the option --endpoint-url is not accepted from the jail", "Set it in the host's AWS configuration or environment; the broker never takes an endpoint, profile, region or signing option from the jail")},
-		{"unsupported sync", []string{"s3", "sync", ".", s3Root}, conformanceS3Refusal("unsupported", "this s3 command is not enabled by the aws-s3 pack", conformanceS3UnsupportedNext)},
+		{"unsupported sync", []string{"s3", "sync", ".", s3Root}, conformanceS3Refusal("unsupported", "this s3 command is not enabled by the aws pack", conformanceS3UnsupportedNext)},
 		{"uncovered bucket", []string{"s3", "rm", "s3://other-bkt/x"}, conformanceS3Refusal("scope", "no approved S3 root covers that bucket and key", conformanceS3ScopeNext)},
 		{"malformed name", []string{"s3", "rm", "s3://BKT/team/a.txt"}, conformanceS3Refusal("unsupported", "the bucket name must be a plain lowercase S3 bucket name (not an ARN or an IP address)", conformanceS3UnsupportedNext)},
 	}

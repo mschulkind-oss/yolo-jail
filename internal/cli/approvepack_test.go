@@ -366,7 +366,7 @@ func TestApproveWiresTimedPackAnswersForASelectedCallBroker(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_USER_LAYER", "")
-	writeApprovePackFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"packs":["aws-s3"]}`)
+	writeApprovePackFile(t, filepath.Join(home, ".config", "yolo-jail", "config.jsonc"), `{"packs":["aws"]}`)
 	defer packload.ReleaseEmbedded()
 
 	stores, diagnostics, err := approvalStores()
@@ -375,12 +375,12 @@ func TestApproveWiresTimedPackAnswersForASelectedCallBroker(t *testing.T) {
 	}
 	var s *brokerstore.Store
 	for _, candidate := range stores {
-		if candidate.SourceName() == "aws-s3" {
+		if candidate.SourceName() == "aws" {
 			s = candidate
 		}
 	}
 	if s == nil || s.ApprovalStatus != "selected" {
-		t.Fatalf("the selected aws-s3 call broker has no selected approval store: %+v", s)
+		t.Fatalf("the selected aws call broker has no selected approval store: %+v", s)
 	}
 	same := func(got, want any) bool {
 		return reflect.ValueOf(got).Pointer() == reflect.ValueOf(want).Pointer()

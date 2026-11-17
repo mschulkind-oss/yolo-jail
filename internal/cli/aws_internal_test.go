@@ -37,7 +37,7 @@ func TestRunInternalDispatchesBuiltinS3Classifier(t *testing.T) {
 	}
 	pipeStdin(t, data)
 
-	rc, stdout, stderr := runMainCaptured(t, "internal", "call-broker-classify", "aws-s3")
+	rc, stdout, stderr := runMainCaptured(t, "internal", "call-broker-classify", "aws")
 	if rc != 0 {
 		t.Fatalf("internal classifier rc=%d stderr=%q", rc, stderr)
 	}
@@ -55,12 +55,37 @@ func TestRunInternalClassifierDispatchRefusesUnknownSource(t *testing.T) {
 	for _, args := range [][]string{
 		{"internal", "call-broker-classify"},
 		{"internal", "call-broker-classify", "nonesuch"},
-		{"internal", "call-broker-classify", "aws-s3", "extra"},
+		{"internal", "call-broker-classify", "aws", "extra"},
 	} {
 		pipeStdin(t, []byte("{}"))
 		rc, stdout, stderr := runMainCaptured(t, args...)
 		if rc != 64 || stdout != "" || stderr == "" {
 			t.Fatalf("%q rc=%d stdout=%q stderr=%q", args, rc, stdout, stderr)
 		}
+	}
+}
+
+func TestRunInternalDispatchesAWSAndRejectsOldSource(t *testing.T) {
+	input := callbroker.CLIInput{Version: "yolo.call-broker-classifier/1", Front: "cli", Argv: []string{"s3", "ls", "s3://bkt/x"}, StdinSHA256: strings.Repeat("a", 64), Roots: []string{"s3://bkt"}}
+	data, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeStdin(t, data)
+	rc, out, errs := runMainCaptured(t, "internal", "call-broker-classify", "aws")
+	if rc != 0 {
+		t.Fatalf("aws dispatch rc=%d stderr=%q", rc, errs)
+	}
+	var a callbroker.Answer
+	if err := json.Unmarshal([]byte(out), &a); err != nil {
+		t.Fatal(err)
+	}
+	if a.Classification == nil || len(a.Classification.Reads) != 1 || a.Classification.Reads[0][0].ID != "s3://bkt/x" {
+		t.Fatalf("answer=%+v", a)
+	}
+	pipeStdin(t, data)
+	rc, out, errs = runMainCaptured(t, "internal", "call-broker-classify", "aws-s3")
+	if rc != 64 || out != "" || errs == "" {
+		t.Fatalf("old source remains active: rc=%d out=%q err=%q", rc, out, errs)
 	}
 }
