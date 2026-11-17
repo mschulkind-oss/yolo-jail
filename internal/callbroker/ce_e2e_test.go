@@ -3,6 +3,8 @@ package callbroker
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -15,9 +17,11 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholegrant"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/s3fixture"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 const cePeriod = "Start=2026-01-01,End=2026-02-01"
@@ -141,6 +145,7 @@ func TestCEEscapesDeniedBeforeHostExecutionAndJSONDataPreserved(t *testing.T) {
 	for _, flag := range []string{"metrics", "group-by"} {
 		f.ceDenied("ce", "get-cost-and-usage", "--time-period", cePeriod, "--granularity", "DAILY", "--metrics", "UnblendedCost", "--"+flag, "file://secret")
 	}
+	f.roots(s3Root, "ce://host-login", "future://all", "ec2://all", "sts://all")
 	for _, service := range []string{"ec2", "sts", "future"} {
 		f.ceDenied(service, "get-anything")
 	}
@@ -175,6 +180,44 @@ func TestCEEscapesDeniedBeforeHostExecutionAndJSONDataPreserved(t *testing.T) {
 	out, err = deniedCmd.CombinedOutput()
 	if err == nil || !strings.Contains(string(out), "ce://host-login") {
 		t.Fatalf("jail env widened scope: %v %s", err, out)
+	}
+}
+
+func TestCEActualClassifierProtocolContainsNoHostCredentialOrStdinBytes(t *testing.T) {
+	f := newS3E2E(t)
+	f.roots("ce://host-login")
+	// Instrument only the subprocess stdin, then forward unchanged to the built
+	// production yolo classifier. The shim/front/core/executor still do the call.
+	capture := filepath.Join(f.home, "classifier-input.json")
+	wrapper := filepath.Join(f.home, "capture-classifier")
+	body := "#!/bin/sh\n/bin/cat > " + shquote.Quote(capture) + "\nexec " + shquote.Quote(f.yolo) + " \"$@\" < " + shquote.Quote(capture) + "\n"
+	if err := os.WriteFile(wrapper, []byte(body), 0700); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte(body))
+	f.h.classifier.Identities["classifier"] = loopholedecl.CallBrokerProgramIdentity{Pack: "aws", Bin: "classifier", Path: wrapper, SHA256: hex.EncodeToString(sum[:])}
+	rc, out := f.aws("private jail stdin body", "ce", "get-tags", "--time-period", cePeriod)
+	if rc != 0 || out != "{\"Tags\":[\"fixture\"]}\n" {
+		t.Fatalf("instrumented production mediation: %d %q", rc, out)
+	}
+	raw, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{s3fixture.AccessKeyID, s3fixture.SecretAccessKey, f.server.URL(), "private jail stdin body"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("classifier input leaked host value or stdin bytes")
+		}
+	}
+	var input CLIInput
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		t.Fatal(err)
+	}
+	expected := sha256.Sum256([]byte("private jail stdin body"))
+	if input.StdinSHA256 != hex.EncodeToString(expected[:]) || input.Front != "cli" || !reflect.DeepEqual(input.Roots, []string{"ce://host-login"}) || len(f.invocations()) != 1 {
+		t.Fatalf("actual classifier protocol: %+v", input)
 	}
 }
 
@@ -251,10 +294,12 @@ func TestAWSReadWithdrawalAndLatestApprovedScopeAreAuthoritative(t *testing.T) {
 	f.roots(s3Root)
 	f.ceDenied(args...)
 	// The host read ceiling is independently revocable for both services.
-	if err := os.WriteFile(filepath.Join(f.home, ".config", "yolo-jail", "config.toml"), []byte("packs=['aws']\n[allow.aws]\nalways=[]\non_request=[]\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(f.home, ".config", "yolo-jail", "config.toml"), []byte("packs=['aws']\n[allow.aws]\nalways=[]\non_request=[]\n[allow.aws-s3]\nalways=['read','all.put_objects','all.delete_objects']\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	f.roots(s3Root, "ce://host-login")
 	f.ceDenied("s3", "ls", s3Root)
+	f.ceDenied(args...)
 }
 
 func TestAWSNeverConsultsRetiredSourceRequestsOrAnswers(t *testing.T) {
@@ -283,6 +328,13 @@ func TestAWSNeverConsultsRetiredSourceRequestsOrAnswers(t *testing.T) {
 	if _, err := old.Decide(retired.ID, "pending", brokerstore.Decision{}); err != nil {
 		t.Fatal(err)
 	}
+	oldPendingInput := q
+	oldPendingInput.Argv = []string{"s3", "rm", s3Root + "old.txt"}
+	oldPendingInput.OriginalArgv = oldPendingInput.Argv
+	oldPending, err := old.File(oldPendingInput)
+	if err != nil {
+		t.Fatal(err)
+	}
 	resources := pending[0].CallWrites[0].Chain
 	if _, _, err := old.AddWorking(brokerstore.WorkingEntry{Kind: brokerstore.WorkingCallPrefix + "put_objects", Workspace: f.home, Repo: "aws", Resource: brokerstore.CallResourceKey(resources), By: "synthetic-retired-answer", Expires: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
@@ -296,7 +348,10 @@ func TestAWSNeverConsultsRetiredSourceRequestsOrAnswers(t *testing.T) {
 	}
 	var inventory struct {
 		Sources  []struct{ Source, Status, Authority string }
-		Requests []struct{ ID, Source string }
+		Requests []struct {
+			ID, Source   string
+			SourceStatus string `json:"source_status"`
+		}
 	}
 	start := strings.Index(view, `{"schema":`)
 	if start < 0 || json.Unmarshal([]byte(view[start:]), &inventory) != nil {
@@ -311,12 +366,21 @@ func TestAWSNeverConsultsRetiredSourceRequestsOrAnswers(t *testing.T) {
 		t.Fatalf("selection/history authority changed: %+v", inventory.Sources)
 	}
 	for _, r := range inventory.Requests {
-		if r.Source != "aws" || r.ID == retired.ID {
-			t.Fatalf("old request entered active inventory: %+v", r)
+		if r.Source == "aws-s3" {
+			if r.SourceStatus != "removed" {
+				t.Fatalf("old request entered active inventory: %+v", r)
+			}
+		} else if r.Source != "aws" {
+			t.Fatalf("unexpected request source: %+v", r)
 		}
 	}
-	if out, err := f.host("approve", retired.ID); err == nil || out == "" {
-		t.Fatalf("retired source answer activated: %v %s", err, out)
+	for _, id := range []string{retired.ID, oldPending.ID} {
+		if out, err := f.host("approve", id); err == nil || out == "" {
+			t.Fatalf("retired source request/answer activated: %v %s", err, out)
+		}
+	}
+	if f.server.Writes() != 0 || len(f.invocations()) != 0 {
+		t.Fatal("retired source approval replay reached host AWS")
 	}
 	after, err := old.Snapshot()
 	if err != nil || len(after.Grants) != 1 || after.Grants[0].Uses != 1 {
