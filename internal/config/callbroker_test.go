@@ -128,10 +128,15 @@ func TestAWSDirectReplacementRejectsOldDeclaredSource(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLO_VERSION", "")
 	workspace := t.TempDir()
+	selected, err := ResolvePack(EmbeddedPackEntry("aws"), ResolvePackSpec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := explicitPackLoopholeResolver{packs: []*packload.Pack{selected.Pack}}
 	for _, raw := range []string{
 		`{"packs":["aws"],"brokered":{"aws-s3":{"roots":["s3://bkt"]}}}`,
 	} {
-		errs, _ := ValidateConfig(decode(t, raw), workspace, nil)
+		errs, _ := ValidateConfig(decode(t, raw), workspace, resolver)
 		if len(errs) == 0 {
 			t.Fatalf("retired identity was accepted: %s", raw)
 		}
@@ -139,7 +144,7 @@ func TestAWSDirectReplacementRejectsOldDeclaredSource(t *testing.T) {
 	if _, err := ResolvePack(EmbeddedPackEntry("aws-s3"), ResolvePackSpec{}); err == nil {
 		t.Fatal("retired pack resolved")
 	}
-	errs, _ := ValidateConfig(decode(t, `{"packs":["aws"],"brokered":{"aws":{"roots":["s3://bkt","ce://host-login"]}}}`), workspace, nil)
+	errs, _ := ValidateConfig(decode(t, `{"packs":["aws"],"brokered":{"aws":{"roots":["s3://bkt","ce://host-login"]}}}`), workspace, resolver)
 	if len(errs) != 0 {
 		t.Fatalf("new declared roots: %v", errs)
 	}
