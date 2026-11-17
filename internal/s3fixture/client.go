@@ -39,6 +39,9 @@ type command struct {
 // the S3 mediation slice and refuses everything else with exit 252, before any
 // network or environment access: it trusts nothing it is handed.
 func RunAWS(args []string, getenv func(string) string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "ce" {
+		return runCE(args, getenv, stdout, stderr)
+	}
 	cmd, err := parse(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "aws (fixture): %v\n", err)
@@ -49,6 +52,10 @@ func RunAWS(args []string, getenv func(string) string, stdin io.Reader, stdout, 
 		return 0
 	}
 
+	if err := recordInvocation(args, getenv); err != nil {
+		fmt.Fprintln(stderr, "aws (fixture): invocation log failed")
+		return exitConfig
+	}
 	endpoint := getenv("AWS_ENDPOINT_URL_S3")
 	if endpoint == "" {
 		endpoint = getenv("AWS_ENDPOINT_URL")

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,6 +49,30 @@ type s3E2E struct {
 	envKey   string
 	hostEnv  []string
 	outputs  []string // every jail-visible output
+}
+
+// Readiness is the production listener's post-bind line, not a polling interval.
+type awsReadinessLog struct {
+	match string
+	ready chan<- struct{}
+}
+
+func (w awsReadinessLog) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), w.match) {
+		select {
+		case w.ready <- struct{}{}:
+		default:
+		}
+	}
+	return len(p), nil
+}
+func awsWaitReady(t *testing.T, ready <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-ready:
+	case <-time.After(60 * time.Second):
+		t.Fatal("AWS broker fixture listener never became ready")
+	}
 }
 
 const s3Root = "s3://bkt/team/"
@@ -101,6 +126,7 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 		os.Unsetenv(name)
 	}
 	t.Setenv("AWS_ENDPOINT_URL_S3", server.URL())
+	t.Setenv("AWS_ENDPOINT_URL", server.URL())
 	t.Setenv("AWS_ACCESS_KEY_ID", s3fixture.AccessKeyID)
 	t.Setenv("AWS_SECRET_ACCESS_KEY", s3fixture.SecretAccessKey)
 	t.Setenv("AWS_REGION", s3fixture.Region)
@@ -257,25 +283,25 @@ func newS3E2EWithBuild(t *testing.T, build func(*exec.Cmd) ([]byte, error)) *s3E
 	stop := make(chan struct{})
 	serverDone := make(chan error, 1)
 	frontDone := make(chan error, 1)
+	daemonReady := make(chan struct{}, 1)
+	frontReady := make(chan struct{}, 1)
+	oldDaemonLog, oldFrontLog := hostservice.Logger, svcendpoint.Logger
+	hostservice.Logger = log.New(awsReadinessLog{match: "listening on " + socket, ready: daemonReady}, "", 0)
+	svcendpoint.Logger = log.New(awsReadinessLog{match: " -> " + endpoint, ready: frontReady}, "", 0)
+	t.Cleanup(func() { hostservice.Logger, svcendpoint.Logger = oldDaemonLog, oldFrontLog })
+	frontStarted := false
 	go func() { serverDone <- hostservice.ServeFrontedUnix(h.Handle, socket, stop) }()
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		if _, err := os.Stat(socket); err == nil {
-			break
+	t.Cleanup(func() {
+		close(stop)
+		<-serverDone
+		if frontStarted {
+			<-frontDone
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("host daemon not ready")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	})
+	awsWaitReady(t, daemonReady)
+	frontStarted = true
 	go func() { frontDone <- svcendpoint.ServeFront(endpoint, "127.0.0.1", socket, stop) }()
-	t.Cleanup(func() { close(stop); <-serverDone; <-frontDone })
-	for !svcendpoint.Probe(endpoint) {
-		if time.Now().After(deadline) {
-			t.Fatal("authenticated front not ready")
-		}
-		time.Sleep(time.Millisecond)
-	}
+	awsWaitReady(t, frontReady)
 	// The shim comes from the shipped pack's own intercept declaration: the pack tree is
 	// copied, so a change to the pack changes what this test generates.
 	packRoot := filepath.Join(home, "packroot")

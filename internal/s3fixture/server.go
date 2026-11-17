@@ -77,6 +77,7 @@ type Server struct {
 	mu      sync.Mutex
 	buckets map[string]map[string]object
 	log     []LoggedRequest
+	ceArgv  [][]string
 	writes  int
 
 	srv *http.Server
@@ -218,6 +219,10 @@ func (s *Server) record(r *http.Request, authorized bool, status int, wrote bool
 
 // ServeHTTP is the S3 subset.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/__ce" {
+		s.serveCE(w, r)
+		return
+	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
 	if err != nil || len(body) > maxBody {
 		s.fail(w, r, false, s3Error{400, "InvalidRequest", "request body unreadable or too large"})
