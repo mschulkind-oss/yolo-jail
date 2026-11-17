@@ -14,7 +14,7 @@ summary: "Four AWS units plus serial Task 5: generic TOML declared roots and bou
 
 # AWS operation broker: tree-grounded build hand-off
 
-**Status:** 2026-11-17. The original four-unit base is reviewed; Task 5 now has green real config/gate/edit callers, safe migration refusal, a TOML nested live gate and a matched private emitted-launcher probe. The combined candidate still needs delta review and landing gates. Permanent dispatch and CE rows failed before their implementations; shipped shim→front→classifier→core→fake-host CE failed at the old fixture (252) before the independent CE fixture was added. Focused package gates and all three reached nested AWS tests pass. Dispatch and full-check callsite deletion controls fail and restoration passes. Combined census/check-ci/full integration/clean `just done`, native Mac/rootless-host and live AWS remain separate gates. Written against clean `b5a5fe32a326109371656162623b690a3c790427`; allocation was verified at clean `a85e2734a579e9eab2f7a340ba3200faa2a51f06`.
+**Status:** 2026-11-17. The original four-unit base is reviewed; Task 5 has green real config/gate/edit callers, safe migration refusal and a TOML nested live gate. Review found that its emitted-launcher receipt predates the final user-scope fence: that receipt is pre-final, not matched-source evidence. The bounded repair makes declared pack grants and call-cell ceilings share planned-edit validation without mixing their authority, rejects legacy JSONC `call_roots`, and repairs root provenance/why diagnostics. Acceptance requires a fresh matched-source probe, repair review and combined landing gates. Permanent dispatch and CE rows failed before their implementations; shipped shim→front→classifier→core→fake-host CE failed at the old fixture (252) before the independent CE fixture was added. Focused package gates and all three reached nested AWS tests pass. Dispatch and full-check callsite deletion controls fail and restoration passes. Combined census/check-ci/full integration/clean `just done`, native Mac/rootless-host and live AWS remain separate gates. Written against clean `b5a5fe32a326109371656162623b690a3c790427`; allocation was verified at clean `a85e2734a579e9eab2f7a340ba3200faa2a51f06`.
 **Design:** [canonical contract](aws-operation-broker.md), including the request-count,
 exact-grammar and nested-value amendments. **Evidence:** [source and CLI packet](../research/aws-operation-broker-grounding.md).
 The original S3 contract is baseline evidence, not authority to retain the old pack name.
@@ -218,14 +218,20 @@ The map retains the original replacement work, but its links now resolve to the 
 
 ## Task 5 — generic TOML declared roots (serial; one commit)
 
-**Stage:** DECIDED. Source-grounded from the author-approved AWS-D13 sketch above;
-`call_roots` is absent from schema, rename and retired-key registries. No new permission or source identity.
+**Stage:** Implemented candidate, with bounded review repair; not graduated.
+Source-grounded from the author-approved AWS-D13 sketch above. `call_roots` is a
+workspace TOML schema key; legacy JSONC uses only `brokered.<source>.roots`.
+No new permission or source identity.
 The original four units are reviewed and released at `c7dc5e1b8438b084010550e865252cd4866f3ecb`.
 
 **Mechanism:** workspace-only `[call_roots] <source> = [...]` moves values and writers
 into canonical `brokered.<source>.roots`. Keep source selection, grammar, provenance,
 list merging, gate keys and records unchanged. Refuse dual spellings, user scope and
 outside-workspace authorship. `requests.<pack>.roots` remains a valued grant.
+Planned edits use the fully loaded selected grant declarations alongside call-cell metadata:
+a declared pack grant in a shared allowance list belongs only to the grant reader, never
+to a cell ceiling. `why call_roots.<source>` reads the canonical value and its moved writers;
+unknown-source edit and dual-spelling errors name the authored paths/files.
 
 **Tree map:** schema rows in `internal/config/schema.go`; format-aware workspace merge
 in `load.go`; root lowering in `callroots.go` reuses `readablemerge.go` projection helpers;

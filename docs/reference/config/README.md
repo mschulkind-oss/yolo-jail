@@ -174,9 +174,11 @@ single authored list refused. Declaring filenames remain part of the gate's prov
 
 Edit with `yolo config add call_roots.aws ce://host-login --project`, validate with
 `yolo config check`, then approve with host `yolo config apply`. Legacy JSONC
-`brokered.<source>.roots` remains readable. Raw `brokered` TOML and both spellings for
-one source in a merged read refuse. `requests.<pack>.roots` is still a valued grant when
-that pack declares it; it is not root context.
+`brokered.<source>.roots` remains readable; `call_roots` is TOML-only and is refused in
+legacy JSONC before normalization or migration. Raw `brokered` TOML and both spellings for
+one source in a merged read refuse, naming each declaring file. `requests.<pack>.roots` is still a valued grant when
+that pack declares it; it is not root context. `yolo config why call_roots.aws` shows the
+canonical effective roots and their declaring locations.
 
 `yolo config migrate` safely refuses declared roots before touching originals, naming the
 TOML key: the declaring filename changes on conversion, and approval must not be silently

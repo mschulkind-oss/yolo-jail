@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
 func callRootsWorkspace(t *testing.T, body string) string {
@@ -21,6 +23,70 @@ func callRootsWorkspace(t *testing.T, body string) string {
 	}
 	return ws
 }
+func TestValueOnlyCallRootsConflictNamesBothAuthoredFiles(t *testing.T) {
+	ws := callRootsWorkspace(t, "[call_roots]\naws=[\"ce://host-login\"]\n")
+	local := filepath.Join(ws, WorkspaceLocalConfigName)
+	if err := os.WriteFile(local, []byte(`{"brokered":{"aws":{"roots":["s3://bkt"]}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for name, load := range map[string]func(string, bool, Warn) (*jsonx.OrderedMap, error){
+		"workspace": LoadReadableWorkspaceConfig,
+		"effective": LoadReadableConfig,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := load(ws, true, func(string) {})
+			if err == nil || !strings.Contains(err.Error(), WorkspaceTOMLConfigName+":") || !strings.Contains(err.Error(), WorkspaceLocalConfigName+":") {
+				t.Fatalf("error=%v", err)
+			}
+		})
+	}
+}
+
+func TestValueOnlyCallRootsMatchRecordedMergeAndReset(t *testing.T) {
+	for _, local := range []string{`["s3://bkt/team/","ce://host-login"]`, `[]`} {
+		t.Run(local, func(t *testing.T) {
+			ws := callRootsWorkspace(t, "[call_roots]\naws=[\"s3://bkt/team/\"]\n[network]\nmode=\"bridge\"\n")
+			if err := os.WriteFile(filepath.Join(ws, WorkspaceLocalTOMLConfigName), []byte("[call_roots]\naws="+local+"\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			for _, effective := range []bool{false, true} {
+				load, withSources := LoadReadableWorkspaceConfig, LoadReadableWorkspaceConfigWithSources
+				if effective {
+					load, withSources = LoadReadableConfig, LoadReadableConfigWithSources
+				}
+				values, err := load(ws, true, func(string) {})
+				if err != nil {
+					t.Fatal(err)
+				}
+				recorded, _, err := withSources(ws, true, func(string) {})
+				if err != nil {
+					t.Fatal(err)
+				}
+				got, _ := SnapshotJSON(values)
+				want, _ := SnapshotJSON(recorded)
+				if got != want {
+					t.Fatalf("effective=%v values differ: %s vs %s", effective, got, want)
+				}
+				brokered, _ := values.Get("brokered")
+				aws, _ := brokered.(*jsonx.OrderedMap).Get("aws")
+				roots, _ := aws.(*jsonx.OrderedMap).Get("roots")
+				wantRoots := []any{"s3://bkt/team/", "ce://host-login"}
+				if local == `[]` {
+					wantRoots = []any{}
+				}
+				if !reflect.DeepEqual(roots, wantRoots) {
+					t.Fatalf("roots=%#v", roots)
+				}
+				mode, _ := values.Get("network")
+				gotMode, _ := mode.(*jsonx.OrderedMap).Get("mode")
+				if gotMode != "bridge" {
+					t.Fatalf("network.mode=%v", gotMode)
+				}
+			}
+		})
+	}
+}
+
 func TestReadWorkspaceForGateLowersTOMLCallRoots(t *testing.T) {
 	ws := callRootsWorkspace(t, "[call_roots]\nlocal-tasks = [\"task://one\", \"task://two\"]\n")
 	read, err := ReadWorkspaceForGate(ws)

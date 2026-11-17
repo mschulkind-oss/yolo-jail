@@ -215,7 +215,11 @@ func validateCallBrokerConfig(workspace string, ws *jsonx.OrderedMap, resolver L
 			}
 			info, selected := bySource[source]
 			if !selected {
-				add(errs, "config."+brokeredKey+"."+source+"."+brokeredRootsKey+": no selected pack declares this call-broker source; select its pack or remove this entry")
+				message := "config." + brokeredRootsPath(source) + ": no selected pack declares this call-broker source; select its pack or remove this entry"
+				if edit != nil {
+					message = edit.workspaceOrigins.AnnotateOne(message)
+				}
+				add(errs, message)
 				continue
 			}
 			if info.CallBroker.Scope.Roots != "declared" {

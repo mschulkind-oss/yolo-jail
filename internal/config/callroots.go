@@ -1,6 +1,10 @@
 package config
 
-import "github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+import (
+	"strings"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+)
 
 // lowerReadableCallRoots moves the format spelling only after workspace layers have merged,
 // so readable list resets/unions keep their existing semantics and dual spellings cannot merge.
@@ -22,7 +26,9 @@ func lowerReadableCallRoots(values *jsonx.OrderedMap, source *srcNode) (*jsonx.O
 			entry, _ := asMap(v)
 			if entry != nil {
 				if _, has := entry.Get(brokeredRootsKey); has {
-					return nil, nil, configErr("config.call_roots.%s: both call_roots.%s and brokered.%s.roots were written; keep one format spelling for this source", name, name, name)
+					return nil, nil, configErr("config.call_roots.%s: both call_roots.%s (%s) and brokered.%s.roots (%s) were written; keep one format spelling for this source, then run yolo config check", name, name,
+						strings.Join(source.key("call_roots").key(name).locations(), ", "), name,
+						strings.Join(source.key(brokeredKey).key(name).key(brokeredRootsKey).locations(), ", "))
 				}
 			}
 		}

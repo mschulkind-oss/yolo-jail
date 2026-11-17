@@ -56,8 +56,12 @@ func configWhy(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "yolo config why: cannot read this workspace's config: %v\n  Run `yolo check` for the full report.\n", err)
 		return 1
 	}
-	path := configWhyPath(steps)
-	value, present := configWhyValue(cfg, steps)
+	lookup := steps
+	if len(steps) >= 2 && !steps[0].IsIndex && steps[0].Key == "call_roots" && !steps[1].IsIndex {
+		lookup = append([]configdoc.Step{{Key: "brokered"}, steps[1], {Key: "roots"}}, steps[2:]...)
+	}
+	path := configWhyPath(lookup)
+	value, present := configWhyValue(cfg, lookup)
 	if present {
 		fmt.Fprintf(out, "%s = %s\n", raw, configWhyRenderForPath(value, steps))
 		locations := sources.Locations("config." + path)

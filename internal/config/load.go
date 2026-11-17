@@ -284,6 +284,12 @@ func loadWithIncludesMode(path, label string, strict bool, warn Warn, seen map[s
 			raw, file, node, err = loadConfigFile(path, label, strict, warn, record, scope, at)
 		}
 		if err == nil && file != nil && file.format != configdoc.TOML {
+			if _, present := raw.Get("call_roots"); present {
+				if scope == SchemaScopeUserOnly {
+					return nil, nil, configErr("%s: config.call_roots: workspace-only key; use yolo config add call_roots.<source> <root> --project in the workspace", termsafe.Visible(label))
+				}
+				return nil, nil, configErr("%s: config.call_roots: TOML-only key; in this legacy workspace file use brokered.<source>.roots, then run yolo config check", termsafe.Visible(label))
+			}
 			raw, node = projectLegacyB2Config(raw, node)
 		}
 	} else {
@@ -291,11 +297,6 @@ func loadWithIncludesMode(path, label string, strict bool, warn Warn, seen map[s
 	}
 	if err != nil {
 		return nil, nil, err
-	}
-	if readable && file != nil && file.format != configdoc.TOML && scope == SchemaScopeUserOnly {
-		if _, present := raw.Get("call_roots"); present {
-			return nil, nil, configErr("%s: config.call_roots: workspace-only key; use yolo config add call_roots.<source> <root> --project in the workspace", termsafe.Visible(label))
-		}
 	}
 	// TOML applies readable scope rules while parsing; legacy JSONC reaches this
 	// shared reader without them. Reject the owner-only selection at each authored
@@ -510,6 +511,9 @@ func loadReadableWorkspaceConfigOverWithReadInput(workspace string, strict bool,
 }
 
 func loadReadableWorkspaceConfigOverWithInputUse(workspace string, strict bool, warn Warn, record bool, base *jsonx.OrderedMap, baseNode *srcNode, input *ConfigReadInput, inputUsed *bool) (*jsonx.OrderedMap, *srcNode, error) {
+	// Even value-only readers need workspace writers for a dual root-spelling refusal.
+	// Attach them during the existing parse/merge; value-only callers discard the tree.
+	record = true
 	if workspace == "" {
 		workspace = cwd()
 	}

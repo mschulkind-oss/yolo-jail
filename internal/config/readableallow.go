@@ -299,7 +299,11 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 					}
 					var validated []string
 					if policy.CallBroker != nil {
-						validated, e = validateReadableCallBrokerCeiling(name, key, values, policy.CallBroker)
+						var grants []loopholedecl.Grant
+						if name == policy.Pack {
+							grants = grantPacks[name].Grants
+						}
+						validated, e = validateReadableCallBrokerCeiling(name, key, values, policy.CallBroker, grants)
 					} else {
 						validated, e = validateReadableCapabilities(name, key, values, policy)
 					}
@@ -1512,9 +1516,15 @@ func readableStringList(value any, path string) ([]string, error) {
 	return out, nil
 }
 
-func validateReadableCallBrokerCeiling(source, field string, values []string, broker *loopholedecl.CallBroker) ([]string, error) {
+func validateReadableCallBrokerCeiling(source, field string, values []string, broker *loopholedecl.CallBroker, grants []loopholedecl.Grant) ([]string, error) {
 	out, seen := make([]string, 0, len(values)), map[string]bool{}
 	for i, token := range values {
+		// A source named like its pack shares these lists with declared grant kinds.
+		// ResolveLoopholeGrants reads those from the original input below; never turn
+		// a standing grant into a table/cell ceiling in this reader.
+		if _, declared := loopholeGrantByKind(grants, token); declared {
+			continue
+		}
 		valid := false
 		for _, cell := range broker.Cells {
 			for _, table := range cell.Tables {
