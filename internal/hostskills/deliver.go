@@ -329,7 +329,7 @@ func deliverNamespaced(req Request, skills map[string]string) ([]Result, error) 
 			r := Result{Name: e.Name(), Path: stale, Action: archivedAction(req.Observe),
 				WouldChange: true}
 			if !req.Observe {
-				at, aerr := Archive(req.ArchiveRoot, req.Stamp, req.Pack, stale)
+				at, aerr := archiveComposed(req.ArchiveRoot, req.Stamp, req.Pack, stale, req.Composed)
 				if aerr != nil {
 					r.Action, r.Detail, r.WouldChange = ActionRefused, aerr.Error(), false
 				} else {
@@ -546,7 +546,7 @@ func deliverFlat(req Request, skills map[string]string) ([]Result, error) {
 			//     Pre-existing, and composition made it louder rather than caused it: this pass now
 			//     visits every destination in one run instead of one pack's at a time.
 			if occupied && req.PreOwned[dest] && changedSkill(skills[name], dest, req.excludePaths, renameTo[name]) {
-				if at, aerr := Archive(req.ArchiveRoot, req.Stamp, "skills", dest); aerr == nil {
+				if at, aerr := archiveComposed(req.ArchiveRoot, req.Stamp, "skills", dest, req.Composed); aerr == nil {
 					r.Detail += " (previous copy archived to " + at + ")"
 				}
 			}

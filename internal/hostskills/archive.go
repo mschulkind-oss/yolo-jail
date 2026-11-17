@@ -18,7 +18,10 @@ package hostskills
 
 import (
 	"fmt"
+	"io"
 	"os"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/nofollow"
 	"path/filepath"
 )
 
@@ -36,6 +39,20 @@ type ArchiveRoot string
 // in some contexts. A caller with no meaningful stamp can pass a fixed one; collisions are
 // handled below.
 func Archive(root ArchiveRoot, stamp, pack, src string) (string, error) {
+	return archiveWith(root, stamp, pack, src, nil)
+}
+
+var archiveRename = os.Rename
+
+func archiveComposed(root ArchiveRoot, stamp, pack, src string, m *Manifest) (string, error) {
+	var links map[string]string
+	if m != nil {
+		links = m.RegistrationLinks[src]
+	}
+	return archiveWith(root, stamp, pack, src, links)
+}
+
+func archiveWith(root ArchiveRoot, stamp, pack, src string, links map[string]string) (string, error) {
 	dest := filepath.Join(string(root), stamp, pack, filepath.Base(src))
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return "", err
@@ -49,11 +66,15 @@ func Archive(root ArchiveRoot, stamp, pack, src string) (string, error) {
 		}
 		final = fmt.Sprintf("%s.%d", dest, i)
 	}
-	if err := os.Rename(src, final); err != nil {
+	if err := archiveRename(src, final); err != nil {
 		// A cross-device rename fails (the state dir and the home may be different
 		// filesystems), so fall back to copy+remove. Copy FIRST and only remove once the
 		// copy is intact: the reverse order can lose the file if the copy fails.
-		if cerr := copyTree(src, final); cerr != nil {
+		copy := copyTree
+		if links != nil {
+			copy = func(src, dst string) error { return copyRegistration(src, dst, links) }
+		}
+		if cerr := copy(src, final); cerr != nil {
 			return "", fmt.Errorf("archive %s: rename failed (%v) and copy failed: %w", src, err, cerr)
 		}
 		if rerr := os.RemoveAll(src); rerr != nil {
@@ -142,4 +163,46 @@ func copyTreeInto(src, dst string, exclude []string, walked followedDirs) error 
 		return err
 	}
 	return os.Chmod(dst, mode)
+}
+
+func copyRegistration(src, dst string, links map[string]string) error {
+	if err := os.Mkdir(dst, 0755); err != nil {
+		return err
+	}
+	err := nofollow.WalkBelow(filepath.Dir(src), src, nil, func(e nofollow.Entry) error {
+		if e.Rel == "." {
+			if e.Kind != nofollow.Dir {
+				return fmt.Errorf("registration root is not a directory")
+			}
+			return nil
+		}
+		if filepath.Dir(e.Rel) != "." {
+			return fmt.Errorf("unplanned registration descendant %s", e.Rel)
+		}
+		dest := filepath.Join(dst, e.Rel)
+		switch e.Kind {
+		case nofollow.Symlink:
+			if target, ok := links[e.Rel]; !ok || target != e.Target {
+				return fmt.Errorf("unplanned registration link %s — restore its recorded target before archiving", e.Rel)
+			}
+			return os.Symlink(e.Target, dest)
+		case nofollow.File:
+			out, err := os.OpenFile(dest, os.O_CREATE|os.O_EXCL|os.O_WRONLY, e.Perm)
+			if err != nil {
+				return err
+			}
+			_, err = io.Copy(out, e.File)
+			closeErr := out.Close()
+			if err != nil {
+				return err
+			}
+			return closeErr
+		default:
+			return fmt.Errorf("unplanned registration entry %s", e.Rel)
+		}
+	})
+	if err != nil {
+		_ = os.RemoveAll(dst)
+	}
+	return err
 }

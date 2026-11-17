@@ -361,6 +361,7 @@ func (p *Pack) borrowingSources(kind packdecl.Kind) []packdecl.Contribution {
 	if kind == packdecl.KindSkills {
 		for i, c := range p.declaration() {
 			if c.IsSourcedSkill() && c.Agent == "" && c.Into == "" {
+				c.SkillRow = i + 1
 				govs = append(govs, governor{c: c, order: i})
 			}
 		}

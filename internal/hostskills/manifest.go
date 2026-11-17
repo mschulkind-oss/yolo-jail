@@ -42,6 +42,9 @@ type Manifest struct {
 	// nothing above. A single-file contribution has no entry, and neither does a record older
 	// than the field; neither sweeps any directory.
 	Roots map[string]string `json:"roots,omitempty"`
+	// RegistrationLinks records only yolo-planned sourced links, so retirement and
+	// cross-device archive never infer link permission from on-disk entries.
+	RegistrationLinks map[string]map[string]string `json:"registration_links,omitempty"`
 }
 
 // LoadManifest reads the record at path. A missing file is an EMPTY manifest, not an error:
@@ -113,6 +116,7 @@ func (m *Manifest) Forget(dest string) {
 	delete(m.Entries, dest)
 	delete(m.Digests, dest)
 	delete(m.Roots, dest)
+	delete(m.RegistrationLinks, dest)
 }
 
 // RecordRoot stores the directory contribution root dest was written under. See Roots.

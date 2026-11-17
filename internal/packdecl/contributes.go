@@ -39,6 +39,9 @@ type Contribution struct {
 	Origin   ManifestOrigin   `json:"-"`
 	Location ManifestLocation `json:"-"`
 	Replace  bool             `json:"-"`
+	// SkillRow retains a sourced row's original declaration index plus one through
+	// destination routing. It is internal metadata, never a manifest field.
+	SkillRow int `json:"-"`
 
 	// Kind selects from the closed set (KindProgram, KindSkills, …). Required.
 	Kind Kind `json:"kind"`

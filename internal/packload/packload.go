@@ -112,6 +112,10 @@ type Pack struct {
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
 	Root string
+	// SourcedSkillsWithheld is the selecting entry's legacy-only filter notice.
+	// It withholds Git registrations without treating them as filtered local trees.
+	SourcedSkillsWithheld string
+	sourcedSkills         map[int]SourcedSkill
 	// SourceRoot is the directory Root was STAGED FROM, when Root is a staged copy
 	// (config.ResolvePack), and "" when the pack was loaded in place. Read by messages alone
 	// (SourcePath): a refusal a user fixes by editing a file must name the file they edit, not

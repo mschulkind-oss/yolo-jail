@@ -120,6 +120,10 @@ type Layer struct {
 	// Sources are the pack-relative skills dirs this contribution resolved to, empty when the
 	// declared `from` could not be honored (Problem then says so).
 	Sources []string
+	// Registrations are typed sourced rows, never source directories. Their links
+	// are computed only from validated payload records at the reading notch.
+	Registrations        []packload.SourcedSkill
+	RegistrationReserved []string
 	// Plugins are the wrapped plugin trees this pack carries, code-running components
 	// included.
 	//
@@ -294,6 +298,10 @@ func ComposeHostSkillsFor(packs []*packload.Pack, homeDir string, delivers Deliv
 			// The tier comes off the PACK, so every layer this pack contributes carries the same
 			// one and its skills are called the same thing wherever they land (S2).
 			l := base
+			if c.IsSourcedSkill() {
+				l.Plugins = nil
+				l.Registrations = p.SourcedSkillsFor(c)
+			}
 			src, prob := p.SkillsSourceDir(c)
 			if prob != "" {
 				l.Problem, l.Unresolved = prob, true
@@ -338,6 +346,16 @@ func WithheldKinds(p *packload.Pack, c packdecl.Contribution, delivers Delivers)
 		}
 	}
 	var out []packdecl.Kind
+	if c.IsSourcedSkill() {
+		for _, row := range p.SourcedSkillsFor(c) {
+			for _, k := range row.By.Describes {
+				if !delivers(p.Name, k) && !slices.Contains(out, k) {
+					out = append(out, k)
+				}
+			}
+		}
+		return out
+	}
 	for _, s := range p.GovernedSkillsFor(c) {
 		for _, k := range s.By.Describes {
 			if !delivers(p.Name, k) && !slices.Contains(out, k) {
@@ -408,6 +426,8 @@ type Collision struct {
 
 // Claim is one pack's claim on one top-level name at one destination.
 type Claim struct {
+	// Sourced preserves strict same-pack row identity; ordinary source order still wins.
+	Sourced bool
 	// Pack is the claiming pack.
 	Pack string
 	// Source is where the content comes from: the skill's or plugin's source dir, or "" for a
@@ -433,6 +453,12 @@ type Claim struct {
 // resolve one (PN-D3), so the step is always the user's or the pack author's.
 func (c Collision) Message() string {
 	var b strings.Builder
+	for _, claim := range c.Claims {
+		if claim.Sourced {
+			b.WriteString("pack skill name collision: ")
+			break
+		}
+	}
 	who := "packs"
 	if len(dedupePacks(c.Claims)) == 1 {
 		who = "entries of one pack"
@@ -466,6 +492,11 @@ func (c Collision) Message() string {
 
 // step is the §3.5 step for this clash's kind.
 func (c Collision) step() string {
+	for _, claim := range c.Claims {
+		if claim.Sourced {
+			return "Set a different as name on the sourced skills row, change its selecting namespace, or remove the row; then run yolo check."
+		}
+	}
 	sameNamespace := c.Claims[0].Namespace != ""
 	anyBare, anyNamespaced := false, false
 	for _, cl := range c.Claims {
@@ -600,6 +631,9 @@ func destinationClaims(d Destination) map[string][]Claim {
 		}
 		sort.Strings(names)
 		add := func(name string, c layerClaim, inner bool) {
+			if c.sourced && d.IsReserved(name) {
+				return
+			}
 			src := ""
 			if c.source != "" {
 				src = l.source(c.source)
@@ -607,7 +641,7 @@ func destinationClaims(d Destination) map[string][]Claim {
 			byName[name] = append(byName[name], Claim{Pack: l.Pack, Source: src,
 				Namespaced: c.subtree, Namespace: l.Namespace,
 				Shipped: l.Shipped, Generated: l.Generated, Author: c.author,
-				Inner: inner, BareStep: l.BareStep})
+				Inner: inner, BareStep: l.BareStep, Sourced: c.sourced})
 		}
 		for _, name := range names {
 			for _, c := range claimed[name] {
@@ -648,6 +682,7 @@ func agentShowsPluginSkillsBare(agent string) bool {
 // whether it is a per-pack subtree, and the wrapped plugin when the claim is a whole plugin tree.
 type layerClaim struct {
 	source, author string
+	sourced        bool
 	subtree        bool
 	plugin         *pluginpack.Plugin
 }
@@ -693,6 +728,14 @@ func layerClaims(l Layer) map[string][]layerClaim {
 	for _, name := range sortedKeys(skills) {
 		add(packname.Delivered(l.Namespace, name), layerClaim{source: skills[name], author: name})
 	}
+	for _, row := range l.Registrations {
+		if row.Withheld != "" {
+			continue
+		}
+		name := row.By.SkillBaseName()
+		delivered := packname.Delivered(l.Namespace, name)
+		out[delivered] = append(out[delivered], layerClaim{source: fmt.Sprintf("%s (skills[%d])", row.By.Source, row.Row), author: name, sourced: true})
+	}
 	for _, pl := range l.Plugins {
 		if l.Tier == TierNamespaced {
 			// The wrapper opted in: the plugin's whole tree lands at its own delivered name.
@@ -726,11 +769,14 @@ func dedupePacks(claims []Claim) []string {
 // colliding with itself. Two DIFFERENT author names from one pack that deliver alike are kept: the
 // pack's own names clash once namespaced, and the refusal names both.
 func dedupePackClaims(claims []Claim) []Claim {
-	type key struct{ pack, author string }
+	type key struct{ pack, author, row string }
 	seen := map[key]bool{}
 	out := make([]Claim, 0, len(claims))
 	for _, c := range claims {
-		k := key{c.Pack, c.Author}
+		k := key{pack: c.Pack, author: c.Author}
+		if c.Sourced {
+			k.row = c.Source
+		}
 		if seen[k] {
 			continue
 		}
@@ -1036,7 +1082,7 @@ func skillsArchiveDetail(path string, req ComposeRequest, observe bool, why stri
 	if observe {
 		return "would archive (" + why + ")"
 	}
-	at, err := Archive(req.ArchiveRoot, req.Stamp, "skills", path)
+	at, err := archiveComposed(req.ArchiveRoot, req.Stamp, "skills", path, req.Composed)
 	if err != nil {
 		return "refused: could not archive it: " + err.Error()
 	}
@@ -1070,6 +1116,11 @@ func skillsArchiveDetail(path string, req ComposeRequest, observe bool, why stri
 func RenderHostSkills(dests []Destination, req ComposeRequest, observe bool) ([]Result, error) {
 	if cols := Collisions(dests); len(cols) > 0 {
 		return nil, CollisionError(cols)
+	}
+	if !observe {
+		if err := sourcedReadinessError(dests); err != nil {
+			return nil, err
+		}
 	}
 	var out []Result
 	for _, d := range dests {
@@ -1137,6 +1188,7 @@ func renderDestination(d Destination, req ComposeRequest, observe bool) ([]Resul
 	// every home that selects one.
 	want := map[string]string{}
 	for _, l := range d.Layers {
+		l.RegistrationReserved = d.Reserved
 		res, err := writeLayer(d.Dir, l, req, preOwned, want, observe)
 		out = append(out, res...)
 		if err != nil {
@@ -1181,8 +1233,10 @@ func writeLayer(dir string, l Layer, req ComposeRequest, preOwned map[string]boo
 	if l.Generated {
 		owner = GeneratedOwner
 	}
-	if len(l.Sources) == 0 {
-		return out, nil
+	registrations, err := writeSourcedRegistrations(dir, l, req, preOwned, want, observe)
+	out = append(out, registrations...)
+	if err != nil || len(l.Sources) == 0 {
+		return out, err
 	}
 	res, err := Deliver(Request{
 		Pack: l.Pack, Namespace: l.Namespace, BareStep: l.BareStep, Owner: owner, Description: l.Description,
@@ -1256,7 +1310,7 @@ func retireComposed(dir string, want map[string]string, req ComposeRequest, obse
 			continue
 		}
 		if !observe {
-			at, err := Archive(req.ArchiveRoot, req.Stamp, "skills", path)
+			at, err := archiveComposed(req.ArchiveRoot, req.Stamp, "skills", path, req.Composed)
 			if err != nil {
 				r.Action, r.Detail = ActionRefused, err.Error()
 			} else {

@@ -55,12 +55,16 @@ func ComposeInto(d Destination, dir string) (ComposeResult, error) {
 	if cols := Collisions([]Destination{d}); len(cols) > 0 {
 		return ComposeResult{}, CollisionError(cols)
 	}
+	if err := sourcedReadinessError([]Destination{d}); err != nil {
+		return ComposeResult{}, err
+	}
 	claimed := map[string]string{}
 	var out []Result
 	for _, l := range d.Layers {
 		// No record, no legacy record, nothing pre-owned, no archive: see the file comment. The
 		// claim set is the one ownership input left, shared across the layers as the host render
 		// shares it.
+		l.RegistrationReserved = d.Reserved
 		res, err := writeLayer(dir, l, ComposeRequest{}, map[string]bool{}, claimed, false)
 		out = append(out, res...)
 		if err != nil {
