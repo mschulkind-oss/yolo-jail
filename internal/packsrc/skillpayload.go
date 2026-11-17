@@ -966,43 +966,156 @@ func RemoveSealedSkillTree(base, root string) error {
 	if err != nil || !filepath.IsLocal(relative) || relative == "." {
 		return fmt.Errorf("skill cleanup root is outside its owned base")
 	}
-	r, err := os.OpenRoot(base)
+	parent, err := os.OpenRoot(base)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	defer r.Close()
-	original, err := r.Lstat(relative)
+	defer parent.Close()
+	// Keep every parent descriptor: removal cannot be redirected by replacing an ancestor.
+	parts := strings.Split(relative, string(filepath.Separator))
+	here := base
+	changed := func() error {
+		return fmt.Errorf("skill cleanup root changed — retry cleanup once its owner is stopped")
+	}
+	for _, part := range parts[:len(parts)-1] {
+		here = filepath.Join(here, part)
+		info, err := parent.Lstat(part)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return &nofollow.BelowBaseLinkError{Path: here, Base: base}
+		}
+		child, err := parent.OpenRoot(part)
+		if err != nil {
+			return err
+		}
+		defer child.Close()
+		actual, err := child.Stat(".")
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(info, actual) {
+			return changed()
+		}
+		parent = child
+	}
+	leaf := parts[len(parts)-1]
+	original, err := parent.Lstat(leaf)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
+		return err
+	}
+	verify := func() error {
+		current, err := parent.Lstat(leaf)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !os.SameFile(original, current) {
+			return changed()
+		}
+		return nil
+	}
+	if err := verify(); err != nil {
+		return err
+	}
+	// Ordinary trees require neither readable files nor chmod authority over empty directories.
+	if err := parent.RemoveAll(leaf); err == nil {
+		return nil
+	}
+	if err := verify(); err != nil {
 		return err
 	}
 	if !original.IsDir() {
-		return r.RemoveAll(relative)
+		return parent.RemoveAll(leaf)
 	}
-	err = nofollow.WalkBelow(base, root, nil, func(e nofollow.Entry) error {
-		if e.Rel == "." {
-			current, err := e.File.Stat()
+	selected, err := parent.OpenRoot(leaf)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		if guardErr := verify(); guardErr != nil {
+			return guardErr
+		}
+		return parent.RemoveAll(leaf)
+	}
+	defer selected.Close()
+	actual, err := selected.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(original, actual) {
+		return changed()
+	}
+	// Restoration visits directories only, skipping unreadable entries and foreign-owner chmod
+	// failures. Identity/confinement failures are never optional, even during best-effort repair.
+	var restore func(*os.Root) error
+	restore = func(dir *os.Root) error {
+		fd, err := dir.Open(".")
+		if err != nil {
+			return nil
+		}
+		defer fd.Close()
+		info, err := fd.Stat()
+		if err != nil {
+			return nil
+		}
+		_ = fd.Chmod(info.Mode().Perm() | 0700)
+		entries, err := fd.ReadDir(-1)
+		if err != nil {
+			return nil
+		}
+		for _, entry := range entries {
+			info, err := dir.Lstat(entry.Name())
+			if err != nil {
+				continue
+			}
+			if !info.IsDir() {
+				continue
+			}
+			child, err := dir.OpenRoot(entry.Name())
+			if err != nil {
+				current, checkErr := dir.Lstat(entry.Name())
+				if checkErr == nil && !os.SameFile(info, current) {
+					return changed()
+				}
+				continue
+			}
+			actual, err := child.Stat(".")
+			if err != nil {
+				child.Close()
+				continue
+			}
+			if !os.SameFile(info, actual) {
+				child.Close()
+				return changed()
+			}
+			err = restore(child)
+			child.Close()
 			if err != nil {
 				return err
 			}
-			if !os.SameFile(original, current) {
-				return fmt.Errorf("skill cleanup root changed — retry cleanup once its owner is stopped")
-			}
-		}
-		if e.Kind == nofollow.Dir {
-			return e.File.Chmod(e.Perm | 0700)
 		}
 		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
+	}
+	if err := restore(selected); err != nil {
 		return err
 	}
-	return r.RemoveAll(relative)
+	if err := verify(); err != nil {
+		return err
+	}
+	return parent.RemoveAll(leaf)
 }
 
 // ReadSkillPayloadTree validates recorded launch bytes without Git, the store or

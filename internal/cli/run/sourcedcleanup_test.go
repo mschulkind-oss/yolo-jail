@@ -22,6 +22,56 @@ func init() {
 			fmt.Fprintln(os.Stderr, "cleanup witness stayed root")
 			os.Exit(2)
 		}
+		if os.Getenv("YOLO_TEST_ORDINARY_CLEANUP_CONTROL") == "1" {
+			failed := false
+			for i, kind := range []string{"unreadable-file", "foreign-empty-directory", "sealed-unreadable-file"} {
+				for _, generic := range []bool{false, true} {
+					cname := fmt.Sprintf("yolo-ordinary-%d-%v", i, generic)
+					base := filepath.Join(os.Getenv("HOME"), "ordinary-controls")
+					tree := filepath.Join(base, cname)
+					if generic {
+						base = paths.DiscardRoot(cname)
+						tree = filepath.Join(base, "gone-1")
+					}
+					err := os.MkdirAll(tree, 0755)
+					if err == nil {
+						err = os.WriteFile(filepath.Join(tree, "aa-readable"), []byte("ordinary"), 0644)
+					}
+					if err == nil && (i == 0 || i == 2) {
+						err = os.WriteFile(filepath.Join(tree, "zz-lock"), []byte("unreadable"), 0000)
+					}
+					if err == nil && i == 1 {
+						err = os.Rename(filepath.Join(os.Getenv("HOME"), fmt.Sprintf("foreign-seed-%v", generic)), filepath.Join(tree, "zz-other-uid"))
+					}
+					if err != nil {
+						fmt.Fprintln(os.Stderr, err)
+						os.Exit(2)
+					}
+					if i == 2 {
+						if err := os.Chmod(tree, 0555); err != nil {
+							fmt.Fprintln(os.Stderr, err)
+							os.Exit(2)
+						}
+					}
+					if generic {
+						rc := DiscardRemoverMain([]string{"--", cname})
+						if rc != 0 {
+							err = fmt.Errorf("discard-remover=%d", rc)
+						}
+					} else {
+						err = packsrc.RemoveSealedSkillTree(base, tree)
+					}
+					_, remaining := os.Lstat(tree)
+					fmt.Fprintf(os.Stdout, "uid=%d kind=%s generic=%v error=%v remaining=%v\n", os.Getuid(), kind, generic, err, remaining == nil)
+					if err != nil || !os.IsNotExist(remaining) {
+						failed = true
+					}
+				}
+			}
+			if failed {
+				os.Exit(1)
+			}
+		}
 		cname := "yolo-sourced-cleanup"
 		base := paths.DiscardRoot(cname)
 		marker := filepath.Join(base, "gone-1/tree/_skill-payloads/id/skills/x/SKILL.md")
@@ -84,6 +134,17 @@ func TestDiscardRemoverDeletesSealedPayloadAsUnprivilegedOwner(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Chmod(root, 0777); err != nil {
 		t.Fatal(err)
+	}
+	if os.Getenv("YOLO_TEST_ORDINARY_CLEANUP_CONTROL") == "1" {
+		for _, generic := range []bool{false, true} {
+			seed := filepath.Join(root, fmt.Sprintf("foreign-seed-%v", generic))
+			if err := os.Mkdir(seed, 0777); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(seed, 0777); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	// Descriptor paths avoid granting traversal through the test harness's private
 	// ancestors. Only this owned helper fixture is writable by the dropped uid.
