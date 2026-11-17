@@ -23,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -1105,9 +1106,9 @@ func cleanupCaptureWorkspace(workspace, cname string) {
 	projectKey := runtime.FromWorkspace(workspace)
 	_ = run.WaitForScratchRemovers(workspace, captureScratchRemoverWait)
 	preserveBuildJailLogs(workspace)
-	_ = os.RemoveAll(workspace)
+	_ = packsrc.RemoveSealedSkillTree(filepath.Dir(workspace), workspace)
 	runtime.CleanupContainerTracking(cname)
-	_ = os.RemoveAll(filepath.Join(paths.AgentsDir(), cname))
+	_ = packsrc.RemoveSealedSkillTree(paths.AgentsDir(), filepath.Join(paths.AgentsDir(), cname))
 	// Every part of the approval record (docs/design/boundary-broker.md BB-D30;
 	// workspace-widening.md WW-D11): a path that deletes the record deletes each part, and
 	// deleting one alone fails safe. config.ApprovalRecordFiles is the one list of them. It is

@@ -180,27 +180,30 @@ func acMaterializeTreeWithCopy(src, targetRel, wsState string, copy func(string,
 		return err
 	}
 	defer r.Close()
-	if hasSkillPayloads {
-		if fi, e := r.Lstat(targetRel); e == nil && fi.IsDir() {
-			err := nofollow.WalkRoot(r, filepath.Join(targetRel, packload.SkillPayloadTreeDir), nil, func(e nofollow.Entry) error {
-				if e.Kind == nofollow.Dir {
-					return e.File.Chmod(e.Perm | 0700)
+	remove := func() error {
+		if hasSkillPayloads {
+			if fi, e := r.Lstat(targetRel); e == nil && fi.IsDir() {
+				err := nofollow.WalkRoot(r, filepath.Join(targetRel, packload.SkillPayloadTreeDir), nil, func(e nofollow.Entry) error {
+					if e.Kind == nofollow.Dir {
+						return e.File.Chmod(e.Perm | 0700)
+					}
+					return nil
+				})
+				if err != nil && !os.IsNotExist(err) {
+					return err
 				}
-				return nil
-			})
-			if err != nil && !os.IsNotExist(err) {
-				return err
 			}
 		}
+		return r.RemoveAll(targetRel)
 	}
-	if err := r.RemoveAll(targetRel); err != nil {
+	if err := remove(); err != nil {
 		return err
 	}
 	if err := mkdirParentBeneath(r, targetRel); err != nil {
 		return err
 	}
 	if err := copy(src, r, targetRel); err != nil {
-		_ = r.RemoveAll(targetRel)
+		_ = remove()
 		return err
 	}
 	return nil

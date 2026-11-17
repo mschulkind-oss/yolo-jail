@@ -29,6 +29,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostskills"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -236,6 +237,7 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		return config.SelectableProfiles(declared, merged, set)
 	}
 	var closureSet []*packload.Pack
+	delivered := map[*packload.Pack]string{}
 	sel, _ := config.SelectPacks(entries, config.PackSelectSpec{
 		Resolve: func(e config.PackEntry) (*packload.Pack, error) {
 			if treeErr != nil {
@@ -303,6 +305,30 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 				}
 			}
 			if res.Pack != nil && len(res.Problems) == 0 {
+				if res.StagedFrom != "" && len(res.Pack.SourcedSkillRows()) > 0 {
+					root := filepath.Dir(res.StagedFrom)
+					entries, recorded, err := packload.ReadPackTreeRecord(root)
+					if err == nil && !recorded {
+						err = fmt.Errorf("delivered pack has no payload record — restart the jail with yolo stop, then launch again")
+					}
+					if err == nil {
+						found := false
+						for _, entry := range entries {
+							if entry.Name == res.Pack.Name && filepath.Join(root, filepath.FromSlash(entry.Dir)) == res.StagedFrom {
+								found = true
+								err = entry.HydrateSourcedSkills(root, res.Pack)
+								break
+							}
+						}
+						if !found {
+							err = fmt.Errorf("delivered pack %s is absent from its payload record — restart the jail with yolo stop, then launch again", res.Pack.Name)
+						}
+					}
+					delivered[res.Pack] = ""
+					if err != nil {
+						delivered[res.Pack] = err.Error()
+					}
+				}
 				return res.Pack, nil
 			}
 			return nil, nil
@@ -330,12 +356,22 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			r.dim(cause)
 		}
 	}
-	packload.ResolveSelectedSkillPayloads(loaded, packsrc.LaunchStore(paths.PacksDir()), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
+	var hostPacks []*packload.Pack
+	for _, p := range loaded {
+		if _, ok := delivered[p]; !ok {
+			hostPacks = append(hostPacks, p)
+		}
+	}
+	packload.ResolveSelectedSkillPayloads(hostPacks, packsrc.LaunchStore(paths.PacksDir()), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
 	for _, p := range loaded {
 		for _, row := range p.SourcedSkillRows() {
 			label := fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row)
 			if row.Withheld != "" {
 				r.skip(label+": "+row.Withheld, "")
+				continue
+			}
+			if problem := delivered[p]; problem != "" {
+				r.fail(label+": sourced skill REFUSED", problem)
 				continue
 			}
 			switch row.Outcome.State {
@@ -392,7 +428,10 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// Over the packs `yolo host apply` composes: each destination resolved, so a pack that names
 	// its audience rather than a directory (`agents`, or nothing) is counted where it lands.
 	resolved, _ := packload.ResolveDestinations(loaded)
-	for _, c := range hostskills.Collisions(hostskills.ComposeHostSkills(resolved, paths.Home())) {
+	skillPlan := hostskills.ComposeHostSkills(resolved, paths.Home())
+	collisions := hostskills.Collisions(skillPlan)
+	collisions = append(collisions, hostskills.SourcedBuiltinCollisions(skillPlan, jailcontent.BuiltinSkillClaimNames(config.ShippedSkillPrefix()))...)
+	for _, c := range collisions {
 		r.fail("pack skill name collision", c.Message())
 	}
 

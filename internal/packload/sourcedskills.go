@@ -2,6 +2,7 @@ package packload
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
@@ -78,6 +79,30 @@ func ResolveSelectedSkillPayloads(packs []*Pack, store *packsrc.Store, opts pack
 	}
 	BindSelectedSkillPayloads(packs, results)
 	return results
+}
+
+// SkillPayloadRowLabels names the caller's rows sharing a result, including
+// failures that have no validated plan. It consults declarations only.
+func SkillPayloadRowLabels(packs []*Pack, result packsrc.SkillPayloadResult) string {
+	var labels []string
+	for _, p := range packs {
+		if p == nil {
+			continue
+		}
+		for _, row := range p.SourcedSkillRows() {
+			if row.Withheld != "" {
+				continue
+			}
+			addr, err := packsrc.Parse(row.By.Source)
+			if err == nil && addr.Repo == result.Repo && addr.Ref == result.Ref {
+				labels = append(labels, fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row))
+			}
+		}
+	}
+	if len(labels) == 0 {
+		return result.Repo + "?ref=" + result.Ref
+	}
+	return strings.Join(labels, ", ")
 }
 
 // BindSelectedSkillPayloads preserves one invocation's validated snapshot across

@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
 
 func TestFreshSourcedPayloadTreeAndRecordedAttachIgnoreDeletedCache(t *testing.T) {
@@ -111,13 +112,34 @@ func TestFreshSourcedPayloadTreeAndRecordedAttachIgnoreDeletedCache(t *testing.T
 	if !strings.HasPrefix(row.PayloadRoot, paths.ContextPacksDir+"/"+packload.SkillPayloadTreeDir+"/") {
 		t.Fatalf("podman target %q", row.PayloadRoot)
 	}
-	for _, rt := range []string{"apple-container", "macos-user"} {
+	for _, rt := range []string{(setup.Setup{Confinement: setup.ConfinementAppleContainer}).Backend(), "macos-user"} {
 		target := skillPayloadReadingRoot(cname, rt, root)
-		if rt == "apple-container" && target != acPackRootInJail {
+		if rt == (setup.Setup{Confinement: setup.ConfinementAppleContainer}).Backend() && target != acPackRootInJail {
 			t.Fatalf("Apple reading root %q, want %q", target, acPackRootInJail)
 		}
 		if strings.Contains(target, paths.PacksDir()) {
 			t.Fatalf("%s leaks host cache: %s", rt, target)
+		}
+	}
+	appleRuntime := (setup.Setup{Confinement: setup.ConfinementAppleContainer}).Backend()
+	if !o.prepareFreshSkillPayloads(cname, appleRuntime, staged) {
+		t.Fatal(report.String())
+	}
+	if got := selected.SourcedSkillRows()[0].PayloadRoot; !strings.HasPrefix(got, acPackRootInJail+"/"+packload.SkillPayloadTreeDir+"/") {
+		t.Fatalf("fresh Apple registration target %q", got)
+	}
+	if err := writeLivePackTree(cname, root); err != nil {
+		t.Fatal(err)
+	}
+	appleView, appleSkew := o.runningJailPackView(cname, appleRuntime, jsonx.NewOrderedMap(), staged, nil, "true")
+	if appleSkew != nil {
+		t.Fatalf("Apple recorded view: %+v", appleSkew)
+	}
+	for _, p := range appleView.staged.packs {
+		for _, row := range p.SourcedSkillRows() {
+			if !strings.HasPrefix(row.PayloadRoot, acPackRootInJail+"/"+packload.SkillPayloadTreeDir+"/") {
+				t.Fatalf("attach Apple registration target %q", row.PayloadRoot)
+			}
 		}
 	}
 	// Simulate the reading namespace locally, exercising the production plan,

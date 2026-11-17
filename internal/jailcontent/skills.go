@@ -234,7 +234,10 @@ func SkillPlan(sources []PackSkillSource, targets []SkillTarget) []hostskills.De
 // rename to make. The launch runs it as a pre-flight before any container exists (run.stagePacks),
 // and PrepareSkillsWith runs it again before it writes anything.
 func SkillCollisionError(sources []PackSkillSource, targets []SkillTarget) error {
-	if cols := hostskills.Collisions(SkillPlan(sources, targets)); len(cols) > 0 {
+	plan := SkillPlan(sources, targets)
+	cols := hostskills.Collisions(plan)
+	cols = append(cols, hostskills.SourcedBuiltinCollisions(plan, BuiltinSkillClaimNames(shippedSkillPrefix()))...)
+	if len(cols) > 0 {
 		return hostskills.CollisionError(cols)
 	}
 	return nil

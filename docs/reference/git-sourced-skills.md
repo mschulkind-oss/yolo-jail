@@ -110,10 +110,15 @@ The fixed materialization limits are 32,768 entries, 256 MiB blob bytes, 16 MiB 
 There are no size knobs. These bounds do not promise a transport byte limit or introduce a
 new Git protocol.
 
-A selected directory's recognized top-level license prevents adding another one. Otherwise
-an explicit regular-file license wins; absent one, the first recognized regular-file root
-license is copied. Missing explicit files refuse. Unsafe automatic candidates are skipped
-with an inspection note; nested/root supporting licenses are not a separate registration.
+An explicit license must resolve to a regular blob within the license bound. A missing,
+omitted or unsafe explicit file refuses the row, as does a case-insensitive basename collision
+with any selected-directory entry: nothing is overwritten.
+
+Without an explicit license, a selected directory's top-level `LICENSE`, `LICENSE.md`,
+`LICENSE.txt` or `COPYING` prevents adding another one. Otherwise the first of those names
+that is a regular blob at the repository root is copied; if none exists, inspection notes
+"no license file found". An automatic candidate that is omitted or whose basename collides
+also refuses the row; it is not silently skipped. Supporting licenses do not register skills.
 
 ## Reader states and commands
 
@@ -133,6 +138,8 @@ mirror/stamp changes.
 - `yolo pack status`, `explain`, and `footprint` project cached objects only. Supporting
   deployment and selected registration counts are separate; non-READY rows claim no delivery.
 - `yolo check` passes READY, skips missing objects/publication, and fails invalid contents.
+  For a delivered staged pack, it validates the running tree's recorded payload instead of
+  consulting an absent host store.
 - Offline `yolo pack lint` says `contents not verified`. `--online` validates in disposable
   scratch and never advances the global mirror, shared record or payload cache.
 - macos-user `--dry-run` prints cached readiness and composes READY rows only. It starts no
@@ -142,7 +149,9 @@ Attach reads the running tree's staged declarations, recorded payloads and regis
 identity. It never restages current host selection or runs a cache transaction. A changed
 selection is a next-fresh-launch change. Deleted host cache and unavailable origin do not
 change the running tree's registrations. Missing, duplicate, unknown or mismatched recorded
-rows, and linked payload ancestors, refuse with a restore/restart next step.
+rows, and linked payload ancestors, refuse with a restore/restart next step. If the running
+tree cannot be found, sourced registrations cannot be refreshed; the attach's skew gate
+names a restart rather than adopting current host-cache registrations.
 
 ## Evidence boundary
 

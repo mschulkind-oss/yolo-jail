@@ -469,9 +469,8 @@ func validateSkillPayloadPlan(p *SkillPayloadPlan, rows []SkillRequest) (*SkillP
 				continue
 			}
 			if e.Mode == "120000" {
-				resolved, _ := resolveSkillPath(entries, e.Path, "", true)
-				if why, ok := omitted[resolved]; ok {
-					omitted[e.Path] = "target " + resolved + " omitted by " + why
+				if _, err := resolveEffectiveSkillPath(entries, omitted, e.Path, "", true); err != nil {
+					omitted[e.Path] = err.Error()
 					changed = true
 				}
 			}
@@ -513,6 +512,10 @@ func skillWithin(scope, p string) bool {
 // resolveSkillPath walks Git entries, not the filesystem. Supporting cycles are
 // kept; selected-directory cycles are refused. A link's target is bounded before use.
 func resolveSkillPath(entries map[string]*SkillEntry, p, scope string, allowCycle bool) (string, error) {
+	return resolveEffectiveSkillPath(entries, nil, p, scope, allowCycle)
+}
+
+func resolveEffectiveSkillPath(entries map[string]*SkillEntry, omitted map[string]string, p, scope string, allowCycle bool) (string, error) {
 	seen := map[string]bool{}
 	for {
 		if p == "." && scope == "" {
@@ -525,6 +528,9 @@ func resolveSkillPath(entries map[string]*SkillEntry, p, scope string, allowCycl
 		restart := false
 		for i := range segs {
 			prefix := strings.Join(segs[:i+1], "/")
+			if why, ok := omitted[prefix]; ok {
+				return "", fmt.Errorf("link path %s omitted by %s", prefix, why)
+			}
 			e := entries[prefix]
 			if e == nil {
 				return "", fmt.Errorf("dangling link path %s", prefix)
@@ -631,7 +637,7 @@ func validateSkillRow(entries map[string]*SkillEntry, omitted map[string]string,
 		sort.Strings(row.Entries)
 		return row, nil
 	}
-	resolved, err := resolveSkillPath(entries, licensePath, "", false)
+	resolved, err := resolveEffectiveSkillPath(entries, omitted, licensePath, "", false)
 	if err != nil {
 		return row, fmt.Errorf("license %s: %w", licensePath, err)
 	}
@@ -956,7 +962,38 @@ func (s *Store) verifySkillPayload(root string, p *SkillPayloadPlan) error {
 // has established no live reader owns it. Permission restoration uses no-follow
 // descriptors; neither restoration nor removal follows a planted host link.
 func RemoveSealedSkillTree(base, root string) error {
-	err := nofollow.WalkBelow(base, root, nil, func(e nofollow.Entry) error {
+	relative, err := filepath.Rel(base, root)
+	if err != nil || !filepath.IsLocal(relative) || relative == "." {
+		return fmt.Errorf("skill cleanup root is outside its owned base")
+	}
+	r, err := os.OpenRoot(base)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	original, err := r.Lstat(relative)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !original.IsDir() {
+		return r.RemoveAll(relative)
+	}
+	err = nofollow.WalkBelow(base, root, nil, func(e nofollow.Entry) error {
+		if e.Rel == "." {
+			current, err := e.File.Stat()
+			if err != nil {
+				return err
+			}
+			if !os.SameFile(original, current) {
+				return fmt.Errorf("skill cleanup root changed — retry cleanup once its owner is stopped")
+			}
+		}
 		if e.Kind == nofollow.Dir {
 			return e.File.Chmod(e.Perm | 0700)
 		}
@@ -965,15 +1002,6 @@ func RemoveSealedSkillTree(base, root string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	relative, err := filepath.Rel(base, root)
-	if err != nil || !filepath.IsLocal(relative) || relative == "." {
-		return fmt.Errorf("skill cleanup root is outside its owned base")
-	}
-	r, err := os.OpenRoot(base)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
 	return r.RemoveAll(relative)
 }
 

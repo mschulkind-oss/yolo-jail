@@ -62,7 +62,7 @@ func lintSourcedSkillsOnline(p *packload.Pack) ([]string, []string) {
 	var problems []string
 	for _, result := range results {
 		if result.State != packsrc.SkillReady {
-			problems = append(problems, result.Diagnostic("online sourced skills"))
+			problems = append(problems, result.Diagnostic(packload.SkillPayloadRowLabels([]*packload.Pack{p}, result)))
 		}
 	}
 	var output bytes.Buffer

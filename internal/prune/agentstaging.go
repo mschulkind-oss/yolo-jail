@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
@@ -82,7 +83,7 @@ func PruneOrphanAgentStagingGuarded(agentsDir string, known map[string]struct{},
 					}
 				}
 				return true
-			}, func() { removed = os.RemoveAll(dir) == nil })
+			}, func() { removed = packsrc.RemoveSealedSkillTree(agentsDir, dir) == nil })
 			if !removed {
 				continue
 			}

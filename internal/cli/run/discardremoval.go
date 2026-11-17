@@ -35,6 +35,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -73,7 +74,7 @@ func (o *Options) discardGoneTrees(cname, skeleton, tree string) {
 	}
 	batch, left := moveToDiscard(cname, dirs)
 	for _, d := range left {
-		_ = os.RemoveAll(d)
+		_ = packsrc.RemoveSealedSkillTree(filepath.Dir(d), d)
 	}
 	if batch == "" {
 		return
@@ -86,7 +87,7 @@ func (o *Options) discardGoneTrees(cname, skeleton, tree string) {
 	}
 	if err != nil {
 		o.Perf.Mark("shutdown.clear_tracking.discard_rm_not_started")
-		_ = os.RemoveAll(batch)
+		_ = packsrc.RemoveSealedSkillTree(filepath.Dir(batch), batch)
 		return
 	}
 	o.Perf.Mark("shutdown.clear_tracking.discard_rm_started")
@@ -165,7 +166,7 @@ func emptyDiscardRoot(cname string) bool {
 	}
 	ok := true
 	for _, e := range entries {
-		if err := os.RemoveAll(filepath.Join(root, e.Name())); err != nil {
+		if err := packsrc.RemoveSealedSkillTree(root, filepath.Join(root, e.Name())); err != nil {
 			ok = false
 		}
 	}

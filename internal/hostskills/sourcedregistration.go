@@ -103,7 +103,7 @@ func writeSourcedRegistrations(dir string, l Layer, req ComposeRequest, preOwned
 	var results []Result
 	for _, row := range l.Registrations {
 		if row.Withheld != "" {
-			results = append(results, Result{Name: row.By.SkillBaseName(), Action: ActionRefused, Detail: row.Withheld})
+			results = append(results, Result{Name: row.By.SkillBaseName(), Action: ActionReserved, Detail: row.Withheld})
 			continue
 		}
 		name := packname.Delivered(l.Namespace, row.By.SkillBaseName())

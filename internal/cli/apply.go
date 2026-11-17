@@ -683,7 +683,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			pr.Printf("  [yellow]skills: %s[/yellow]", richtext.Escape(result.Warning))
 		}
 		if result.State != packsrc.SkillReady {
-			pr.Printf("  skills: %s", richtext.Escape(result.Diagnostic(result.Repo+"?ref="+result.Ref)))
+			pr.Printf("  skills: %s", richtext.Escape(result.Diagnostic(packload.SkillPayloadRowLabels(loaded, result))))
 			if write {
 				pr.Printf("host apply: refused before destination writes — correct the sourced skills row or pin a usable full commit")
 				return 1
@@ -706,6 +706,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 			// not one to compose a destination from, so keep the already-resolved set.
 			return nil
 		}
+		packload.BindSelectedSkillPayloads(fresh.packs, skillResults)
 		out, _ := packload.ResolveDestinations(fresh.packs)
 		return out
 	}

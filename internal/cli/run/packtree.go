@@ -407,9 +407,10 @@ type attachPackSkew struct {
 // composed again over the jail's packs, with the environment Run already hydrated (a second
 // env_sources pass could prompt twice), and the launch flags are injected again.
 //
-// A tree that cannot be FOUND is not a refusal. The view is then the configured staging, as every
-// attach read before per-launch trees, and unfound says why, which the attach prints: it can no
-// longer say whether the two differ. A tree that is found and WILL NOT LOAD is a different fact:
+// A tree that cannot be FOUND retains the configured staging for source-free selections,
+// as attaches before per-launch trees did, and unfound says why. A sourced registration needs
+// the running tree's recorded payload authority: without it, the view is an unreadable skew,
+// never a guess from current host-cache bytes. A tree found that WILL NOT LOAD is also a skew:
 // the jail has packs this yolo's loader refuses, which is what every jail v0.10.0 launched with
 // claude binds (that release's claude declares a hook this build removed). Composing from the
 // configured packs then would deliver into that jail exactly what OQ-PK2 (c) keeps from it, so it
@@ -418,6 +419,17 @@ func (o *Options) runningJailPackView(cname, rt string, cfg *jsonx.OrderedMap, f
 	channel *packChannel, targetCmd string) (attachPackView, *attachPackSkew) {
 	dir, unfound := runningJailPackTree(cname, rt)
 	if dir == "" {
+		var rows []string
+		for _, p := range fresh.packs {
+			for _, row := range p.SourcedSkillRows() {
+				if row.Withheld == "" {
+					rows = append(rows, fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row))
+				}
+			}
+		}
+		if len(rows) > 0 {
+			return attachPackView{channel: channel, targetCmd: targetCmd, unreadable: true, unfound: unfound}, &attachPackSkew{dir: paths.PackTreeRoot(cname), unreadable: true, err: fmt.Errorf("cannot refresh %s without the running jail's recorded payload tree (%s) — %s, then launch again to restart with a recorded tree", strings.Join(rows, ", "), unfound, stopRemedy(rt, cname))}
+		}
 		return attachPackView{staged: fresh, channel: channel, targetCmd: targetCmd, unfound: unfound}, nil
 	}
 	booted, err := loadPackTree(dir)

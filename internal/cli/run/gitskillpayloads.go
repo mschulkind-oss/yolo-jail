@@ -10,7 +10,7 @@ import (
 
 func skillPayloadReadingRoot(cname, rt, hostRoot string) string {
 	switch rt {
-	case "apple-container":
+	case "container":
 		return acPackRootInJail
 	case "macos-user":
 		return macosuser.StagedPackTreeRoot(cname, hostRoot, "")
@@ -35,7 +35,7 @@ func (o *Options) prepareFreshSkillPayloads(cname, rt string, staged stagedPacks
 			o.pr(o.Stderr).printf("[yellow]%s[/yellow]", result.Warning)
 		}
 		if result.State != packsrc.SkillReady {
-			o.pr(o.Stderr).printf("Refusing fresh launch: %s", result.Diagnostic(result.Repo+"?ref="+result.Ref))
+			o.pr(o.Stderr).printf("Refusing fresh launch: %s", result.Diagnostic(packload.SkillPayloadRowLabels(staged.packs, result)))
 			return false
 		}
 	}
