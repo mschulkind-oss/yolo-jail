@@ -17,6 +17,11 @@ summary: "The git and GitHub brokers are built into core, so a pack that wants t
 
 **Status:** 2026-11-06. The declaration, gate and selected launch-input prerequisites are built. The reviewed F source slice is integrated: its CircleCI classifier permits only explicit project-scoped `run list` reads, refuses unclassified verbs/flags and API passthrough, and has a nested fake-host test through the real classifier. The approved environment repair carries declaration-selected host environment names in private launch input, captures values only at the pinned host CLI boundary, and keeps them out of the classifier and jail; the selected pack also fences the CircleCI XDG credential directory. F's candidate review found no issue. The combined-tree review (2026-11-12) found no blocker or major issue; its one hardening is [BX-D20](#BX-D20), and timed pack answers have a nested conformance test through the directly replaced `aws` pack (`TestAWSBrokerTimedAnswerIsCappedAndCoversItsResource`; [AWS operations](../reference/aws-operation-broker/README.md)). The separate [HTTP contract](pack-brokers-http.md) is accepted and has a build plan, whose Task 3 is built: a selected launch starts the HTTP front (`c20d9fad8`); the rest of that plan remains. Neither live authentication nor positive real grants are established. Timed pack answers are built: `yolo approve <id> --for <duration>` covers each write of a call, capped by the smallest `max_for` of its cells ([BX-D17](#BX-D17)) and stored all-or-none ([BX-D18](#BX-D18), [BX-D19](#BX-D19)); [OQ-BX7](#OQ-BX7) ruled out permanent Add.
 
+**Policy boundary (2026-11-17):** [Scoped broker policy](scoped-broker-policy.md) owns the proposed shared
+scoped-read/write model and approval-lifecycle parity. Read-only cells and per-operation read approvals there
+supersede this design's write-only call-cell constraint, but are not built. This document retains the generic
+broker extension point; credential-sharing services remain outside the operation-policy layer.
+
 > **In short.** A pack knows how to read a call; only core may decide one. So the extension point
 > is a **classifier** the pack ships, and everything that grants, files, approves, executes or
 > predicts stays in core. Core supplies CLI and HTTP executors by default; a pack supplies an

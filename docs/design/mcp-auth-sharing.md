@@ -15,7 +15,14 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 Codex's native key hashes empty headers, its native match returns only name and stored URL, and its stored entry has no sign-in header provenance. Unknown native entries are therefore preserved but never promoted or shared; fresh native sign-in harvest remains unsupported until native-origin proof exists. Empty SAVE/LOAD headers and client-ID metadata do not prove origin. No native B1/B2, rootless, macOS, or cross-backend behavior is claimed. Tasks 13–15 remain separate; the accepted design and decision ledger below are unchanged.
 
-**Built since (2026-11-06):** the [plan](mcp-auth-sharing-plan.md)'s first phase D slice, Claude adoption for `sign_in = "once"`, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (the plan's ID-19 and ID-20; `30e7bf16d`). [OQ-MA9](#OQ-MA9) and [OQ-MA10](#OQ-MA10) were ruled on 2026-11-09. **Built since (2026-11-12):** the one sign-in at Linux `yolo host` (the plan's [ID-21](mcp-auth-sharing-plan.md#id-21)); it has unit tests only, and its run on a real host is the owner's check. The header route is not built.
+**Built since (2026-11-06):** the [plan](mcp-auth-sharing-plan.md)'s first phase D slice, Claude adoption for `sign_in = "once"`, with its Apple Container, podman-on-macOS and macos-user modes run by the launcher (the plan's ID-19 and ID-20; `30e7bf16d`). [OQ-MA9](#OQ-MA9) and [OQ-MA10](#OQ-MA10) were ruled on 2026-11-09. **Built since (2026-11-12):** the one sign-in at Linux `yolo host` (the plan's [ID-21](mcp-auth-sharing-plan.md#id-21)); it has unit tests only, and its run on a real host is the owner's check. The header command and pi rendering are built ([ID-22](mcp-auth-sharing-plan.md#id-22) to [ID-24](mcp-auth-sharing-plan.md#id-24)); Claude and Codex helper delivery are not.
+
+**First-login boundary (2026-11-17):** [Managed MCP sign-in](managed-mcp-sign-in.md) owns the unbuilt
+managed sign-in point, callback route, source-agent delivery choice, status and recovery revision.
+The first credential comes from ordinary sign-in inside a yolo-managed agent. No separately installed host
+client and no third `yolo mcp-auth login` ceremony are part of the target contract; [MA-D13](#decision-ledger)
+is withdrawn by [MS-R2](managed-mcp-sign-in.md#decision-ledger). The companion remains under review pending
+engineering closure; the sharing boundaries and native-origin gates here stand.
 
 **Earlier blocked candidate (superseded):** The first detached Task 12 candidate could promote a workspace-only sign-in into user scope. Its source was not integrated. This record is historical; current source boundary is stated above.
 
@@ -390,10 +397,14 @@ MCP sign-ins (codex): linear, sentry shared from your user-level servers
     pack in your user config, or declare the server in mcp_servers.
 ```
 
-`yolo mcp-auth status` lists the same per agent and workspace, with each record's generation,
-expiry and last refresh, and never a token.
+The proposed `yolo mcp-auth status` is not a shipped CLI verb. Its zero-effect, token-free
+contract is owned by [managed status](managed-mcp-sign-in.md#7-token-free-status), with the same
+[diagnosis and recovery](managed-mcp-sign-in.md#8-recovery-lines) used by the launch and helper.
 
 ### 8.7 Audit and readout
+
+[Managed status](managed-mcp-sign-in.md#7-token-free-status) owns the proposed readout's effect and
+failure-layer contract; the audit and sharing boundaries below remain this document's.
 
 - **The broker is a daemon of the host-broker framework, not a call broker**
   ([`pack-brokers.md` §13](pack-brokers.md#13-coherence-with-the-mcp-sign-in-broker)): it decides
@@ -482,8 +493,8 @@ sign_in = "once"     # adopt the sign-in Claude Code's Slack plugin already made
 - **A workspace that changes the server's sign-in identity** makes it a workspace server
   ([§5](#5-which-servers-are-user-level)), which is never one-sign-in; a workspace `null` removes it,
   and that jail is given no token.
-- **Turning it off** returns every agent to its own sign-in at its next launch; the broker revokes
-  its tokens when the server advertises a revocation endpoint (RFC 7009) and deletes the record.
+- **Turning it off** returns every agent to its own sign-in at its next launch. The designed
+  server revocation (RFC 7009) and record deletion are not shipped.
 
 ### 9.3 Adopting a sign-in an agent already has
 
@@ -514,8 +525,9 @@ What the design rests on, each measured or read 2026-11-03 and detailed in
 
 1. **Match.** For a user-level server declared with `sign_in = "once"` (or under
    `mcp_sign_in = "once"`) and no `oauth.client_id` of the user's own, the broker reads each agent
-   store through its adapter under that agent's lock, and takes an entry whose server URL and
-   issuer match the declared server. The agent's own name for the server does not matter
+   store through its adapter as an unlocked rename snapshot ([source reader](../../internal/mcpauth/source.go#L65-L81)),
+   and takes an entry whose server URL and issuer match the declared server. Writes take the agent's lock;
+   shipped adoption redeems public clients only. The agent's own name for the server does not matter
    (`plugin:slack:slack` matches `[mcp_servers.slack]`). Of several matching entries it takes the
    latest sign-in.
 2. **Check it can be the refresher.** It adopts only a record whose refresh needs nothing beyond
@@ -578,45 +590,17 @@ Slack accepts the refresh with the client id alone.
 
 ### 9.4 The broker's client identity
 
-When no agent's sign-in can be adopted ([§9.3](#93-adopting-a-sign-in-an-agent-already-has)), or
-the user names a client of their own, the broker signs in itself. It picks its client in this
-order, and records which:
-
-1. **The user's own client**, which wins over adoption when set, from `oauth.client_id`, with
-   `oauth.client_secret_command` for a confidential client. The command runs on the host only, each
-   time the broker needs the secret; the secret is never written to disk by yolo and never crosses
-   into a jail.
-2. **Dynamic registration by the broker**, when the server has a `registration_endpoint`. The
-   registration is kept in the record and reused; an `invalid_client` later re-registers once.
-3. **Otherwise it refuses**, naming both steps: `slack: no agent has signed in, and the server
-   takes no automatic registration. Sign in once in Claude Code (/mcp), or register your own app:
-   yolo config set mcp_servers.slack.oauth.client_id <id> --user`.
-
-Its redirect URI is `http://127.0.0.1:<callback_port>/callback`, default port 33418, on the host.
-
-**yolo publishes no client metadata document of its own.** A server whose only registration route
-is a Client ID Metadata Document gets the refusal above, and the user registers their own app. No
-server in hand needs one, and a published client is a lasting public commitment; it is revisited
-when a real server accepts only that route ([OQ-MA7](#decision-ledger)).
+The broker adopts and refreshes an agent's ordinary sign-in; it starts no authorization flow.
+[Managed sign-in points](managed-mcp-sign-in.md#4-the-sign-in-point) own first-login client metadata
+and the user's own-client preference. No invented registration or third login ceremony is added.
+**yolo publishes no client metadata document of its own** ([OQ-MA7](#decision-ledger)).
 
 ### 9.5 Signing in once
 
-**Signing in in any agent that can is signing in once.** For Slack that is Claude Code's `/mcp`
-with the Slack plugin; within seconds the broker adopts the sign-in by
-[§9.3](#93-adopting-a-sign-in-an-agent-already-has), and every other agent has it.
-
-`yolo mcp-auth login <server>` is for the fallback client ([§9.4](#94-the-brokers-client-identity)).
-With no client of its own it starts no flow and prints the agent sign-in to do instead. Otherwise
-it runs the authorization-code flow with PKCE and the `resource` parameter, as the broker's client:
-
-- **At the host**, it opens the browser and listens on the host loopback.
-- **In a jail**, the command asks the host broker over the loophole's endpoint; the broker prints
-  the URL, which the user opens in the host's browser, and the redirect lands on the host where the
-  broker listens. A sign-in from a jail therefore needs no port forwarded into the jail.
-- **On Apple Container** a jail cannot reach the broker, so the command there says `run yolo
-  mcp-auth login slack in a host terminal` and exits non-zero.
-- **Success** writes one canonical record for the server, not per agent, and every running agent
-  gets the token by its route below within seconds. A second login replaces the record.
+Ordinary sign-in inside a yolo-managed agent is the first credential source. The
+[managed sign-in design](managed-mcp-sign-in.md) owns the sign-in point and callback route, then this
+sharing design owns capture and refresh. The former fallback `yolo mcp-auth login` is withdrawn
+([MS-R2](managed-mcp-sign-in.md#decision-ledger)); callback reachability is not yet established.
 
 ### 9.6 Delivery routes
 
@@ -632,9 +616,10 @@ Each agent pack states which routes its agent supports; its derive renders the s
 The header command is preferred where both exist: no agent store is written, the token is
 fetched when the agent connects, and a jail whose launch did not compose the server is refused by
 the broker (it knows each jail's one-sign-in set from the connection's host-asserted identity).
-When the broker has no record, the command exits non-zero and prints `slack: not signed in. Run:
-yolo mcp-auth login slack`; the agent reports the server as failed, and the launch block shows the
-same line.
+When the broker has no record, the command exits non-zero and names ordinary agent sign-in.
+The [managed recovery contract](managed-mcp-sign-in.md#8-recovery-lines) owns which native entry that
+line names; the [delivery choice](managed-mcp-sign-in.md#6-delivery-choice-including-the-source-agent)
+owns whether the source agent retains a plain sign-in entry. Neither repair is built here.
 
 **Built so far (2026-11-12):** the header command and pi's render of it. The details are in the
 plan's [ID-22](mcp-auth-sharing-plan.md#id-22) and [ID-23](mcp-auth-sharing-plan.md#id-23).
@@ -828,8 +813,9 @@ changes.
    macos-user witnesses.
 4. **One sign-in for every agent, adopted from Claude, header route:** `sign_in = "once"`, the
    Claude adapter's read and write-back of one `mcpOAuth` entry, adoption, `yolo mcp-auth header`,
-   `status` and `logout`, rendered for Codex and pi. This is the Slack case. Then the fallback
-   client and `yolo mcp-auth login`. It needs no store adapter beyond Claude's, so it could precede
+   `status` and `logout`, rendered for Codex and pi. This is the Slack case. The
+   [managed first-login design](managed-mcp-sign-in.md) replaces the withdrawn fallback login.
+   It needs no store adapter beyond Claude's, so it could precede
    step 2 if Slack-everywhere is wanted first. Each agent's route ships after two measurements
    with a real sign-in: the agent re-runs the header command on reconnect (or a 401) rather than
    once per process, and it starts no OAuth flow of its own for a server rendered without one.
@@ -902,8 +888,8 @@ The `OQ-MA` rows are the owner's rulings on compacted questions, and so are `MA-
 | MA-D9 | Codex is the first agent: one file, one `flock`, reproducible key, MCP-only store | 2026-11-03 | [§16](#16-what-i-would-build-in-order) | — |
 | MA-D10 | Cross-agent sharing makes the broker the only refresher of a shared sign-in; no two programs refresh one record (amended 2026-11-03 for adoption) | 2026-11-03 | [§9.1](#91-what-the-protocol-allows) | — |
 | MA-D11 | Opt in with `sign_in = "once"` on the user's `mcp_servers.<name>`, default `"per_agent"`; refused in workspace config | 2026-11-03 | [§9.2](#92-the-opt-in) | — |
-| MA-D12 | The broker's client: the user's own when set; else an adopted agent sign-in; else a published metadata document, then dynamic registration, else a refusal naming an agent sign-in and the user's own app; a secret comes from `client_secret_command` on the host only (the metadata-document step withdrawn by [OQ-MA7](#decision-ledger), 2026-11-03) | 2026-11-03 | [§9.4](#94-the-brokers-client-identity) | — |
-| MA-D13 | `yolo mcp-auth login` runs on the host's browser and loopback, from the host or a jail | 2026-11-03 | [§9.5](#95-signing-in-once) | — |
+| MA-D12 | **Broker-run first-login fallback superseded by [MS-R2](managed-mcp-sign-in.md#decision-ledger), 2026-11-17; the user's own-client preference remains.** The former broker's client: the user's own when set; else an adopted agent sign-in; else a published metadata document, then dynamic registration, else a refusal naming an agent sign-in and the user's own app; a secret comes from `client_secret_command` on the host only (the metadata-document step withdrawn by [OQ-MA7](#decision-ledger), 2026-11-03) | 2026-11-03 | [§9.4](#94-the-brokers-client-identity) | — |
+| MA-D13 | **Withdrawn by [MS-R2](managed-mcp-sign-in.md#decision-ledger), 2026-11-17.** Former proposal: `yolo mcp-auth login` runs on the host's browser and loopback, from the host or a jail | 2026-11-03 | [§9.5](#95-signing-in-once) | — |
 | MA-D14 | Header command first, store entry second; the agent's own OAuth is off for a one-sign-in server | 2026-11-03 | [§9.6](#96-delivery-routes) | — |
 | MA-D15 | DPoP-bound tokens, and a server that rejects a fresh token, fall back to per-agent sign-in with a line | 2026-11-03 | [§9.7](#97-refresh-sign-out-and-where-it-cannot-work) | — |
 | MA-D16 | Adopt an agent's existing sign-in as the first route: match by server URL and issuer, adopt only when the agent's store holds all a refresh needs, latest sign-in wins, automatic under `sign_in = "once"` and disclosed at every launch | 2026-11-03 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | — |
@@ -925,7 +911,7 @@ The `OQ-MA` rows are the owner's rulings on compacted questions, and so are `MA-
 | OQ-MA6 | **Owner's ruling (2026-11-03), neither drafted option:** on a Mac, `yolo host` keeps Codex on its Keychain store by default, so its MCP sign-ins are not shared there and the launch says so and names the opt-in; a user-scope key switches Codex to its file store so they can be shared. Owner: *"I'm hesitant to relax somebody else's security restrictions, so I'm tempted to say here, by default, Codex will just not get them shared. And if you want them to be shared, we should give you a config to explicitly turn off the keychain usage of Codex ... if you want it to be able to share things."* The key's spelling is [MA-D19](#decision-ledger) | 2026-11-03 | [§10](#10-parity-every-backend-and-notch) | — |
 | OQ-MA7 | **Owner's ruling (2026-11-03):** yolo publishes no OAuth client metadata document for now. Owner: *"Not for now: no server in hand needs it, and a published client is a lasting public commitment. Revisit when a real server accepts only that route."* | 2026-11-03 | [§9.4](#94-the-brokers-client-identity) | — |
 | OQ-MA8 | **Owner's ruling (2026-11-03):** an agent that cannot take the shared sign-in signs in itself, with a launch line. Owner: *"It signs in itself, with the line: she asked for the server in every agent, and one extra sign-in is a smaller loss than a missing server."* | 2026-11-03 | [§9.6](#96-delivery-routes) | — |
-| <a id="MA-D27"></a><a id="OQ-MA9"></a>MA-D27 ([OQ-MA9](#OQ-MA9)) | **Owner's ruling (2026-11-09), option B, against the doc's leaning A:** a `sign_in = "once"` server is rendered into the source agent as now, beside that agent's own entry (Claude's Slack plugin), and the header route (phase D) replaces the plain entry; no agent is withheld the server. Until then Claude lists a second, unauthenticated Slack server, and signing in to it is adopted too. The leaning had been to withhold the server from every agent pack that declares an adoption source. Owner: *"B"* | 2026-11-09 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | ✅ (rendered as now; the header route is not built) |
+| <a id="MA-D27"></a><a id="OQ-MA9"></a>MA-D27 ([OQ-MA9](#OQ-MA9)) | **Owner's ruling (2026-11-09), option B, against the doc's leaning A:** a `sign_in = "once"` server is rendered into the source agent as now, beside that agent's own entry (Claude's Slack plugin), and the header route (phase D) replaces the plain entry; no agent is withheld the server. Until then Claude lists a second, unauthenticated Slack server, and signing in to it is adopted too. The leaning had been to withhold the server from every agent pack that declares an adoption source. Owner: *"B"* | 2026-11-09 | [§9.3](#93-adopting-a-sign-in-an-agent-already-has) | ✅ baseline rendering; pi header route built, source-agent helper replacement unbuilt ([delivery choice](managed-mcp-sign-in.md#6-delivery-choice-including-the-source-agent)) |
 | <a id="MA-D28"></a><a id="OQ-MA10"></a>MA-D28 ([OQ-MA10](#OQ-MA10)) | **Owner's ruling (2026-11-09), option C:** the one sign-in is on by default at `yolo host` on Linux, as on every jail backend: the launcher adopts from and writes back to `~/.claude/.credentials.json`. No opt-in key. A Mac host's Claude keeps its sign-ins in the Keychain, so `yolo host` on a Mac stays unsupported until a design for the Keychain case exists, which the roadmap carries. Owner: *"C. and put a design doc on the roadmap for mac keychain stuff."* | 2026-11-09 | [§10](#10-parity-every-backend-and-notch) | — |
 
 ## Appendix A: Evidence

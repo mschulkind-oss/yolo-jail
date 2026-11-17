@@ -21,6 +21,10 @@ through a call broker to the host's pinned AWS CLI and configured login. It admi
 exact S3 rows and read-only Cost Explorer queries, not arbitrary AWS operations.
 The independent `aws-auth` credential service and Bedrock behavior are unchanged.
 
+[Scoped broker policy](../../design/scoped-broker-policy.md) is the unbuilt proposal for fine-grained read
+approvals and host-owned S3 profile routing. It supersedes broad-read-only policy as the target contract,
+not the verified behavior described here, and leaves `aws-auth` unchanged.
+
 ## Reading map
 
 | Question | Authority |
