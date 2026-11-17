@@ -173,4 +173,3 @@ Bounded engineering follow-up: reproduce generic cross-launch exact reuse and wo
 | [Integration tests](../../integration/) | Inspected assertions and future regression targets, not fresh passing receipts |
 
 Deprioritized stale status prose, historical aws-s3 fixtures and prior memory as behavioral evidence. No external source was used. [Execution context](../glossary.md#execution-context) and [route](../glossary.md#route-broker-policy) name the proposal, not current authority.
-
