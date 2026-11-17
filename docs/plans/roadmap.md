@@ -47,6 +47,8 @@ needs a ruling or a Mac sits in the others.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
 
 3. Smaller builds no ruling holds:
+   - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)
+     follow Linux integration: first count repeated reads/peak retained bytes before any optimization.
    - [Readable pack model-row filtering](BACKLOG.md#readable-pack-model-row-filtering) follows the
      accepted scoped-menu implementation: two bounded third-party-row defects need regressions
      before changing their identity checks.
@@ -206,6 +208,11 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
     and [the `cache_relocations` level](cache-relocation.md#OQ-CR1).
 
 ## Waiting on a Mac, CI, a rootless host or an outside account
+
+Native Git payload/registration delivery and separate AWS compatibility limits remain
+[follow-up verification](git-skills-aws-verification.md), ahead of optional ergonomics
+because backend path/copy behavior cannot be inferred from nested Podman. The Mac
+agent runs its witnesses on main; no branch or real account probe is implied.
 
 1. One session at a Mac, with `sudo`'s password and the runner stopped, completes [the benchmark](../research/macos-backend-performance.md#8-results)
    — [auto-capture](../design/program-delivery.md#decision-ledger), Podman Machine on applehv and

@@ -1,4 +1,5 @@
 // Package awsclassify implements the scoped AWS operations call-broker classifier.
+// Architecture and invariants: docs/reference/aws-operation-broker/README.md
 //
 // It is deny-by-default: only the S3 and Cost Explorer table rows are
 // classified, everything else is refused before anything runs. It never sees or builds a

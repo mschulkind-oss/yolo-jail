@@ -3,7 +3,7 @@ title: "AWS S3 vertical: five object operations through the host's own aws, and 
 date: 2026-11-09
 status: deprecated
 stage: SUPERSEDED
-next: "Use ../aws-operation-broker.md; retained only as historical S3 baseline"
+next: "Use ../../reference/aws-operation-broker/README.md; retained only as historical S3 baseline"
 depends-on:
   - ../pack-brokers.md
   - service-mediation.md
@@ -13,7 +13,7 @@ summary: "The first mediated AWS service: an aws-s3 pack on the existing CLI cal
 
 # AWS S3 vertical: five object operations through the host's own `aws`, and nothing else
 
-**Superseded by [AWS operations](../aws-operation-broker.md).** The old pack/source names and advice below are historical, not selectable compatibility. The current `aws` pack preserves these five S3 rows and adds scoped read-only Cost Explorer; its live contract includes the complete S3 name/root grammar. The backlog below is not an approved extension to that contract.
+**Superseded by [AWS operations](../../reference/aws-operation-broker/README.md).** The old pack/source names and advice below are historical, not selectable compatibility. The current `aws` pack preserves these five S3 rows and adds scoped read-only Cost Explorer; its live contract includes the complete S3 name/root grammar. The backlog below is not an approved extension to that contract.
 
 **Status:** 2026-11-10. Every decision is ledgered. Slice 1 is built: `packs/aws-s3`, `internal/s3classify`, `internal/s3fixture` and the end-to-end tests. Slice-1 evidence checked against `04f300a9e`. S3-D5's full-check warning is built and integrated in `main` at commit `b913b6b7d`, with the legacy JSONC key and no-profile repair at `f83f75164` (both ancestors of `main`; built on `62b8bbda3`). **MEASURED:** `TestCheckWarnsForAWSS3WithUnnarrowedAWSAuth` drives the production `Check` caller with selected, narrowed and absent-pack cases, without AWS or an API call. Native-host verification remains unperformed. The build hand-off is [`aws-s3-plan.md`](aws-s3-plan.md).
 

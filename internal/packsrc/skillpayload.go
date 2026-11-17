@@ -1,3 +1,4 @@
+// Sourced skill architecture and invariants: docs/reference/git-sourced-skills.md
 package packsrc
 
 import (

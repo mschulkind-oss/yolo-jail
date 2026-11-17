@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// Design §5.1/GSS-D12: a legacy `only` filter WITHHOLDS
+// GSS-D12 (docs/reference/git-sourced-skills.md): a legacy `only` filter WITHHOLDS
 // the pack's sourced skills (and fetches nothing). Withholding is not a failure.
 func TestHostApplySourcedOnlyWithholdingIsNotAFailure(t *testing.T) {
 	home := t.TempDir()

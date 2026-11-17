@@ -8,6 +8,17 @@ tags: [backlog, packs, composed-config]
 
 # Backlog — the one implementable list
 
+## Git sourced skills and AWS verification
+
+The [follow-up verification owner](git-skills-aws-verification.md) carries native Mac
+witnesses on main, rootless-host evidence, N7 memory/repeated-read measurement and
+source-only P2 reproduction work. Start with the runnable native witnesses; do not
+mistake nested Podman or synthetic AWS evidence for native/provider compatibility.
+Canonical behavior lives in [Git sourced skills](../reference/git-sourced-skills.md)
+and [AWS operations](../reference/aws-operation-broker/README.md). No agent discovery,
+real AWS, account/grant change or upstream execution is authorized by this entry.
+
+
 **Status:** The single entry point for *what to build next* on the composed-config /
 packs cluster, and **seven questions are live** in its stages. Created 2026-07-26; **restamped
 2026-08-23** (header + Stage E + Stage G); **re-checked 2026-09-24** against the tree and the

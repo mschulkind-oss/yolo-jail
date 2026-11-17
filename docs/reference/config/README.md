@@ -167,7 +167,7 @@ aws = ["s3://bkt/team/", "ce://host-login"]
 The generic root grammar and selected source are validated; the classifier separately owns
 the service grammar. A root never grants standing read access, relaxes a ceiling or bypasses
 approval ([call-broker authority](../../design/pack-brokers.md#2-terms),
-[AWS admission](../../design/aws-operation-broker.md#51-the-rule)). Roots are workspace-only
+[AWS admission](../aws-operation-broker/authority.md#service-isolation-principles)). Roots are workspace-only
 and every declaring file must be contained in that workspace. An empty list is valid and
 resets a lower readable list; other lists union in existing order, with duplicates within a
 single authored list refused. Declaring filenames remain part of the gate's provenance.

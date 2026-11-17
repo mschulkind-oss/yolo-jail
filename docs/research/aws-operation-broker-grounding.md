@@ -11,8 +11,9 @@ summary: "Verified source boundaries and published AWS CLI/API semantics for rep
 **Verified:** 2026-11-16 against `b5a5fe32a326109371656162623b690a3c790427`.
 The isolated planning checkout began clean at the same commit as the earlier source survey;
 there was no affected-seam drift. This packet is source/documentation evidence, not runtime proof.
-The [canonical design](../design/aws-operation-broker.md) owns behavior and the
-[plan](../design/aws-operation-broker-plan.md) owns the build map.
+The [implemented reference](../reference/aws-operation-broker/README.md) owns behavior;
+[execution evidence boundaries](../reference/aws-operation-broker/execution.md) separate
+published documentation from actual provider/native verification.
 
 ## Baseline production path
 

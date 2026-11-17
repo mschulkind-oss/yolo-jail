@@ -1,7 +1,9 @@
 ---
 title: "Git-sourced skill registrations"
-status: current
+status: accepted
+stage: GRADUATED
 verified: 2026-11-17
+verified_commit: bde502e4a
 covers: [internal/packdecl/sourcedskills.go, internal/packsrc/skillpayload.go, internal/packload/sourcedskills.go, internal/packload/skillpayloadtree.go, internal/hostskills/sourcedregistration.go, internal/hostskills/sourcedprojection.go]
 tags: [packs, skills, git, delivery]
 ---
@@ -12,10 +14,11 @@ A selected pack can register individual skills from a Git repository without sel
 repository as a pack. Yolo manages the coding environment's selected registrations and the
 supporting files they read; a jail is one delivery notch, alongside host apply.
 
-The [design](../design/git-skill-subtrees.md) holds the binding decisions and bounds. This
-reference describes the candidate implementation. Linux tests and a matched nested Podman
-witness verify fixture execution and recorded attach; native macOS delivery and native agent
-discovery are not verified by those witnesses.
+**Status:** Verified 2026-11-17 against `bde502e4a`. MEASURED: Linux synthetic
+registration execution and recorded nested Podman attach. UNMEASURED: native macOS,
+agent discovery and maximum-payload copy cost. This reference owns the implemented contract;
+[follow-up verification](../plans/BACKLOG.md#git-sourced-skills-and-aws-verification)
+keeps the unmeasured work distinct.
 
 ## Declare content, then a destination
 
@@ -35,6 +38,12 @@ The content row selects one non-root repository directory with a direct `SKILL.m
 address must include a ref. `as`, when present, replaces the selected directory's basename
 before ordinary pack namespacing; two aliases of the same selected directory are independent
 registrations. `license` is an optional repository-relative file, not a host path.
+`source` requires a nonempty non-root subdirectory and explicit ref, uses existing Git
+HTTP(S), SSH or `git+file` transports and refuses URL passwords. Plain `file://` directories
+use `from` instead; `as`/`license` without source and unclean paths refuse offline.
+User-scope pack selection is the authority. Fetch uses host pack-store Git transport, never
+workspace imports or broker grants. Object reads disable global/system config and lazy fetch;
+transport still uses the established user's Git route. No upstream filter/hook/LFS runs.
 
 A destination (`agent` and `into`) does not accept `source`. A content row does not combine
 `source` and ordinary pack-relative `from`. Ordinary `from` rows, conventional local skills,
@@ -57,7 +66,10 @@ that skill's subtree of the supporting payload. The upstream marker and payload 
 
 Consequently a selected executable can use the whole supporting repository. Relative paths
 and a parent-depth walk through a linked child directory resolve in the payload, not in the
-registration's private directory. Arbitrary relocated layout assumptions are not guaranteed;
+registration's private directory. A textual normalization of `..` before opening a path does not follow that linkage.
+A climb starting from the real registration's top level leaves through the discovery root,
+not the repository. A skill's workspace setup or dependencies are not supplied merely by
+deploying their bytes. Arbitrary relocated layout assumptions are not guaranteed;
 only tested path forms have execution evidence. This exposes supporting bytes, not another
 metadata activation channel or another credential grant.
 
@@ -81,6 +93,10 @@ not by Git lazy fetching during validation. The candidate's whole payload and al
 must pass before its payload and latest record are published. Failure can use only the latest
 record, revalidated for the caller's whole group; there is no per-selection fallback history.
 Pin a known full commit when a moving pair has become unusable for your selection.
+Full-commit pins and tags do not auto-refresh; install/update forces moving refs by existing
+policy. If another selection advances the shared pair to an unusable commit, current launch
+and attach stay unchanged but the next writer fails closed by row/commit with the shared-record
+explanation. An older payload on disk is not fallback. There is no retry or per-selection history.
 
 The shared `skills.lock.json` is a schema-1 repository/ref map beside the normal pack lock.
 Its new leaf lock is short-lived under the mirror lock, never held across network or
@@ -105,10 +121,11 @@ Outside the selected subtree, unsupported links, gitlinks and case-collision gro
 omitted and counted. Safe internal supporting links remain. No unsupported group gets copied
 around to rescue a selected row. Unicode simple-fold collisions are treated as collisions.
 
-The fixed materialization limits are 32,768 entries, 256 MiB blob bytes, 16 MiB listings,
-4,096-byte link targets, and 1 MiB marker/license bytes. Omissions consume the limits too.
-There are no size knobs. These bounds do not promise a transport byte limit or introduce a
-new Git protocol.
+The fixed materialization bounds are listed in [Current values](#current-values).
+Omissions consume the limits too, charged before blob reads and never refunded.
+There are no size knobs. Refusal names measured size and bound; it does not promise a
+transport byte limit or introduce a new Git protocol. Git LFS remains pointer text and
+submodules are never initialized.
 
 An explicit license must resolve to a regular blob within the license bound. A missing,
 omitted or unsafe explicit file refuses the row, as does a case-insensitive basename collision
@@ -132,7 +149,11 @@ also refuses the row; it is not silently skipped. Supporting licenses do not reg
 Readers neither fetch nor lazy-fetch, materialize, acquire locks, write records, nor consult
 or touch stamps for decisions. Invalid own rows take precedence over absent publication.
 A not-due writer repairs absent payloads from valid local objects without transport or
-mirror/stamp changes.
+mirror/stamp changes. NOT MATERIALIZED is a derived skip, not a missing-object/network error:
+
+```text
+<row>: not materialized — objects present and valid; published payload absent; the next fresh launch or host writer rematerializes from local objects
+```
 
 - `yolo pack install` and `yolo pack update` force grouped sourced refresh.
 - `yolo pack status`, `explain`, and `footprint` project cached objects only. Supporting
@@ -153,6 +174,65 @@ rows, and linked payload ancestors, refuse with a restore/restart next step. If 
 tree cannot be found, sourced registrations cannot be refreshed; the attach's skew gate
 names a restart rather than adopting current host-cache registrations.
 
+## Claims, collisions and cleanup
+
+A sourced destination/name claim comes from declarations, even when unfetched. Same-pack
+sourced/sourced or local/sourced duplicates, other-pack claims and built-in bare/prefixed
+names refuse before adoption or destination writes. This includes rendered jail mechanics;
+ordinary local later-source-wins and jail pack-over-built-in precedence remain unchanged.
+The next step names `as` or namespace adjustment and both contributors. Reserved names are
+withheld, not failed; workspace/import copies are lower-priority and shadowed with disclosure.
+Audience and describes routing remains existing pack policy, not an agent registry in core.
+
+Registration links are typed planned entries computed by yolo, never arbitrary links copied
+from declarations or source trees. Ordinary source delivery still dereferences links, and
+ordinary sync still refuses them. Digests hash link text without following dangling jail
+paths. Typed archive fallback preserves owned link text and removes the original only after
+a successful copy; it is not an ambient symlink permission.
+
+Sealed launch payloads are removed only after the caller establishes ownership/liveness.
+`RemoveSealedSkillTree` first attempts confined ordinary removal, preserving unreadable-file
+and foreign-owner empty-directory behavior. Only failure triggers best-effort restoration of
+**directory** modes before retry. It rejects own-base removal, linked ancestors and changed
+root identity; no cache-wide chmod or per-file byte read is introduced. Detached discard,
+orphan prune and capture cleanup use this boundary; unprivileged caller tests pin it.
+Host-cache garbage collection remains deferred.
+
+## Compatibility and code map
+
+Older binaries keep their existing skew behavior: author lint refuses unknown fields, while
+use skips rows with `as`/`license` and notes the newer field. A source-only row may fail its
+older validation. No minimum-version mechanism or new updater command is added.
+
+| Component | Package / anchor |
+| :--- | :--- |
+| Declaration and static source rules | `internal/packdecl`, `IsSourcedSkill` |
+| Object validation, transaction, publication and cleanup | `internal/packsrc`, `ResolveSkillPayloads`, `ReadSkillPayloads`, `RemoveSealedSkillTree` |
+| Typed rows and tree records | `internal/packload`, `HydrateSourcedSkills`, `BindSelectedSkillPayloads` |
+| Registration, collisions and owned archives | `internal/hostskills`, `SourcedBuiltinCollisions` |
+| Jail preflight/composition and owned sync | `internal/jailcontent`, `internal/treesync` |
+| Selected writer and recorded attach | `internal/cli/run` |
+
+## Current values
+
+| Value | Setting | Defined in |
+| :--- | :--- | :--- |
+| Payload entries / blob bytes | 32,768 / 256 MiB | `internal/packsrc`, skill payload bounds |
+| Tree listing / link target | 16 MiB / 4,096 bytes | `internal/packsrc`, skill payload bounds |
+| Marker / license | 1 MiB each | `internal/packsrc`, selected-row validator |
+| Shared record | schema-1 `skills.lock.json`, repository/ref keys | `internal/packsrc`, skills lock |
+| Refresh pacing / detached timeout | Existing hourly branch pacing / 60s | `internal/packsrc`, sourced transport adapter |
+| Payload area | `_skill-payloads`, beside packs, outside discovery | `internal/packload`, skill payload tree |
+
+## Why it's this way
+
+| ID | Constraint |
+| :--- | :--- |
+| GSS-D12 | Legacy `only` withholds every sourced row; it is not a failed delivery or a fetch trigger. |
+| GSS-D13 | Whole-repository deployment is supporting data, never conventional pack activation. |
+| GSS-D21 | One caller-local group transaction, mirror then short record leaf; transport stamps differ from content validity. |
+| GSS-D22 | Only the shared latest record is fallback; pin a full commit rather than inventing selection history. |
+
 ## Evidence boundary
 
 Source-named production-caller tests cover public host apply, install/update/status/explain/
@@ -164,4 +244,6 @@ The matched nested Podman witness executes those same path forms and then attach
 its private mirror/payload cache and local origin are unavailable. Its stopped-jail check
 passes. This is neither native agent discovery nor rootless/reachability proof: nested
 Podman uses host networking/user namespaces. Native Apple Container and macos-user checks
-remain follow-up verification after the Linux candidate lands.
+remain follow-up verification on main after Linux landing. Native scanners following nested
+markers, case-insensitive own-license ergonomics and repeated whole-payload memory/read
+costs are not established by the fixture; their next steps remain in the linked backlog.
