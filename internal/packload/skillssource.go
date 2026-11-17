@@ -62,7 +62,7 @@ import (
 // through it made the destination line double as a delivery. An agent pack's skills/ still ships
 // — as the implicit broadcast (GovernedSources), which reaches its own destination like any other.
 func (p *Pack) SkillsSourceDir(c packdecl.Contribution) (string, string) {
-	if c.Agent != "" {
+	if c.Agent != "" || c.IsSourcedSkill() {
 		return "", ""
 	}
 	return p.skillsDir(c.SkillsSource())

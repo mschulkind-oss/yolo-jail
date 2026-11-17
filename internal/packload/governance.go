@@ -135,7 +135,7 @@ func (p *Pack) governors(kind packdecl.Kind) ([]packdecl.Contribution, []int) {
 	var order []int
 	index := map[string]int{}
 	for i, c := range p.declaration() {
-		if c.Kind != kind || c.Agent != "" {
+		if c.Kind != kind || c.Agent != "" || c.IsSourcedSkill() {
 			continue
 		}
 		key := c.SourceKey()
@@ -454,7 +454,7 @@ func (p *Pack) GovernedBriefingFor(c packdecl.Contribution) ([]GovernedSource, [
 // The host skills composer reads each governor's `describes` from it
 // (docs/reference/agent-briefings.md BD-D3).
 func (p *Pack) GovernedSkillsFor(c packdecl.Contribution) []GovernedSource {
-	if c.Kind != packdecl.KindSkills || c.Agent != "" {
+	if c.Kind != packdecl.KindSkills || c.Agent != "" || c.IsSourcedSkill() {
 		return nil
 	}
 	sources, _ := p.governedSkills()

@@ -124,7 +124,7 @@ func forkFieldPlacementProblems(label string, c Contribution) []string {
 			label, on, ViaSource))
 	}
 	for _, f := range forkFields(c) {
-		if !f.set {
+		if !f.set || (f.name == "source" && c.IsSourcedSkill()) {
 			continue
 		}
 		// `build` is a PACK-TREE program's field too (packtree.go): a pack-tree program runs its

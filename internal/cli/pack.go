@@ -665,6 +665,11 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	} else {
 		// OFFLINE, NO REF WAS RESOLVED, and the pass says so where the online lines would be.
 		onlineLines = offlineRefLines(readSeries, lintRoot)
+		for _, c := range pack.Decl.Contributions() {
+			if c.IsSourcedSkill() {
+				onlineLines = append(onlineLines, fmt.Sprintf("skills source %s: contents not verified (offline lint); run yolo pack lint --online %s to validate them", c.Source, dir))
+			}
+		}
 	}
 
 	// WHAT THIS PACK DELIVERS, from the one governance predicate every notch reads
@@ -707,8 +712,8 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	// convention) is exempt for the same reason an explicit `"skills"` is.
 	missingSkillsSource := false
 	for _, c := range pack.Decl.Contributions() {
-		if c.Kind != packdecl.KindSkills || c.Agent != "" {
-			continue // a DESTINATION sources nothing (P5)
+		if c.Kind != packdecl.KindSkills || c.Agent != "" || c.IsSourcedSkill() {
+			continue // a destination or Git registration reads no pack-relative tree
 		}
 		src := c.SkillsSource()
 		if path.Clean(src) == packdecl.DefaultSkillsDir {

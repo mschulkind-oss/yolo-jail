@@ -83,7 +83,14 @@ type Contribution struct {
 	// and moved only by `yolo pack update`; the fork lock (forks.lock.json) records the commit,
 	// and the commit, never the ref, is what a build checks out and what a launch names (FP-D7,
 	// FP-D18, OQ-FP6).
+	// On skills, Source selects one non-root skill directory at an explicit Git ref.
+	// The whole repository is supporting data, never a pack; As and License describe
+	// only this row's private registration.
 	Source string `json:"source,omitempty"`
+	// As is a sourced skill's normalized base name, before the selecting namespace.
+	As string `json:"as,omitempty"`
+	// License is a sourced skill's optional repository-root-relative license file.
+	License string `json:"license,omitempty"`
 	// Build is ONE command line, run by bash with the checked-out source as its working
 	// directory and the capture jail's home as HOME. A command line rather than a script file,
 	// so it is readable in the manifest (§4 step 1). What it leaves in the program surfaces
@@ -2467,6 +2474,9 @@ const DefaultSkillsDir = "skills"
 // answer than trusting the caller. Callers that hold a whole manifest use
 // SkillsSources.
 func (c Contribution) SkillsSource() string {
+	if c.IsSourcedSkill() {
+		return ""
+	}
 	if c.From != "" {
 		return c.From
 	}
@@ -2490,7 +2500,7 @@ func (m *Manifest) SkillsSources() []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, c := range m.Contributions() {
-		if c.Kind != KindSkills {
+		if c.Kind != KindSkills || c.IsSourcedSkill() {
 			continue
 		}
 		src := c.SkillsSource()
@@ -3599,7 +3609,7 @@ func (m *Manifest) validateDuplicateContentSources() []string {
 	var problems []string
 	seen := map[key]int{}
 	for i, c := range m.Contributes {
-		if (c.Kind != KindBriefing && c.Kind != KindSkills) || c.Agent != "" {
+		if (c.Kind != KindBriefing && c.Kind != KindSkills) || c.Agent != "" || c.IsSourcedSkill() {
 			continue
 		}
 		k := key{c.Kind, c.SourceKey()}
@@ -4564,6 +4574,7 @@ func validateContribution(label string, c Contribution) []string {
 	// fork_of, source, build and produces are a fork's alone (fork.go): refused on every other
 	// kind and every other via, in `update`'s position and for its reason.
 	problems = append(problems, forkFieldPlacementProblems(label, c)...)
+	problems = append(problems, sourcedSkillProblems(label, c)...)
 	problems = append(problems, packTreeFieldPlacementProblems(label, c)...)
 	problems = append(problems, fallbackPlacementProblems(label, c)...)
 	problems = append(problems, platformsProblems(label, c)...)

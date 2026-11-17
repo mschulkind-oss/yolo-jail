@@ -358,6 +358,13 @@ func (p *Pack) borrowingSources(kind packdecl.Kind) []packdecl.Contribution {
 		seen[key] = true
 		govs = append(govs, governor{c: s.By, order: s.order, implicit: s.Implicit})
 	}
+	if kind == packdecl.KindSkills {
+		for i, c := range p.declaration() {
+			if c.IsSourcedSkill() && c.Agent == "" && c.Into == "" {
+				govs = append(govs, governor{c: c, order: i})
+			}
+		}
+	}
 	sort.SliceStable(govs, func(i, j int) bool { return govs[i].order < govs[j].order })
 	out := make([]packdecl.Contribution, 0, len(govs))
 	for _, g := range govs {
@@ -514,9 +521,15 @@ func borrowedDestinations(src packdecl.Contribution, p *Pack, set []*Pack) []pac
 		// After this function a resolved pack is an ORDINARY declaring pack, which is the
 		// property that keeps every downstream reader free of an inference branch. A slot's
 		// `register` is not copied either: Registrations reads it off the slot itself.
-		out = append(out, packdecl.Contribution{
+		c := packdecl.Contribution{
 			Kind: src.Kind, Into: SlotLanding(src.Kind, m.dest.Into, p.landingName()), From: src.From,
-		})
+		}
+		if src.IsSourcedSkill() {
+			c = src
+			c.Into = m.dest.Into
+			c.Agents = nil
+		}
+		out = append(out, c)
 	}
 	return out
 }
@@ -613,6 +626,9 @@ func SlotLanding(kind packdecl.Kind, slot, pack string) string {
 // would be worse than drift — a "carries" that says yes and a render that then delivers nothing
 // is a promise in a report with no file behind it.
 func (p *Pack) carriesFor(c packdecl.Contribution) bool {
+	if c.IsSourcedSkill() {
+		return true // declarations claim and route even before any objects arrive
+	}
 	switch c.Kind {
 	case packdecl.KindSkills:
 		// The governed tree for THIS contribution's key — the predicate's answer, not a
