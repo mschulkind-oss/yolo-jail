@@ -21,8 +21,8 @@ Codex's native key hashes empty headers, its native match returns only name and 
 managed sign-in point, callback route, source-agent delivery choice, status and recovery revision.
 The first credential comes from ordinary sign-in inside a yolo-managed agent. No separately installed host
 client and no third `yolo mcp-auth login` ceremony are part of the target contract; [MA-D13](#decision-ledger)
-is withdrawn by [MS-R2](managed-mcp-sign-in.md#decision-ledger). The companion remains under review pending
-engineering closure; the sharing boundaries and native-origin gates here stand.
+is withdrawn by [MS-R2](managed-mcp-sign-in.md#decision-ledger). The companion's engineering closure is accepted
+but unbuilt; its plan remains a seed. The sharing boundaries and native-origin gates here stand.
 
 **Earlier blocked candidate (superseded):** The first detached Task 12 candidate could promote a workspace-only sign-in into user scope. Its source was not integrated. This record is historical; current source boundary is stated above.
 
@@ -218,16 +218,12 @@ selects, then the user's config). Every server in the effective table gets one s
   The same rule covers every agent's bundle, not only Claude's: Copilot reads Claude plugins, and
   Codex's plugins, pi's packages, opencode's plugins and the rest join when their pack declares
   how its bundle names its servers. Which of those can carry MCP servers is unmeasured.
-- **Two things are built for it, and core names no agent in either.**
-  - **The composer reads each pack-delivered bundle's servers into the scope tables** at the
-    selecting layer's scope. A bundle's format is read by name, as lock protocols are: the Claude
-    plugin format (its manifest field and `.mcp.json`) is the one yolo reads today, and only to
-    disclose the plugin as code that runs in the jail (`internal/pluginpack`, `notePackJailCode`
-    in `internal/cli/run`). A pack whose agent loads a bundle format yolo cannot read declares
-    none, and that bundle's servers stay unknown.
-  - **Each agent pack's store adapter maps its bundle-server key back** to the server:
-    `mcp_auth_match` returns the bundle's server for a key such as Claude's
-    `plugin:<plugin>:<server>`, or by URL for a URL-keyed agent such as Copilot.
+- **Built: whole-plugin placement and code disclosure, not bundle-server scope composition.**
+  [Plugin recognition](../../internal/pluginpack/pluginpack.go) detects MCP components for disclosure;
+  [delivery](../../internal/hostskills/plugin.go) preserves the tree with ownership marks and any
+  namespaced manifest name. It does not read individual bundle servers into the scope tables.
+  Wider bundle sharing remains unbuilt. The accepted [managed sign-in inventory](managed-mcp-sign-in.md#4-the-sign-in-point)
+  is separate from `mcp_servers` composition and scope tables; it does not graduate this wider sharing proposal.
 
 ## 6. What an agent pack declares
 
@@ -609,7 +605,7 @@ Each agent pack states which routes its agent supports; its derive renders the s
 
 | Route | How | Agents | Works on |
 |---|---|---|---|
-| Header command | The derive renders the agent's command-backed header to run `yolo mcp-auth header slack` (JSON or a bare value, as the agent expects). The command asks the broker for the current access token, refreshed first when under 5 minutes remain | Claude, Codex, pi; omp once yolo renders its MCP | every backend that reaches the broker: not Apple Container |
+| Header command | The derive renders the agent's command-backed header to run `yolo mcp-auth header slack` (JSON or a bare value, as the agent expects). The command asks the broker for the current access token. Baseline refreshes first under five minutes; the accepted, unbuilt [issuance contract](managed-mcp-sign-in.md#6-delivery-choice-including-the-source-agent) returns unexpired tokens without redemption | Claude, Codex, pi; omp once yolo renders its MCP | every backend that reaches the broker: not Apple Container |
 | Store entry | The broker writes the access token, its expiry and the record's client id into the agent store through the agent's `[[mcp_auth]]` adapter, never a refresh token, and rewrites it after each refresh ([§8.3](#83-propagate)) | opencode; the agent an adopted sign-in came from; Claude and Codex on Apple Container | every backend whose store yolo can write |
 | Own sign-in | No route: the agent signs in itself, per agent, with the user's own `oauth.client_id` rendered in (or by its own dynamic registration where the server offers it), and the launch says `slack: Copilot cannot use yolo's sign-in, so it signs in on its own`. With neither, it is not given the server, and the line names `yolo config set mcp_servers.slack.oauth.client_id <id> --user` ([OQ-MA8](#decision-ledger)) | Copilot, agy, Muse until their keys or helpers are known | every backend |
 
@@ -816,9 +812,11 @@ changes.
    `status` and `logout`, rendered for Codex and pi. This is the Slack case. The
    [managed first-login design](managed-mcp-sign-in.md) replaces the withdrawn fallback login.
    It needs no store adapter beyond Claude's, so it could precede
-   step 2 if Slack-everywhere is wanted first. Each agent's route ships after two measurements
-   with a real sign-in: the agent re-runs the header command on reconnect (or a 401) rather than
-   once per process, and it starts no OAuth flow of its own for a server rendered without one.
+   step 2 if Slack-everywhere is wanted first. For Claude, the accepted [two-gate contract](managed-mcp-sign-in.md#6-delivery-choice-including-the-source-agent)
+   requires account-free synthetic verification before landing, then native helper/reconnect and no-OAuth
+   measurements as validation still owed; no provider success is claimed before they pass. Other agents'
+   route measurements remain separate: the helper re-runs on reconnect (or a 401), and the agent starts no
+   OAuth flow of its own for a helper-rendered server.
 5. **Slice 3:** the store route for opencode and for Apple Container; Copilot once its key is
    reproducible, agy after a measured sign-in, Muse and omp when their packs render remote servers.
 

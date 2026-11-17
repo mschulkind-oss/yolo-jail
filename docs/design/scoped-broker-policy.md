@@ -3,7 +3,7 @@ title: "Scoped broker policy: one allow / ask / deny contract, with resource sco
 date: 2026-11-17
 status: in-review
 stage: DESIGN
-next: "Rule OQ-SBP1; close the unverified source claims before completing the companion seed"
+next: "Close the broker engineering review, including hard-deny fact-read handling, before accepting the design or completing the seed"
 depends-on:
   - pack-brokers.md
   - github-write-scopes.md
@@ -14,11 +14,11 @@ summary: "Every operation broker (git, github, aws, circleci) answers each class
 
 # Scoped broker policy: one allow / ask / deny contract, with resource scopes, for every operation broker
 
-**Status:** 2026-11-17 — proposed and unbuilt; under review. One owner question is open, [OQ-SBP1](#OQ-SBP1). **Shipped** describes the baseline, not this revision. Everything marked **Proposed** is new behavior. [Section 13](#13-unverified-claims-this-design-relies-on) lists source claims not yet reproduced.
+**Status:** 2026-11-17 — proposed and unbuilt; under review pending broker engineering closure, including hard-deny fact-read handling. The anonymous Git fetch ruling is settled in [OQ-SBP1](#decision-ledger); no owner question remains. **Shipped** describes the baseline, not this revision. Everything marked **Proposed** is new behavior. [Section 13](#13-unverified-claims-this-design-relies-on) lists source claims not yet reproduced.
 
 > **In short.** Read and write operations should follow one scoped allow / ask / deny contract across operation brokers, bounded by host authority and served by the existing approval lifecycle.
 
-**Needs your ruling:** [OQ-SBP1](#OQ-SBP1).
+**Needs your ruling:** None.
 
 **Evidence boundary.** This design rests on [source-read grounding](../research/scoped-broker-policy-grounding.md) against baseline `a97a0e055f20de4524063b70729595ea8794bef8` and on a direct read of [`github-write-scopes.md`](github-write-scopes.md). No test, build, API call or agent run supports it. Code anchors are file-and-symbol pointers from the grounding; they were not re-opened for this design.
 
@@ -116,6 +116,8 @@ Unchanged from the shipped write table (`config.CallBrokerTablePolicy`), now app
 | `"ask"` | refuse | ask | ask |
 | `true` (after the gate's `y`) | refuse; reported at load, counts as absent | run | run |
 | absent | refuse | ask | run |
+
+For Git reads, `refuse` in this table denies host credentials, not the supported anonymous public fetch/import path ([§9.1](#91-public-git-fetches-and-imports)). It grants no anonymous write or arbitrary command.
 
 "No ceiling line" refuses and files nothing. This states as a rule what the shipped revalidation already enforces (a request is not filable under an `off` ceiling). It is the no-access floor: an ask is filable only where the host has said this operation may be asked for.
 
@@ -255,12 +257,18 @@ The approver sees the context's **name** beside the request. The profile name st
 
 | Source | Read cells (proposed) | Scope containment (proposed) | Notes |
 | :--- | :--- | :--- | :--- |
-| `git` | one: fetch with host credentials | exact approved remote URL; no containment below it | Push rules, branch and tag grants and the working set are unchanged. Anonymous public fetch: [OQ-SBP1](#OQ-SBP1). |
+| `git` | one: fetch with host credentials | exact approved remote URL; no containment below it | Push rules, branch and tag grants and the working set are unchanged. Anonymous public fetch is never blocked by credential policy ([OQ-SBP1](#decision-ledger)); see [§9.1](#91-public-git-fetches-and-imports). |
 | `github` | at least one covering every supported read; finer cells are a later choice | normalized repository identity; `[repos.<name>]` tables are the scope spelling already built | Supersedes [GW-D8](github-write-scopes.md#GW-D8) and the read bound of [GW-D80](github-write-scopes.md#GW-D80). Fact reads follow [§4.1](#41-fact-reads). The unbuilt cell tables of [`github-write-scopes.md`](github-write-scopes.md) stay unbuilt by this design. |
 | `aws` | S3: list, get, head. Cost Explorer: its four queries. | S3: bucket, then prefix ending in `/`, longest match (the shipped root rule). Cost Explorer: operation under `ce://host-login`. | Routes apply to S3 scopes. Cost Explorer stays host-login-wide and takes no route in this revision. |
 | `circleci` | project run listing | exact project root `gh/{owner}/{repo}` | `rerun_workflows` stays refused by the classifier. A rule naming it is accepted, inert, and reported as "declared, not implemented". |
 
 Git and GitHub keep their native transports, stores and digests. They adopt the model through their own adapters; nothing here rewrites their wire protocols.
+
+### 9.1 Public Git fetches and imports
+
+**A Git read denial withholds host credentials; it never blocks public fetching.** The broker lets a supported public Git fetch happen exactly as it would without valid credentials: sent anonymously. An explicit `read = false`, absent authority or another credential-policy refusal does not turn that public fetch into a refusal. Public Git fetching used by an import follows the same rule; importing does not grant credentialed access.
+
+If the anonymous attempt cannot fetch the repository, it does not acquire a credentialed retry by implication. Host credentials remain subject to admission and the read policy above. This exception authorizes neither arbitrary unclassified commands nor anonymous writes; push policy is unchanged.
 
 ## 10. Compatibility
 
@@ -303,7 +311,7 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | B2 | B1 plus `s3://a/team/` `read` `always` | Get under `s3://a/team/` runs; under `s3://a/team-other/` and `s3://a/` asks; listing the parent asks. |
 | B3 | `s3://b/reports/` `read` `always`, no write line anywhere | Get runs; put and delete there are refused. |
 | B4 | B3 plus source-scope `put_objects` `on_request` | Put under `s3://b/reports/` asks. The read-only line gave it nothing. |
-| B5 | Broad read `always`; ask `false` for `read` on one repository or prefix | Reads there are refused; elsewhere they run. |
+| B5 | Broad read `always`; ask `false` for `read` on one repository or prefix | Credentialed reads there are refused; public Git fetch/import still proceeds anonymously; elsewhere reads run. |
 | B6 | Ask `true` for a read with no covering ceiling line | Reported at load, counts as absent, refused at run time. |
 | B7 | Two lines, same scope, same cell, one layer | Load fails in `yolo check`, launch and `config apply` alike. |
 | B8 | Ask `"ask"` on a scope under ceiling `always` | Asks. |
@@ -375,30 +383,13 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 
 Test names cited in the packet but not read (`TestSelectedCLITwoWriteAllowOnceBindsFullOrderedBundle`, `TestSelectedCLIReadAndEvaluateRefuseCurrentHostReadWithdrawal`) are pointers, not evidence.
 
-## Open Questions
-
-1. 💬 **OQ-SBP1: Does an explicit read `false` on a git remote also stop the anonymous public fetch?**
-
-   Today a public HTTPS fetch is tried without credentials even when the workspace holds no read grant; that is a compatibility exception and uses no host credential. With scoped reads, a user can now write "never read this repository". The evidence does not show whether an explicit read refusal for git exists today or what it does to the anonymous attempt, so neither answer is provably the shipped one.
-
-   - **A. `false` stops it.** A written refusal means the broker fetches nothing from that remote, with or without credentials. "Never" reads cold. Cost: one exception to the exception, and a behavior change if an explicit git read refusal exists today and lets anonymous fetch through.
-   - **B. `false` stops only credentialed reads.** The anonymous attempt stays outside policy everywhere, since it carries no authority. Cost: a line that says "never read" and still lets the broker fetch.
-
-   With no line written, the anonymous fetch is unchanged under either option.
-
-   <!-- vantage: question id=OQ-SBP1 leaning="A. false is the only way to say never (OQ-GW8); a refusal that still fetches is a surprise." -->
-
-   _Leaning:_ **A.** `false` is "the only way to say never" ([OQ-GW8](github-write-scopes.md#OQ-GW8)); a refusal that still fetches is a surprise.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
 Dates are the date each item was recorded in this document. Owner rulings are restated from the task brief and the evidence packet, not quoted.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| <a id="OQ-SBP1"></a>[OQ-SBP1](#OQ-SBP1) | **Owner's ruling: B.** Never block public Git fetches; a read denial withholds host credentials and leaves the request sent anonymously, as without a valid credential. Applies to public Git fetch/import, not arbitrary commands or anonymous writes. Owner: *"no, never block public fetch ... blocking not allowing for us just means let the request happen exactly as it would if it didn't have a valid credential ... sent without the credentials."* | 2026-11-17 | [§9.1](#91-public-git-fetches-and-imports) | baseline anonymous path retained; scoped policy unbuilt |
 | <a id="SBP-D1"></a>SBP-D1 | **Owner's ruling:** unconfigured access stays refused; selecting a pack grants no execution authority | 2026-11-17 | [§2.1](#21-the-four-operation-brokers), [§3.3](#33-how-the-two-layers-combine) | shipped floor, kept |
 | <a id="SBP-D2"></a>SBP-D2 | **Owner's ruling:** every applicable broker uses the same allow / ask / deny, standing permission, scoped read and write, notification, bounded wait, timeout and persistent-request lifecycle. It is a shared broker contract, not an AWS mechanism; resource types differ per source | 2026-11-17 | [§3](#3-the-policy-model-proposed), [§6](#6-one-lifecycle-for-every-broker-proposed) | no |
 | <a id="SBP-D3"></a>SBP-D3 | **Owner's ruling:** scoped reads are universal. This supersedes write-only scope expression: [GW-D8](github-write-scopes.md#GW-D8) and the "a scoped ceiling lists write capabilities" bound of [GW-D80](github-write-scopes.md#GW-D80). Existing explicit broad grants and shipped defaults keep their meaning; nothing becomes ask-by-default | 2026-11-17 | [§3.4](#34-existing-broad-grants), [§10](#10-compatibility) | no |

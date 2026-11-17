@@ -46,12 +46,13 @@ needs a ruling or a Mac sits in the others.
      its nested two-jail replay test.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
    - [Scoped broker policy evidence closure](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on) — close its source-evidence gaps before a build plan,
-     because one shared operation policy must precede source-specific repairs; the anonymous Git choice is routed
-     below. Its [companion seed](../design/scoped-broker-policy-plan.md) is not a build hand-off.
-   - [Managed MCP sign-in](../design/managed-mcp-sign-in.md) — close callback routing, licence/provenance and
-     bundle-delivery capability before a build plan, because ordinary managed-agent sign-in must actually work
-     before capture and delivery can complete it. Its [companion seed](../design/managed-mcp-sign-in-plan.md) holds
-     only material surfaced during design.
+     because one shared operation policy must precede source-specific repairs. [Public Git fetching](../design/scoped-broker-policy.md#91-public-git-fetches-and-imports)
+     remains anonymous when host credentials are denied; fact-read hard-deny closure still precedes planning.
+     Its [companion seed](../design/scoped-broker-policy-plan.md) is not a build hand-off.
+   - [Managed MCP sign-in](../design/managed-mcp-sign-in.md) — complete its [companion seed](../design/managed-mcp-sign-in-plan.md)
+     against the tree before implementation, because ordinary managed-agent sign-in, capture and delivery need
+     one coherent hand-off. The synthetic gate precedes landing; native/rootless/Mac/provider witnesses remain
+     separate verification owed afterward.
 
 3. Smaller builds no ruling holds:
    - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)
@@ -83,11 +84,7 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    refresh replaces yours; and [a leftover `mcp-adapter.json` at the host](../reference/mcp-configuration.md#OQ-MC2),
    which host apply never deletes and pi keeps loading, with [OQ-MC1](../reference/mcp-configuration.md#OQ-MC1).
 
-3. [Whether an explicit Git read refusal also stops anonymous public fetch](../design/scoped-broker-policy.md#OQ-SBP1)
-   — parked before the scoped Git behavior is planned: the card shows the compatibility choice, and its ruling
-   lets the planner specify that path without guessing.
-
-   Calls filed 2026-11-12, each holding a build: [OQ-GW16](../design/github-write-scopes.md#OQ-GW16), on REST deletes,
+3. Calls filed 2026-11-12, each holding a build: [OQ-GW16](../design/github-write-scopes.md#OQ-GW16), on REST deletes,
    holds [the GitHub work-kinds plan](../design/github-write-scopes-plan.md)'s Task 2 (Task 1 is built);
    [OQ-SP6](../design/per-session-profiles.md#OQ-SP6), where codex's session homes live, holds the rest of the codex
    unlock of per-session profiles, whose model-menu half is built; and [OQ-KH1](../design/claude-keychain-at-host.md#OQ-KH1)

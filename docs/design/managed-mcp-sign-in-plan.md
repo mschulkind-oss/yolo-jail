@@ -2,7 +2,7 @@
 title: "Managed MCP sign-in — companion seed"
 status: draft
 stage: SKETCH
-next: "Close the design's engineering items before acceptance; only then may a planner complete this seed against the tree"
+next: "A planner completes this seed against the current tree and accepted MCP design; no implementer starts from SKETCH"
 depends-on:
   - managed-mcp-sign-in.md
   - mcp-auth-sharing.md
@@ -15,11 +15,11 @@ tags: [plan, mcp, oauth, seed]
 **Status:** 2026-11-17 — seeded during design; incomplete and not a build hand-off.
 **Design:** [`managed-mcp-sign-in.md`](managed-mcp-sign-in.md). The design wins on behavior; the tree wins on fact; this seed is not implementation authority.
 
-Nothing is built from this seed. A planner may complete it only after the design is accepted and its engineering items are closed; the absence of owner questions is not acceptance.
+Nothing is built from this seed. The design is accepted and its engineering items are closed; a planner must now read the current tree and complete this seed before implementation. Native witnesses remain verification owed, not evidence supplied by the design.
 
 ## Material surfaced during design
 
-- [MS-E1, MS-E2 and MS-E3](managed-mcp-sign-in.md#open-items-engineering-none-is-an-owner-question) hold completion: callback mechanism, upstream redistribution licence/provenance and actual bundle-delivery capability. No mechanism or licence conclusion is chosen here.
+- [Engineering closure](managed-mcp-sign-in.md#engineering-closure) settles MS-E1–MS-E3: pinned MIT integration pack, exclusive IPv4 bridge-podman callback ownership with native paste fallback, and a separate sign-in bundle inventory. The design, not this seed, owns those decisions.
 - The [existing sharing plan](mcp-auth-sharing-plan.md) retains its separate native-origin and backend witnesses; this seed does not waive or duplicate them.
 - Header output form and helper budget surfaced in the [delivery contract](managed-mcp-sign-in.md#6-delivery-choice-including-the-source-agent). Status must use the [zero-effect reader contract](managed-mcp-sign-in.md#7-token-free-status), not a token-bearing header probe.
 - The design names [synthetic acceptance scenarios and separate native witnesses](managed-mcp-sign-in.md#12-acceptance-scenarios). Permanent synthetic reproductions precede behavior fixes. Native agent, installer, credential-store and provider checks are not authorized by this publication.

@@ -22,4 +22,6 @@ See the [sharing design](../../docs/design/mcp-auth-sharing.md) and
 [plan](../../docs/design/mcp-auth-sharing-plan.md) for shipped slices and gates.
 [Managed MCP sign-in](../../docs/design/managed-mcp-sign-in.md) owns the unbuilt first-login,
 callback, delivery-repair, status and recovery revision. It uses ordinary sign-in inside a
-managed agent, not a third yolo login ceremony, and remains under review pending engineering closure.
+managed agent, not a third yolo login ceremony. Its engineering closure is accepted but unbuilt; the
+companion plan remains a seed. Synthetic verification precedes landing, while native/rootless/Mac/provider
+witnesses remain validation still owed.

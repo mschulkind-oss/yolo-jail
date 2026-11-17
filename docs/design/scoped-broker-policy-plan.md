@@ -18,7 +18,7 @@ Nothing is built from this seed. A planner may complete it only after the design
 
 ## Material surfaced during design
 
-- Anonymous Git fetch behavior is blocked on [OQ-SBP1](scoped-broker-policy.md#OQ-SBP1); do not assume the recommendation is a ruling.
+- [OQ-SBP1](scoped-broker-policy.md#decision-ledger) is settled: credential denial leaves public Git fetch/import anonymous and never blocks it. It authorizes no anonymous write or arbitrary unclassified command. The remaining broker engineering closure still holds plan completion.
 - The design's [unverified claims](scoped-broker-policy.md#13-unverified-claims-this-design-relies-on) require bounded source tracing and synthetic reproductions before they become build preconditions. Permanent reproductions precede behavior fixes.
 - Preserve the [compatibility contract](scoped-broker-policy.md#10-compatibility), including historical broad grants and approval digests. The classifier and launch-input version notes surfaced here; their exact mechanics await the planner.
 - Config spelling, CLI verbs and the bounded generic in-call hold remain planner work under the design's behavioral constraints; this seed chooses none of them.
