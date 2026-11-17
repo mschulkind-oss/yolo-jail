@@ -510,10 +510,10 @@ func loadReadableWorkspaceConfigOverWithReadInput(workspace string, strict bool,
 	return loadReadableWorkspaceConfigOverWithInputUse(workspace, strict, warn, record, base, baseNode, input, nil)
 }
 
-func loadReadableWorkspaceConfigOverWithInputUse(workspace string, strict bool, warn Warn, record bool, base *jsonx.OrderedMap, baseNode *srcNode, input *ConfigReadInput, inputUsed *bool) (*jsonx.OrderedMap, *srcNode, error) {
+func loadReadableWorkspaceConfigOverWithInputUse(workspace string, strict bool, warn Warn, _ bool, base *jsonx.OrderedMap, baseNode *srcNode, input *ConfigReadInput, inputUsed *bool) (*jsonx.OrderedMap, *srcNode, error) {
 	// Even value-only readers need workspace writers for a dual root-spelling refusal.
 	// Attach them during the existing parse/merge; value-only callers discard the tree.
-	record = true
+	record := true
 	if workspace == "" {
 		workspace = cwd()
 	}
