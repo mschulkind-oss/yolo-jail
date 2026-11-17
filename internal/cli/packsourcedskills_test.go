@@ -73,6 +73,18 @@ func TestPackMainSourcedSkillWritersAndPureReaders(t *testing.T) {
 	if _, err := os.Lstat(events); !os.IsNotExist(err) {
 		t.Fatalf("offline lint transported: %v", err)
 	}
+	originalConfig, _ := os.ReadFile(cfg)
+	writeFile(t, cfg, fmt.Sprintf(`{"packs":[{"name":"first","source":%q,"only":["pack.toml"]},{"name":"second","source":%q,"only":["pack.toml"]}]}`, "file://"+first, "file://"+second))
+	rc, report = call("install")
+	if rc != 0 || !strings.Contains(report, "WITHHELD") {
+		t.Fatalf("legacy only: %d %s", rc, report)
+	}
+	if _, err := os.Lstat(events); !os.IsNotExist(err) {
+		t.Fatalf("legacy only transported: %v", err)
+	}
+	if err := os.WriteFile(cfg, originalConfig, 0644); err != nil {
+		t.Fatal(err)
+	}
 	rc, report = call("lint", "--online", first)
 	if rc != 0 || !strings.Contains(report, "payload deployment") {
 		t.Fatalf("online sourced lint: %d %s", rc, report)

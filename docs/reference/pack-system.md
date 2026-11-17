@@ -1366,6 +1366,12 @@ before the upgrade keeps the pack tree it booted with, and its next attach offer
 
 #### `skills`
 
+A `[[skills]]` content row can instead declare a Git `source`, optional `as` and `license`,
+registering only its selected directory while sharing a whole-repository supporting payload.
+It is not a pack/plugin discovery source; ordinary `from` and destination rows stay unchanged.
+The transaction, reader states, bounds and evidence limits are in
+[Git-sourced skill registrations](git-sourced-skills.md).
+
 A skills tree merged into an agent's skills dir. Layer order is the workspace < built-in < pack
 < the local pack (`~/.config/yolo-jail/local`, appended last); the workspace layer exists in a
 jail only and never shadows ([below](#project_dirs)). Two packs claiming one unnamespaced name at

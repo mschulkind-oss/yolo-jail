@@ -15,9 +15,24 @@ import (
 )
 
 func configuredSourcedSkillProjection(write, force bool, pr richtext.Printer) ([]*packload.Pack, int) {
+	provenEmpty := true
 	selected := selectHostPacks(func(e config.PackEntry) (*packload.Pack, error) {
-		return resolveConfiguredPackWithSpec(e, hostPackResolveSpec(true))
+		p, err := resolveConfiguredPackWithSpec(e, hostPackResolveSpec(true))
+		if err == nil {
+			if len(p.SourcedSkillRows()) > 0 {
+				provenEmpty = false
+			}
+		} else {
+			has, proofErr := selectedEntryDeclaresSourced(e)
+			if has || proofErr != nil {
+				provenEmpty = false
+			}
+		}
+		return p, err
 	}, config.UserScopeSelection())
+	if provenEmpty && selected.loadErr == nil && len(selected.entryProblems) == 0 && selected.closureErr == nil {
+		return selected.packs, 0
+	}
 	if problems := selected.problems(); len(problems) != 0 {
 		for _, row := range problems {
 			pr.Printf("  sourced skills selection incomplete: %s — correct the named pack or remove it with yolo pack remove", richtext.Escape(row.Reason))

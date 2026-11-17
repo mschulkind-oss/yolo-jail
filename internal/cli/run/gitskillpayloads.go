@@ -22,6 +22,13 @@ func skillPayloadReadingRoot(cname, rt, hostRoot string) string {
 // Called only after the final attach decision and fresh config approval. Earlier
 // staging is a validating reader and cannot advance a Git skill pair or stamp.
 func (o *Options) prepareFreshSkillPayloads(cname, rt string, staged stagedPacks) bool {
+	hasRows := false
+	for _, p := range staged.packs {
+		hasRows = hasRows || len(p.SourcedSkillRows()) > 0
+	}
+	if !hasRows {
+		return true
+	}
 	results := packload.ResolveSelectedSkillPayloads(staged.packs, launchStore(), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath()), Force: o.Update}, true)
 	for _, result := range results {
 		if result.Warning != "" {
