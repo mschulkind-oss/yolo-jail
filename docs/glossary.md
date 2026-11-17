@@ -17,6 +17,13 @@ Not a general port publication or an outbound permission.
 
 **Origin:** Coined in [managed MCP sign-in](design/managed-mcp-sign-in.md#2-vocabulary), 2026-11-17.
 
+## Candidate cells
+
+The finite set of cells an operation may turn out to be before a provider fact is read. Not permission to
+run an unresolved refused candidate: no exact or timed answer overrides a hard deny.
+
+**Origin:** Coined in [scoped broker policy](design/scoped-broker-policy.md#41-fact-reads), 2026-11-17.
+
 ## Capturable
 
 A sign-in point is capturable in a launch when the agent writes sign-ins to a source store the broker adopts
@@ -27,8 +34,9 @@ are outside the stated capture support.
 
 ## Execution context
 
-The host-side environment a brokered call runs in; for AWS, which host profile. Not permission or resource
-admission, and not a context the workspace or agent may select.
+The host-side environment a brokered call runs in, with fields and set/unset rules owned by the source's
+declaration; for AWS, which host profile. Not permission, resource admission or a verified account binding,
+and not a context the workspace or agent may select.
 
 **Origin:** Defined in [scoped broker policy](design/scoped-broker-policy.md#7-execution-contexts-and-routing-proposed), 2026-11-17.
 
@@ -37,6 +45,14 @@ admission, and not a context the workspace or agent may select.
 A sign-in point yolo delivered through a selected pack. Not an externally installed, unmanaged bundle.
 
 **Origin:** Coined in [managed MCP sign-in](design/managed-mcp-sign-in.md#2-vocabulary), 2026-11-17.
+
+## On-switch
+
+The shipped source-scope read grant without which an operation broker refuses every call, writes included.
+The proposed independent read/write policy retires it only through a marked gate approval; a legacy record
+keeps its old behavior. Not a new permission switch.
+
+**Origin:** Coined in [scoped broker policy](design/scoped-broker-policy.md#37-read-and-write-are-independent), 2026-11-17.
 
 ## Outcome note
 

@@ -19,10 +19,12 @@ working-set item's comments and edits run, its approval asks. The cell tables in
 table, the verbs, the hand-over request and Git lines under a repository name are not.
 [Current support](#current-support-and-the-repository-only-first-slice) has the binding's detail.
 
-**Policy boundary (2026-11-17):** [Scoped broker policy](scoped-broker-policy.md) owns the proposed shared
-read/write policy. Its [SBP-D3](scoped-broker-policy.md#SBP-D3) records the owner's universal scoped-read ruling,
-superseding [GW-D8](#GW-D8) and only the WRITE-only read bound of [GW-D80](#GW-D80). The refusal below remains
-the shipped baseline, not the target contract; the revision is unbuilt.
+**Policy boundary (2026-11-17):** [Scoped broker policy](scoped-broker-policy.md) owns the accepted, unbuilt
+shared read/write policy. Its [SBP-D3](scoped-broker-policy.md#SBP-D3) records the owner's universal scoped-read
+ruling, superseding [GW-D8](#GW-D8) and only the WRITE-only read bound of [GW-D80](#GW-D80).
+[Fact reads](scoped-broker-policy.md#41-fact-reads) use candidate cells and never allow an exact or timed answer
+to pass a hard deny; [one table selector](scoped-broker-policy.md#SBP-D22) serves every effect boundary.
+The refusal below remains the shipped baseline, not the target contract; the revision is unbuilt.
 
 The GitHub broker runs some of the agent's `gh` writes unasked and holds the rest for a human.
 Where that line sits is four small tables: two files, two sets of items.

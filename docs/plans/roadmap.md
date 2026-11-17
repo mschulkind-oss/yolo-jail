@@ -45,10 +45,12 @@ needs a ruling or a Mac sits in the others.
      publication path is built with no client listed, so publication stays off; audit a real HTTP client, then run
      its nested two-jail replay test.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
-   - [Scoped broker policy evidence closure](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on) — close its source-evidence gaps before a build plan,
-     because one shared operation policy must precede source-specific repairs. [Public Git fetching](../design/scoped-broker-policy.md#91-public-git-fetches-and-imports)
-     remains anonymous when host credentials are denied; fact-read hard-deny closure still precedes planning.
-     Its [companion seed](../design/scoped-broker-policy-plan.md) is not a build hand-off.
+   - [Scoped broker policy](../design/scoped-broker-policy.md) — complete its [companion seed](../design/scoped-broker-policy-plan.md)
+     against the current tree before implementation, because one shared operation policy must precede
+     source-specific repairs. Fable 5.2's closure and corrective overlay are accepted; [public Git fetching](../design/scoped-broker-policy.md#91-git-fetch-paths)
+     remains anonymous when host credentials are denied, and [fact-read approvals](../design/scoped-broker-policy.md#41-fact-reads)
+     never pass a hard deny. Confirm [V1–V4](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
+     with their fixed fallbacks in the plan's first task. The seed remains SKETCH, not a build hand-off.
    - [Managed MCP sign-in](../design/managed-mcp-sign-in.md) — complete its [companion seed](../design/managed-mcp-sign-in-plan.md)
      against the tree before implementation, because ordinary managed-agent sign-in, capture and delivery need
      one coherent hand-off. The synthetic gate precedes landing; native/rootless/Mac/provider witnesses remain
