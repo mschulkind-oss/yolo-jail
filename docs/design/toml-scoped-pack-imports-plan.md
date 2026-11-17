@@ -2,7 +2,7 @@
 title: "Build hand-off for direct user-level TOML pack scoping"
 status: accepted
 stage: DECIDED
-next: "Build Task 1's modern TOML producer and its caller regression"
+next: "Continue authorized implementation under the amended inspection contract and its caller regressions"
 depends-on:
   - toml-scoped-pack-imports.md
   - ../research/toml-scoped-pack-imports.md
@@ -12,9 +12,10 @@ tags: [packs, skills, toml, implementation-plan]
 # Build hand-off for direct user-level TOML pack scoping
 
 **Status:** 2026-11-17. Written against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`.
-The current grammar gap and caller seams were confirmed from source. Nothing implemented.
-The author carrier closure is accepted and finite carrier facts are confirmed. This is a complete
-hand-off for the full direct user-level feature, not evidence of implementation.
+The grammar gap and caller seams were confirmed from source at that baseline. The feature remains
+unbuilt; no completed implementation is claimed. The carrier and inspection contracts are accepted.
+This remains the complete hand-off for the authorized ongoing implementation of the full direct
+user-level feature, with the amended inspection contract, not evidence of completed code.
 
 **Behavioral authority:** [the design](toml-scoped-pack-imports.md).
 **Evidence:** [the source survey](../research/toml-scoped-pack-imports.md).
@@ -128,8 +129,8 @@ boundary; exact helper factoring is cheap and delegated.
 | Directory row | Resolver-produced typed ordinary child only; request carries root/governor/child evidence. Marker absent accepted, present regular fully validated, any other direct marker entry refuses. No synthesized marker. Internal requests/records explicit kind/state; no entry-authored knob. |
 | Marker row | Raw and manifest sourced always direct regular marker-required; manifest sourced non-root/explicit-ref validation unchanged. Existing whole-pack sourced rows retain old compatibility. |
 | License | Own conventional license, otherwise root license; conflict/unsafe/oversized refuses, none recorded. Direct config adds no license path. Per-row source/pin/directory/origin provenance. |
-| Inspection | One printer: candidates/selected/excluded/names/carrier/license/provenance and omitted-kind counts. Markerless directory is folder, delivered but not discoverable, excluded from skill counts; existing lint finding. Intentional omission is not warning. |
-| Pure reads | No fetch on why/edit-validation/offline lint/footprint/explain/check/attach. Syntax always checked; cached/local candidate errors refuse; never-fetched selection unverified, next launch resolves, not failure. |
+| Inspection | One printer for configured explain, check and add dry-run: candidates/selected/excluded/names/kind/marker state/carrier/source/license/origin and omitted-kind counts. Markerless directory is folder, delivered but not discoverable, excluded from skill counts. Explain shows every same-handle tuple as its own group, never first match; scoped groups never touch a staged tree. Author lint and footprint keep existing arguments and meanings and never show configured scope. Intentional omission is not warning. |
+| Pure reads | No fetch and no store write on why/edit-validation/add dry-run/explain/check/attach. Syntax always checked; cached/local candidate errors refuse; never-fetched or not-locally-readable selection is unverified with authored facts only, next launch resolves, not failure. No scoped footprint counts. |
 | Advanced-pin failure | Lock-first/no rollback. New commit, failing selector and current candidates in error, prior commit only offline. Publish nothing invalid/partial, never use old selection; running tree unchanged. Edit selection or known-good ref remedies; unchanged fresh read repeats refusal. |
 | Record | No original scoped root in discovery; selected rows outside discovery, one recorded effective projection. Row kind/state/governor persisted/versioned. Source-free replay verifies rows, marker state and eligibility; missing/duplicate/unknown/forged/downgrade refuse. No re-enumeration. |
 | CLI/edit | Add handle or git mutually exclusive; exact flags subdir/skills-dir/only/exclude/bare/namespace/dry-run. Table only when options require it. Remove derives handle and deletes one tuple, ambiguity refuses with roots/index/origin. Nested generic edits/why support provenance. No writer emits empty/default/legacy keys. |
@@ -158,6 +159,25 @@ and entrypoint. Never reload a scoped original manifest to recover rows.
 Syntax fails offline; candidate mismatch on available content fails before effects. Effectful
 stage/payload publication consumes only a completely validated per-entry plan. Existing shared
 payload concurrency/locks remain the writer authority. No selection-dependent shared object.
+
+**Inspection inputs and evidence:** author lint takes a directory; footprint takes a shipped name,
+a local author directory or no argument for the shipped set. Preserve their existing argument
+recognition, output and exit behavior; add no configured-handle dispatch or shadowing and no new
+explain/lint/footprint flag. These CLI shapes were writer-reported to the clarification author,
+not source-read by that author. Publication corroborated the finite [CLI callers](../../internal/cli/pack.go)
+and [footprint callee](../../internal/packload/footprint.go); this is source proof, not a runtime witness.
+
+**Must:** for a scoped entry or several entries, each explain group header gives `packs[N]`,
+origin file, `subdir`, `skills.dir` and whole/typed/raw mode in configured order. Whole groups use the existing explain body; a single
+unscoped entry retains baseline output. Scoped groups branch on projection before staged-tree
+access. Use [the three scoped inspection states](toml-scoped-pack-imports.md#editing-and-inspect-surfaces):
+verified local/shipped/already-readable cached pin with its basis; unverified authored facts only;
+readable invalid selection with the resolver's refusal text. No fetch, mirror, stamp, lock,
+checkout materialization, payload publication or staged copy for scoped inspection. Source,
+carrier, governed-source eligibility and license facts must come from the actual read-only plan.
+Supporting-data omissions are printed only if that plan supplies them; otherwise “determined at
+publication”. No candidates, rows, counts, license or omitted-kind counts in an unverified group.
+An unverified group succeeds; a refused group uses the existing failure convention.
 
 ## Checkable execution units
 
@@ -336,7 +356,8 @@ go test -short ./internal/cli -run '^TestDirectScopedTypedFolderDoesNotSynthesiz
 **Predicted red after 2:** selected staged directory registration is absent, or existing marker-required
 carrier refuses. If Task 2 already implemented this carrier prematurely, stop and report the unexpected
 green rather than weakening the assertion. Repeat through a fake named Git source and direct Git
-URL rewritten by a fixture Git executable, marker-bearing sibling, raw root, and lint/inspect.
+URL rewritten by a fixture Git executable, marker-bearing sibling, raw root, author-directory
+lint controls and configured inspection.
 The direct fake URL has owner/repository shape; do not use a deep absolute file URL that the
 modern direct parser correctly rejects. Named Git sources may use local file transport.
 
@@ -524,7 +545,8 @@ go test -short ./internal/cli/run -run '^TestDirectScopedRefreshFailureKeepsAdva
 **Change:** base-source/ref refresh dedup, resolved-checkout-root split, selection diagnostic before
 fresh publication. Keep shared store locking/concurrency and default-head pinning unchanged.
 **Pure-reader controls:** fake Git executable records local object reads and refuses transport;
-run config edit validation, why, offline lint, footprint, explain/check and attach. Assert no fetch,
+run config edit validation, why, explain/check and attach. Run author lint and footprint only as
+unchanged-output controls beside a scoped user config, not as scoped readers. Assert no fetch,
 clone, refresh stamp, mirror creation or lock write. Missing content reports unverified; cached
 stale selectors refuse consistently. Exercise host apply observe versus controlled fixture writer.
 **Expand:** A-30/A-31 repeat refusal without config change, selector edit recovery and explicit known-good
@@ -536,7 +558,8 @@ full commit recovery; new commit/selector/candidates in message, previous pin on
 ### Task 6 — table-aware editing, remove controls and shared inspect
 
 After 5. **Settled:** add writes tables only for table options; handle/URL exclusivity; remove
-exactly one tuple, refuse ambiguity; generic paths/why retain origin; all readers share printer.
+exactly one tuple, refuse ambiguity; generic paths/why retain origin; configured explain, check
+and add dry-run share the printer; explain groups every same-handle tuple.
 
 **Tests first:** exact caller test in the CLI package using existing fake-user helpers:
 
@@ -574,6 +597,14 @@ and effective source definitions; authoring target origins retained. ApplyTarget
 TOML tables and nested edits; help lists exact flags. Remove ambiguity lists tuple paths and needs
 explicit roots; never remove several entries or the wrong fragment. Shared projection printer
 shows rows, omitted counts and unverified state without warning for intentional omission.
+**Inspection caller controls:** through the real command entry, cover one scoped group with no
+staged-tree dereference; every tuple of one legal same-handle multi-entry fixture; single unscoped
+baseline output; never-fetched explain/check authored facts only; cached stale-selector refusal;
+transport-refusing Git and store snapshots proving no inspection writes; author lint/footprint
+unchanged-output controls, including a handle-spelled argument. The multi-entry fixture keeps
+existing distinct-root, authored-ref, physical identity and whole/scoped conflict rules. No test
+may relax identity proof to create it. Preserve the API-mismatch lint/footprint red receipts as
+such, not as historical behavior bugs.
 **Deletion controls:** permanent tests delete one of two raw entries, preserve the other/comment
 bytes; ambiguous removal writes nothing; wrong tuple writes nothing; fragment removal uses its
 actual author; selector removal leaving an empty table/list refuses transactionally. Round-trip
@@ -586,7 +617,7 @@ add→load→projection→why→edit→remove and direct Git flags. In-jail writ
 ### Task 7 — implemented documentation, permanent controls and landing evidence
 
 After 6. **Settled:** only verified code warrants implemented docs/stage; no agent installs or
-provider calls. Acceptance rows A-01–A-31 are all required, not optional pragmatic scope.
+provider calls. Acceptance rows A-01–A-33 are all required, not optional pragmatic scope.
 
 **Tests first:** exact integration caller regression below uses the harness's isolated home/image
 links, then replaces only its owned legacy config with an empty modern main file and a user fragment.
@@ -705,6 +736,7 @@ witnesses. Never claim all setups verified from Linux fixtures.
 | A-18/A-19/A-26/A-27 | Record→run/jail loader + composer after source/cache deletion; forged/downgraded kind/state refusal, host parity. |
 | A-23–A-25/A-28/A-29 | Typed marker/markerless parity, marker-required other modes, nonregular marker refusal, inert data and unchanged legacy. |
 | A-30/A-31 | Real refresh→resolution: advanced lock/no publication, unchanged live tree, repeat refusal and both tested recoveries. |
+| A-32/A-33 | Real explain/check entry: every legal same-handle tuple, local/cached/unverified/refused states without writes, no staged-tree access, single unscoped baseline; unchanged author lint/footprint input/output controls. |
 
 Permanent controls must go red if production ignores selection, clears only modern withholding,
 retains original `needs`, re-enumerates on reload, skips the common registration caller, keys diff

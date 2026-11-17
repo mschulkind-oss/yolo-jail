@@ -11,8 +11,8 @@ tags: [packs, skills, toml, design]
 # Direct user-level scoped pack imports in TOML
 
 **Status:** 2026-11-17. Behavior authored against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`;
-source seams and carrier facts rechecked at that commit. Nothing implemented. The behavior
-and typed-directory carrier closure are accepted; no owner or engineering decision remains.
+source seams and carrier facts rechecked at that commit. The feature remains unbuilt. The behavior,
+typed-directory carrier closure and inspection contract are accepted; no owner or engineering decision remains.
 
 > **In short.** A user-level pack entry can deliver selected skills across projects without
 > a wrapper pack, while every unselected contribution stays inert.
@@ -22,7 +22,7 @@ file filtering can retain executable declarations or accidentally withhold reque
 
 **Start at:** [the syntax](#syntax), then [projection semantics](#projection-semantics).
 
-**Needs your ruling:** None. The remaining work is author contract closure, not owner policy.
+**Needs your ruling:** None.
 
 **Reads with:** [the research](../research/toml-scoped-pack-imports.md) (verified baseline facts),
 [the companion plan](toml-scoped-pack-imports-plan.md) (complete build hand-off).
@@ -200,8 +200,10 @@ identity is not a selection identity. Ordinary entries without new keys retain b
 | Local roots | Resolve symlinks and require selected root to remain inside source root. Selected contents retain existing user-local link trust; this does not alter workspace link rules. |
 | Registration | Independently enforce namespace and core-owned name constraints. |
 
-Only existing host launch-shaped refresh surfaces perform transport. Pure readers—why,
-editing validation, offline lint, check, footprint, explain and attach hydration—never fetch.
+Only existing host launch-shaped refresh surfaces perform transport. Configured pure readers—why,
+editing validation, add dry-run, explain, check and attach hydration—never fetch, and inspect
+only content that is already locally readable, without writing anything. Author-directory lint
+and footprint keep their existing inputs and behavior; they are not configured-scope readers.
 Validate syntax everywhere, candidate matching wherever pinned content is already local;
 otherwise report “selection not yet verified; resolved at next launch” without failure.
 At refresh, validate before publishing any selected row and join the one grouped payload call.
@@ -279,7 +281,7 @@ programs and hooks never enter a discovery root. The effective record contains:
 Reload and attach consume the running record and verify every row. Missing, duplicate and
 unrecorded rows refuse; never re-enumerate or consult newer host cache/source state. Adoption
 works after deleting original source, mirror, checkout and payload cache. This does not promise
-that every host comparison/preflight is source-free. Host apply, lint, explain, footprint, check
+that every host comparison/preflight is source-free. Host apply, explain, check, add dry-run
 and launch use one resolver, not independently reconstructed subsets. Rebuild embedded metadata
 bindings for the effective declaration rather than retaining an unprojected binding.
 
@@ -308,12 +310,43 @@ An edit leaving empty lists/tables refuses. `config why` reports fragment and va
 and selector paths. Writers omit default keys, empty lists and legacy spellings; round-trip is
 entry/projection equivalent.
 
-Extend the shared sourced-skill projection printer for explain, lint, footprint and check:
-mode/roots, candidates/selected/excluded names and registration names; row carrier/license/
-provenance; omitted contribution counts. Omission is information, not a warning. Typed missing
-markers retain ordinary lint reporting. Label a markerless row “folder, no SKILL.md, delivered but
-not a discoverable skill” and exclude it from all skill counts; no surface calls it a skill.
-An unverified source says so instead of claiming delivery.
+Extend the shared sourced-skill projection printer for configured explain, check and add dry-run:
+mode/roots, candidates/selected/excluded names and registration names; row kind, marker state,
+carrier, source root/directory/commit, governed source for directory rows, license and origin;
+omitted contribution counts. Omission is information, not a warning. Label a markerless row
+“folder, no SKILL.md, delivered but not a discoverable skill” and exclude it from all skill
+counts; no surface calls it a skill.
+
+Author-directory lint and footprint keep their existing arguments and meanings. They report the
+pack as authored, including lint's existing missing-marker finding, and never a configured
+scope. No command gains handle routing that could shadow an author directory or shipped name.
+
+Explain on a handle reports every entry sharing it, one group per import tuple in `packs`
+order, never the first match alone. A single unscoped entry prints as before. A scoped group
+never needs a staged tree.
+
+Each scoped group is verified, unverified or refused. Verified names its basis: local directory,
+shipped, or cached commit. Unverified prints authored facts and “selection not yet verified;
+resolved at next launch”, with no candidates, rows or counts. Inspection writes nothing: no
+fetch, mirror, stamp, lock, checkout, payload or staged copy. No surface prints footprint counts
+for a scoped import.
+
+For a scoped entry or several entries, each group header gives `packs[N]`, the origin file,
+`subdir`, `skills.dir` and mode (whole, typed or raw).
+A whole-pack group prints the existing explain body; a scoped group branches on the projection
+before touching a staged tree. Success and refusal retain explain's existing exit convention;
+an unverified group does not fail. Check iterates configured entries and uses the same resolver
+and printer: an unverified entry is not a problem, a refused entry is.
+
+| State | Read-only basis | Report |
+| :--- | :--- | :--- |
+| Verified | Local source in place, shipped pack, or a pin already readable in the local store without writing | Full projection report, naming “inspected: local directory”, “inspected: shipped” or “inspected: cached commit `<sha>`”. |
+| Unverified | No pin, or reading pinned content would require creating anything | Authored mode, roots, selectors, naming and origin only, then “selection not yet verified; resolved at next launch”. No candidates, rows, counts, license or omitted-kind counts. |
+| Refused | Content is readable but selection is invalid | The same refusal text the resolver gives elsewhere, within the group. |
+
+Source, carrier, governed-source eligibility and license facts come only from the actual read-only
+plan, not inferred delivery. Report supporting-data omissions where that plan supplies them;
+otherwise say “determined at publication”, never claim an unread omission.
 
 ## Compatibility, alternatives and costs
 
@@ -358,10 +391,10 @@ closure, composition, staging and reload; tests of isolated filtering alone are 
 | A-17 | Shared commit, differing marker/directory selections, selection-only change | One shared payload unchanged, no second cache or fetch; selection change requires restart. |
 | A-18 | Delete source/cache before reload/attach; tamper rows | Running view succeeds; missing/duplicate/extra rows refuse. |
 | A-19 | Host apply parity | Exact same recorded names, rows and licenses as jail. |
-| A-20 | Unfetched scoped source on pure readers | Not-yet-verified, no transport or failure. |
+| A-20 | Unfetched scoped source on explain, check, why and edit validation | Not-yet-verified with authored facts only, no candidates or counts, no transport, no store write, no failure. |
 | A-21 | Own/root/absent/conflicting license | Correct recorded result or refusal. |
 | A-22 | Legacy filtered migration | Retained file, refusal, modern manual spelling. |
-| A-23 | Mixed typed marker/markerless folders on Git/local carriers | Both delivered, markerless folder has no synthesized marker, correct inspect counts/lint, parity with whole pack. |
+| A-23 | Mixed typed marker/markerless folders on Git/local carriers | Both delivered, markerless folder has no synthesized marker, correct explain/check label and counts, existing author-directory lint finding on the same pack, parity with whole pack. |
 | A-24 | Markerless raw directory/child and manifest sourced row | Refusal or no-match; none produces directory kind. |
 | A-25 | Typed marker is symlink or directory | Refuse, never treat as absent. |
 | A-26 | Forged/removed/unknown row kind, altered marker state, raw or sourced directory-kind row, marker changed after stage, previous-schema reader | Hydration rejects all, no discovery/default/conversion. |
@@ -370,6 +403,11 @@ closure, composition, staging and reload; tests of isolated filtering alone are 
 | A-29 | Legacy inclusion and legacy whole markerless directory beside modern rows | Old behavior/withholding unchanged; legacy never produces directory kind. |
 | A-30 | Stale selector after ref advance with older running jail | Advanced pin, fresh refusal/no publication, new commit/selector/candidates in error, running tree unchanged and attach works. |
 | A-31 | Edit selection or set known-good ref; unchanged repeat | Both remedies deliver exact rows without widening; unchanged launch repeats refusal. |
+| A-32 | Explain and check with one handle carrying two raw directories and a relocated whole pack; one group cached, one never fetched | Every tuple reported in order with its index and roots; none dropped; cached group names its commit; unfetched group is unverified; no panic; a single unscoped entry prints as at baseline. |
+| A-33 | Author lint and footprint with a scoped user config present, including an argument spelled like a configured handle | Output and exit identical to the same run without the scoped config; no configured scope, no handle routing, no scoped counts. |
+
+A-32 uses existing legal import tuples at distinct, nonconflicting roots with the same authored ref.
+It does not relax [tuple, physical-root or whole/scoped conflict rules](#naming-and-identity).
 
 ## Invariants for review
 
@@ -382,6 +420,8 @@ closure, composition, staging and reload; tests of isolated filtering alone are 
 7. Directory kind is resolver-produced only, with no authored or entry-wire knob.
 8. No synthesized marker and no markerless folder reported as a skill.
 9. Failed advanced-pin projection never publishes, widens or reuses prior selection.
+10. Author-directory lint and footprint are unchanged and never resolve configured scope.
+11. Explain never reports fewer import tuples than the handle has, and no surface prints counts it did not read.
 
 ## Confirmed carrier facts
 
@@ -426,7 +466,7 @@ prove no capture/install markers and owned cleanup. No agent execution or provid
 | D-13 | Unselected content never staged in discovery roots | 2026-11-17 | [Recorded delivery](#carriers-and-recorded-delivery) | — |
 | D-14 | No new store/stamp; selection in staged/diff identity | 2026-11-17 | [Identity](#naming-and-identity) | — |
 | D-15 | Tuple import identity; same handle shares ref | 2026-11-17 | [Identity](#naming-and-identity) | — |
-| D-16 | Table-aware add/remove/edit/why; shared inspect printer | 2026-11-17 | [Editing](#editing-and-inspect-surfaces) | — |
+| D-16 | Table-aware add/remove/edit/why; shared printer for configured explain/check/dry-run | 2026-11-17 | [Editing](#editing-and-inspect-surfaces) | — |
 | D-17 | Legacy reader/wire/withholding unchanged | 2026-11-17 | [Compatibility](#compatibility-alternatives-and-costs) | — |
 | D-18 | No legacy filter migration; manual modern rewrite | 2026-11-17 | [Compatibility](#compatibility-alternatives-and-costs) | — |
 | D-19 | Source validation never fetches on pure readers | 2026-11-17 | [Refresh](#paths-and-refresh) | — |
@@ -434,3 +474,4 @@ prove no capture/install markers and owned cleanup. No agent execution or provid
 | D-21 | Typed ordinary directory variant: absent marker accepted, present marker fully validated, none synthesized | 2026-11-17 | [Row kinds](#row-kinds-and-typed-directory-eligibility) | — |
 | D-22 | Resolver-only kind authority; request/record/hydration eligibility and downgrade rejection | 2026-11-17 | [Record validation](#record-validation-and-downgrade) | — |
 | D-23 | Preserve lock-first refresh; invalid new projection refuses/no publication, unchanged running tree, tested recovery | 2026-11-17 | [Refresh](#paths-and-refresh) | — |
+| D-24 | Author lint/footprint unchanged; scoped inspection lives in explain/check; all same-handle tuples shown; side-effect-free cached inspection or honest unverified | 2026-11-17 | [Editing](#editing-and-inspect-surfaces) | — |
