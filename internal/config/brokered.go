@@ -1555,7 +1555,11 @@ func brokeredOutsideProblems(n *srcNode) []string {
 		if w.file.via != "" {
 			how = termsafe.Visible(w.file.via) + ", which leads out of this workspace"
 		}
-		out = append(out, w.String()+": config."+brokeredKey+": written in a file outside this "+
+		key := brokeredKey
+		if len(w.documentSteps) > 0 && w.documentSteps[0].Key == "call_roots" {
+			key = "call_roots"
+		}
+		out = append(out, w.String()+": config."+key+": written in a file outside this "+
 			"workspace, reached through "+how+". A `brokered` key is read only from this workspace's own "+
 			"config files, so an include or a link cannot point its repository scope at another "+
 			"project's list. Move the key into "+WorkspaceConfigName+" or "+WorkspaceLocalConfigName+

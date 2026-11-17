@@ -15,6 +15,12 @@ import (
 
 func TestAWSBrokerCostExplorerRequiresItsOwnRoot(t *testing.T) {
 	fx := newS3BrokerJail(t, `{"packs":["aws"],"allow":{"aws":{"always":["read"]}}}`)
+	if err := os.Remove(filepath.Join(fx.workspace, "yolo-jail.jsonc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fx.workspace, "yolo-jail.toml"), []byte("[call_roots]\naws=[\"s3://bkt/team/\"]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	// Keep the SAME jail/broker alive while config apply publishes and withdraws roots.
 	// FIFOs signal actual readiness and release; no timed/polling pass condition.
 	fifo := func(name string) *os.File {
@@ -58,7 +64,7 @@ func TestAWSBrokerCostExplorerRequiresItsOwnRoot(t *testing.T) {
 	}
 	apply := func(roots string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(fx.workspace, "yolo-jail.jsonc"), []byte(`{"brokered":{"aws":{"roots":`+roots+`}}}`), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(fx.workspace, "yolo-jail.toml"), []byte("[call_roots]\naws="+roots+"\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 		opts := append(append([]runOption{}, fx.opts...), withHostSemantics())
@@ -82,7 +88,7 @@ func TestAWSBrokerCostExplorerRequiresItsOwnRoot(t *testing.T) {
 	}
 	apply(`["s3://bkt/team/"]`)
 	withdrawn := query()
-	if withdrawn.rc != 64 || len(fx.server.CEArgv()) != 1 || len(fx.server.RequestLog()) != before+1 {
+	if withdrawn.rc != 64 || !strings.Contains(withdrawn.combined(), "ce://host-login") || len(fx.server.CEArgv()) != 1 || len(fx.server.RequestLog()) != before+1 {
 		t.Fatalf("withdrawn CE root executed: rc=%d\n%s", withdrawn.rc, withdrawn.combined())
 	}
 	_, _ = release.WriteString("release\n")

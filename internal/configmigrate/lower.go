@@ -559,6 +559,10 @@ func lowerBrokered(value any, ctx loweringContext, declared map[string]string, p
 				lowerBrokeredRepos(source, v, ctx, oldPath, legacyJSONCList, declared, place, skip)
 			case "grants":
 				lowerGrants(source, v, ctx, declared, place, skip)
+			case "roots":
+				// The gate binds declaring filenames too. Until conversion proves those
+				// bindings equal, refuse rather than silently dropping source context.
+				skip(oldPath, v, "declared roots require workspace TOML call_roots."+source+" and renewed config approval; migration cannot preserve the declaring-file binding, so originals are left untouched")
 			default:
 				d, _ := renameDescriptorFor(oldPath)
 				skip(oldPath, v, unconvertedReason(d))

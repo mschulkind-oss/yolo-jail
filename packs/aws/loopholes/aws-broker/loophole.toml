@@ -28,7 +28,7 @@ env_from_host = [
   "AWS_SESSION_TOKEN", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_S3",
 ]
 
-# Roots are declared per workspace (`brokered.aws.roots`): `s3://<bucket>` or
+# Roots are declared per workspace (`call_roots.aws` in TOML, `brokered.aws.roots` in JSONC): `s3://<bucket>` or
 # `s3://<bucket>/<prefix>/`, or exactly `ce://host-login` for Cost Explorer.
 [call_broker.scope]
 roots = "declared"

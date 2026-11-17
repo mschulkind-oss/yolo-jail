@@ -302,6 +302,9 @@ var singularRootKeyForms = map[string]string{
 }
 
 func readableUnknownMessage(path []string) string {
+	if len(path) == 1 && path[0] == brokeredKey {
+		return `"brokered" is not accepted in TOML; for declared call roots use call_roots.<source>; for allowances and requests use allow.*, requests.*. The old spelling is not an alias`
+	}
 	if len(path) == 1 && path[0] == ConvertLaterKey {
 		return fmt.Sprintf("%q is refused in a TOML file: it has nothing to say there. It only stops the launch "+
 			"offering to convert an old-format file, and this file is already converted. Remove this line", ConvertLaterKey)

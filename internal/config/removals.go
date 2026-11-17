@@ -37,6 +37,7 @@ func RemovalPolicies() []RemovalRule {
 // ReadableRemovalPolicies lists settled removal values in the new authored vocabulary.
 func ReadableRemovalPolicies() []RemovalRule {
 	return []RemovalRule{
+		{Path: "call_roots.*", Policy: RemovalEmptyList},
 		{Path: "active_provider.default", Policy: RemovalNativeString},
 		{Path: "active_provider.*", Policy: RemovalNativeString},
 		{Path: "packs", Policy: RemovalEmptyList},

@@ -114,7 +114,7 @@ func classifyCE(answer callbroker.Answer, input callbroker.CLIInput) callbroker.
 		covered = covered || root == "ce://host-login"
 	}
 	if !covered {
-		return refused(answer, "scope", "no approved Cost Explorer root ce://host-login covers this query", "Add `ce://host-login` to `brokered.aws.roots` in this workspace's config, then run `yolo config apply` on the host")
+		return refused(answer, "scope", "no approved Cost Explorer root ce://host-login covers this query", "Add `ce://host-login` to `call_roots.aws` (TOML) or `brokered.aws.roots` (JSONC) in this workspace's config, then run `yolo config apply` on the host")
 	}
 	canon = append(canon, "--output", "json", "--no-paginate")
 	return read(answer, input, canon, "cost_query", "ce://host-login/"+argv[1], "ce://host-login")

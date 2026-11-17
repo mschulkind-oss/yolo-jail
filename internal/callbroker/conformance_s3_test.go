@@ -11,7 +11,7 @@ import (
 )
 
 const conformanceS3UnsupportedNext = "Use `aws s3 ls s3://<bucket>[/<prefix>] [--recursive]`, `aws s3 cp s3://<bucket>/<key> -`, `aws s3 cp - s3://<bucket>/<key>`, `aws s3 rm s3://<bucket>/<key>` or `aws s3api head-object --bucket <bucket> --key <key>`, or run the command on the host"
-const conformanceS3ScopeNext = "Add the root to `brokered.aws.roots` in this workspace's config, then run `yolo config apply` on the host"
+const conformanceS3ScopeNext = "Add the root to `call_roots.aws` (TOML) or `brokered.aws.roots` (JSONC) in this workspace's config, then run `yolo config apply` on the host"
 
 func conformanceS3Refusal(class, reason, next string) Answer {
 	return Answer{Version: "yolo.call-broker-classifier/1", Refused: &Refusal{Class: class, Reason: reason, NextStep: next}}

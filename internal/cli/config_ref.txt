@@ -66,6 +66,23 @@
     an agent's provider takes "native": active_provider.<agent> = "native"
   `yolo config migrate` and a jail's inherited config write exactly these.
 
+  [bold]call_roots[/bold] — (table, [bold]WORKSPACE SCOPE ONLY[/bold]): declared context for a
+    selected call-broker source, not a pack name or permission. For example:
+      [call_roots]
+      aws = ["s3://bkt/team/", "ce://host-login"]
+    Each source takes an ordered list of safe root identifiers; the selected
+    declaration must use declared roots, not remotes. Duplicates within a list
+    refuse. Lists merge like other readable lists; [] resets a lower list.
+    Roots are accepted only from contained workspace files. They do not grant
+    read access or change a user ceiling. requests.<pack>.roots remains a
+    valued grant when the pack declares one, never scope context.
+    Use `yolo config add call_roots.<source> <root> --project`, then
+    `yolo config check` and host `yolo config apply`.
+    Legacy JSONC brokered.<source>.roots remains readable; raw brokered TOML
+    and mixing the two spellings for one source refuse. Format migration
+    safely refuses declared roots before touching originals because approval
+    binds declaring filenames too; it never drops roots silently.
+
   [bold]allow[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): what a project's jail may do with your
     logins and your host's loopholes.  `[allow.<pack>]` takes `always = [...]`
     (every project's jail gets it, each project's next prompt showing it once)

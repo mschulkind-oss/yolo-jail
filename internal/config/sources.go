@@ -371,6 +371,10 @@ func (s *Sources) AnnotateOne(msg string) string {
 }
 
 func readableDiagnosticPathForOrigin(message string, origin srcOrigin) string {
+	if origin.format() == configdoc.TOML && len(origin.documentSteps) >= 2 && origin.documentSteps[0].Key == "call_roots" {
+		source := origin.documentSteps[1].Key
+		return strings.ReplaceAll(message, "config."+brokeredRootsPath(source), "config.call_roots."+source)
+	}
 	if origin.file == nil || origin.file.format == configdoc.TOML || len(origin.steps) == 0 {
 		return message
 	}

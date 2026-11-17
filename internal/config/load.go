@@ -292,6 +292,11 @@ func loadWithIncludesMode(path, label string, strict bool, warn Warn, seen map[s
 	if err != nil {
 		return nil, nil, err
 	}
+	if readable && file != nil && file.format != configdoc.TOML && scope == SchemaScopeUserOnly {
+		if _, present := raw.Get("call_roots"); present {
+			return nil, nil, configErr("%s: config.call_roots: workspace-only key; use yolo config add call_roots.<source> <root> --project in the workspace", termsafe.Visible(label))
+		}
+	}
 	// TOML applies readable scope rules while parsing; legacy JSONC reaches this
 	// shared reader without them. Reject the owner-only selection at each authored
 	// workspace file before an include or workspace layer can merge it over user config.
@@ -544,7 +549,7 @@ func loadReadableWorkspaceConfigOverWithInputUse(workspace string, strict bool, 
 		merged, mergedNode = mergeReadableConfigMode(merged, layer, mergedNode, layerNode, nil, strings.EqualFold(filepath.Ext(path), ".toml"))
 	}
 	keepUserOffSwitchesOff(merged, mergedNode, base, baseNode)
-	return merged, mergedNode, nil
+	return lowerReadableCallRoots(merged, mergedNode)
 }
 
 // LoadReadableWorkspaceConfig reads the selected workspace format layers, preserving legacy JSONC/JSON

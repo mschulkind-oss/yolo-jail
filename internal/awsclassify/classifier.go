@@ -82,7 +82,7 @@ func Classify(input callbroker.CLIInput) callbroker.Answer {
 	if len(argv) == 1 && argv[0] == "--version" {
 		// Never Local: core's CLI front turns a local answer into a refusal and the pack
 		// owns the jail's `aws`, so there is no local one to run.
-		return refused(answer, "unsupported", "aws --version is not run through the S3 broker",
+		return refused(answer, "unsupported", "aws --version is not run through the AWS broker",
 			"Run `aws --version` on the host")
 	}
 	flags := commandFlags
@@ -109,7 +109,8 @@ func Classify(input callbroker.CLIInput) callbroker.Answer {
 	case "s3api":
 		return classifyS3API(answer, input, roots)
 	}
-	return unsupported(answer, "this AWS service is not enabled by the aws pack")
+	return refused(answer, "unsupported", "this AWS service is not enabled by the aws pack",
+		"Use a supported s3, s3api or ce operation, or run the command on the host")
 }
 
 func classifyS3(answer callbroker.Answer, input callbroker.CLIInput, roots []root) callbroker.Answer {
@@ -369,7 +370,7 @@ func write(answer callbroker.Answer, input callbroker.CLIInput, argv []string, c
 
 func outOfScope(answer callbroker.Answer) callbroker.Answer {
 	return refused(answer, "scope", "no approved S3 root covers that bucket and key",
-		"Add the root to `brokered.aws.roots` in this workspace's config, then run `yolo config apply` on the host")
+		"Add the root to `call_roots.aws` (TOML) or `brokered.aws.roots` (JSONC) in this workspace's config, then run `yolo config apply` on the host")
 }
 
 func unsupported(answer callbroker.Answer, reason string) callbroker.Answer {

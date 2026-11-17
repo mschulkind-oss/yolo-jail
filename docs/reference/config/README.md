@@ -152,6 +152,36 @@ launches unchanged and means the same, and converting it is optional and exact
 `yolo config migrate`; `"convert_later": true` written by hand in the legacy user file stops the
 offer. What the migration converts and proves is [`config-migration.md`](../../design/config-migration.md).
 
+## Declared call roots
+
+**Call roots** are source context: the resource identifiers a selected call broker may
+classify beneath, not permissions. The source name is the manifest's call-broker source,
+not necessarily its pack name. A workspace using a declaration with `roots = "declared"`
+can write:
+
+```toml
+[call_roots]
+aws = ["s3://bkt/team/", "ce://host-login"]
+```
+
+The generic root grammar and selected source are validated; the classifier separately owns
+the service grammar. A root never grants standing read access, relaxes a ceiling or bypasses
+approval ([call-broker authority](../../design/pack-brokers.md#2-terms),
+[AWS admission](../../design/aws-operation-broker.md#51-the-rule)). Roots are workspace-only
+and every declaring file must be contained in that workspace. An empty list is valid and
+resets a lower readable list; other lists union in existing order, with duplicates within a
+single authored list refused. Declaring filenames remain part of the gate's provenance.
+
+Edit with `yolo config add call_roots.aws ce://host-login --project`, validate with
+`yolo config check`, then approve with host `yolo config apply`. Legacy JSONC
+`brokered.<source>.roots` remains readable. Raw `brokered` TOML and both spellings for
+one source in a merged read refuse. `requests.<pack>.roots` is still a valued grant when
+that pack declares it; it is not root context.
+
+`yolo config migrate` safely refuses declared roots before touching originals, naming the
+TOML key: the declaring filename changes on conversion, and approval must not be silently
+rebound. No roots are dropped or source identities migrated. See [RC-D73](rulings.md#RC-D73).
+
 ## Principles
 
 1. **Name the decision, not the mechanism.** `push = ["main"]`, not a `{"kind": "branch", …}`

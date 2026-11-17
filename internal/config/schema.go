@@ -152,6 +152,9 @@ func ReadableSchemaKeys() []SchemaKey {
 	}
 	both, user, workspace, mixed := SchemaScopeBoth, SchemaScopeUserOnly, SchemaScopeWorkspaceOnly, SchemaScopeFieldSensitive
 	entries := []SchemaKey{
+		{Path: "call_roots", Scope: workspace, Type: SchemaTypeObject},
+		{Path: "call_roots.*", Scope: workspace, Type: SchemaTypeList},
+		{Path: "call_roots.*.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "devices", Scope: both, Type: SchemaTypeList},
 		{Path: "devices.*", Scope: both, Type: SchemaTypeMixed},
 		{Path: "devices.*.usb", Scope: both, Type: SchemaTypeString},

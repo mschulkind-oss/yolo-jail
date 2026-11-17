@@ -2,7 +2,7 @@
 # a host broker; the host's own `aws` program runs the one canonical call the classifier
 # derived, signing with the host's AWS login. No credential, endpoint, profile or region
 # crosses to the jail, and the jail can read or write only the buckets and prefixes this
-# workspace's config declares under `brokered.aws.roots`.
+# workspace's config declares under `call_roots.aws` (TOML) or `brokered.aws.roots` (JSONC).
 #
 # This pack does NOT change the aws-auth credential route. A jail that also selects
 # `aws-auth` (or otherwise holds AWS credentials) with S3 or CE reach can call AWS directly and

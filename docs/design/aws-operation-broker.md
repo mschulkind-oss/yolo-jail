@@ -17,9 +17,9 @@ summary: "The aws-s3 pack is replaced outright by an aws pack: one CLI call brok
 
 **Status:** 2026-11-17. Implemented in an isolated candidate, not yet accepted or landed. Focused classifier/CLI/config/manifest/core-fixture tests and the three reached nested AWS tests pass; production dispatch and full-check callsite deletion controls turn the permanent tests red and restoration turns them green. The companion plan records evidence limits. Planning source facts were checked at `b5a5fe32a326109371656162623b690a3c790427`; the [fact packet](../research/aws-operation-broker-grounding.md#aws-documentation-check) checks published CLI v1/v2 spellings. No real AWS request, live credential read or native Mac proof.
 
-> **In short.** Widening S3 mediation to "AWS operations" needs no new core machinery. The
-> existing call broker already gives per-service admission, provided each service owns its own
-> root scheme and the workspace must declare a root in it.
+> **In short.** Widening S3 mediation to "AWS operations" needs no new authority machinery;
+> one generic config-format bridge ([AWS-D13](#AWS-D13)) lets TOML declare call roots.
+> Each service owns its own root scheme and the workspace must declare a root in it.
 
 **Why it matters.** The read grant is one literal `read` per pack. If admission rested on it alone, every service added later would be authorized by grants given for S3.
 
@@ -100,6 +100,7 @@ flowchart LR
 | Pack `aws` | Intercepts `aws`; declares loophole `aws-broker`, source `aws`, classifier argv `yolo internal call-broker-classify aws` | Replaces pack `aws-s3` |
 | Classifier | Pure function of argv, stdin hash and roots. Picks a service table by the first word and answers one canonical call or one refusal | Gains dispatch and the `ce` table; S3 logic unchanged |
 | Core call broker | Authority, decision, approval store, executor, audit | **None** |
+| Config reader | Lowers TOML `call_roots.<source>` to canonical `brokered.<source>.roots` | Generic bridge, [AWS-D13](#AWS-D13) |
 | `aws-auth` | Agent credentials | **None** |
 
 The manifest uses only existing keys. It differs from today's in four ways:
@@ -129,13 +130,25 @@ A call runs only when all three hold:
 
 ### 5.2 Roots
 
-All roots live in one workspace list, `brokered.aws.roots`. **Current format limit:** this root list is supported in a legacy JSONC workspace (`yolo-jail.jsonc`), not in workspace TOML. User TOML `[allow.aws]` is supported independently. `[brokered.aws]` in TOML is refused, and `requests.aws.roots` is not an existing replacement. No root migration or generic config-framework change is part of this candidate; the missing readable/TOML root surface remains an explicit usability gap.
+Roots are declared per workspace: TOML `[call_roots] aws = [...]`, or legacy JSONC
+`brokered.aws.roots`. Both produce the same canonical list, gate key and root record.
+`[brokered.aws]` in TOML and `requests.aws.roots` are not spellings.
 
-Supported workspace example (legacy JSONC):
+```toml
+[call_roots]
+aws = ["s3://bkt/team/", "ce://host-login"]
+```
+
+Legacy JSONC:
 
 ```json
 {"brokered":{"aws":{"roots":["s3://bkt/team/","ce://host-login"]}}}
 ```
+
+The gate separately binds each root's declaring filename: converting JSONC to TOML changes
+that binding and requires fresh approval, not an equal provenance record. Format migration
+therefore safely refuses roots before touching originals, naming `call_roots.<source>`;
+it never silently drops context. No source-identity migration is provided.
 
 Validate with `yolo config check`, then approve on the host with `yolo config apply`. This example does not grant the user allowance or bypass the config-change gate.
 
@@ -155,7 +168,8 @@ Validate with `yolo config check`, then approve on the host with `yolo config ap
 | A root no grammar accepts (`ce://other`, `ec2://x`) | Ignored | Ignored |
 | The same root twice | Refused by core config validation, as today | Same |
 
-A `scope` refusal names the key and the step: add the root to `brokered.aws.roots` in the legacy JSONC workspace config, then run `yolo config apply` on the host. Do not infer that this old key works in a TOML file.
+A `scope` refusal names the key and the step: add the root to `call_roots.aws` (TOML) or
+`brokered.aws.roots` (JSONC), then run `yolo config apply` on the host.
 
 **S3 names and coverage (unchanged):**
 
@@ -318,7 +332,7 @@ AWS documents `--max-results` on R6 and R7 as used only when `SortBy` is provide
 | Existing state | On the day this ships |
 | :--- | :--- |
 | A config selecting pack `aws-s3` | Unknown pack; the existing unknown-pack error. Select `aws` |
-| `brokered.aws-s3.roots` | Existing error: no selected pack declares this source. Re-declare under `brokered.aws.roots` and pass the gate again |
+| `brokered.aws-s3.roots` | Existing error: no selected pack declares this source. Re-declare under `call_roots.aws` (TOML) or `brokered.aws.roots` (JSONC) and pass the gate again |
 | `[allow.aws-s3]` cell tokens and the `aws-s3` read grant | Not read for pack `aws`. Grant again |
 | Pending requests, Allow once and timed answers stored under source `aws-s3` | Never consulted. Nothing is carried over and nothing is approved retroactively |
 | Classifier word `aws-s3` | Removed from the built-in dispatch |
@@ -381,7 +395,7 @@ It needs no core change and no new pack. A service that cannot be expressed as e
 | **R4. Audit does not name the service** | An operator cannot count Cost Explorer calls from the audit log alone. Accepted; extending the event is a core change for all brokers |
 | **R5. Token alphabet guess** | If AWS issues a page token outside printable ASCII or beginning with `-`, that page is refused `unsupported`. Narrow the time period or raise it as a table fix |
 | **R6. Old and new CLI differences** | Canonical forms use only options present in AWS CLI 1 and 2; neither real CLI was run against them |
-| **R7. Missing readable root surface** | The current core reads declared call roots from legacy JSONC `brokered.<source>.roots` only; workspace TOML refuses the old key and has no root-list replacement. JSONC nested proof does not establish normal-format usability; this gap is disclosed, not repaired by an invented key |
+| **R7. One-directional root bridge** | Canonical storage stays `brokered.<source>.roots`; a full readable-native root model is not built. Declaring-file bindings remain literal, so format migration refuses roots safely pending a renewed approval rather than rewriting provenance |
 
 ## 14. Acceptance evidence
 
@@ -397,6 +411,13 @@ The design is built as intended when all of the following are observed with no A
 8. **No credential leak.** The synthetic secret appears in no jail-visible output and in no classifier input.
 9. **Old names are gone.** Resolving/selecting the shipped pack `aws-s3`, declaring `brokered.aws-s3.roots` with only `aws` selected, and dispatching classifier word `aws-s3` each fail. Generic removed-source inventory may display historical records as `removed`, `deny-only`; they are never active `aws` requests. An old request cannot be approved to execute; old Allow-once and timed records authorize nothing and are not spent by `aws`. This is inert history, not a live alias or transition. The actual caller regression is `TestAWSNeverConsultsRetiredSourceRequestsOrAnswers`.
 10. **Nested jail.** One Cost Explorer read, one Cost Explorer `scope` refusal, and the S3 nested cases pass.
+11. **TOML root bridge.** Real workspace/gate readers retain canonical roots and declaring files;
+    config check/edit admit `call_roots`; raw `brokered` TOML, user/outside authorship,
+    invalid/duplicate/unselected/remote-mode roots refuse. Empty/reset and readable union
+    semantics hold; valued `requests.*.roots` remains a grant. JSONC/TOML root and declaration
+    records match, with distinct literal filename bindings preserved. Migration safely refuses
+    before touching originals. A matched emitted launcher and a live nested gate prove TOML
+    CE own-root read/refusal/withdrawal without weakening read authority.
 
 **Test conditions.**
 
@@ -413,7 +434,7 @@ The design is built as intended when all of the following are observed with no A
 | <a id="AWS-R1"></a>AWS-R1 | **Owner:** widen S3 mediation into one AWS operations broker using the host's configured login; `aws-auth` stays the agents' credential service, untouched | 2026-11-16 | [§1](#1-goal-and-non-goals) | — |
 | <a id="AWS-R2"></a>AWS-R2 | **Owner:** no transition for `aws-s3` — direct replacement, no alias, migration or wrapper; nobody uses it | 2026-11-16 | [§9](#9-direct-replacement-of-aws-s3) | — |
 | <a id="AWS-R3"></a>AWS-R3 | **Owner:** first services are S3 as it is and read-only Cost Explorer; ordinary queries may be standing reads; S3 writes keep their approvals and caps; no account or role pin | 2026-11-16 | [§5.3](#53-grants-and-cells) | — |
-| <a id="AWS-D1"></a>AWS-D1 | Pack `aws`, loophole `aws-broker`, source `aws`; one classifier with a table per service; no core change | 2026-11-16 | [§4](#4-architecture) | — |
+| <a id="AWS-D1"></a>AWS-D1 | Pack `aws`, loophole `aws-broker`, source `aws`; one classifier with a table per service; no core authority change; see [AWS-D13](#AWS-D13) | 2026-11-16 | [§4](#4-architecture) | — |
 | <a id="AWS-D2"></a>AWS-D2 | Service admission is a declared root in the service's own scheme, on top of the pack read grant; a new service always needs a new scheme | 2026-11-16 | [§5.1](#51-the-rule) | — |
 | <a id="AWS-D3"></a>AWS-D3 | Cost Explorer's only root is `ce://host-login`; `location` is the shared root type; `cost_query` is the leaf type | 2026-11-16 | [§5.2](#52-roots) | — |
 | <a id="AWS-D4"></a>AWS-D4 | Four Cost Explorer reads only: cost and usage, cost forecast, dimension values, tags; daily and monthly only; no billing view, sort, hourly or resource-level data | 2026-11-16 | [§6.3](#63-cost-explorer-rows) | — |
@@ -425,4 +446,5 @@ The design is built as intended when all of the following are observed with no A
 | <a id="AWS-D10"></a>AWS-D10 | One host AWS CLI process per admitted call, no lookups or broker retries; AWS HTTP request count is unbounded by the broker and billing follows actual requests | 2026-11-16 | [§6.1](#61-rules-common-to-every-row) | — |
 | <a id="AWS-D11"></a>AWS-D11 | Exact filter/group-by grammar: empty MatchOptions and duplicates refused, fixed orders, logical-node depth/leaf counts; empty Values remains refused after official reference check | 2026-11-16 | [§6.4](#64-cost-explorer-value-grammar) | — |
 | <a id="AWS-D12"></a>AWS-D12 | Historical changelog/release evidence untouched; old-name tests prove rejection/isolation or are inert historical data, never compatibility | 2026-11-16 | [§9](#9-direct-replacement-of-aws-s3) | — |
+| <a id="AWS-D13"></a>AWS-D13 | Generic workspace-only TOML `call_roots.<source>` lowers to canonical `brokered.<source>.roots`; no new authority; `requests.*.roots` not taken | 2026-11-17 | [§5.2](#52-roots) | Candidate; focused callers and synthetic nested proof pass |
 | <a id="NV-1"></a>NV-1 | Dash/scheme guards are argv-boundary-only; nested filter/group-by strings are data. Both-major published-source V-1 check passed, so recursive fallback is not activated | 2026-11-16 | [§6.1](#61-rules-common-to-every-row) | — |

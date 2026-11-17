@@ -14,15 +14,18 @@ there was no affected-seam drift. This packet is source/documentation evidence, 
 The [canonical design](../design/aws-operation-broker.md) owns behavior and the
 [plan](../design/aws-operation-broker-plan.md) owns the build map.
 
-## Current production path
+## Baseline production path
+
+Facts below remain as of `b5a5fe32a`; source links use successor paths after the direct
+replacement. They are not claims that the successor still has the baseline identity or grammar.
 
 | Boundary | Verified source fact |
 | :--- | :--- |
-| Pack and intercept | [S3 pack](../../packs/aws-s3/pack.toml) owns the command `aws`, forwards to `aws-s3-broker`; it does not select `aws-auth` |
-| Selected declaration | [Manifest](../../packs/aws-s3/loopholes/aws-s3-broker/loophole.toml) joins source `aws-s3`, CLI front, built-in classifier, core executor, `read`, declared roots and two S3 write cells |
+| Pack and intercept | [successor AWS pack](../../packs/aws/pack.toml) owns the command `aws`, forwards to `aws-s3-broker`; it does not select `aws-auth` |
+| Selected declaration | [successor manifest](../../packs/aws/loopholes/aws-broker/loophole.toml) joins source `aws-s3`, CLI front, built-in classifier, core executor, `read`, declared roots and two S3 write cells |
 | Shim | `GenerateShims` calls `GenerateIntercepts` in [shims](../../internal/entrypoint/shims.go); [intercept writer](../../internal/entrypoint/interceptshims.go) emits a quoted argv prefix plus original arguments, ahead of installed programs |
 | Built-in caller | `runInternal` in [dispatch](../../internal/cli/internal.go) calls `s3classify.Run` only for source word `aws-s3` |
-| Pure classifier | `Run` and `Classify` in [classifier](../../internal/s3classify/classifier.go) support exactly three S3 reads and two S3 writes, no `ce` branch, no local answer, no lookups |
+| Pure classifier | `Run` and `Classify` in [successor classifier](../../internal/awsclassify/classifier.go) support exactly three S3 reads and two S3 writes, no `ce` branch, no local answer, no lookups |
 | Protocol | `CLIInput` in [core classifier](../../internal/callbroker/classifier.go) contains only version, front, argv, stdin hash, roots, optional lookup facts; there are no service/profile/account/region/endpoint fields |
 | Authority | `currentAuthority` in [authority](../../internal/callbroker/authority.go) rechecks selected declaration, live scope and literal pack `read` grant; arbitrary grant kinds do not provide service-specific runtime admission |
 | Decision | `decideCall` in [decision](../../internal/callbroker/decision.go) immediately admits a reads-only classification as a standing read; cell policy governs writes, not reads |
@@ -34,7 +37,7 @@ The [canonical design](../design/aws-operation-broker.md) owns behavior and the
 
 ## S3 facts that must survive
 
-The [classifier](../../internal/s3classify/classifier.go) admits:
+The baseline classifier (now [AWS classifier](../../internal/awsclassify/classifier.go)) admits:
 
 | Row | Canonical argv | Resource/cell |
 | :--- | :--- | :--- |
@@ -49,12 +52,12 @@ implemented by `checkBucket`, `checkKey`, `parseRoots`, `cover`. A bucket root e
 bucket name, not a slash. A prefix root ends in a slash; string-prefix similarity is not coverage.
 The `-` stdin/stdout sentinel is intentionally supported; a blanket dash guard must not remove it.
 
-The [manifest](../../packs/aws-s3/loopholes/aws-s3-broker/loophole.toml) keeps put tables
+The baseline manifest (now [AWS manifest](../../packs/aws/loopholes/aws-broker/loophole.toml)) keeps put tables
 `working_set`/`all`, put cap `1h`, delete table `all`, no explicit delete cap or default answers.
 [Timed approvals](../../internal/callbroker/timed.go) apply the default 15-minute delete cap,
 use one entry per cell/full resource chain and offer no permanent Add. Allow once is command-
 and stdin-bound; a timed answer instead covers its exact cell/resource during the window,
-including another body. The [nested tests](../../integration/aws_s3_broker_test.go) distinguish these.
+including another body. The [successor nested tests](../../integration/aws_broker_test.go) distinguish these.
 The existing forwarder limits stdin to 3 MiB; this plan does not alter that boundary.
 
 ## Host login and bypass
@@ -82,7 +85,7 @@ also reaches the installed CLI behind the shim, if one exists; it does not suppl
 No policy change to either route is proposed.
 
 `Check` calls `reportAWSS3CredentialBypass` in [full check](../../internal/cli/check/check.go),
-implemented in the [warning](../../internal/cli/check/awss3bypass.go). It inspects selection and
+implemented in the [successor warning](../../internal/cli/check/awsbypass.go). It inspects selection and
 an explicit un-narrowed `aws-auth` profile only, never IAM or credential contents. Config-only
 check and launch do not emit that warning. Retargeting the selection/text requires no auth edit.
 
@@ -155,11 +158,11 @@ Tracked literal search at the verified commit found these consumers:
 
 | Category | Existing paths / consequence |
 | :--- | :--- |
-| Declaration, embedding, dispatch | [Pack](../../packs/aws-s3/pack.toml), [loophole](../../packs/aws-s3/loopholes/aws-s3-broker/loophole.toml), [embed](../../packs/embed.go), [classifier](../../internal/s3classify/classifier.go), [CLI](../../internal/cli/internal.go) |
+| Declaration, embedding, dispatch | [Successor pack](../../packs/aws/pack.toml), [loophole](../../packs/aws/loopholes/aws-broker/loophole.toml), [embed](../../packs/embed.go), [classifier](../../internal/awsclassify/classifier.go), [CLI](../../internal/cli/internal.go) |
 | Registry fixtures | [TOML equivalence](../../internal/loopholedecl/shippedtoml_test.go) pairs frozen JSON filenames with shipped modules and exact decoded content (explicit historical GitHub delta precedent); [Manifest table](../../internal/loopholedecl/shipped_test.go), [loader table](../../internal/loopholes/shipped_test.go), [historical JSON fixture](../../internal/loopholedecl/testdata/legacy-shipped/aws-s3__aws-s3-broker.json) |
 | Config/approval tests and comments | [Cell reader test](../../internal/config/loopholegrants_callbrokercell_test.go), [grant reader](../../internal/config/loopholegrants.go), [readable scope](../../internal/config/readablescope.go), [approval tests](../../internal/cli/approvepack_test.go) |
-| Caller, classifier, warning tests | [Dispatch tests](../../internal/cli/aws_s3_internal_test.go), [classifier tests](../../internal/s3classify/classifier_test.go), [warning](../../internal/cli/check/awss3bypass.go), [warning tests](../../internal/cli/check/awss3bypass_test.go) |
-| Production-path proofs | [E2E](../../internal/callbroker/s3_e2e_test.go), [conformance](../../internal/callbroker/conformance_s3_test.go), [nested](../../integration/aws_s3_broker_test.go) |
+| Caller, classifier, warning tests | [Successor dispatch tests](../../internal/cli/aws_internal_test.go), [classifier tests](../../internal/awsclassify/classifier_test.go), [warning](../../internal/cli/check/awsbypass.go), [warning tests](../../internal/cli/check/awsbypass_test.go) |
+| Production-path proofs | [E2E](../../internal/callbroker/s3_e2e_test.go), [conformance](../../internal/callbroker/conformance_s3_test.go), [successor nested](../../integration/aws_broker_test.go) |
 | Current docs | [S3 design](../design/approval-experience/aws-s3.md), [S3 plan](../design/approval-experience/aws-s3-plan.md), [approval index](../design/approval-experience/README.md), [recipe](../design/approval-experience/service-mediation.md), [conformance](../design/approval-experience/service-conformance.md), [conformance plan](../design/approval-experience/service-conformance-plan.md), [broker design](../design/pack-brokers.md), [broker plan](../design/pack-brokers-plan.md) |
 | Generated census | [Completion readers](../../scripts/completion-readers.json): regenerate at combined landing after source-reader test edits; never hand-edit |
 | Historical release evidence | [Changelog](../../CHANGELOG.md): untouched |

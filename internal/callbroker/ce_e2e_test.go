@@ -63,9 +63,14 @@ func (f *s3E2E) invocations() [][]string {
 }
 func (f *s3E2E) ceDenied(args ...string) {
 	f.t.Helper()
+	f.ceDeniedCause("", args...)
+}
+
+func (f *s3E2E) ceDeniedCause(cause string, args ...string) {
+	f.t.Helper()
 	before, invoked := f.requests(), len(f.invocations())
 	rc, out := f.aws("", args...)
-	if rc != 64 || out == "" {
+	if rc != 64 || out == "" || !strings.Contains(out, cause) {
 		f.t.Fatalf("denial rc=%d out=%q args=%q", rc, out, args)
 	}
 	if f.requests() != before || len(f.invocations()) != invoked {
@@ -106,7 +111,7 @@ func TestCEShippedRowsCanonicalExecutionAndOwnRoot(t *testing.T) {
 	}
 	for _, row := range rows {
 		argv := append([]string{"ce", row.op}, row.args...)
-		f.ceDenied(argv...)
+		f.ceDeniedCause("ce://host-login", argv...)
 		f.roots(s3Root, "ce://host-login")
 		before := f.requests()
 		invoked := len(f.invocations())
@@ -279,8 +284,8 @@ func TestAWSReadWithdrawalAndLatestApprovedScopeAreAuthoritative(t *testing.T) {
 	if err := loopholegrant.Replace(context.Background(), f.h.input.GrantFile, *old, next); err != nil {
 		t.Fatal(err)
 	}
-	f.ceDenied(args...)
-	f.ceDenied("s3", "ls", s3Root)
+	f.ceDeniedCause("read grant withdrawn", args...)
+	f.ceDeniedCause("read grant withdrawn", "s3", "ls", s3Root)
 	if err := loopholegrant.Replace(context.Background(), f.h.input.GrantFile, next, *old); err != nil {
 		t.Fatal(err)
 	}
@@ -292,14 +297,14 @@ func TestAWSReadWithdrawalAndLatestApprovedScopeAreAuthoritative(t *testing.T) {
 		t.Fatalf("unapproved config changed live scope %d %q", rc, out)
 	}
 	f.roots(s3Root)
-	f.ceDenied(args...)
+	f.ceDeniedCause("ce://host-login", args...)
 	// The host read ceiling is independently revocable for both services.
 	if err := os.WriteFile(filepath.Join(f.home, ".config", "yolo-jail", "config.toml"), []byte("packs=['aws']\n[allow.aws]\nalways=[]\non_request=[]\n[allow.aws-s3]\nalways=['read','all.put_objects','all.delete_objects']\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	f.roots(s3Root, "ce://host-login")
-	f.ceDenied("s3", "ls", s3Root)
-	f.ceDenied(args...)
+	f.ceDeniedCause("host read ceiling withdrawn", "s3", "ls", s3Root)
+	f.ceDeniedCause("host read ceiling withdrawn", args...)
 }
 
 func TestAWSNeverConsultsRetiredSourceRequestsOrAnswers(t *testing.T) {

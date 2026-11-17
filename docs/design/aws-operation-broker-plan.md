@@ -9,12 +9,12 @@ depends-on:
   - pack-brokers.md
   - approval-experience/service-mediation.md
 tags: [plan, aws, broker, packs, cost-explorer]
-summary: "Four serial, bounded implementation units: direct identity replacement, pure Cost Explorer classification, synthetic production-path proof, then nested proof and current documentation. No auth or core-policy changes."
+summary: "Four AWS units plus serial Task 5: generic TOML declared roots and bounded base-review repairs. No auth or core-policy changes."
 ---
 
 # AWS operation broker: tree-grounded build hand-off
 
-**Status:** 2026-11-17. All four units are implemented in an isolated candidate, not yet accepted or landed. Permanent dispatch and CE rows failed before their implementations; shipped shim→front→classifier→core→fake-host CE failed at the old fixture (252) before the independent CE fixture was added. Focused package gates and all three reached nested AWS tests pass. Dispatch and full-check callsite deletion controls fail and restoration passes. Combined census/check-ci/full integration/clean `just done`, native Mac/rootless-host and live AWS remain separate gates. Written against clean `b5a5fe32a326109371656162623b690a3c790427`; allocation was verified at clean `a85e2734a579e9eab2f7a340ba3200faa2a51f06`.
+**Status:** 2026-11-17. The original four-unit base is reviewed; Task 5 now has green real config/gate/edit callers, safe migration refusal, a TOML nested live gate and a matched private emitted-launcher probe. The combined candidate still needs delta review and landing gates. Permanent dispatch and CE rows failed before their implementations; shipped shim→front→classifier→core→fake-host CE failed at the old fixture (252) before the independent CE fixture was added. Focused package gates and all three reached nested AWS tests pass. Dispatch and full-check callsite deletion controls fail and restoration passes. Combined census/check-ci/full integration/clean `just done`, native Mac/rootless-host and live AWS remain separate gates. Written against clean `b5a5fe32a326109371656162623b690a3c790427`; allocation was verified at clean `a85e2734a579e9eab2f7a340ba3200faa2a51f06`.
 **Design:** [canonical contract](aws-operation-broker.md), including the request-count,
 exact-grammar and nested-value amendments. **Evidence:** [source and CLI packet](../research/aws-operation-broker-grounding.md).
 The original S3 contract is baseline evidence, not authority to retain the old pack name.
@@ -24,7 +24,7 @@ The original S3 contract is baseline evidence, not authority to retain the old p
 **Constraint:** the canonical design wins on behavior; the tree wins on cosmetic fact;
 this plan is advice and the first thing to be wrong. Do not twist code to fit a stale map.
 Before each task, verify actual cwd/HEAD and clean state; compare its affected seams with the
-written-against commit. Work in a new managed isolated worktree, never mutate the primary checkout.
+written-against commit. Task 5 uses the released existing isolated candidate, never the primary checkout or a new branch/worktree.
 
 **Stop and report without committing:** a named symbol is gone, an affected file is dirty
 with someone else's work, a red test does not fail for the stated reason, an edit needs an
@@ -36,7 +36,9 @@ manifest/source/derive/settings, the separate workspace Git-skills feature or it
 credential/IAM/live grant/config state, core broker policy/protocol/executor/redaction,
 image/build delivery, global caches or the changelog. No real AWS request, STS/SSO/auth probe,
 CLI install, deployment or live credential read. All test accounts, configs and keys are synthetic.
-Core changes discovered to be necessary require a new decision, not a broadened task.
+Task 5 is the AWS-D13 exception: config schema, readable loader, refusal, edit/gate
+consumption and format migration plumbing may change only to bridge declared roots.
+Broker policy, protocol, executor, authority and redaction remain fenced.
 
 ## Settled behavior — do not re-open
 
@@ -44,7 +46,7 @@ Core changes discovered to be necessary require a new decision, not a broadened 
   classifier dispatch word with `aws`. No alias, `formerly`, migration, wrapper or compatibility.
   Pack `aws` still intercepts the whole command `aws`; there is no service-specific executable.
 - Every admitted call requires pack `read` plus a covering declared root for its service plus
-  one exact row. Roots live at workspace `brokered.aws.roots`, supported only in legacy JSONC in this tree; user TOML `[allow.aws]` works independently. Workspace TOML refuses `brokered` and has no root replacement. Do not invent `requests.aws.roots`, claim migration preserves roots or treat JSONC proof as TOML proof. This is a disclosed usability gap, pending author disposition; no generic schema change has been made. S3 sees only valid `s3://` roots, CE only the exact `ce://host-login`. Other schemes/malformed roots cover nothing.
+  one exact row. Roots are workspace TOML `call_roots.aws` or legacy JSONC `brokered.aws.roots`, lowered to the unchanged canonical shape ([AWS-D13](aws-operation-broker.md#AWS-D13)). `requests.aws.roots` is not root context. Migration safely refuses declared roots before touching originals because the gate binds declaring filenames; no approval/provenance semantics are weakened. S3 sees only valid `s3://` roots, CE only the exact `ce://host-login`. Other schemes/malformed roots cover nothing.
   Core checks the top resource id against the gate-approved roots verbatim.
 - `location` remains parentless; S3 leaf types remain `prefix`/`object`. CE adds `cost_query`
   under `location`, id `ce://host-login/<operation>`. CE is reads only, has no approval cell.
@@ -129,7 +131,7 @@ on the wrong row is `unsupported`. Non-CE/unknown-service vocabulary stays the c
 Global endpoint/profile/region/signing/debug/output/query/file-input/pagination flags from the
 jail refuse `credential`, never run. Malformed values refuse without echoing them; only safe
 option names may be echoed. Each refusal names supported forms/host, host AWS settings or
-`brokered.aws.roots` plus host `yolo config apply`, respectively.
+`call_roots.aws` (TOML) or `brokered.aws.roots` (JSONC) plus host `yolo config apply`, respectively.
 
 ## Map
 
@@ -213,6 +215,37 @@ The map retains the original replacement work, but its links now resolve to the 
   frozen JSON filename per current shipped module and exact decode equality. Merely renaming
   the pack breaks its key lookup/count even if all loader registry tests pass. Preserve the
   frozen fixture; scope the expected historical identity/declaration deltas to this test only.
+
+## Task 5 — generic TOML declared roots (serial; one commit)
+
+**Stage:** DECIDED. Source-grounded from the author-approved AWS-D13 sketch above;
+`call_roots` is absent from schema, rename and retired-key registries. No new permission or source identity.
+The original four units are reviewed and released at `c7dc5e1b8438b084010550e865252cd4866f3ecb`.
+
+**Mechanism:** workspace-only `[call_roots] <source> = [...]` moves values and writers
+into canonical `brokered.<source>.roots`. Keep source selection, grammar, provenance,
+list merging, gate keys and records unchanged. Refuse dual spellings, user scope and
+outside-workspace authorship. `requests.<pack>.roots` remains a valued grant.
+
+**Tree map:** schema rows in `internal/config/schema.go`; format-aware workspace merge
+in `load.go`; root lowering in `callroots.go` reuses `readablemerge.go` projection helpers;
+origin-aware diagnostics in
+`sources.go`; raw TOML refusal in `readablevalidate.go`; converter `configmigrate/lower.go`.
+`ReadWorkspaceForGate`, `WithCallBrokerDeclarations`, root validators and approval storage
+consume the existing canonical shape. Config edits use the readable schema and workspace
+reader; migration must preserve ordered roots or safely refuse before touching originals.
+
+**Tests first:** real workspace/gate callers, semantic config check and edit, migration,
+contained declaring files, grammar/duplicates/empty/reset/selection/remote mode, valued roots
+grant and JSONC/TOML approval equivalence without weakening literal file bindings.
+Observe red before building. Run focused packages, reached nonshort config/AWS integration,
+and a matched emitted launcher with private durable synthetic HOME/workspace/fake AWS.
+No live credentials/API, agents, installers, deployment or broad permission change.
+
+**Same-commit base P2 repairs:** preserve research baseline facts while fixing dead renamed
+paths; unknown-service advice names s3/s3api/ce; real CE denial tests pin each expected cause.
+After green, apply the author-approved canonical design/root guidance, config reference and
+next free RC-D ruling. Parent regenerates combined reader census and runs landing gates.
 
 ## Task 1 — direct identity replacement (independent; one commit)
 
