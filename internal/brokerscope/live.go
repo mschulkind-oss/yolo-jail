@@ -167,6 +167,9 @@ func replaceScope(ctx context.Context, path string, expect File, repos []string,
 		if err := checkEntries(f.Form); err != nil {
 			return err
 		}
+		if f.PolicySnapshot != nil {
+			return policyFailure("legacy roots/grants replacement cannot replace complete snapshot authority")
+		}
 		f.Repos = append([]string{}, repos...)
 		if setGrants {
 			f.Grants = append([]Grant(nil), grants...)

@@ -96,6 +96,9 @@ type File struct {
 	Version     int    `json:"version"`
 	Source      string `json:"source"`
 	LaunchID    string `json:"launch_id"`
+	// PolicySnapshot commits the sidecar locator and mirrored Repos together.
+	// Its presence is authority metadata, never proof that a daemon consumes it.
+	PolicySnapshot *PolicyReference `json:"policy_snapshot,omitempty"`
 	// CallInput is only a host-side locator for the private selected launch input.
 	// It is not an approval or a grant; every consumer validates live selection.
 	CallInput   string `json:"call_input,omitempty"`
@@ -166,6 +169,11 @@ func write(f File) (string, error) {
 	if f.Source == "" || f.LaunchID == "" || strings.ContainsAny(f.LaunchID+f.Source, "/\\.") {
 		return "", fmt.Errorf("scope file: bad source %q or launch id %q", f.Source, f.LaunchID)
 	}
+	if f.PolicySnapshot != nil {
+		if _, err := ReadPolicy(f, f.PolicySnapshot.DeclarationHash, f.PolicySnapshot.InputDigest); err != nil {
+			return "", err
+		}
+	}
 	f.Version = FileVersion
 	if f.Repos == nil {
 		f.Repos = []string{}
@@ -220,8 +228,22 @@ func ReadFile(path string) (File, error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return f, fmt.Errorf("scope file %s: %w", path, err)
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return File{}, err
+	}
+	if raw, present := fields["policy_snapshot"]; present {
+		if f.PolicySnapshot == nil || strictPolicyJSON(raw, new(PolicyReference)) != nil {
+			return File{}, policyFailure("explicit authority locator is null or unsupported")
+		}
+	}
 	if f.Version != FileVersion {
 		return f, fmt.Errorf("scope file %s has version %d, this build reads %d", path, f.Version, FileVersion)
+	}
+	if f.PolicySnapshot != nil {
+		if _, err := ReadPolicy(f, f.PolicySnapshot.DeclarationHash, f.PolicySnapshot.InputDigest); err != nil {
+			return File{}, err
+		}
 	}
 	// A file an older yolo wrote may still name a grant kind by its former name.
 	for i := range f.Grants {
