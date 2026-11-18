@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -200,8 +201,9 @@ func TestScopedBrokerGateLegacyBroadReadDoesNotPromptOrGainMarker(t *testing.T) 
 	}
 }
 
-func TestScopedBrokerGateLegacyCallDeclarationHashDoesNotPrompt(t *testing.T) {
+func TestScopedBrokerGateLegacyDeclarationWithoutCLIArgvDoesNotPrompt(t *testing.T) {
 	workspace, read, declaration := scopedBrokerGateFixture(t, true)
+	declaration.Classifier = nil
 	check := scopedBrokerGateCheck(workspace, read, declaration)
 	if err := RecordApproval(workspace, read.Config, check); err != nil {
 		t.Fatal(err)
@@ -227,6 +229,98 @@ func TestScopedBrokerGateLegacyCallDeclarationHashDoesNotPrompt(t *testing.T) {
 	after, _ := os.ReadFile(ApprovalScopePath(workspace))
 	if !ok || err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("legacy body disclosure acquired hash/model or prompt: %v %v %s", ok, err, after)
+	}
+}
+
+func TestScopedBrokerGateArgvRepartitionRequiresReapproval(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		argv [][]string
+		set  func(*loopholedecl.CallBroker, []string)
+	}{
+		{
+			name: "classifier",
+			argv: [][]string{{"{program:classifier}", "--mode", "safe allow"}, {"{program:classifier}", "--mode", "safe", "allow"}},
+			set:  func(b *loopholedecl.CallBroker, argv []string) { b.Classifier = argv },
+		},
+		{
+			name: "lookup",
+			argv: [][]string{{"{program:lookup}", "--mode", "safe allow"}, {"{program:lookup}", "--mode", "safe", "allow"}},
+			set: func(b *loopholedecl.CallBroker, argv []string) {
+				b.Lookups = []loopholedecl.CallBrokerLookup{{Name: "find", CLI: argv}}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, legacy := range []bool{false, true} {
+				t.Run(map[bool]string{false: "hashed", true: "legacy"}[legacy], func(t *testing.T) {
+					workspace, read, declaration := scopedBrokerGateFixture(t, true)
+					if tc.name == "lookup" {
+						declaration.Classifier = nil
+					}
+					tc.set(declaration, tc.argv[0])
+					check := scopedBrokerGateCheck(workspace, read, declaration)
+					if err := RecordApproval(workspace, read.Config, check); err != nil {
+						t.Fatal(err)
+					}
+					if legacy {
+						record, _, sources, err := readScopeRecords(workspace)
+						if err != nil {
+							t.Fatal(err)
+						}
+						delete(record, policyModelRecordKey("local-tasks"))
+						key := callBrokerScopeRecordKey("local-tasks")
+						var oldDisclosure []string
+						for _, line := range record[key] {
+							if strings.HasPrefix(line, "declaration_sha256=") || strings.Contains(line, "_argv_json=") {
+								continue
+							}
+							oldDisclosure = append(oldDisclosure, line)
+						}
+						record[key] = oldDisclosure
+						if err := writeScopeRecords(workspace, scopeOutcome{next: record, nextSources: sources}); err != nil {
+							t.Fatal(err)
+						}
+					}
+					before, err := os.ReadFile(ApprovalScopePath(workspace))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if strings.Join(tc.argv[0], " ") != strings.Join(tc.argv[1], " ") {
+						t.Fatal("fixture does not reproduce the old flattened disclosure collision")
+					}
+					tc.set(declaration, tc.argv[1])
+					changed := scopedBrokerGateCheck(workspace, read, declaration)
+					ok, err := CheckConfigAndScopeChanges(workspace, read.Config, changed, false, false, nil)
+					var refusal *ChangedNonInteractiveError
+					if ok || !errors.As(err, &refusal) || !refusal.ScopeChanged {
+						t.Fatalf("non-TTY did not refuse changed %s argv through the scope gate: %v", tc.name, err)
+					}
+					after, err := os.ReadFile(ApprovalScopePath(workspace))
+					if err != nil || !bytes.Equal(before, after) {
+						t.Fatalf("refusal changed prior approval: %v", err)
+					}
+					if err := RecordApproval(workspace, read.Config, changed); err != nil {
+						t.Fatal(err)
+					}
+					record, _, _, err := readScopeRecords(workspace)
+					if err != nil {
+						t.Fatal(err)
+					}
+					binding := "classifier_argv_json="
+					if tc.name == "lookup" {
+						binding = "lookup=find cli_argv_json="
+					}
+					if !strings.Contains(strings.Join(record[callBrokerScopeRecordKey("local-tasks")], "\n"), binding) {
+						t.Fatalf("approved disclosure omitted unambiguous %s argv binding", tc.name)
+					}
+					ok, err = CheckConfigAndScopeChanges(workspace, read.Config, scopedBrokerGateCheck(workspace, read, declaration), false, false, nil)
+					if !ok || err != nil {
+						t.Fatalf("explicit approval did not make stable declaration pass: %v %v", ok, err)
+					}
+				})
+			}
+		})
 	}
 }
 
