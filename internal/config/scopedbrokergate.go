@@ -56,11 +56,7 @@ func selectedDeclarationChanged(source ScopeSource, previous []string) bool {
 	if len(previous) > 0 && !slices.ContainsFunc(previous, func(line string) bool { return strings.HasPrefix(line, "declaration_sha256=") }) {
 		current = slices.DeleteFunc(slices.Clone(current), func(line string) bool { return strings.HasPrefix(line, "declaration_sha256=") })
 	}
-	current = slices.Clone(current)
-	previous = slices.Clone(previous)
-	slices.Sort(current)
-	slices.Sort(previous)
-	return len(current) > 0 && !sameStrings(previous, current)
+	return len(current) > 0 && !sameCallBrokerDisclosure(previous, current)
 }
 
 // policyApprovalCheck exposes the legacy-held projection only when the gate is

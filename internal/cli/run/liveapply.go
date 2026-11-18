@@ -296,8 +296,8 @@ func (o *Options) liveApply(cfg *jsonx.OrderedMap, rt, cname string, envLines []
 	}
 	if restartOwed && mode.running && !mode.unknown {
 		out.print("[dim]A restart ends every session of this jail, so yolo never does it for you: when " +
-			"they are done, run `yolo stop`, then `yolo`. The approval is recorded, so the launch asks " +
-			"nothing.[/dim]")
+			"they are done, run `yolo stop`, then `yolo`. Pending changes are not all live; the next " +
+			"launch rechecks the config and approvals and may ask again.[/dim]")
 	}
 	return rc
 }

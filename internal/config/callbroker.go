@@ -14,6 +14,16 @@ import (
 
 const callBrokerScopeRecordSuffix = ".call-broker-declaration"
 
+// Declaration records sort their lists; display order is not a declaration change.
+// Compare exact bytes and duplicate multiplicity without changing either input.
+func sameCallBrokerDisclosure(previous, current []string) bool {
+	previous = slices.Clone(previous)
+	current = slices.Clone(current)
+	slices.Sort(previous)
+	slices.Sort(current)
+	return slices.Equal(previous, current)
+}
+
 // ApprovedCallBrokerHTTP is nonsecret binding metadata captured with the selected gate.
 // It is not a credential or a grant.
 type ApprovedCallBrokerHTTP struct {
