@@ -36,6 +36,8 @@ const (
 	outcomeNextRestart
 	// outcomeNextLaunch: no jail is running, so the next `yolo` launches with it.
 	outcomeNextLaunch
+	// outcomeApprovalMetadata is a bounded native-policy foundation, not a timing promise.
+	outcomeApprovalMetadata
 )
 
 // String is the outcome as its line says it. Every line that waits names the next step
@@ -50,13 +52,17 @@ func (a applyOutcome) String() string {
 		return "at next restart (yolo stop, then yolo)"
 	case outcomeNextLaunch:
 		return "at your next yolo launch"
+	case outcomeApprovalMetadata:
+		return "approval metadata recorded; scoped native write dispatch inactive in this build"
 	}
 	return "unknown"
 }
 
 // pending reports whether the outcome leaves the change owed to a restart or a launch: the
 // command's exit 3, as `yolo config drift`'s 3.
-func (a applyOutcome) pending() bool { return a == outcomeNextRestart || a == outcomeNextLaunch }
+func (a applyOutcome) pending() bool {
+	return a == outcomeNextRestart || a == outcomeNextLaunch || a == outcomeApprovalMetadata
+}
 
 // keyOutcome delegates the stable backend/key matrix to the shared mechanics contract.
 // Runtime observations remain inputs to Classify and can narrow its expectation: sessionInputs
@@ -175,9 +181,10 @@ type applyChange struct {
 	label string
 	// key is the top-level workspace key folded into the effective-config record once every
 	// change carrying it applied (LA-D8); "" folds nothing.
-	key     string
-	outcome applyOutcome
-	reason  string
+	key              string
+	approvalUnmarked bool
+	outcome          applyOutcome
+	reason           string
 	// note is a fact the line always carries, such as a removal's open-file caveat.
 	note string
 	// disclosure is a launch disclosure the change carries (a read-write mount's line).
@@ -199,7 +206,11 @@ type applyChange struct {
 
 // line is the change's outcome line, in plain text: `+ /ctx/datasets (read-only): applied now`.
 func (c applyChange) line() string {
-	s := c.sign + " " + c.label + ": " + c.outcome.String()
+	outcome := c.outcome.String()
+	if c.approvalUnmarked {
+		outcome = "scoped native write dispatch inactive in this build"
+	}
+	s := c.sign + " " + c.label + ": " + outcome
 	if c.reason != "" {
 		s += " — " + c.reason
 	}

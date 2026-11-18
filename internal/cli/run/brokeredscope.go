@@ -204,7 +204,7 @@ func (o *Options) writeScopeFiles(cname string, brokered []*loopholes.Loophole) 
 		brokerscope.Sweep(source)
 		if lp.CallBroker != nil {
 			approved, ok := o.approvedScopes[lp.Name]
-			if !ok || o.callBrokerCells[lp.Name] == nil {
+			if !ok || len(approved) == 0 || o.callBrokerCells[lp.Name] == nil {
 				out.print("[yellow]" + lp.Name + ": no gate-approved call-broker scope; the host daemon will not start[/yellow]")
 				continue
 			}

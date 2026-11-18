@@ -669,6 +669,12 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 // ProduceReadableGateInput resolves actual remotes and selected named-host additions before
 // materializing any per-consumer grant. It never fabricates an exact URL from OWNER/REPO.
 func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (ReadableGateInput, error) {
+	return produceReadableGateInput(workspace, plan, false)
+}
+
+// The independent projection is approval data only. The scope collector keeps
+// it pending under a legacy record; runtime readers retain the public read floor.
+func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, independentWrites bool) (ReadableGateInput, error) {
 	input := ReadableGateInput{Requests: cloneReadableRequests(plan.Requests), PackSettings: cloneReadableSettings(plan.PackSettings),
 		PackSettingOrigins: cloneReadableSettingOrigins(plan.PackSettingOrigins), TableTombstones: append([]ReadableTableTombstone(nil), plan.TableTombstones...)}
 	for i := range input.TableTombstones {
@@ -776,13 +782,13 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		if originErr != nil && readAllowed && readableLowersAnUnqualifiedGrant(policy, input.Requests) {
 			return ReadableGateInput{}, originErr
 		}
-		if !readAllowed || len(readTargets) == 0 || len(targets) == 0 {
+		if !readAllowed && !independentWrites || len(readTargets) == 0 || len(targets) == 0 {
 			for i := range input.Requests {
 				request := &input.Requests[i]
 				if request.Status != ReadableRequestGranted || request.Capability == "repos" || request.Capability == policy.ReadCapability || !readableRequestOfSource(*request, policy.Source) {
 					continue
 				}
-				if request.Table != "" && readAllowed && len(readTargets) > 0 {
+				if request.Table != "" && (readAllowed || independentWrites) && len(readTargets) > 0 {
 					continue // a named table's request lands on its own repository, in readTargets
 				}
 				request.Status = ReadableRequestSkipped
@@ -792,7 +798,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 					request.Reason = "the workspace has no concrete repository target for this request"
 				}
 			}
-			if !readAllowed || len(readTargets) == 0 {
+			if !readAllowed && !independentWrites || len(readTargets) == 0 {
 				continue
 			}
 		}

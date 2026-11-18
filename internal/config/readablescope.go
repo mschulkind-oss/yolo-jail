@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -105,12 +106,65 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 	}
 	collectLegacyReadableRepositories(&plan, read, brokers)
 	filterReadablePlanToActiveBrokers(&plan, brokers)
-	gate, err := ProduceReadableGateInput(workspace, plan)
+	gate, err := produceReadableGateInput(workspace, plan, true)
 	if err != nil {
 		return readableScopeFailure(workspace, brokers, err), true
 	}
 	applyLegacyReadableWorkspace(read, user, brokers, &gate)
 	check := scopeCheckFromReadable(workspace, brokers, gate)
+	projection := scopeCheckFromReadableProjection(workspace, brokers, gate, true)
+	record, _, _, err := readScopeRecords(workspace)
+	if err != nil {
+		return readableScopeFailure(workspace, brokers, err), true
+	}
+	for i := range check.Sources {
+		source := &check.Sources[i]
+		pending := projection.Sources[i]
+		if !pending.NativeDeclaration || !pending.concrete() || brokerscope.HoldsRead(source.Grants) {
+			continue
+		}
+		executable := *source
+		pending.executable = &executable
+		source.policyPending = &pending
+		readCapability := ""
+		for _, broker := range brokers {
+			if broker.Source == source.Source && broker.Readable != nil {
+				readCapability = broker.Readable.ReadCapability
+			}
+		}
+		for _, request := range gate.Requests {
+			if request.Status == ReadableRequestGranted && readableRequestOfSource(request, source.Source) && request.Capability != readCapability && request.Capability != "repos" {
+				source.policyPending.policyWriteLines = append(source.policyPending.policyWriteLines, fmt.Sprintf("write request %s = %v", request.Path, request.Value))
+			}
+		}
+		for _, scope := range plan.Scopes {
+			if !scope.Selected || scope.Source != source.Source || scope.Layer != "ask" {
+				continue
+			}
+			for _, table := range []string{"working_set", "all"} {
+				cells := make([]string, 0, len(scope.Tables[table]))
+				for cell := range scope.Tables[table] {
+					cells = append(cells, cell)
+				}
+				sort.Strings(cells)
+				for _, cell := range cells {
+					word := scope.Tables[table][cell]
+					if word == "true" || word == "ask" {
+						source.policyPending.policyWriteLines = append(source.policyPending.policyWriteLines, fmt.Sprintf("write request scopes.%s.requests.%s.%s = %s", scope.Alias, table, cell, word))
+					}
+				}
+			}
+		}
+		if !sourceHasWrites(*source.policyPending) {
+			source.policyPending = nil
+			continue
+		}
+		if recordHasPolicyModel(record, source.Source) {
+			*source = *source.policyPending
+			source.policyPending = nil
+			source.FirstRead = len(record[source.Source]) == 0
+		}
+	}
 	markCarriedBrokerRead(check, carriedRead)
 	return check, true
 }
@@ -752,6 +806,10 @@ func scopeSourceFiles(sources *Sources, parts ...string) []string {
 }
 
 func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input ReadableGateInput) *ScopeCheck {
+	return scopeCheckFromReadableProjection(workspace, brokers, input, false)
+}
+
+func scopeCheckFromReadableProjection(workspace string, brokers []ScopeBroker, input ReadableGateInput, independentProjection bool) *ScopeCheck {
 	rec, _, _ := readScopeRecord(ApprovalScopePath(workspace))
 	observed := make(map[string]ReadableObservedSource, len(input.ObservedSources))
 	for _, source := range input.ObservedSources {
@@ -882,7 +940,22 @@ func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input Reada
 		if len(input.Differences) > 0 {
 			source.Read.Problem = strings.Join(input.Differences, "; ")
 		}
-		if !brokerscope.HoldsRead(source.Grants) {
+		nativeDeclarationScope(&source, broker)
+		readFloor := readableReadAllowed(input, broker.Source)
+		if !readFloor {
+			if independentProjection && source.NativeDeclaration {
+				kept := source.Grants[:0]
+				for _, grant := range source.Grants {
+					if grant.Kind != brokerscope.KindRead {
+						kept = append(kept, grant)
+					}
+				}
+				source.Grants = kept
+			} else {
+				source.Grants = nil
+			}
+		}
+		if !brokerscope.HoldsRead(source.Grants) && !(independentProjection && source.NativeDeclaration) || !source.concrete() {
 			// Grants are issued per concrete target here, so a read allowance over no target
 			// issues none: whether the read was allowed is read off the input itself. A target
 			// dropped as unserializable (Differences) is not a missing remote, and its problem is

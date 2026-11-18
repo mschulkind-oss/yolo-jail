@@ -46,6 +46,7 @@ func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []
 		s := ScopeSource{Source: selected.Source, Label: selected.Label, Pack: selected.Pack, RemoteHost: b.Scope.RemoteHost,
 			Form: brokerscope.FormCallRoot, Disclosure: CallBrokerDisclosure(b), ScopeKind: "call-broker root",
 			EntryKey: brokeredRootsPath(selected.Source)}
+		s.Disclosure = append(s.Disclosure, "declaration_sha256="+loopholedecl.CallBrokerDeclarationHash(b))
 		if b.HTTP != nil {
 			s.Disclosure = append(s.Disclosure, "http selected pack="+selected.Pack, "http declaration_sha256="+loopholedecl.CallBrokerDeclarationHash(b))
 			http := *b.HTTP

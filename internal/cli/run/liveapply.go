@@ -285,12 +285,14 @@ func (o *Options) liveApply(cfg *jsonx.OrderedMap, rt, cname string, envLines []
 		o.noteBrokersStartedByAnOlderYolo(out, rt, cname, envLines)
 	}
 	rc := 0
+	restartOwed := false
 	for _, c := range result {
+		restartOwed = restartOwed || c.outcome == outcomeNextRestart
 		if c.outcome.pending() {
 			rc = 3
 		}
 	}
-	if rc == 3 && mode.running && !mode.unknown {
+	if restartOwed && mode.running && !mode.unknown {
 		out.print("[dim]A restart ends every session of this jail, so yolo never does it for you: when " +
 			"they are done, run `yolo stop`, then `yolo`. The approval is recorded, so the launch asks " +
 			"nothing.[/dim]")
@@ -340,7 +342,7 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 		}
 		discoveryCtx, cancelDiscovery := context.WithTimeout(context.Background(), applyStepDeadline)
 		defer cancelDiscovery()
-		for _, s := range scope.Sources {
+		for _, s := range scope.ExecutableSources() {
 			d := scopeDelta{label: s.Label, source: s.Source, desired: s.Repos(),
 				desiredGrants: s.Grants, recordChanged: changedLabels[s.Label]}
 			if run.mode.running && run.rt != "container" { // parity: Warned — Apple Container starts no broker; the scope line says so
@@ -356,6 +358,10 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 		in.grants = o.grantDeltas(discoveryCtx, run, scope)
 	}
 	plan := buildApplyPlan(in)
+	for _, source := range scope.MetadataOnlySources() {
+		plan = append(plan, applyChange{kind: changeKey, sign: "+", label: source.Label + " scoped write policy", scope: scopeDelta{source: source.Source},
+			outcome: outcomeApprovalMetadata, reason: "native dispatch must be connected before these writes can execute; no latent write was applied"})
+	}
 	if run.mode.recordOnly != "" {
 		for i := range plan {
 			if plan[i].outcome == outcomeAppliedNow {
@@ -414,6 +420,10 @@ func (o *Options) runApplySteps(run *applyRun, plan []applyChange) []applyChange
 	have := append([]liveCtxMount(nil), run.have...)
 	for i := range res {
 		c := &res[i]
+		if c.outcome == outcomeApprovalMetadata && !config.PolicyModelApproved(o.Workspace, c.scope.source) {
+			c.approvalUnmarked = true
+			c.reason = "approval metadata was not upgraded: the legacy source remains unmarked; an explicit config-change approval is required before publishing its latent writes"
+		}
 		if c.outcome != outcomeAppliedNow || c.kind == changeKey {
 			continue
 		}
