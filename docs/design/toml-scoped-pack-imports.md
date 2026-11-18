@@ -200,10 +200,12 @@ identity is not a selection identity. Ordinary entries without new keys retain b
 | Local roots | Resolve symlinks and require selected root to remain inside source root. Selected contents retain existing user-local link trust; this does not alter workspace link rules. |
 | Registration | Independently enforce namespace and core-owned name constraints. |
 
-Only existing host launch-shaped refresh surfaces perform transport. Configured pure readers—why,
-editing validation, add dry-run, explain, check and attach hydration—never fetch, and inspect
-only content that is already locally readable, without writing anything. Author-directory lint
-and footprint keep their existing inputs and behavior; they are not configured-scope readers.
+Only existing host launch-shaped refresh surfaces perform pack transport. Configured readers—why,
+editing validation, add dry-run, explain, check and attach hydration—never fetch packs. For a scoped
+entry they inspect only content that is already locally readable, without writing anything.
+Explain is pure for whole entries too. Check keeps its existing [readiness pass](#editing-and-inspect-surfaces)
+for whole entries. Author-directory lint and footprint keep their existing inputs and behavior;
+they are not configured-scope readers.
 Validate syntax everywhere, candidate matching wherever pinned content is already local;
 otherwise report “selection not yet verified; resolved at next launch” without failure.
 At refresh, validate before publishing any selected row and join the one grouped payload call.
@@ -327,16 +329,28 @@ never needs a staged tree.
 
 Each scoped group is verified, unverified or refused. Verified names its basis: local directory,
 shipped, or cached commit. Unverified prints authored facts and “selection not yet verified;
-resolved at next launch”, with no candidates, rows or counts. Inspection writes nothing: no
-fetch, mirror, stamp, lock, checkout, payload or staged copy. No surface prints footprint counts
-for a scoped import.
+resolved at next launch”, with no candidates, rows or counts. Scoped inspection writes nothing: no
+fetch, floating-pin resolution, mirror, stamp, lock, checkout, payload or staged copy. No surface
+prints footprint counts for a scoped import.
 
 For a scoped entry or several entries, each group header gives `packs[N]`, the origin file,
 `subdir`, `skills.dir` and mode (whole, typed or raw).
-A whole-pack group prints the existing explain body; a scoped group branches on the projection
-before touching a staged tree. Success and refusal retain explain's existing exit convention;
-an unverified group does not fail. Check iterates configured entries and uses the same resolver
-and printer: an unverified entry is not a problem, a refused entry is.
+A whole-pack group prints the existing explain body, computed purely from available data with
+no staging; absent data is unverified, never a fabricated count. A scoped group branches on the
+projection before touching a staged tree. Success and refusal retain explain's existing exit
+convention; an unverified group does not fail. Explain is pure as a whole command.
+
+Check iterates configured entries. A scoped entry uses the same resolver and printer and the
+same pure inspection: an unverified entry is not a problem, a refused entry is. A whole entry
+keeps the **readiness pass** *(coined here)*: the existing check behavior that stages whole packs
+into one throwaway tree for the existing readiness consumers, keeps it available to later check
+sections and removes it when check returns. That pass is unchanged, still never fetches packs,
+and is not a scoped-inspection effect. `yolo check` is not
+claimed to be effect-free as a whole command, and this feature migrates no readiness reader.
+Pack-fetch refusal does not claim that unrelated Nix, network or other diagnostics have no effects.
+
+**Origin:** The check-readiness boundary clarification, 2026-11-17. Readiness pass names existing
+whole-pack staging and cleanup, not a new command, permission or general exception for pure readers.
 
 | State | Read-only basis | Report |
 | :--- | :--- | :--- |
@@ -391,7 +405,7 @@ closure, composition, staging and reload; tests of isolated filtering alone are 
 | A-17 | Shared commit, differing marker/directory selections, selection-only change | One shared payload unchanged, no second cache or fetch; selection change requires restart. |
 | A-18 | Delete source/cache before reload/attach; tamper rows | Running view succeeds; missing/duplicate/extra rows refuse. |
 | A-19 | Host apply parity | Exact same recorded names, rows and licenses as jail. |
-| A-20 | Unfetched scoped source on explain, check, why and edit validation | Not-yet-verified with authored facts only, no candidates or counts, no transport, no store write, no failure. |
+| A-20 | Unfetched scoped source on explain, check, why and edit validation | Not-yet-verified with authored facts only, no candidates or counts, no transport, no store write or staging attributable to the scoped entry, no failure. |
 | A-21 | Own/root/absent/conflicting license | Correct recorded result or refusal. |
 | A-22 | Legacy filtered migration | Retained file, refusal, modern manual spelling. |
 | A-23 | Mixed typed marker/markerless folders on Git/local carriers | Both delivered, markerless folder has no synthesized marker, correct explain/check label and counts, existing author-directory lint finding on the same pack, parity with whole pack. |
@@ -403,7 +417,7 @@ closure, composition, staging and reload; tests of isolated filtering alone are 
 | A-29 | Legacy inclusion and legacy whole markerless directory beside modern rows | Old behavior/withholding unchanged; legacy never produces directory kind. |
 | A-30 | Stale selector after ref advance with older running jail | Advanced pin, fresh refusal/no publication, new commit/selector/candidates in error, running tree unchanged and attach works. |
 | A-31 | Edit selection or set known-good ref; unchanged repeat | Both remedies deliver exact rows without widening; unchanged launch repeats refusal. |
-| A-32 | Explain and check with one handle carrying two raw directories and a relocated whole pack; one group cached, one never fetched | Every tuple reported in order with its index and roots; none dropped; cached group names its commit; unfetched group is unverified; no panic; a single unscoped entry prints as at baseline. |
+| A-32 | Explain and check with one handle carrying two raw directories and a relocated whole pack; one group cached, one never fetched | Every tuple reported in order with its index and roots; none dropped; cached group names its commit; unfetched group is unverified; no panic; a single unscoped entry prints as at baseline. Explain writes nothing for any group. In check, the whole group's [readiness-pass](#editing-and-inspect-surfaces) staging equals its baseline without the scoped entries, and the scoped groups add no pin resolution, materialization, payload copy or lock write. |
 | A-33 | Author lint and footprint with a scoped user config present, including an argument spelled like a configured handle | Output and exit identical to the same run without the scoped config; no configured scope, no handle routing, no scoped counts. |
 
 A-32 uses existing legal import tuples at distinct, nonconflicting roots with the same authored ref.
@@ -422,6 +436,7 @@ It does not relax [tuple, physical-root or whole/scoped conflict rules](#naming-
 9. Failed advanced-pin projection never publishes, widens or reuses prior selection.
 10. Author-directory lint and footprint are unchanged and never resolve configured scope.
 11. Explain never reports fewer import tuples than the handle has, and no surface prints counts it did not read.
+12. Scoped inspection and explain write nothing; check's whole-entry [readiness pass](#editing-and-inspect-surfaces) is unchanged and is the only pack-entry staging check performs.
 
 ## Confirmed carrier facts
 
@@ -475,3 +490,4 @@ prove no capture/install markers and owned cleanup. No agent execution or provid
 | D-22 | Resolver-only kind authority; request/record/hydration eligibility and downgrade rejection | 2026-11-17 | [Record validation](#record-validation-and-downgrade) | — |
 | D-23 | Preserve lock-first refresh; invalid new projection refuses/no publication, unchanged running tree, tested recovery | 2026-11-17 | [Refresh](#paths-and-refresh) | — |
 | D-24 | Author lint/footprint unchanged; scoped inspection lives in explain/check; all same-handle tuples shown; side-effect-free cached inspection or honest unverified | 2026-11-17 | [Editing](#editing-and-inspect-surfaces) | — |
+| D-25 | Purity is per scoped entry and for explain; check keeps its existing whole-entry readiness pass; no readiness-reader migration | 2026-11-17 | [Editing](#editing-and-inspect-surfaces) | — |

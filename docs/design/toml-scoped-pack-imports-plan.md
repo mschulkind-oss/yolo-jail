@@ -130,7 +130,7 @@ boundary; exact helper factoring is cheap and delegated.
 | Marker row | Raw and manifest sourced always direct regular marker-required; manifest sourced non-root/explicit-ref validation unchanged. Existing whole-pack sourced rows retain old compatibility. |
 | License | Own conventional license, otherwise root license; conflict/unsafe/oversized refuses, none recorded. Direct config adds no license path. Per-row source/pin/directory/origin provenance. |
 | Inspection | One printer for configured explain, check and add dry-run: candidates/selected/excluded/names/kind/marker state/carrier/source/license/origin and omitted-kind counts. Markerless directory is folder, delivered but not discoverable, excluded from skill counts. Explain shows every same-handle tuple as its own group, never first match; scoped groups never touch a staged tree. Author lint and footprint keep existing arguments and meanings and never show configured scope. Intentional omission is not warning. |
-| Pure reads | No fetch and no store write on why/edit-validation/add dry-run/explain/check/attach. Syntax always checked; cached/local candidate errors refuse; never-fetched or not-locally-readable selection is unverified with authored facts only, next launch resolves, not failure. No scoped footprint counts. |
+| Pure reads | No pack fetch on why/edit-validation/add dry-run/explain/check/attach. No write of any kind for a scoped entry on those surfaces, or for any entry in explain. Check keeps its existing whole-entry [readiness pass](toml-scoped-pack-imports.md#editing-and-inspect-surfaces) (throwaway staging and cleanup) unchanged; do not migrate its readers. Syntax always checked; cached/local candidate errors refuse; never-fetched or not-locally-readable selection is unverified with authored facts only, next launch resolves, not failure. No scoped footprint counts. |
 | Advanced-pin failure | Lock-first/no rollback. New commit, failing selector and current candidates in error, prior commit only offline. Publish nothing invalid/partial, never use old selection; running tree unchanged. Edit selection or known-good ref remedies; unchanged fresh read repeats refusal. |
 | Record | No original scoped root in discovery; selected rows outside discovery, one recorded effective projection. Row kind/state/governor persisted/versioned. Source-free replay verifies rows, marker state and eligibility; missing/duplicate/unknown/forged/downgrade refuse. No re-enumeration. |
 | CLI/edit | Add handle or git mutually exclusive; exact flags subdir/skills-dir/only/exclude/bare/namespace/dry-run. Table only when options require it. Remove derives handle and deletes one tuple, ambiguity refuses with roots/index/origin. Nested generic edits/why support provenance. No writer emits empty/default/legacy keys. |
@@ -600,7 +600,8 @@ shows rows, omitted counts and unverified state without warning for intentional 
 **Inspection caller controls:** through the real command entry, cover one scoped group with no
 staged-tree dereference; every tuple of one legal same-handle multi-entry fixture; single unscoped
 baseline output; never-fetched explain/check authored facts only; cached stale-selector refusal;
-transport-refusing Git and store snapshots proving no inspection writes; author lint/footprint
+transport-refusing Git and store snapshots proving no scoped-inspection or explain writes, with
+check's whole-entry [readiness pass](toml-scoped-pack-imports.md#editing-and-inspect-surfaces) staging measured as its own baseline in mixed fixtures; author lint/footprint
 unchanged-output controls, including a handle-spelled argument. The multi-entry fixture keeps
 existing distinct-root, authored-ref, physical identity and whole/scoped conflict rules. No test
 may relax identity proof to create it. Preserve the API-mismatch lint/footprint red receipts as
@@ -736,7 +737,7 @@ witnesses. Never claim all setups verified from Linux fixtures.
 | A-18/A-19/A-26/A-27 | Record→run/jail loader + composer after source/cache deletion; forged/downgraded kind/state refusal, host parity. |
 | A-23–A-25/A-28/A-29 | Typed marker/markerless parity, marker-required other modes, nonregular marker refusal, inert data and unchanged legacy. |
 | A-30/A-31 | Real refresh→resolution: advanced lock/no publication, unchanged live tree, repeat refusal and both tested recoveries. |
-| A-32/A-33 | Real explain/check entry: every legal same-handle tuple, local/cached/unverified/refused states without writes, no staged-tree access, single unscoped baseline; unchanged author lint/footprint input/output controls. |
+| A-32/A-33 | Real explain/check entry: every legal same-handle tuple, local/cached/unverified/refused states; no scoped-inspection or explain writes, no scoped staged-tree access; whole-entry check [readiness-pass](toml-scoped-pack-imports.md#editing-and-inspect-surfaces) staging matches its own baseline in mixed fixtures; single unscoped output baseline; unchanged author lint/footprint input/output controls. |
 
 Permanent controls must go red if production ignores selection, clears only modern withholding,
 retains original `needs`, re-enumerates on reload, skips the common registration caller, keys diff
