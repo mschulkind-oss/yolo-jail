@@ -1,6 +1,9 @@
 package loopholedecl
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -69,6 +72,15 @@ type Brokered struct {
 	// are for the clone's `origin` remote alone, and "" when they reach every remote on the host
 	// (GW-D79). Only a source on one host may declare it; the empty value is today's reach.
 	UnqualifiedRequests string
+	// Optional TOML declaration metadata only; absent keeps the shared timed default.
+	ReadMaxFor string `json:",omitempty"`
+}
+
+// BrokeredDeclarationHash binds native declaration metadata, not authority.
+// Missing read_max_for remains omitted from the existing JSON representation.
+func BrokeredDeclarationHash(b *Brokered) string {
+	raw, _ := json.Marshal(b)
+	return fmt.Sprintf("%x", sha256.Sum256(raw))
 }
 
 // UnqualifiedRequestsOrigin is the `unqualified_requests` value that narrows a source's
@@ -111,7 +123,7 @@ func ValidBrokerSourceName(s string) bool { return sourceRE.MatchString(s) }
 // and a workspace grant all do: a lowercase letter, then lowercase letters, digits and hyphens.
 func ValidGrantKind(s string) bool { return sourceRE.MatchString(s) }
 
-func parseBrokered(manifestPath string, raw any) (*Brokered, error) {
+func parseBrokered(manifestPath string, raw any, legacy ...bool) (*Brokered, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -119,14 +131,25 @@ func parseBrokered(manifestPath string, raw any) (*Brokered, error) {
 	if !ok {
 		return nil, Errorf("%s: 'brokered' must be a mapping", manifestPath)
 	}
+	keys := brokeredKeys
+	if len(legacy) == 0 || !legacy[0] {
+		keys = append(append([]string(nil), keys...), "read_max_for")
+	}
 	for _, k := range m.Keys() {
-		if !inList(k, brokeredKeys) {
+		if !inList(k, keys) {
 			return nil, Errorf("%s: unknown key %q in 'brokered' (known: %s) — the block is a "+
 				"fence, and a key it does not know would be a fence that does not exist",
 				manifestPath, "brokered."+k, strings.Join(sortedCopy(brokeredKeys), ", "))
 		}
 	}
 	b := &Brokered{}
+	if raw, has := m.Get("read_max_for"); has {
+		value, ok := raw.(string)
+		if !ok || !validDuration(value) {
+			return nil, Errorf("%s: brokered.read_max_for must be a duration such as 1h; repair the declaration", manifestPath)
+		}
+		b.ReadMaxFor = value
+	}
 	src, _ := getOrNil(m, keySource).(string)
 	if !sourceRE.MatchString(src) {
 		return nil, Errorf("%s: 'brokered.source' must be a lowercase name such as \"github\" "+

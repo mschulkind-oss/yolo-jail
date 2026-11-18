@@ -811,11 +811,11 @@ func walk(data *jsonx.OrderedMap, manifestPath, dirName string, legacy bool) (*M
 	if hostDaemon != nil && len(hostDaemon.SettingsCheck) > 0 && len(settings) == 0 {
 		return nil, Errorf("%s: 'host_daemon.settings_check' requires at least one declared 'settings' entry", manifestPath)
 	}
-	brokered, err := parseBrokered(manifestPath, getOrNil(data, keyBrokered))
+	brokered, err := parseBrokered(manifestPath, getOrNil(data, keyBrokered), legacy)
 	if err != nil {
 		return nil, err
 	}
-	callBroker, err := parseCallBroker(manifestPath, getOrNil(data, keyCallBroker))
+	callBroker, err := parseCallBroker(manifestPath, getOrNil(data, keyCallBroker), legacy)
 	if err != nil {
 		return nil, err
 	}

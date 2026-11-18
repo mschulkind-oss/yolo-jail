@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -81,6 +82,20 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 		return nil
 	}
 	out := []string{"call broker: " + b.Source + " front=" + b.Front + " program=" + b.Program + " executor=" + b.Executor + " scope roots=" + b.Scope.Roots}
+	if description := b.Scope.MatchingDescription(); description != "" {
+		out = append(out, description)
+	}
+	if b.Context != nil {
+		names := make([]string, 0, len(b.Context.Fields))
+		for name := range b.Context.Fields {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			out = append(out, "context field="+strconv.Quote(name)+" env="+b.Context.Fields[name])
+		}
+		out = append(out, "context unset="+strings.Join(b.Context.Unset, ","), fmt.Sprintf("context route_anchors=%q", b.Context.RouteAnchors))
+	}
 	if b.Scope.RemoteHost != "" {
 		out = append(out, "remote_host="+b.Scope.RemoteHost+" root_template="+b.Scope.RootTemplate)
 	}
@@ -114,7 +129,11 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 				parts = append(parts, table+"=ask")
 			}
 		}
-		out = append(out, "cell "+c.Name+" tables="+strings.Join(c.Tables, ",")+" default="+strings.Join(parts, ",")+" max_for="+c.MaxFor)
+		kind := ""
+		if c.Kind != "" {
+			kind = " kind=" + c.Kind
+		}
+		out = append(out, "cell "+c.Name+kind+" tables="+strings.Join(c.Tables, ",")+" default="+strings.Join(parts, ",")+" max_for="+c.MaxFor)
 	}
 	if b.HTTP != nil {
 		out = append(out, "http origin="+b.HTTP.Origin+" credential_source="+b.HTTP.Credential.Source+
@@ -260,6 +279,9 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 	}
 	if requestSource != nil {
 		for _, table := range requestSource.Keys() {
+			if table == "read" {
+				continue
+			} // TOML read metadata is validated by the selected declaration resolver.
 			if table != "working_set" && table != "all" {
 				add(errs, "config.requests."+source+"."+table+": not a declared call-broker table; use working_set or all")
 				continue

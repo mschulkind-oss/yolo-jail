@@ -167,17 +167,23 @@ func TestPublicConfigUnsetOnANamedRepositoryRefusesWithoutWriting(t *testing.T) 
 	}
 }
 
-// The schema types nothing under a named repository's broker table, so the generic set and add
-// have no value type there: the request verb stays the one author of those lines.
-func TestTheSchemaTypesNothingUnderANamedRepositoryBroker(t *testing.T) {
+// Named write capabilities retain declaration-owned types. Only the additive scoped
+// read vocabulary is registered for the generic editor.
+func TestTheSchemaTypesOnlyNewReadUnderANamedRepositoryBroker(t *testing.T) {
 	sawAny := false
 	for _, rule := range config.ReadableSchemaKeys() {
 		parts := strings.Split(rule.Path, ".")
 		if len(parts) < 4 || parts[0] != "repos" || parts[2] != "requests" {
 			continue
 		}
+		if rule.Path == "repos.*.requests.read" || rule.Path == "repos.*.requests.*.read" {
+			if rule.Type != config.SchemaTypeMixed || rule.Scope != config.SchemaScopeWorkspaceOnly {
+				t.Fatalf("scoped read rule: %+v", rule)
+			}
+			continue
+		}
 		if len(parts) > 4 {
-			t.Fatalf("the schema types %s; a named repository's capabilities are typed by the broker's declaration", rule.Path)
+			t.Fatalf("the schema types %s; a named repository's write capabilities are typed by the broker's declaration", rule.Path)
 		}
 		if rule.Path == "repos.*.requests.*" {
 			sawAny = rule.Type == config.SchemaTypeAny && rule.Scope == config.SchemaScopeWorkspaceOnly

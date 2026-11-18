@@ -143,7 +143,7 @@ func resolveGateReadableAllowance(workspace string, user *jsonx.OrderedMap, user
 		PackSettings: detachedSettings,
 		UserOrigins:  userOrigins, WorkspaceOrigins: workspaceOrigins,
 	})
-	return plan, user, carriedRead, err
+	return plan, user, carriedRead, annotateScopedBrokerConflict(err, userSources, read.sources)
 }
 
 // validateGateReadableAllowance reports what the launch's config-change gate would refuse in the
@@ -156,7 +156,7 @@ func resolveGateReadableAllowance(workspace string, user *jsonx.OrderedMap, user
 // fails: each such failure is reported by its own validator.
 func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, errs *[]string) {
 	named := false
-	for _, key := range []string{"allow", "repos", "requests"} {
+	for _, key := range []string{"allow", "repos", "requests", "scopes", "contexts"} {
 		if _, present := config.Get(key); present {
 			named = true
 		}
@@ -174,7 +174,10 @@ func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, e
 	}
 	packs := nonNilPacks(func() []*packload.Pack { p, _ := resolveSelectedPacks(); return p }())
 	declarations, settings, err := ReadableDeclarationsForPacks(packs)
-	if err != nil || len(declarations) == 0 {
+	if err != nil {
+		if hasScopedBrokerVocabulary(user, read.Config) {
+			add(errs, "selected broker declarations could not be read: "+err.Error()+"; run yolo config check after selecting a valid pack")
+		}
 		return
 	}
 	selected := make([]string, 0, len(packs))
@@ -186,7 +189,7 @@ func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, e
 	// from the launch's running scope brokers (call brokers such as aws among them), so any
 	// other resolution error here may be one the launch does not raise.
 	var retired *RetiredReposKeyError
-	if errors.As(err, &retired) {
+	if errors.As(err, &retired) || err != nil && (hasScopedBrokerVocabulary(user, read.Config) || hasDeclarationScopedVocabulary(declarations, user, read.Config)) {
 		add(errs, err.Error())
 	}
 }
@@ -569,6 +572,7 @@ func containsStringAny(values []any, want string) bool {
 
 func readableWorkspaceOrigins(config *jsonx.OrderedMap, sources *Sources) map[string][]string {
 	origins := map[string][]string{}
+	scopedPolicyOrigins(origins, config, sources)
 	readableNamedOrigins(origins, config, sources)
 	var raw any
 	if config != nil {
@@ -696,6 +700,7 @@ func scopedCeilingOriginFiles(origin string, ceilings []ReadableScopedCeiling) (
 
 func readableUserOrigins(config *jsonx.OrderedMap, sources *Sources) map[string][]string {
 	origins := map[string][]string{}
+	scopedPolicyOrigins(origins, config, sources)
 	var raw any
 	if config != nil {
 		raw, _ = config.Get("allow")

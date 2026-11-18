@@ -77,6 +77,9 @@ func loadJSONCFile(path, label string, strict bool, warn Warn, record bool, at r
 		warn(msg)
 		return jsonx.NewOrderedMap(), nil, nil, nil
 	}
+	if err := refuseLegacyScopedBrokerVocabulary(m, label); err != nil {
+		return nil, nil, nil, err
+	}
 	respellFormerLegacy(m)
 	f := &srcFile{path: path, data: data, format: configdoc.JSONC, contained: rel != "", rel: rel, via: at.via, seq: at.ws.nextSeq(), role: at.role}
 	if !record {

@@ -56,7 +56,7 @@ func ReadWorkspaceForGate(workspace string) (*WorkspaceRead, error) {
 	if probs := brokeredOutsideProblems(src.node().key(brokeredKey)); len(probs) > 0 {
 		return nil, configErr("%s", probs[0])
 	}
-	for _, key := range []string{"requests", "repos"} {
+	for _, key := range []string{"requests", "repos", "scopes"} {
 		if probs := readableScopeOutsideProblems(src.node().key(key), key); len(probs) > 0 {
 			return nil, configErr("%s", probs[0])
 		}

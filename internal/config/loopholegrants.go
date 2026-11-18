@@ -54,10 +54,11 @@ const (
 
 // LoopholeGrantDeclaration is one selected grant-declaring loophole, as its manifest says.
 type LoopholeGrantDeclaration struct {
-	Pack     string
-	Loophole string
-	Access   string
-	Grants   []loopholedecl.Grant
+	Pack       string
+	Loophole   string
+	Access     string
+	Grants     []loopholedecl.Grant
+	CallBroker *loopholedecl.CallBroker
 	// Settings is the loophole's settings declarations, for `yolo config migrate` to place a
 	// project's request-scope setting (LG-D15) under its `[requests.<pack>]` table.
 	Settings []loopholedecl.Setting
@@ -153,7 +154,7 @@ func LoopholeGrantDeclarationsForPacks(packs []*packload.Pack) []LoopholeGrantDe
 			}
 			out = append(out, LoopholeGrantDeclaration{Pack: pack.Name, Loophole: module.Name,
 				Access: module.Decl.Access, Grants: append([]loopholedecl.Grant(nil), module.Decl.Grants...),
-				Settings: append([]loopholedecl.Setting(nil), module.Decl.Settings...)})
+				Settings: append([]loopholedecl.Setting(nil), module.Decl.Settings...), CallBroker: cloneReadableCallBroker(module.Decl.CallBroker)})
 		}
 	}
 	return out
@@ -272,7 +273,7 @@ func loopholeCeilingOf(allow *jsonx.OrderedMap, d LoopholeGrantDeclaration, orig
 		}
 		for _, kind := range kinds {
 			g, declared := loopholeGrantByKind(d.Grants, kind)
-			if !declared && isCallBrokerCellToken(kind) {
+			if !declared && (isCallBrokerCellToken(kind) || declaredCallBrokerPolicyToken(d.CallBroker, kind)) {
 				// A call-broker source named like its pack (circleci, aws) keeps its cell
 				// ceilings in this same table; the call-broker reader owns them
 				// (callBrokerCeiling). A `table.cell` token is never a grant kind, whose
@@ -331,6 +332,11 @@ func loopholeRequestsOf(requests *jsonx.OrderedMap, d LoopholeGrantDeclaration) 
 		}
 		path := "requests." + d.Pack + "." + key
 		raw := readableValue(table, key)
+		if d.CallBroker != nil && key == "read" {
+			if _, isBool := raw.(bool); !isBool {
+				continue
+			} // New read asks are metadata, not a broad legacy grant.
+		}
 		if !g.Valued {
 			asked, isBool := raw.(bool)
 			if !isBool {
@@ -481,7 +487,7 @@ func loopholeGrantDeclarationsOf(packs []ReadablePackDeclaration, selected map[s
 			continue
 		}
 		d := LoopholeGrantDeclaration{Pack: p.Pack, Loophole: p.Loophole, Access: p.Access,
-			Grants: append([]loopholedecl.Grant(nil), p.Grants...)}
+			Grants: append([]loopholedecl.Grant(nil), p.Grants...), CallBroker: cloneReadableCallBroker(p.CallBroker)}
 		if _, seen := byPack[p.Pack]; !seen {
 			byPack[p.Pack] = d
 		}
