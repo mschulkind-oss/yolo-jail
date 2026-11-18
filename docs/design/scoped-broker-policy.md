@@ -3,7 +3,7 @@ title: "Scoped broker policy: one allow / ask / deny contract, with resource sco
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Confirm the seven facts in section 13 in the plan's first task"
+next: "Admit the broker candidate and run the complete plan's U1 baseline reds"
 depends-on:
   - pack-brokers.md
   - github-write-scopes.md
@@ -24,7 +24,7 @@ summary: "Every operation broker (git, github, aws, circleci) answers each class
 
 **Evidence boundary.** This design rests on [source-read grounding](../research/scoped-broker-policy-grounding.md) against baseline `a97a0e055f20de4524063b70729595ea8794bef8` and on a direct read of [`github-write-scopes.md`](github-write-scopes.md). A later engineering-closure pass ran six synthetic probes through a Go test overlay and fifteen existing tests against the same baseline; [section 13](#13-unverified-claims-this-design-relies-on) records each result. No integration suite, API call, agent run or credential read supports it. Shipped TOML spellings and timing constants quoted below come from a read-only source scan, not from running the commands.
 
-**Reads with:** [`scoped-broker-policy-plan.md`](scoped-broker-policy-plan.md) (the companion seed, not a build hand-off), [`github-write-scopes.md`](github-write-scopes.md) (cells, ceiling, ask, working set; several rulings are reused and two superseded here), [`pack-brokers.md`](pack-brokers.md) (the generic broker), [AWS operations](../reference/aws-operation-broker/README.md) (AWS authority and execution).
+**Reads with:** [`scoped-broker-policy-plan.md`](scoped-broker-policy-plan.md) (the complete, focused-reviewed build hand-off; implementation remains unbuilt), [`github-write-scopes.md`](github-write-scopes.md) (cells, ceiling, ask, working set; several rulings are reused and two superseded here), [`pack-brokers.md`](pack-brokers.md) (the generic broker), [AWS operations](../reference/aws-operation-broker/README.md) (AWS authority and execution).
 
 ---
 
@@ -874,7 +874,7 @@ Each is account-free and uses fake host executables or fixtures. "Refused" means
 | H28 | A declaration with no `read` grant kind and no read cell; a `read` line | Load error; every read refused. |
 | H29 | One declared read cell; a classifier read with no cell | Decided as that cell. |
 | H30 | Two declared read cells; a classifier read with no cell, or naming an undeclared cell | The classification is refused; no request. |
-| H31 | A read cell with `tables` or a default; a cell named `read`; `kind = "read"` in a legacy manifest | The first two refuse the declaration. The third is not recognized and the cell is a write as today. |
+| H31 | A read cell with `tables` or a default; a cell named `read`; `kind = "read"` in a legacy manifest | The first two refuse the declaration. The third is an unknown call-broker cell key and strictly refuses the declaration, as in every shipped format; it is not parsed as a write. Omitted `kind` retains the default-write meaning. No new legacy key, parser or grant is added. |
 | H32 | The implicit read answered `--for` | One `call:read` entry on the chain, capped at 15 minutes. |
 
 ## 13. Unverified claims this design relies on

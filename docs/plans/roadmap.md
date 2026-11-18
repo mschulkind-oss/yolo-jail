@@ -50,15 +50,14 @@ needs a ruling or a Mac sits in the others.
      publication path is built with no client listed, so publication stays off; audit a real HTTP client, then run
      its nested two-jail replay test.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
-   - [Scoped broker policy](../design/scoped-broker-policy.md) — complete its [companion seed](../design/scoped-broker-policy-plan.md)
-     against the current tree before implementation, because one shared operation policy must precede
-     source-specific repairs. The [source-owned matching](../design/scoped-broker-policy.md#38-scope-matching)
-     and [timed-cap contract](../design/scoped-broker-policy.md#51-timed-caps) retain admission and historical
-     known-write limits. The accepted repair also fixes [baseline list resolution](../design/scoped-broker-policy.md#32-which-rule-governs),
-     [legacy reads](../design/scoped-broker-policy.md#39-read-cells-zero-one-or-many) and [live apply](../design/scoped-broker-policy.md#8-authority-state-concurrency-withdrawal-failure).
-     Read the corrected full plan, including [V1–V7](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
-     and their fixed fallbacks, and obtain focused review before publishing a build hand-off. The companion
-     remains a seed, not implementation authority; code is not yet authorized.
+   - [Scoped broker policy](../design/scoped-broker-policy.md) — use the [complete build hand-off](../design/scoped-broker-policy-plan.md)
+     for candidate admission and baseline reds, because one shared operation policy must precede
+     source-specific repairs. The [source-owned matching](../design/scoped-broker-policy.md#38-scope-matching),
+     [timed caps](../design/scoped-broker-policy.md#51-timed-caps), [baseline list resolution](../design/scoped-broker-policy.md#32-which-rule-governs),
+     [legacy reads](../design/scoped-broker-policy.md#39-read-cells-zero-one-or-many) and [live apply](../design/scoped-broker-policy.md#8-authority-state-concurrency-withdrawal-failure)
+     remain the design's authority. The hand-off preserves [V1–V7](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
+     and their fixed fallbacks. Publication is not implementation or graduation; candidate code still needs
+     fresh independent review and applicable final-tree gates.
    - [Managed MCP sign-in build hand-off](../design/managed-mcp-sign-in-plan.md) — ordinary managed-agent
      sign-in, capture and delivery need one coherent implementation, separate from operation-broker policy.
      The [behavioral design](../design/managed-mcp-sign-in.md) owns the contract; the synthetic gate precedes

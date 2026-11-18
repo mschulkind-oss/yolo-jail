@@ -1,6 +1,6 @@
 # Glossary
 
-Definitions used across design, research and companion seeds. These definitions describe the proposals;
+Definitions used across design, research and implementation plans. These definitions describe the proposals;
 they do not claim the mechanisms are built.
 
 ## Anchor (broker scope)
