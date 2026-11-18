@@ -90,6 +90,13 @@ func Main(args []string) int {
 		return 1
 	}
 	start, err := brokerstore.NewStartID()
+	if _, statErr := os.Lstat(brokerscope.DeliveredBaselinePath(sf)); statErr == nil || !errors.Is(statErr, os.ErrNotExist) {
+		var delivered brokerscope.DeliveredBaseline
+		delivered, err = brokerscope.ReadDelivered(sf, h.input.DeclarationHash, snapshotInputDigest(h.original))
+		if err == nil {
+			start = delivered.Start
+		}
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "call-broker: cannot bind broker lifetime; retry the launch")
 		return 1

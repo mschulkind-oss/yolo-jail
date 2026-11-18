@@ -22,9 +22,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
@@ -46,7 +48,7 @@ const ctxMountsTokenEnvName = ctxMountsTokenEnv
 
 var (
 	liveScopeFilesSeam = func(ctx context.Context, source, container, workspace string) ([]liveScopeFile, error) {
-		files, err := brokerscope.LiveFilesContext(ctx, source, container, workspace)
+		files, err := brokerscope.LiveApplyFilesContext(ctx, source, container, workspace)
 		out := make([]liveScopeFile, 0, len(files))
 		for _, f := range files {
 			out = append(out, liveScopeFile{Path: f.Path, File: f.File, LiveScope: f.File.LiveScope})
@@ -357,7 +359,7 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 		}
 		in.grants = o.grantDeltas(discoveryCtx, run, scope)
 	}
-	plan := o.blockIncompleteSnapshotApply(run, buildApplyPlan(in))
+	plan := o.blockOlderAskApply(run, o.blockIncompleteSnapshotApply(run, buildApplyPlan(in)))
 	for _, source := range scope.MetadataOnlySources() {
 		plan = append(plan, applyChange{kind: changeKey, sign: "+", label: source.Label + " scoped write policy", scope: scopeDelta{source: source.Source},
 			outcome: outcomeApprovalMetadata, reason: "native dispatch must be connected before these writes can execute; no latent write was applied"})
@@ -457,6 +459,11 @@ func (o *Options) runApplySteps(run *applyRun, plan []applyChange) []applyChange
 		limit := min(applyStepDeadline, left)
 		err := o.applyStep(run, c, time.Now().Add(limit))
 		if err != nil {
+			var refusal *olderAskRefusal
+			if errors.As(err, &refusal) {
+				c.outcome, c.reason = outcomeOlderAskPending, err.Error()
+				continue
+			}
 			if run.rt != "macos-user" { // parity: HonoredBy — macos-user's steps are scope files, not a container that can stop
 				if cid, known := o.probeRunningContainer(run.cname, run.rt, attachProbeTimeout); known && cid == "" {
 					stopped = true
@@ -542,8 +549,15 @@ func (o *Options) applyStep(run *applyRun, c *applyChange, deadline time.Time) e
 		grants := o.approvedGrants[c.scope.label]
 		ctx, cancel := contextForDeadline(deadline)
 		defer cancel()
+		precheck := o.olderSourcePrecheck(run, c.scope.source)
 		for _, f := range c.scope.files {
-			if err := replaceScopeReposSeam(ctx, f.Path, f.File, repos, grants); err != nil {
+			var err error
+			if precheck != nil {
+				err = brokerscope.ReplaceScopeCheckedContext(ctx, f.Path, f.File, repos, grants, precheck)
+			} else {
+				err = replaceScopeReposSeam(ctx, f.Path, f.File, repos, grants)
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -556,6 +570,33 @@ func (o *Options) applyStep(run *applyRun, c *applyChange, deadline time.Time) e
 		// THE GRANTS THE GATE APPROVED, its in-memory result (WW-P2), never a re-read.
 		ctx, cancel := contextForDeadline(deadline)
 		defer cancel()
+		if c.grant.lp != nil && c.grant.lp.CallBroker != nil {
+			source := c.grant.lp.CallBroker.Source
+			files, err := liveScopeFilesSeam(ctx, source, run.cname, o.Workspace)
+			if err != nil {
+				return &olderAskRefusal{err}
+			}
+			if len(files) == 0 {
+				live, err := unclassifiedSourceLifetime(source)
+				if err != nil || live {
+					return &olderAskRefusal{errors.New("old policy not replaced: live delivered scope became unknown; no grant write performed; run `yolo stop`, then `yolo`")}
+				}
+			}
+			if len(files) > 0 {
+				return brokerlock.WithTransactionContext(ctx, paths.BrokerSourceDir(source), func() error {
+					for _, file := range files {
+						sf, err := brokerscope.ReadFile(file.Path)
+						if err != nil {
+							return &olderAskRefusal{err}
+						}
+						if err := o.checkOlderAsksLocked(c.grant.lp, sf); err != nil {
+							return &olderAskRefusal{fmt.Errorf("old policy not replaced: %w; no grant write performed; run `yolo stop`, then `yolo`", err)}
+						}
+					}
+					return o.replaceGrantFiles(ctx, c)
+				})
+			}
+		}
 		return o.replaceGrantFiles(ctx, c)
 	}
 	return nil

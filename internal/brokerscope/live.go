@@ -33,19 +33,25 @@ func LiveFiles(source, container, workspace string) ([]LiveFile, error) {
 
 // LiveFilesContext is LiveFiles with context-bounded source lock acquisition.
 func LiveFilesContext(ctx context.Context, source, container, workspace string) ([]LiveFile, error) {
-	return liveFiles(ctx, source, func(f File) bool { return f.Container == container && f.Workspace == workspace })
+	return liveFiles(ctx, source, func(f File) bool { return f.Container == container && f.Workspace == workspace }, false)
 }
 
 // EveryLiveFile is every scope file of source a running broker is bound to, whatever its
 // container or workspace: `yolo approve` lists the working-set branches each one's approved
 // grants declare (docs/reference/git-broker.md GB-D13).
 func EveryLiveFile(ctx context.Context, source string) ([]LiveFile, error) {
-	return liveFiles(ctx, source, func(File) bool { return true })
+	return liveFiles(ctx, source, func(File) bool { return true }, false)
 }
 
 // liveFiles reads, under the source's lock transaction, the scope files of source whose
 // launch and broker are both alive and that match keeps.
-func liveFiles(ctx context.Context, source string, keep func(File) bool) ([]LiveFile, error) {
+// LiveApplyFilesContext refuses unclassified launch entries rather than treating
+// a malformed/copy/unreadable snapshot locator as an absent consuming source.
+func LiveApplyFilesContext(ctx context.Context, source, container, workspace string) ([]LiveFile, error) {
+	return liveFiles(ctx, source, func(f File) bool { return f.Container == container && f.Workspace == workspace }, true)
+}
+
+func liveFiles(ctx context.Context, source string, keep func(File) bool, strict bool) ([]LiveFile, error) {
 	if ctx == nil {
 		return nil, errors.New("scope discovery requires a context")
 	}
@@ -63,11 +69,20 @@ func liveFiles(ctx context.Context, source string, keep func(File) bool) ([]Live
 			return err
 		}
 		for _, e := range entries {
-			if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".json") {
+			if strings.HasPrefix(e.Name(), ".") || !strings.HasSuffix(e.Name(), ".json") {
+				continue
+			}
+			if !e.Type().IsRegular() {
+				if strict {
+					return policyFailure("unclassified launch scope entry")
+				}
 				continue
 			}
 			p := filepath.Join(dir, e.Name())
 			f, err := ReadFile(p)
+			if strict && err != nil {
+				return err
+			}
 			if err != nil || f.Source != source || !keep(f) {
 				continue
 			}
@@ -101,7 +116,7 @@ func ReplaceRepos(path string, expect File, repos []string) error {
 // ReplaceReposContext is ReplaceRepos with context-bounded source lock acquisition. The file's
 // grants are left as they are.
 func ReplaceReposContext(ctx context.Context, path string, expect File, repos []string) error {
-	return replaceScope(ctx, path, expect, repos, nil, false)
+	return replaceScope(ctx, path, expect, repos, nil, false, nil)
 }
 
 // ReplaceScopeContext is ReplaceReposContext that also replaces the file's grants
@@ -109,10 +124,16 @@ func ReplaceReposContext(ctx context.Context, path string, expect File, repos []
 // repositories and the grants its gate approved together. A grant ValidGrant refuses is refused
 // with the file left as it was.
 func ReplaceScopeContext(ctx context.Context, path string, expect File, repos []string, grants []Grant) error {
-	return replaceScope(ctx, path, expect, repos, grants, true)
+	return replaceScope(ctx, path, expect, repos, grants, true, nil)
 }
 
-func replaceScope(ctx context.Context, path string, expect File, repos []string, grants []Grant, setGrants bool) error {
+// ReplaceScopeCheckedContext runs the apply's delivered-ask precheck under the
+// existing source transaction, immediately before any legacy source write.
+func ReplaceScopeCheckedContext(ctx context.Context, path string, expect File, repos []string, grants []Grant, precheck func(File) error) error {
+	return replaceScope(ctx, path, expect, repos, grants, true, precheck)
+}
+
+func replaceScope(ctx context.Context, path string, expect File, repos []string, grants []Grant, setGrants bool, precheck func(File) error) error {
 	if ctx == nil {
 		return errors.New("scope replacement requires a context")
 	}
@@ -169,6 +190,11 @@ func replaceScope(ctx context.Context, path string, expect File, repos []string,
 		}
 		if f.PolicySnapshot != nil {
 			return policyFailure("legacy roots/grants replacement cannot replace complete snapshot authority")
+		}
+		if precheck != nil {
+			if err := precheck(f); err != nil {
+				return err
+			}
 		}
 		f.Repos = append([]string{}, repos...)
 		if setGrants {

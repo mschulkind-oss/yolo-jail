@@ -278,7 +278,7 @@ func sweep(source string) (removed []string) {
 			continue
 		}
 		if errors.Is(syscall.Kill(f.PID, 0), syscall.ESRCH) {
-			if os.Remove(p) == nil {
+			if removeScopeAndDelivered(p, f) == nil {
 				removed = append(removed, p)
 			}
 		}
@@ -288,7 +288,23 @@ func sweep(source string) (removed []string) {
 
 // Remove serializes launch teardown with grant decisions and consumption.
 func Remove(path string) error {
-	return brokerlock.WithTransaction(filepath.Dir(filepath.Dir(path)), func() error { return os.Remove(path) })
+	return brokerlock.WithTransaction(filepath.Dir(filepath.Dir(path)), func() error {
+		f, _ := ReadFile(path)
+		return removeScopeAndDelivered(path, f)
+	})
+}
+
+func removeScopeAndDelivered(path string, f File) error {
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	if f.Source == "" || f.LaunchID == "" || strings.ContainsAny(f.Source+f.LaunchID, "/\\.") || filepath.Clean(path) != paths.BrokerScopeFile(f.Source, f.LaunchID) {
+		return nil
+	}
+	if err := os.Remove(DeliveredBaselinePath(f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // ValidateCurrent is a non-locking gate read, for use inside a store transaction.

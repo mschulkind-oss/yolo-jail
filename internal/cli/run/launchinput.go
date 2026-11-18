@@ -539,6 +539,11 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		if err == nil {
 			err = bindCallInput(frozen.CallBroker.ScopeFile, bound, path)
 		}
+		if err == nil {
+			if asks, captured := o.callBrokerDelivered[lp.Name]; captured {
+				err = callbrokerinput.PublishDelivered(frozen.CallBroker.ScopeFile, data, asks)
+			}
+		}
 		if err != nil {
 			// Release the publication lock before the inode-guarded cleaner takes it.
 			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)

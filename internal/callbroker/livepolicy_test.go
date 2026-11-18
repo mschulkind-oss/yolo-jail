@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
@@ -59,6 +60,23 @@ func liveRootApprovalFixture(t *testing.T) (*onceFixture, string) {
 		}
 	}
 	t.Chdir(f.h.workspace)
+	// Actual public initial gate establishes the complete validated ask view;
+	// the normal protected producer binds it to this fixture's private input/lease.
+	var gateOutput bytes.Buffer
+	if rc := run.ConfigApply([]string{"--accept-config-changes"}, &gateOutput, &gateOutput, false); rc != 0 && rc != 3 {
+		t.Fatalf("initial public delivered-ask gate: %d %s", rc, gateOutput.String())
+	}
+	model := "legacy/1"
+	if config.PolicyModelApproved(f.h.workspace, f.h.input.Source) {
+		model = "scoped/1"
+	}
+	asks, err := callbrokerinput.CaptureDelivered(f.h.input.Source, f.h.input.Pack, model, initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := callbrokerinput.PublishDelivered(f.scopePath, mustRead(t, f.inputPath), asks); err != nil {
+		t.Fatal(err)
+	}
 	return f, binary
 }
 
@@ -68,7 +86,7 @@ func writeLiveRootRequests(t *testing.T, f *onceFixture, roots []string) {
 	for _, root := range roots {
 		values = append(values, "\""+root+"\"")
 	}
-	body := "[call_roots]\nlocal-tasks = [" + strings.Join(values, ",") + "]\n[requests.\"src/test-pack\"]\nread = true\n[requests.local-tasks.working_set]\nchange = \"ask\"\n[requests.local-tasks.all]\nchange = \"ask\"\n"
+	body := "[call_roots]\nlocal-tasks = [" + strings.Join(values, ",") + "]\n[requests.\"src/test-pack\"]\nread = true\n[requests.local-tasks.working_set]\nchange = \"ask\"\n[requests.local-tasks.all]\nchange = \"ask\"\nblocked = false\n"
 	if err := os.WriteFile(filepath.Join(f.h.workspace, config.WorkspaceTOMLConfigName), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}

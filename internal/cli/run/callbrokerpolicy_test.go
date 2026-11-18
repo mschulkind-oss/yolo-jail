@@ -42,6 +42,10 @@ func TestGateFreezesSelectedCallBrokerCellsFromApprovedWorkspaceRead(t *testing.
 	if !o.checkConfigChanges(merged, "podman") {
 		t.Fatalf("gate rejected selected broker: %s", output.String())
 	}
+	delivered, ok := o.callBrokerDelivered["tasks"]
+	if !ok || !sameDeliveredJSON(delivered.Requests, json.RawMessage(`{"source":{"working_set":{"update":true},"all":{"update":true}}}`)) {
+		t.Fatalf("actual gate did not capture raw delivered asks: %+v", delivered)
+	}
 	policy, ok := o.callBrokerCells["tasks"]
 	if !ok || policy["update"].Tables["all"].Decision != "run" || policy["update"].Tables["working_set"].Decision != "run" {
 		t.Fatalf("gate failed to freeze effective cells: %v (present=%t)", o.callBrokerCells, ok)
@@ -145,6 +149,9 @@ func TestGatePolicySurvivesBothKeeperPlansWithoutReloading(t *testing.T) {
 			// A keeper owns deep copies, not an alias of the gate's mutable map.
 			o.callBrokerCells["tasks"]["update"].Tables["all"] = config.CallBrokerTablePolicy{Decision: "refuse"}
 			for _, plan := range []*keeperPlan{container, macos} {
+				if delivered, exists := plan.CallBrokerDelivered["tasks"]; !exists || !reflect.DeepEqual(delivered, o.callBrokerDelivered["tasks"]) {
+					t.Fatalf("keeper discarded complete delivered asks: %+v", plan.CallBrokerDelivered)
+				}
 				if got := plan.CallBrokerCells["tasks"]["update"].Tables["all"].Decision; got != tc.want {
 					t.Fatalf("keeper policy=%s, want %s", got, tc.want)
 				}

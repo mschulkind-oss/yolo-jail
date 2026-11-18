@@ -407,6 +407,7 @@ type Options struct {
 	// callBrokerCells is computed from the gate-approved merged config and selected declarations.
 	// The keeper carries it unchanged; neither it nor its producer reloads policy.
 	callBrokerCells      map[string]map[string]config.CallBrokerCellPolicy
+	callBrokerDelivered  map[string]brokerscope.DeliveredAsks
 	approvedHTTPBindings map[string]config.ApprovedCallBrokerHTTP
 	// workspaceMounts are the mounts the workspace config declares that this launch binds, read-
 	// only ones and RC-D24's writable requests (oq-cx-symlink): set by the config-change gate

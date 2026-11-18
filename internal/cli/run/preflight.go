@@ -412,6 +412,10 @@ func (o *Options) runConfigGate(merged *jsonx.OrderedMap, rt string, h *gateHook
 			return false
 		}
 		o.callBrokerCells = cells
+		if err := o.captureCallBrokerDelivered(merged, read.Config); err != nil {
+			o.pr(o.Stderr).printf("Cannot retain gate-approved delivered asks: %s; run `yolo config check` and retry.", richtext.Escape(err.Error()))
+			return false
+		}
 		o.approvedHTTPBindings = scope.HTTPBindings()
 		if scope != nil {
 			executable := *scope
