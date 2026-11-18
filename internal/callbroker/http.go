@@ -17,6 +17,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
@@ -79,9 +80,11 @@ type httpCanonicalRequest struct {
 }
 
 type httpClassification struct {
-	Canonical httpCanonicalRequest `json:"canonical"`
-	Reads     [][]Resource         `json:"reads,omitempty"`
-	Writes    []Write              `json:"writes,omitempty"`
+	Canonical       httpCanonicalRequest     `json:"canonical"`
+	Reads           [][]Resource             `json:"reads,omitempty"`
+	Writes          []Write                  `json:"writes,omitempty"`
+	ReadDescriptors []Read                   `json:"-"`
+	Operations      []brokerpolicy.Operation `json:"-"`
 }
 
 type httpClassifierAnswer struct {
@@ -98,6 +101,7 @@ type HTTPResult struct {
 	Canonical            HTTPCall
 	Reads                [][]Resource
 	Writes               []Write
+	Operations           []brokerpolicy.Operation
 	OriginalIntentSHA256 string
 	CanonicalSHA256      string
 	Refused              *Refusal
@@ -132,7 +136,9 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 	defer cancel()
 	seenLookups := make(map[string]bool)
 	failedLookup := false
-	for round := 0; round <= maxLookupRounds; round++ {
+	var negotiation classifierNegotiation
+	round := 0
+	for process := 0; process < maxLookupRounds+2; process++ {
 		payload, err := json.Marshal(input)
 		if err != nil {
 			return HTTPResult{}, err
@@ -159,8 +165,10 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 		if decoder.Decode(new(any)) != io.EOF {
 			return HTTPResult{}, errors.New("HTTP classifier answer has trailing data; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
-		if answer.Version != input.Version {
-			return HTTPResult{}, errors.New("HTTP classifier used an unknown protocol version; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
+		upgrade, err := negotiation.upgrade(c, process == 0, input.Version, answer.Version,
+			answer.Classification != nil && len(answer.Classification.Reads) != 0, len(answer.Lookups) != 0)
+		if err != nil {
+			return HTTPResult{}, err
 		}
 		kinds := 0
 		if answer.Classification != nil {
@@ -179,22 +187,29 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 			return HTTPResult{}, errors.New("HTTP classifier must return exactly one answer kind; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
 		if len(answer.Lookups) != 0 {
+			for _, lookup := range answer.Lookups {
+				if _, err := c.declaredHTTPLookup(lookup); err != nil {
+					return HTTPResult{}, err
+				}
+			}
+			if upgrade {
+				input.Version = typedClassifierVersion
+				continue
+			}
 			if round == maxLookupRounds {
 				return HTTPResult{}, errors.New("HTTP classifier exceeded three lookup rounds; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 			}
 			if read == nil {
 				return HTTPResult{}, errors.New("HTTP lookup needs current core read standing; request read access and retry")
 			}
+			round++
 			for _, lookup := range answer.Lookups {
-				var declared *loopholedecl.CallBrokerLookup
-				for i := range c.Lookups {
-					if c.Lookups[i].Name == lookup.Name {
-						declared = &c.Lookups[i]
-						break
-					}
+				if len(input.Facts) >= maxLookupFacts {
+					return HTTPResult{}, errors.New("HTTP classifier exceeded four fact sends; update the pack's classifier")
 				}
-				if declared == nil || declared.HTTPResource == "" || declared.HTTPMethod != "GET" || len(lookup.Arguments) != 1 || lookup.Arguments[0] == "" {
-					return HTTPResult{}, errors.New("HTTP classifier requested an unknown or untyped read lookup; fix the selected pack")
+				declared, err := c.declaredHTTPLookup(lookup)
+				if err != nil {
+					return HTTPResult{}, err
 				}
 				key, _ := json.Marshal(lookup)
 				if seenLookups[string(key)] {
@@ -227,21 +242,39 @@ func (c Classifier) ClassifyHTTPWithLookups(ctx context.Context, original HTTPCa
 		if failedLookup {
 			return HTTPResult{}, errors.New("a native lookup failed; classifier facts cannot authorize a guessed resource; inspect host read access")
 		}
-		canonical, reads, writes, err := c.validateHTTPClassification(original, allowedHeaders, *answer.Classification)
+		canonical, reads, writes, err := c.validateHTTPClassificationMode(original, allowedHeaders, answer.Classification, input.Version, upgrade)
 		if err != nil {
 			return HTTPResult{}, fmt.Errorf("call broker %s HTTP classifier failed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
 		if len(writes) == 0 && !httpStandingReadMethod(original, canonical, c.ReadOverPost) {
 			return HTTPResult{}, errors.New("HTTP standing read needs safe methods or both original and canonical POST on a gate-approved read path; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author")
 		}
+		if upgrade {
+			input.Version = typedClassifierVersion
+			continue
+		}
 		canonicalDigest := digestHTTPCall(canonical, reads, writes)
-		return HTTPResult{Canonical: canonical, Reads: reads, Writes: writes,
+		return HTTPResult{Canonical: canonical, Reads: reads, Writes: writes, Operations: answer.Classification.Operations,
 			OriginalIntentSHA256: originalDigest, CanonicalSHA256: canonicalDigest}, nil
 	}
 	return HTTPResult{}, errors.New("HTTP classifier exceeded lookup rounds; fix the selected pack")
 }
 
-func (c Classifier) validateHTTPClassification(original HTTPCall, allowed []string, classification httpClassification) (HTTPCall, [][]Resource, []Write, error) {
+func (c Classifier) declaredHTTPLookup(lookup LookupRequest) (*loopholedecl.CallBrokerLookup, error) {
+	for i := range c.Lookups {
+		declared := &c.Lookups[i]
+		if declared.Name == lookup.Name && declared.HTTPResource != "" && declared.HTTPMethod == "GET" && len(lookup.Arguments) == 1 && lookup.Arguments[0] != "" {
+			return declared, nil
+		}
+	}
+	return nil, errors.New("HTTP classifier requested an unknown or untyped read lookup; fix the selected pack")
+}
+
+func (c Classifier) validateHTTPClassification(original HTTPCall, allowed []string, classification *httpClassification, version string) (HTTPCall, [][]Resource, []Write, error) {
+	return c.validateHTTPClassificationMode(original, allowed, classification, version, false)
+}
+
+func (c Classifier) validateHTTPClassificationMode(original HTTPCall, allowed []string, classification *httpClassification, version string, provisional bool) (HTTPCall, [][]Resource, []Write, error) {
 	canonical := HTTPCall{Method: classification.Canonical.Method, Path: classification.Canonical.Path,
 		Query: classification.Canonical.Query, Headers: classification.Canonical.Headers}
 	if err := validateHTTPFields(canonical.Method, canonical.Path, canonical.Query); err != nil {
@@ -282,26 +315,11 @@ func (c Classifier) validateHTTPClassification(original HTTPCall, allowed []stri
 	if len(reads)+len(writes) == 0 {
 		return HTTPCall{}, nil, nil, errors.New("HTTP classification has no read or write resources")
 	}
-	for _, chain := range reads {
-		if err := c.validateChain(chain); err != nil {
-			return HTTPCall{}, nil, nil, err
-		}
+	operations := Classification{Reads: reads, ReadDescriptors: classification.ReadDescriptors, Writes: writes}
+	if err := c.normalizeOperations(&operations, version, provisional); err != nil {
+		return HTTPCall{}, nil, nil, err
 	}
-	for _, write := range writes {
-		found := false
-		for _, cell := range c.Cells {
-			if cell.Name == write.Cell {
-				found = true
-				break
-			}
-		}
-		if !found || write.Cell == "read" || write.Description == "" || len(write.Description) > 512 || termsafe.HasUnsafe(write.Description) {
-			return HTTPCall{}, nil, nil, errors.New("unknown HTTP write cell or invalid description")
-		}
-		if err := c.validateChain(write.Chain); err != nil {
-			return HTTPCall{}, nil, nil, err
-		}
-	}
+	classification.Operations = operations.Operations
 	return canonical, reads, writes, nil
 }
 
@@ -707,16 +725,8 @@ func validateHTTPAnswerShape(data []byte) error {
 
 func validateHTTPAnswerResourceLists(classification map[string]json.RawMessage) error {
 	if raw, ok := classification["reads"]; ok {
-		var chains [][]json.RawMessage
-		if !hasJSONType(raw, '[') || json.Unmarshal(raw, &chains) != nil {
-			return errors.New("reads must be an array of resource chains")
-		}
-		for _, chain := range chains {
-			for _, resource := range chain {
-				if err := validateHTTPResourceShape(resource); err != nil {
-					return err
-				}
-			}
+		if _, _, err := decodeReadDescriptors(raw); err != nil {
+			return err
 		}
 	}
 	if raw, ok := classification["writes"]; ok {
@@ -729,7 +739,7 @@ func validateHTTPAnswerResourceLists(classification map[string]json.RawMessage) 
 			if !hasJSONType(rawWrite, '{') || json.Unmarshal(rawWrite, &write) != nil || write == nil {
 				return errors.New("write must be an object")
 			}
-			if err := checkExactFields(write, "cell", "chain", "description"); err != nil {
+			if err := checkExactFields(write, "cell", "chain", "description", "kind"); err != nil {
 				return err
 			}
 			for _, key := range []string{"cell", "description"} {

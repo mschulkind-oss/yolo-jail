@@ -32,6 +32,9 @@ env_from_host = [
 # `s3://<bucket>/<prefix>/`, or exactly `ce://host-login` for Cost Explorer.
 [call_broker.scope]
 roots = "declared"
+nesting = "segment"
+separator = "/"
+anchors = ["s3://", "ce://"]
 
 [[call_broker.resource]]
 type = "location"
@@ -58,3 +61,31 @@ max_for = "1h"
 [[call_broker.cell]]
 name = "delete_objects"
 tables = ["all"]
+
+[[call_broker.cell]]
+name = "list_objects"
+kind = "read"
+
+[[call_broker.cell]]
+name = "get_objects"
+kind = "read"
+
+[[call_broker.cell]]
+name = "head_objects"
+kind = "read"
+
+[[call_broker.cell]]
+name = "get_cost_and_usage"
+kind = "read"
+
+[[call_broker.cell]]
+name = "get_cost_forecast"
+kind = "read"
+
+[[call_broker.cell]]
+name = "get_dimension_values"
+kind = "read"
+
+[[call_broker.cell]]
+name = "get_tags"
+kind = "read"

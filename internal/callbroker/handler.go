@@ -63,7 +63,8 @@ func newCLIHandler(inputFile, workspace string, store *brokerstore.Store, audit 
 		return nil, err
 	}
 	c := Classifier{Source: input.Source, Argv: input.Classifier, Identities: input.ProgramIdentities,
-		Roots: input.Roots, Resources: input.Resources, Cells: input.Cells, Lookups: input.Lookups}
+		Roots: input.Roots, Resources: input.Resources, Cells: input.Cells, Lookups: input.Lookups,
+		ReadGrant: input.ReadStanding || input.ReadGrantStanding != ""}
 	return &CLIHandler{inputFile: inputFile, original: append([]byte(nil), data...), input: input,
 		workspace: workspace, shutdown: context.Background(), classifier: c, program: program, store: store, audit: audit}, nil
 }

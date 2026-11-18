@@ -85,12 +85,14 @@ tables = ["all"]`},
 
 func TestScopedMetadataPreservesOldDeclarationHashes(t *testing.T) {
 	for name, want := range map[string]string{"aws": "79e4ffa37a9c498a03ee4d90f11e0c635d780b005b064fa4d5d4db92236b021a", "circleci": "f1c5ac9e670e4ae6556936ab38ffb1276b23b1f8ac801eeca5c5326752a15f85"} {
-		path := filepath.Join("..", "..", "packs", name, "loopholes", name+"-broker", "loophole.toml")
+		// These are the actual old authored declaration bodies, retained separately
+		// from shipped manifests that intentionally gain metadata in U3.
+		path := filepath.Join("testdata", "scoped-old-"+name+".toml")
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		m, err := Decode(raw, filepath.Dir(path))
+		m, err := Decode(raw, filepath.Join("testdata", name+"-broker"))
 		if err != nil {
 			t.Fatal(err)
 		}

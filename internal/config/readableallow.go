@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -119,11 +120,12 @@ type ReadableAllowancePlan struct {
 	LoopholeGrants LoopholeGrantPlan
 	Diagnostics    []string
 	// Authored scoped metadata is not passed to the shipped gate projection.
-	Scopes         []ScopedBrokerScope
-	Contexts       []BrokerExecutionContext
-	NativeReads    []NativeReadScope
-	NativeCeilings []ReadableScopedCeiling
-	ScopedRequests []ReadableRequestResult
+	Scopes            []ScopedBrokerScope
+	Contexts          []BrokerExecutionContext
+	NativeReads       []NativeReadScope
+	NativeCeilings    []ReadableScopedCeiling
+	ScopedRequests    []ReadableRequestResult
+	OperationPolicies map[string]brokerpolicy.Policy
 }
 
 // ReadableBrokerPolicy retains ceiling lists separately; neither list itself is a grant.
@@ -651,6 +653,9 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 		return plan, err
 	}
 	if err := readableNamedRepos(&plan, input, brokers, selected); err != nil {
+		return plan, err
+	}
+	if err := scopedOperationPolicies(&plan, input); err != nil {
 		return plan, err
 	}
 	plan.LoopholeGrants, err = ResolveLoopholeGrants(LoopholeGrantInput{User: input.User, Workspace: input.Workspace,

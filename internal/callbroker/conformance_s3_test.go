@@ -14,22 +14,23 @@ const conformanceS3UnsupportedNext = "Use `aws s3 ls s3://<bucket>[/<prefix>] [-
 const conformanceS3ScopeNext = "Add the root to `call_roots.aws` (TOML) or `brokered.aws.roots` (JSONC) in this workspace's config, then run `yolo config apply` on the host"
 
 func conformanceS3Refusal(class, reason, next string) Answer {
-	return Answer{Version: "yolo.call-broker-classifier/1", Refused: &Refusal{Class: class, Reason: reason, NextStep: next}}
+	return Answer{Version: typedClassifierVersion, Refused: &Refusal{Class: class, Reason: reason, NextStep: next}}
 }
 
 func TestConformanceS3Classifications(t *testing.T) {
 	f := newS3E2E(t)
 	cases := []kit.ClassificationCase{}
-	read := func(name string, original, canonical []string, typ, id string) {
+	read := func(name string, original, canonical []string, cell, typ, id string) {
 		a := conformanceAnswer(canonical, nil)
-		a.Classification.Reads = [][]Resource{{{Type: typ, ID: id}, {Type: "location", ID: s3Root}}}
+		a.Version = typedClassifierVersion
+		a.Classification = NewReadClassification(canonical, a.Classification.StdinSHA256, Read{Cell: cell, Chain: []Resource{{Type: typ, ID: id}, {Type: "location", ID: s3Root}}})
 		cases = append(cases, kit.ClassificationCase{Name: name, Call: kit.Call{Argv: original}, Want: conformanceWant(t, a)})
 	}
-	read("R1", []string{"s3", "ls", s3Root}, []string{"s3", "ls", s3Root}, "prefix", s3Root)
-	read("R1 recursive order", []string{"s3", "ls", "--recursive", s3Root}, []string{"s3", "ls", s3Root, "--recursive"}, "prefix", s3Root)
-	read("R2", []string{"s3", "cp", s3Root + "a.txt", "-"}, []string{"s3", "cp", s3Root + "a.txt", "-"}, "object", s3Root+"a.txt")
-	read("R3", []string{"s3api", "head-object", "--bucket", "bkt", "--key", "team/a.txt"}, []string{"s3api", "head-object", "--bucket", "bkt", "--key", "team/a.txt"}, "object", s3Root+"a.txt")
-	read("R3 equals normalization", []string{"s3api", "head-object", "--key=team/a.txt", "--bucket=bkt"}, []string{"s3api", "head-object", "--bucket", "bkt", "--key", "team/a.txt"}, "object", s3Root+"a.txt")
+	read("R1", []string{"s3", "ls", s3Root}, []string{"s3", "ls", s3Root}, "list_objects", "prefix", s3Root)
+	read("R1 recursive order", []string{"s3", "ls", "--recursive", s3Root}, []string{"s3", "ls", s3Root, "--recursive"}, "list_objects", "prefix", s3Root)
+	read("R2", []string{"s3", "cp", s3Root + "a.txt", "-"}, []string{"s3", "cp", s3Root + "a.txt", "-"}, "get_objects", "object", s3Root+"a.txt")
+	read("R3", []string{"s3api", "head-object", "--bucket", "bkt", "--key", "team/a.txt"}, []string{"s3api", "head-object", "--bucket", "bkt", "--key", "team/a.txt"}, "head_objects", "object", s3Root+"a.txt")
+	read("R3 equals normalization", []string{"s3api", "head-object", "--key=team/a.txt", "--bucket=bkt"}, []string{"s3api", "head-object", "--bucket", "bkt", "--key", "team/a.txt"}, "head_objects", "object", s3Root+"a.txt")
 	for _, w := range []struct {
 		name                  string
 		argv                  []string
@@ -40,6 +41,7 @@ func TestConformanceS3Classifications(t *testing.T) {
 		{"W2", []string{"s3", "rm", s3Root + "a.txt"}, nil, "delete_objects", s3Root + "a.txt", "delete object " + s3Root + "a.txt"},
 	} {
 		a := conformanceAnswer(w.argv, w.stdin)
+		a.Version = typedClassifierVersion
 		a.Classification.Writes = []Write{{Cell: w.cell, Chain: []Resource{{Type: "object", ID: w.id}, {Type: "location", ID: s3Root}}, Description: w.description}}
 		cases = append(cases, kit.ClassificationCase{Name: w.name, Call: kit.Call{Argv: w.argv, Stdin: w.stdin}, Want: conformanceWant(t, a)})
 	}

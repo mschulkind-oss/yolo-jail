@@ -2,6 +2,7 @@ package callbroker
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	kit "github.com/mschulkind-oss/yolo-jail/internal/callbrokerconformance"
@@ -24,7 +25,8 @@ func TestConformanceCEClassificationsAndCoreChains(t *testing.T) {
 		argv := append([]string{"ce", row.op}, row.args...)
 		canonical := append(append([]string{}, argv...), "--output", "json", "--no-paginate")
 		answer := conformanceAnswer(canonical, nil)
-		answer.Classification.Reads = [][]Resource{{{Type: "cost_query", ID: "ce://host-login/" + row.op}, {Type: "location", ID: "ce://host-login"}}}
+		answer.Version = typedClassifierVersion
+		answer.Classification = NewReadClassification(canonical, answer.Classification.StdinSHA256, Read{Cell: strings.ReplaceAll(row.op, "-", "_"), Chain: []Resource{{Type: "cost_query", ID: "ce://host-login/" + row.op}, {Type: "location", ID: "ce://host-login"}}})
 		cases = append(cases, kit.ClassificationCase{Name: row.op, Call: kit.Call{Argv: argv}, Want: conformanceWant(t, answer)})
 	}
 	if err := kit.CheckClassifications(context.Background(), conformanceClassify(classifier, nil), cases); err != nil {

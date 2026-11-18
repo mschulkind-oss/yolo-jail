@@ -184,24 +184,14 @@ func validateNativeReadAliases(path string, table *jsonx.OrderedMap, policy Read
 // covering never it calls the shipped resolver, including all-to-working_set coverage.
 func ScopedBrokerCeilingValue(allow *jsonx.OrderedMap, table, cell string) string {
 	own := table + "." + cell
-	never := stringList(readableValue(allow, "never"))
-	if slices.Contains(never, own) {
-		return "never"
+	if table == "read" && cell == "" {
+		own = "read"
 	}
-	if slices.Contains(never, table) {
-		for _, field := range []string{"always", "on_request"} {
-			if slices.Contains(stringList(readableValue(allow, field)), own) {
-				return field
-			}
-		}
-		return "never"
-	}
-	user := scopedAllowOnly("policy", allow)
-	value := CallBrokerCurrentCeiling(user, "policy", table, cell)
+	value := CallBrokerCurrentCeiling(scopedAllowOnly("policy", allow), "policy", table, cell)
 	if value == "off" {
-		return "absent"
+		value = "absent"
 	}
-	return value
+	return string(brokerpolicy.CeilingValue(own, table, stringList(readableValue(allow, "always")), stringList(readableValue(allow, "on_request")), stringList(readableValue(allow, "never")), brokerpolicy.Value(value)))
 }
 
 func validateScopedCeilingLists(path string, allow *jsonx.OrderedMap, policy ReadableBrokerPolicy, origins map[string][]string) error {

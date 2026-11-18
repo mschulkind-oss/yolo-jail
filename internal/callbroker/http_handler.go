@@ -53,7 +53,7 @@ func newHTTPHandler(inputFile, workspace string, store *brokerstore.Store, audit
 	}
 	c := Classifier{Source: in.Source, Argv: in.Classifier, Identities: in.ProgramIdentities,
 		Roots: in.Roots, Resources: in.Resources, Cells: in.Cells, Lookups: in.Lookups,
-		ReadOverPost: slices.Clone(in.HTTPBinding.ReadOverPost)}
+		ReadOverPost: slices.Clone(in.HTTPBinding.ReadOverPost), ReadGrant: in.ReadStanding || in.ReadGrantStanding != ""}
 	return &HTTPHandler{CLIHandler: &CLIHandler{inputFile: inputFile, original: bytes.Clone(data), input: in,
 		workspace: workspace, shutdown: context.Background(), classifier: c, store: store, audit: audit},
 		published: callbrokerinput.HTTPClientCellPublished}, nil

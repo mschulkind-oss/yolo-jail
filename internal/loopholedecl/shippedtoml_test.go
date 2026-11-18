@@ -102,6 +102,19 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 				want.CallBroker.Classifier = []string{"yolo", "internal", "call-broker-classify", "aws"}
 				want.CallBroker.Resources = append(want.CallBroker.Resources, loopholedecl.CallBrokerResource{Type: "cost_query", Parent: "location"})
 			}
+			// U3 adds only these exact matching fields and read cells; historical
+			// fixtures and program, credential, resource and write fields stay frozen.
+			if key == "aws-s3__aws-s3-broker" {
+				want.CallBroker.Scope.Nesting = "segment"
+				want.CallBroker.Scope.Separator = "/"
+				want.CallBroker.Scope.Anchors = []string{"s3://", "ce://"}
+				for _, name := range []string{"list_objects", "get_objects", "head_objects", "get_cost_and_usage", "get_cost_forecast", "get_dimension_values", "get_tags"} {
+					want.CallBroker.Cells = append(want.CallBroker.Cells, loopholedecl.CallBrokerCell{Name: name, Kind: "read"})
+				}
+			}
+			if key == "circleci__circleci-broker" {
+				want.CallBroker.Cells = append(want.CallBroker.Cells, loopholedecl.CallBrokerCell{Name: "list_runs", Kind: "read"})
+			}
 			// The other intended delta is that module's description (GW-D75): the frozen fixture
 			// names the retired `brokered.github.repos` and `brokered.github.grants` keys, the
 			// shipped text the `[repos.<name>]` table and `yolo allow github read`. The third is the

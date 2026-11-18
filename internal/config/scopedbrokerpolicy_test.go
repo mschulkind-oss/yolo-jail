@@ -85,7 +85,7 @@ put_objects = true
 `)
 	selected := false
 	for _, decl := range input.Declarations {
-		if decl.CallBroker != nil && decl.CallBroker.Source == "aws" && len(decl.CallBroker.Cells) == 2 {
+		if decl.CallBroker != nil && decl.CallBroker.Source == "aws" && len(decl.CallBroker.Cells) == 9 {
 			selected = true
 		}
 	}
@@ -173,6 +173,21 @@ put_objects=true
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input, _ := scopedPolicyFixture(t, tc.user, tc.project)
+			if tc.name == "H27-implicit-specific-read" {
+				raw, err := os.ReadFile(filepath.Join("..", "loopholedecl", "testdata", "scoped-old-aws.toml"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				old, err := loopholedecl.Decode(raw, "aws-broker")
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i := range input.Declarations {
+					if input.Declarations[i].CallBroker != nil && input.Declarations[i].CallBroker.Source == "aws" {
+						input.Declarations[i].CallBroker = old.CallBroker
+					}
+				}
+			}
 			_, err := ResolveReadableAllowance(input)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error=%v want=%q", err, tc.want)
