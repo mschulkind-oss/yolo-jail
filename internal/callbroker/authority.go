@@ -43,9 +43,12 @@ func ApprovalAuthority(q brokerstore.Request) (brokerstore.Policy, error) {
 		return brokerstore.Policy{}, err
 	}
 	var in callbrokerinput.Launch
-	if json.Unmarshal(data, &in) != nil || in.ScopeFile != path || in.Source != q.Set || (in.Front != "cli" && in.Front != "http") || !slices.Equal(in.Roots, sf.Repos) {
+	if json.Unmarshal(data, &in) != nil || in.ScopeFile != path || in.Source != q.Set || (in.Front != "cli" && in.Front != "http") {
 		return brokerstore.Policy{}, errors.New("selected call broker input changed; relaunch and retry")
 	}
+	// The immutable input pins the declaration/program, not the current roots:
+	// root-only apply replaces the live scope. revalidate checks that scope and
+	// its lease under the caller's source transaction before approving anything.
 	store := &brokerstore.Store{Dir: paths.BrokerSourceDir(q.Set), Source: q.Set}
 	if in.Front == "http" {
 		if q.HTTPOriginalDigest == "" {
