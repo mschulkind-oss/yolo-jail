@@ -43,7 +43,7 @@ func newHTTPHandler(inputFile, workspace string, store *brokerstore.Store, audit
 		return nil, errors.New("selected HTTP call broker input has an invalid prepared-generation reference")
 	}
 	var in callbrokerinput.Launch
-	if err := json.Unmarshal(data, &in); err != nil || in.Version != "yolo.call-broker-launch/2" || !loopholedecl.ValidBrokerSourceName(in.Source) || in.Front != "http" || in.HTTPBinding == nil || in.HTTPBinding.Pack != in.Pack || in.HTTPBinding.Source != in.Source || in.DeclarationHash == "" || in.HTTPBinding.DeclarationHash != in.DeclarationHash || store == nil || store.SourceName() != in.Source || audit == nil || workspace == "" {
+	if err := json.Unmarshal(data, &in); err != nil || callbrokerinput.ValidateAuthorityVersion(in, data) != nil || !loopholedecl.ValidBrokerSourceName(in.Source) || in.Front != "http" || in.HTTPBinding == nil || in.HTTPBinding.Pack != in.Pack || in.HTTPBinding.Source != in.Source || in.DeclarationHash == "" || in.HTTPBinding.DeclarationHash != in.DeclarationHash || store == nil || store.SourceName() != in.Source || audit == nil || workspace == "" {
 		return nil, errors.New("selected HTTP call broker binding is invalid; relaunch with the pack selected")
 	}
 	if in.HTTPFrontGeneration != "" {
@@ -53,7 +53,7 @@ func newHTTPHandler(inputFile, workspace string, store *brokerstore.Store, audit
 	}
 	c := Classifier{Source: in.Source, Argv: in.Classifier, Identities: in.ProgramIdentities,
 		Roots: in.Roots, Resources: in.Resources, Cells: in.Cells, Lookups: in.Lookups,
-		ReadOverPost: slices.Clone(in.HTTPBinding.ReadOverPost), ReadGrant: in.ReadStanding || in.ReadGrantStanding != ""}
+		ReadOverPost: slices.Clone(in.HTTPBinding.ReadOverPost), ReadGrant: in.Version == callbrokerinput.SnapshotLaunchVersion || in.ReadStanding || in.ReadGrantStanding != ""}
 	return &HTTPHandler{CLIHandler: &CLIHandler{inputFile: inputFile, original: bytes.Clone(data), input: in,
 		workspace: workspace, shutdown: context.Background(), classifier: c, store: store, audit: audit},
 		published: callbrokerinput.HTTPClientCellPublished}, nil
@@ -128,7 +128,11 @@ func (h *HTTPHandler) serveHTTP(ctx context.Context, op, jail string, original H
 		if err != nil {
 			return Verdict{Verdict: "refused", Next: "Check the host broker store before retrying"}, response, err
 		}
-		predicted := decideCall(Classification{Reads: classified.Reads, Writes: classified.Writes}, h.input.EffectiveCells, working, h.workspace, h.input.Source, now)
+		cells, err := h.currentCellPolicies()
+		if err != nil {
+			return Verdict{Verdict: "refused", Next: err.Error()}, response, err
+		}
+		predicted := decideCall(Classification{Reads: classified.Reads, Writes: classified.Writes}, cells, working, h.workspace, h.input.Source, now)
 		verdict, response, err = h.boundHTTPWrite(ctx, op, jail, original, classified, predicted)
 		if response.PossibleTransmission {
 			outcome, reason = "ran", "possible-transmission"
@@ -174,7 +178,14 @@ func (h *HTTPHandler) serveHTTP(ctx context.Context, op, jail string, original H
 	if _, _, err := h.currentAuthority(); err != nil {
 		return Verdict{Verdict: "refused", Next: err.Error(), Digest: digest}, response, err
 	}
-	response, err = h.runStandingHTTP(ctx, classified.Canonical, credential)
+	err = h.snapshotReadTransaction(ctx, func(ctx context.Context) error {
+		if err := h.validateSnapshotReadRoots(Classification{Reads: classified.Reads}); err != nil {
+			return err
+		}
+		var err error
+		response, err = h.runStandingHTTP(ctx, classified.Canonical, credential)
+		return err
+	})
 	if response.PossibleTransmission {
 		outcome, reason = "ran", "possible-transmission"
 	}

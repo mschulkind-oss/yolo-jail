@@ -38,6 +38,8 @@ const (
 	outcomeNextLaunch
 	// outcomeApprovalMetadata is a bounded native-policy foundation, not a timing promise.
 	outcomeApprovalMetadata
+	// outcomeSnapshotPending performs no source effects until complete atomic apply exists.
+	outcomeSnapshotPending
 )
 
 // String is the outcome as its line says it. Every line that waits names the next step
@@ -54,6 +56,8 @@ func (a applyOutcome) String() string {
 		return "at your next yolo launch"
 	case outcomeApprovalMetadata:
 		return "approval metadata recorded; scoped native write dispatch inactive in this build"
+	case outcomeSnapshotPending:
+		return "snapshot apply is not active; source authority unchanged"
 	}
 	return "unknown"
 }
@@ -61,7 +65,7 @@ func (a applyOutcome) String() string {
 // pending reports whether the outcome leaves the change owed to a restart or a launch: the
 // command's exit 3, as `yolo config drift`'s 3.
 func (a applyOutcome) pending() bool {
-	return a == outcomeNextRestart || a == outcomeNextLaunch || a == outcomeApprovalMetadata
+	return a == outcomeNextRestart || a == outcomeNextLaunch || a == outcomeApprovalMetadata || a == outcomeSnapshotPending
 }
 
 // keyOutcome delegates the stable backend/key matrix to the shared mechanics contract.

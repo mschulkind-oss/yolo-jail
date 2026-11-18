@@ -42,6 +42,10 @@ func (h *HTTPHandler) revalidateHTTP(q brokerstore.Request) (brokerstore.Policy,
 	if q.Set != h.input.Source || q.Repo != h.input.Source || q.Start != h.start || q.LaunchID != sf.LaunchID || q.Workspace != sf.Workspace || q.Jail != h.input.FrontJailID || q.HTTPDeclarationHash != h.input.DeclarationHash || q.StdinDigest != q.HTTPOriginalDigest || len(q.Argv) != 1 || q.Argv[0] != "http" || len(q.OriginalArgv) != 0 || len(q.CallWrites) == 0 || q.Digest != brokerstore.CommandDigest(q) || !validHTTPHash(q.HTTPOriginalDigest) || !validHTTPHash(q.HTTPCanonicalDigest) {
 		return brokerstore.Policy{}, errors.New("HTTP approval does not match the live selected host launch; resubmit the original call")
 	}
+	cells, err := h.cellsFromAuthority(sf, user)
+	if err != nil {
+		return brokerstore.Policy{}, err
+	}
 	for _, write := range q.CallWrites {
 		if len(write.Chain) == 0 || !slices.Contains(sf.Repos, write.Chain[len(write.Chain)-1].ID) {
 			return brokerstore.Policy{}, errors.New("HTTP write left the selected root; use yolo request and retry")
@@ -52,7 +56,7 @@ func (h *HTTPHandler) revalidateHTTP(q brokerstore.Request) (brokerstore.Policy,
 			chain[i] = Resource{Type: resource.Type, ID: resource.ID}
 		}
 		table := selectedWriteTable(Write{Cell: write.Cell, Chain: chain}, working, q.Workspace, h.input.Source, now)
-		policy, exists := h.input.EffectiveCells[write.Cell]
+		policy, exists := cells[write.Cell]
 		frozen, declared := policy.Tables[table]
 		current := config.CallBrokerCurrentCeiling(user, h.input.Source, table, write.Cell)
 		if !exists || !declared || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" || current == "off" || frozen.Ceiling == "always" && current != "always" {
@@ -94,6 +98,7 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 	}
 	var fresh HTTPResult
 	gate := func(held brokerstore.Request) (brokerstore.Policy, error) {
+		ctx := snapshotTransactionContext(ctx)
 		currentRequest := q.WithWorkingStateFrom(held)
 		if _, err := h.revalidateHTTP(currentRequest); err != nil {
 			return brokerstore.Policy{}, err
@@ -101,7 +106,13 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		q = currentRequest
 		// Store calls this under its source transaction before it can change a
 		// grant's uses. No archived HTTP bytes can satisfy this check.
-		current, err := h.classifier.ClassifyHTTPWithLookups(ctx, original, h.input.HTTPBinding.HTTP.RequestHeaders, h.lookupHTTP(jail))
+		sf, _, err := h.currentAuthority()
+		if err != nil {
+			return brokerstore.Policy{}, err
+		}
+		classifier := h.classifier
+		classifier.Roots = slices.Clone(sf.Repos)
+		current, err := classifier.ClassifyHTTPWithLookups(ctx, original, h.input.HTTPBinding.HTTP.RequestHeaders, h.lookupHTTP(jail))
 		if err != nil || current.Refused != nil || current.OriginalIntentSHA256 != q.HTTPOriginalDigest || current.CanonicalSHA256 != q.HTTPCanonicalDigest || !reflect.DeepEqual(h.requestHTTPWrite(jail, current).CallWrites, q.CallWrites) {
 			return brokerstore.Policy{}, errors.New("HTTP original body, canonical request or ordered writes changed; resubmit and ask again")
 		}
@@ -202,7 +213,11 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		return err
 	}
 	coverage := func(working []brokerstore.WorkingEntry, now time.Time) (bool, error) {
-		decision := decideCall(Classification{Writes: result.Writes, Reads: result.Reads}, h.input.EffectiveCells, working, q.Workspace, h.input.Source, now)
+		cells, err := h.currentCellPolicies()
+		if err != nil {
+			return false, err
+		}
+		decision := decideCall(Classification{Writes: result.Writes, Reads: result.Reads}, cells, working, q.Workspace, h.input.Source, now)
 		if decision.Verdict == "refused" {
 			return false, errors.New("one HTTP write is refused by current coverage; change the request and retry")
 		}

@@ -28,7 +28,7 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 	if predicted.Verdict == "refused" {
 		return predicted, CLIResult{}, nil
 	}
-	if _, err := h.revalidate(q); err != nil {
+	if _, err := h.prevalidate(q); err != nil {
 		return refused(err)
 	}
 	// The exact grant's stored parent is not the invocation. Revalidate both,
@@ -72,7 +72,11 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		return err
 	}
 	coverage := func(working []brokerstore.WorkingEntry, now time.Time) (bool, error) {
-		current := decideCall(call, h.input.EffectiveCells, working, q.Workspace, h.input.Source, now)
+		cells, err := h.currentCellPolicies()
+		if err != nil {
+			return false, err
+		}
+		current := decideCall(call, cells, working, q.Workspace, h.input.Source, now)
 		if current.Verdict == "refused" {
 			return false, errors.New("one write was refused by the current working-set table; change the request and retry")
 		}

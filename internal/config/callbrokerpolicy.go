@@ -95,7 +95,8 @@ type CallBrokerCellPolicy struct {
 
 // EffectiveCallBrokerCells snapshots the validated request/default and ceiling pair.
 // The caller must use the workspace read approved by the gate and the validated user
-// scope from that launch; a host daemon must never call this with a fresh config read.
+// scope from that launch. A snapshot reader may instead supply its validated live
+// workspace snapshot and one fresh host-user bundle, never a fresh workspace read.
 func EffectiveCallBrokerCells(source string, b *loopholedecl.CallBroker, user, workspace *jsonx.OrderedMap) (map[string]CallBrokerCellPolicy, error) {
 	if b == nil || user == nil || workspace == nil {
 		return nil, fmt.Errorf("call broker policy is incomplete; retry the launch after checking its config")

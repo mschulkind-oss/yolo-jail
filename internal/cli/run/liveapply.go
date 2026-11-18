@@ -357,7 +357,7 @@ func (o *Options) applyPlan(run *applyRun, scope *config.ScopeCheck) []applyChan
 		}
 		in.grants = o.grantDeltas(discoveryCtx, run, scope)
 	}
-	plan := buildApplyPlan(in)
+	plan := o.blockIncompleteSnapshotApply(run, buildApplyPlan(in))
 	for _, source := range scope.MetadataOnlySources() {
 		plan = append(plan, applyChange{kind: changeKey, sign: "+", label: source.Label + " scoped write policy", scope: scopeDelta{source: source.Source},
 			outcome: outcomeApprovalMetadata, reason: "native dispatch must be connected before these writes can execute; no latent write was applied"})
