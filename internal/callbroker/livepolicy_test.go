@@ -24,59 +24,61 @@ import (
 
 func liveRootApprovalFixture(t *testing.T) (*onceFixture, string) {
 	t.Helper()
-	f := selectedOnceFixtureForApply(t, false, true, false, true)
-	t.Setenv("YOLO_VERSION", "")
-	t.Setenv("YOLO_SETUP", "podman-self")
-	t.Setenv("YOLO_USER_LAYER", "")
-	t.Setenv("YOLO_CONFIG", "")
-	restore := loopholes.SnapshotPackModules()
-	loopholes.ResetPackModules()
-	t.Cleanup(restore)
-	// Public config apply probes this account-free fake runtime; it never launches a jail.
-	podman := "#!/bin/sh\ncase \"$1\" in info) printf '{}\\n';; ps) printf 'fixture-running\\n';; inspect) printf 'YOLO_VERSION=fixture\\n';; *) exit 1;; esac\n"
-	if err := os.WriteFile(filepath.Join(f.home, "bin", "podman"), []byte(podman), 0700); err != nil {
-		t.Fatal(err)
-	}
-	writeLiveRootRequests(t, f, []string{"team:beta"})
-	initial, err := config.LoadWorkspaceConfig(f.h.workspace, false, func(string) {})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := config.WriteWorkspaceBootBaseline(f.h.workspace, "podman-self", initial); err != nil {
-		t.Fatal(err)
-	}
-	if err := config.RecordApproval(f.h.workspace, initial, nil); err != nil {
-		t.Fatal(err)
-	}
-	binary := os.Getenv("YOLO_TEST_MATCHED_YOLO")
-	if binary == "" {
-		binary = filepath.Join(f.home, "bin", "yolo")
-		goTool, err := callBrokerTestGoTool()
+	var binary string
+	f := selectedOnceFixtureForApply(t, false, true, false, true, func(f *onceFixture) {
+		t.Setenv("YOLO_VERSION", "")
+		t.Setenv("YOLO_SETUP", "podman-self")
+		t.Setenv("YOLO_USER_LAYER", "")
+		t.Setenv("YOLO_CONFIG", "")
+		restore := loopholes.SnapshotPackModules()
+		loopholes.ResetPackModules()
+		t.Cleanup(restore)
+		// Public config apply probes this account-free fake runtime; it never launches a jail.
+		podman := "#!/bin/sh\ncase \"$1\" in info) printf '{}\\n';; ps) printf 'fixture-running\\n';; inspect) printf 'YOLO_VERSION=fixture\\n';; *) exit 1;; esac\n"
+		if err := os.WriteFile(filepath.Join(f.home, "bin", "podman"), []byte(podman), 0700); err != nil {
+			t.Fatal(err)
+		}
+		writeLiveRootRequests(t, f, []string{"team:beta"})
+		initial, err := config.LoadWorkspaceConfig(f.h.workspace, false, func(string) {})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out, err := callBrokerTestBuild(goTool, binary, "../../cmd/yolo").CombinedOutput(); err != nil {
-			t.Fatalf("build public approve fixture: %v %s", err, out)
+		if _, err := config.WriteWorkspaceBootBaseline(f.h.workspace, "podman-self", initial); err != nil {
+			t.Fatal(err)
 		}
-	}
-	t.Chdir(f.h.workspace)
-	// Actual public initial gate establishes the complete validated ask view;
-	// the normal protected producer binds it to this fixture's private input/lease.
-	var gateOutput bytes.Buffer
-	if rc := run.ConfigApply([]string{"--accept-config-changes"}, &gateOutput, &gateOutput, false); rc != 0 && rc != 3 {
-		t.Fatalf("initial public delivered-ask gate: %d %s", rc, gateOutput.String())
-	}
-	model := "legacy/1"
-	if config.PolicyModelApproved(f.h.workspace, f.h.input.Source) {
-		model = "scoped/1"
-	}
-	asks, err := callbrokerinput.CaptureDelivered(f.h.input.Source, f.h.input.Pack, model, initial)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := callbrokerinput.PublishDelivered(f.scopePath, mustRead(t, f.inputPath), asks); err != nil {
-		t.Fatal(err)
-	}
+		if err := config.RecordApproval(f.h.workspace, initial, nil); err != nil {
+			t.Fatal(err)
+		}
+		binary = os.Getenv("YOLO_TEST_MATCHED_YOLO")
+		if binary == "" {
+			binary = filepath.Join(f.home, "bin", "yolo")
+			goTool, err := callBrokerTestGoTool()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if out, err := callBrokerTestBuild(goTool, binary, "../../cmd/yolo").CombinedOutput(); err != nil {
+				t.Fatalf("build public approve fixture: %v %s", err, out)
+			}
+		}
+		t.Chdir(f.h.workspace)
+		// The adapter prepares gate-bound provenance before the real lease bind.
+		// It is not actual initial producer/Main adoption proof.
+		var gateOutput bytes.Buffer
+		if rc := run.ConfigApply([]string{"--accept-config-changes"}, &gateOutput, &gateOutput, false); rc != 0 && rc != 3 {
+			t.Fatalf("initial public delivered-ask gate: %d %s", rc, gateOutput.String())
+		}
+		model := "legacy/1"
+		if config.PolicyModelApproved(f.h.workspace, f.h.input.Source) {
+			model = "scoped/1"
+		}
+		asks, err := callbrokerinput.CaptureDelivered(f.h.input.Source, f.h.input.Pack, model, initial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := callbrokerinput.PublishDelivered(f.scopePath, mustRead(t, f.inputPath), asks); err != nil {
+			t.Fatal(err)
+		}
+	})
 	return f, binary
 }
 

@@ -60,7 +60,7 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 	return selectedOnceFixtureForApply(t, standing, initialRead, timed, false)
 }
 
-func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liveApply bool) *onceFixture {
+func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liveApply bool, beforeBind ...func(*onceFixture)) *onceFixture {
 	t.Helper()
 	old, inputPath, marker, _ := testCallHandler(t)
 	home := filepath.Dir(marker)
@@ -220,9 +220,20 @@ func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liv
 	// These tests are about grants, not the classifier's deadline, so its 2s production bound must
 	// not decide them on a loaded machine (fixtureClassifierDeadline).
 	h.classifier.deadline = fixtureClassifierDeadline
+	f := &onceFixture{h: h, home: home, marker: marker, inputPath: inputPath, scopePath: scopePath, grantPath: grantPath, userPath: userPath, store: store, scope: scope}
+	for _, prepare := range beforeBind {
+		prepare(f)
+	}
 	start, err := brokerstore.NewStartID()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(beforeBind) > 0 {
+		delivered, err := brokerscope.ReadDelivered(scope, h.input.DeclarationHash, callbrokerinput.InputDigest(h.original))
+		if err != nil {
+			t.Fatal(err)
+		}
+		start = delivered.Start
 	}
 	bound, lease, err := brokercore.BindLease(h.input.Source, scopePath, scope, start)
 	if err != nil {
@@ -244,7 +255,8 @@ func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liv
 	} else if !initialRead && err == nil {
 		t.Fatal("fixture missing initial read grant became live")
 	}
-	return &onceFixture{h: h, home: home, marker: marker, inputPath: inputPath, scopePath: scopePath, grantPath: grantPath, userPath: userPath, store: store, scope: bound}
+	f.scope = bound
+	return f
 }
 
 func TestSelectedCLIHostEnvironmentIsDeclarationBoundAndPrivate(t *testing.T) {

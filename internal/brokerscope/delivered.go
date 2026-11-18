@@ -63,17 +63,16 @@ func validateDelivered(f File, b DeliveredBaseline, declaration, input string) e
 // PublishDeliveredLocked is the initial gate/launch publisher. Caller holds the
 // source lock. It never overwrites another delivered view or changes scope/asks.
 func PublishDeliveredLocked(f File, b DeliveredBaseline) (DeliveredBaseline, error) {
+	if f.BrokerStart != "" {
+		return b, errors.New("delivered asks cannot be published retrospectively for a started broker; stop this jail and relaunch with yolo")
+	}
 	b.Version = "yolo.delivered-asks/1"
 	if b.Start == "" {
-		if f.BrokerStart != "" {
-			b.Start = f.BrokerStart
-		} else {
-			var token [16]byte
-			if _, err := rand.Read(token[:]); err != nil {
-				return b, err
-			}
-			b.Start = hex.EncodeToString(token[:])
+		var token [16]byte
+		if _, err := rand.Read(token[:]); err != nil {
+			return b, err
 		}
+		b.Start = hex.EncodeToString(token[:])
 	}
 	if err := validateDelivered(f, b, b.Binding.DeclarationHash, b.Binding.InputDigest); err != nil {
 		return b, err
