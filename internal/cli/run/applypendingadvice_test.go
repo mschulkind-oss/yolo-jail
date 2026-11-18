@@ -37,7 +37,7 @@ func TestConfigApplyAWSOnlyDeclarationDoesNotInventGitRequestChanges(t *testing.
 	for attempt := 0; attempt < 2; attempt++ {
 		output.Reset()
 		answer(o, "y")
-		if rc := o.configApply(false); rc != 0 && rc != 3 {
+		if rc := o.configApply(false); rc != 0 && (rc != 3 || attempt == 1) {
 			t.Fatalf("AWS-only apply failed: rc=%d %s", rc, output)
 		}
 		if strings.Contains(output.String(), "requests.git") {
@@ -69,7 +69,7 @@ func TestConfigApplyPendingRepeatDoesNotPromiseAnUnconditionalLaunch(t *testing.
 		}
 		wantBrokerSkewNote(t, out, "0.18.0+72.ga2b6554ce443", "0.18.0+83.g9267155daefd.dirty")
 		approved, err := os.ReadFile(config.ApprovalSnapshotPath(o.Workspace))
-		if err != nil || !strings.Contains(string(approved), "{}") {
+		if err != nil || strings.TrimSpace(string(approved)) != "{}" {
 			t.Fatalf("accepted next-launch workspace approval not persisted: %s %v", approved, err)
 		}
 		boot, ok, err := config.ReadWorkspaceBootBaseline(o.Workspace, "podman-self")
