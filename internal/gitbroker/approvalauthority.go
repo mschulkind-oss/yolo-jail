@@ -115,6 +115,9 @@ func holderJail(sf brokerscope.File) string { return paths.JailShortHash(sf.Cont
 // a push of refs under refs/heads/ and refs/tags/, the live scope still approves a remote of
 // q's repository, and a read grant still covers it (BB-D108). It returns the fixed policy.
 func revalidatePush(path string, bound brokerscope.File, start string, q brokerstore.Request) (brokerstore.Policy, error) {
+	if q.HasScopedRoles() || q.ContextDigest != "" || q.ContextName != "" {
+		return brokerstore.Policy{}, errors.New("native scoped operation approval is not active; retry through the supported native write path")
+	}
 	if q.Start != start || q.LaunchID != bound.LaunchID || q.Workspace != bound.Workspace || q.Jail != holderJail(bound) {
 		return brokerstore.Policy{}, errors.New("request holder is not this live host launch")
 	}
@@ -175,13 +178,20 @@ func StoreAudit(log *brokeraudit.Log) func(context.Context, string, brokerstore.
 // grant is audited.
 func ApprovalStore() *brokerstore.Store {
 	return &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, Revalidate: ApprovalAuthority, PublishRecords: true,
-		Entries: pushEntries, Audit: StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))}
+		Entries: pushEntries, NativeTimedPolicy: true, TimedLimit: approvalTimedLimit, Audit: StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))}
+}
+
+func approvalTimedLimit(q brokerstore.Request) (brokerstore.TimedBound, error) {
+	return brokercore.SelectedTimedLimit(Source, q)
 }
 
 // pushEntries is the timed working-set entries `yolo approve <id> --for <duration>` records for
 // push request q: one per ref the request needed approval for (every ref when the request does
 // not say), in q's workspace and repository (GB-D26). A tag's entry is of the tag kind.
 func pushEntries(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
+	if q.HasScopedRoles() {
+		return brokerstore.OperationEntries(q)
+	}
 	if err := checkPushArgv(q.Argv); err != nil {
 		return nil, err
 	}

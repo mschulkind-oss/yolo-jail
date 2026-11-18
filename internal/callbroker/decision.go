@@ -51,7 +51,7 @@ func decideCall(call Classification, cells map[string]config.CallBrokerCellPolic
 		if !ok || len(write.Chain) == 0 {
 			return Verdict{Verdict: "refused", Rule: "undeclared write cell or resource", Next: "This is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author"}
 		}
-		table := "all"
+		table := selectedWriteTable(write, working, workspace, source, now)
 		timed := false
 		chain := make([]brokerstore.CallResource, len(write.Chain))
 		for i, resource := range write.Chain {
@@ -68,11 +68,6 @@ func decideCall(call Classification, cells map[string]config.CallBrokerCellPolic
 					timed = true
 				}
 				continue
-			}
-			for _, resource := range write.Chain {
-				if entry.Kind == resource.Type && entry.Resource == resource.ID {
-					table = "working_set"
-				}
 			}
 		}
 		setting, ok := policy.Tables[table]

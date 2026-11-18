@@ -62,6 +62,9 @@ func newCLIHandler(inputFile, workspace string, store *brokerstore.Store, audit 
 	if err != nil {
 		return nil, err
 	}
+	if why := brokercore.PlacementRefusal(input.Program, workspace)(program.path); why != "" {
+		return nil, errors.New(why)
+	}
 	c := Classifier{Source: input.Source, Argv: input.Classifier, Identities: input.ProgramIdentities,
 		Roots: input.Roots, Resources: input.Resources, Cells: input.Cells, Lookups: input.Lookups,
 		ReadGrant: input.ReadStanding || input.ReadGrantStanding != ""}
@@ -185,6 +188,7 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 		auditReason = "decision-store-failed"
 		return Verdict{Verdict: "refused", Next: "Check the host broker store and retry"}, CLIResult{}, err
 	}
+	q = q.WithWorkingState(working, now).WithExecutionContext(ctx)
 	verdict = decideCall(call, h.input.EffectiveCells, working, h.workspace, h.input.Source, now)
 	verdict.Digest = q.Digest
 	if len(call.Writes) != 0 && h.start != "" {

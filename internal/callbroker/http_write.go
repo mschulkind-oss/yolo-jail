@@ -32,6 +32,9 @@ func (h *HTTPHandler) requestHTTPWrite(jail string, result HTTPResult) brokersto
 // transaction. It cannot replay a body from pending storage: act reclassifies
 // the resubmitted original inside dispatch before any request is transmitted.
 func (h *HTTPHandler) revalidateHTTP(q brokerstore.Request) (brokerstore.Policy, error) {
+	if q.HasScopedRoles() || q.ContextDigest != "" || q.ContextName != "" {
+		return brokerstore.Policy{}, errors.New("scoped HTTP operation execution is not active; resubmit through the supported selected write path")
+	}
 	sf, user, err := h.currentAuthority()
 	if err != nil {
 		return brokerstore.Policy{}, err
@@ -43,9 +46,15 @@ func (h *HTTPHandler) revalidateHTTP(q brokerstore.Request) (brokerstore.Policy,
 		if len(write.Chain) == 0 || !slices.Contains(sf.Repos, write.Chain[len(write.Chain)-1].ID) {
 			return brokerstore.Policy{}, errors.New("HTTP write left the selected root; use yolo request and retry")
 		}
+		working, now, _ := q.WorkingState()
+		chain := make([]Resource, len(write.Chain))
+		for i, resource := range write.Chain {
+			chain[i] = Resource{Type: resource.Type, ID: resource.ID}
+		}
+		table := selectedWriteTable(Write{Cell: write.Cell, Chain: chain}, working, q.Workspace, h.input.Source, now)
 		policy, exists := h.input.EffectiveCells[write.Cell]
-		frozen, declared := policy.Tables["all"]
-		current := config.CallBrokerCurrentCeiling(user, h.input.Source, "all", write.Cell)
+		frozen, declared := policy.Tables[table]
+		current := config.CallBrokerCurrentCeiling(user, h.input.Source, table, write.Cell)
 		if !exists || !declared || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" || current == "off" || frozen.Ceiling == "always" && current != "always" {
 			return brokerstore.Policy{}, errors.New("HTTP write host ceiling or selected cell was withdrawn; use yolo allow and yolo config apply")
 		}
@@ -68,6 +77,11 @@ func validHTTPHash(hash string) bool {
 func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, original HTTPCall, result HTTPResult, predicted Verdict) (Verdict, HTTPExecution, error) {
 	var reply HTTPExecution
 	q := h.requestHTTPWrite(jail, result)
+	_, _, initialWorking, initialNow, err := h.store.InspectContext(ctx)
+	if err != nil {
+		return Verdict{Verdict: "refused", Next: "Check the host broker store and retry"}, reply, err
+	}
+	q = q.WithWorkingState(initialWorking, initialNow).WithExecutionContext(ctx)
 	predicted.Digest = q.Digest
 	if predicted.Verdict == "refused" {
 		return predicted, reply, nil
@@ -80,9 +94,11 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 	}
 	var fresh HTTPResult
 	gate := func(held brokerstore.Request) (brokerstore.Policy, error) {
-		if _, err := h.revalidateHTTP(q); err != nil {
+		currentRequest := q.WithWorkingStateFrom(held)
+		if _, err := h.revalidateHTTP(currentRequest); err != nil {
 			return brokerstore.Policy{}, err
 		}
+		q = currentRequest
 		// Store calls this under its source transaction before it can change a
 		// grant's uses. No archived HTTP bytes can satisfy this check.
 		current, err := h.classifier.ClassifyHTTPWithLookups(ctx, original, h.input.HTTPBinding.HTTP.RequestHeaders, h.lookupHTTP(jail))
@@ -92,7 +108,11 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		if err := h.verifyHTTPNativeWriteChains(ctx, jail, current.Writes); err != nil {
 			return brokerstore.Policy{}, err
 		}
-		policy, err := h.revalidateHTTP(held)
+		rebound, err := reboundRequest(held, currentRequest)
+		if err != nil {
+			return brokerstore.Policy{}, err
+		}
+		policy, err := h.revalidateHTTP(rebound)
 		if err == nil && op == "act" {
 			err = h.audit.RequiredContext(ctx, brokeraudit.Event{Event: "call-preflight", Service: h.input.Source, Jail: jail,
 				Set: "write", Outcome: "verified-before-store-dispatch", CommandDigest: q.Digest})
@@ -219,7 +239,7 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 	if filed.ID == "" {
 		return Verdict{Verdict: "refused", Next: "Inspect the host approval store before retrying", Digest: q.Digest}, reply, errors.New("HTTP call was neither filed nor covered")
 	}
-	return Verdict{Verdict: "asks", Rule: "host approval required", Next: "Ask the human to run `yolo approve " + filed.ID + "` (Allow once) or `yolo approve " + filed.ID + " --for 15m` (a while, up to the smallest max_for of its cells) on the host, then resubmit the original call", Digest: q.Digest, RequestID: filed.ID}, reply, nil
+	return Verdict{Verdict: "asks", Rule: "host approval required", Next: timedApprovalNext(filed, "resubmit the original call"), Digest: q.Digest, RequestID: filed.ID}, reply, nil
 }
 
 func (h *HTTPHandler) httpWriteFailure(digest string, attempted, preflightFailed bool, err error) Verdict {

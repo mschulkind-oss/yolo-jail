@@ -1,7 +1,6 @@
 package callbroker
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -169,6 +168,9 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 // revalidate runs under the store's transaction, including from yolo approve.
 // The classifier sees only the recorded hash, never retained stdin or facts.
 func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
+	if q.HasScopedRoles() || q.ContextDigest != "" || q.ContextName != "" {
+		return brokerstore.Policy{}, errors.New("scoped operation execution is not active; retry the supported selected write path")
+	}
 	sf, user, err := h.currentAuthority()
 	if err != nil {
 		return brokerstore.Policy{}, err
@@ -178,7 +180,7 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 	}
 	classifier := h.classifier
 	classifier.Roots = slices.Clone(sf.Repos)
-	answer, err := classifier.ClassifyCLIDigest(context.Background(), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
+	answer, err := classifier.ClassifyCLIDigest(q.ExecutionContext(), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
 	if err != nil {
 		return brokerstore.Policy{}, fmt.Errorf("current classifier refused this call (%v); retry the original call", err)
 	}
@@ -196,9 +198,11 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 		if len(w.Chain) == 0 || !slices.Contains(sf.Repos, w.Chain[len(w.Chain)-1].ID) {
 			return brokerstore.Policy{}, errors.New("write left the approved root; retry after yolo config apply")
 		}
+		working, now, _ := q.WorkingState()
+		table := selectedWriteTable(w, working, q.Workspace, h.input.Source, now)
 		p := h.input.EffectiveCells[w.Cell]
-		frozen, exists := p.Tables["all"]
-		current := config.CallBrokerCurrentCeiling(user, h.input.Source, "all", w.Cell)
+		frozen, exists := p.Tables[table]
+		current := config.CallBrokerCurrentCeiling(user, h.input.Source, table, w.Cell)
 		if !exists || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" ||
 			current == "off" || frozen.Ceiling == "always" && current != "always" {
 			return brokerstore.Policy{}, errors.New("one write's host ceiling or approved request was withdrawn; use yolo allow and yolo config apply before retrying")
