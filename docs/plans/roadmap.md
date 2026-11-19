@@ -195,7 +195,10 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
     asked for by the maintainer, whose first ruling decides an image change every jail pays; and
     [how a SandVault or Safehouse user tries yolo](../design/sandvault-safehouse-compat.md#OQ-NB1), then
     [which backend a SandVault setup gets](../design/sandvault-safehouse-compat.md#OQ-NB2), with
-    [credentials](../design/sandvault-safehouse-compat.md#OQ-NB3) and [the trial's `.yolo/`](../design/sandvault-safehouse-compat.md#OQ-NB5).
+    [credentials](../design/sandvault-safehouse-compat.md#OQ-NB3) and [the trial's `.yolo/`](../design/sandvault-safehouse-compat.md#OQ-NB5);
+    and [one trace per launch](../design/startup-tracing.md), asked for on 2026-11-19 because launches with many
+    patched forks have become slow: four rulings (the viewer, recording by default, where a trace is kept, sending
+    to a collector) hold [its plan sketch](../design/startup-tracing-plan.md), and the first build step waits on two.
 
 20. [How a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR2), with [the other herdr
     calls](../research/herdr-integration.md) — measured: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree. Beside
