@@ -2,8 +2,7 @@
 // collector writes, the parent rule that turns flat spans into a tree, and the summary that ranks
 // where the startup time went.
 //
-// Design: the startup-tracing design document (§5.3 the files, §5.4 the parent rule, §6 the
-// summary), not yet on main; repoint this to its path when it lands.
+// Design: docs/design/startup-tracing.md (§5.3 the files, §5.4 the parent rule, §6 the summary).
 // The line format is the wire contract in that design's plan; this package parses it and nothing
 // else, so it builds against the contract and never against the writer's code.
 //
