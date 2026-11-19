@@ -13,6 +13,12 @@ summary: "Accepted serial build contract with a retained synthetic implementatio
 
 # Plan: managed MCP sign-in
 
+**Current scope:** generic MCP authentication sharing only, under the owner's
+[MS-R6 correction](managed-mcp-sign-in.md#decision-ledger). Provider-specific bundling is
+withdrawn. The remaining original task snippets and receipts below are historical planning
+examples, not instructions to install or ship any provider integration; the synthetic
+user-supplied fixtures replace that assumption.
+
 **Current implementation:** see the [candidate checkpoint](#candidate-implementation-checkpoint) and [coverage inventory](managed-mcp-sign-in-coverage.md). The following source/planner receipts are historical baseline evidence, not candidate greens.
 
 **Original hand-off written against:** `15da1299ffe8c65db4a3f2beef9f8421dabbb99c`, 2026-11-17. The original complete planner hand-off read source and ran baseline fixture tests at `897a7951a44fa79fef305b7d90be9e652e086f01`, then checked HEAD `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`. The range from that HEAD to this stamp changes only the scoped TOML pack-import design, plan, grounding and roadmap; no code, MCP authority or tested fixture changed. This publication preserves that source/test map and incorporates the accepted MS-D14 closure. Primary/index were clean before publication. No runtime behavior is implemented here.
@@ -60,8 +66,8 @@ Paths below are repository-relative. New paths are marked **new**; test suffixes
 | **new** `internal/mcpsignin/{inventory.go,resolve.go,delivery.go,advice.go}` and corresponding tests | Format-named confined reader, pure sign-in point / delivery decisions, and no-point-only embedded-FS provisioning advice; no server composition, egress or state creation. |
 | `internal/agentcfg/luahook/derive.go`, `mcpauth.go`; **new** `mcpsignin.go`, `mcpsignin_test.go` | Pure native-name function declared by agent pack; per-agent decision facts and both helper command forms in derive context. |
 | `internal/hostskills/plugin.go`, `plugin_test.go`; `internal/jailcontent/skills.go`, **new** `mcpsignin_test.go` | Preserve server content across whole-tree delivery; expose actual placement/refusal results, not a prediction that the agent loaded it. |
-| **new** `packs/slack-mcp/pack.toml`, `README.md`, `skills/slack/` | Pinned upstream whole tree with MIT LICENSE; no program, install, `mcp` contribution or sign-in opt-in. |
-| `packs/embed.go`, `executables.txt`, existing embedding tests | Add explicit embed; update executable inventory only for upstream executable modes actually carried. |
+| Local synthetic `fixture-mcp` test integrations | Whole-plugin placement and identity retention; never embedded or offered as a shipped integration. |
+| `packs/embed.go`, `executables.txt`, embedding regression | Remove unauthorized provider content from both inventories; test the real catalog and original embedded bytes. |
 | `packs/claude/pack.toml`, `derive.lua`; `packs/pi/pack.toml` | Agent-owned formats/native-name/paste declarations; Claude JSON helper and pi bare declaration. Codex unchanged. |
 | `internal/cli/run/launchinputmcp.go`, `launchinput.go`, `mcpauthshare.go`, `mcpauthboundary.go`, `mcpauthheader.go`, `mcpauthnotice.go`, `prepare.go`, `run.go`, `runcmd.go` | Freeze user-selected bundle provenance and actual delivered-tree inventory before creating share/render/lease decisions; carry expected client; all backend callsites. |
 | `internal/cli/hostinputs.go`, `applyhostskills.go`, `host.go`, `hostmcponce.go`; `internal/entrypoint/hostrender.go` | Host apply/managed launch uses same placement and pure decision; preserve Linux session and Mac no-source boundary. |
@@ -162,11 +168,11 @@ Tests shown are complete regression bodies (imports are the ordinary package imp
 func TestManagedMCPSignInBundleThroughManifestDecode(t *testing.T) {
     manifest, problems := DecodeTOML([]byte(`name = "fixture"
 [[mcp_sign_in_bundle]]
-bundle = "skills/slack"
+bundle = "skills/fixture"
 format = "claude-plugin"
-origin = "https://github.com/slackapi/slack-skills-plugin"
-revision = "5b8802105740b5c045c97247fded2e73b205e95e"
-license = "skills/slack/LICENSE"
+origin = "https://example.invalid/fixture-plugin"
+revision = "0123456789abcdef0123456789abcdef01234567"
+license = "skills/fixture/LICENSE"
 `))
     if len(problems) != 0 || manifest == nil {
         t.Fatalf("accepted sign-in declaration refused: %v", problems)
@@ -195,42 +201,28 @@ license = "skills/slack/LICENSE"
 
 **Report:** executed red, new schema spellings, full reader matrix and callsite deletion results.
 
-### Task 2 — pinned MIT Slack tree through existing whole-plugin placement
+### Task 2 — synthetic user-supplied whole-plugin placement
 
-**Settled — do not reopen:** user selects `slack-mcp`; it carries the complete upstream tree pinned to `5b8802105740b5c045c97247fded2e73b205e95e` (v1.8.0) and retains MIT LICENSE. No launch fetch/marketplace/installer, no program or contributed server, no automatic once opt-in. Keep ownership marks and namespace rename; root `.mcp.json` byte-identical, manifest `mcpServers` value-identical. Refuse identity-changing delivery and expose `not delivered`.
+**Scope:** [MS-R6](managed-mcp-sign-in.md#decision-ledger) withdraws the unauthorized
+provider bundling task. Yolo ships no provider-specific MCP sign-in bundle, client identity
+or server recipe. A user may explicitly supply and select their own integration; no existing
+user integration or credential is removed or rewritten.
 
-**Tests first**, `internal/cli/run/mcpauthonce_test.go` (existing `shippedPack` fixture):
+**Tests:** `TestEmbeddedPacksContainNoSlackIntegration` reads the real embedded catalog and
+original files, including hidden plugin metadata. It must fail against the unauthorized tree.
+`TestUserSuppliedMCPBundleIsAPluginNotAServerOrInstaller` uses local synthetic content and
+keeps whole-plugin recognition, license retention and no-server/no-installer coverage.
+Production launch/boot and integration fixtures use a synthetic plugin, URL and client ID,
+not a replacement shipped pack.
 
-```go
-func TestShippedSlackMCPIsAPluginNotAServerOrInstaller(t *testing.T) {
-    pack := shippedPack(t, "slack-mcp")
-    if len(pack.InstallBins()) != 0 { t.Fatal("integration pack installs a program") }
-    composed := packload.ComposeMCPServers(jsonx.NewOrderedMap(), []*packload.Pack{pack}, "/fixture/home")
-    if len(composed.Keys()) != 0 { t.Fatal("integration pack contributed a server") }
-    body, err := os.ReadFile(filepath.Join(pack.Root, "skills", "slack", "LICENSE"))
-    if err != nil || !strings.Contains(string(body), "MIT License") {
-        t.Fatalf("retained upstream license absent: %v", err)
-    }
-    points, problems := pack.HonoredPlugins()
-    if len(problems) != 0 || len(points) != 1 || points[0].Name() != "slack" {
-        t.Fatalf("whole upstream plugin not recognized: %v %v", points, problems)
-    }
-}
-```
+**Preserved delivery contract:** ownership marks and namespace rename are permitted; root
+`.mcp.json` remains byte-identical and manifest `mcpServers` value-identical. Identity-changing
+or foreign delivery is refused. Generic capture, refresh, sharing, callback and bundle support
+remain unchanged. Placement still proves neither native loading nor provider acceptance.
 
-**Red:** `go test -short ./internal/cli/run -run '^TestShippedSlackMCPIsAPluginNotAServerOrInstaller$' -count=1`; current absent pack fails loading. `HonoredPlugins` was read in `internal/packload/plugins.go`; its returns are `[]*pluginpack.Plugin, []string`, and `Plugin.Name()` supplies the manifest name.
-
-**Change:** materialize public upstream original into durable scratch, verify immutable commit/tree and LICENSE, then native-write the pack-owned files into `packs/slack-mcp/skills/slack`. Retain all upstream content, not just `.mcp.json`; keep provenance/pin in pack declaration and README. Use the retained immutable archive as a checked public original or retrieve that commit again and verify identity-critical file hashes. The three executable upstream paths are `scripts/changeset_version.sh`, `skills/deploy-slack-app/references/deploy-heroku.sh` and `skills/deploy-slack-app/references/deploy-railway.sh`; preserve executable bits and add their pack-prefixed names to `executables.txt`. Do not preserve archive group-write modes in generated credential/state files. Add explicit embed. Declare `skills_tier="namespaced"` for whole-plugin delivery and audience/destination binding using existing skills declarations. Do not copy the public client ID into the wrapping TOML, agent derive or config. The only carrier remains upstream content.
-
-**Permanent delivery regression:** extend `hostskills.TestDeliveredManifestKeepsUnknownFieldsAndGainsTheMarker` with `mcpServers` inline and file-reference variants; call `DeliverPlugin` with Namespace empty and `team`, read delivered manifest, assert name `slack` / `team-slack`, two existing marks present, arbitrary unknown fields retained, `.mcp.json` exact bytes, inline MCP semantic equality. Repeat through `jailcontent.PrepareSkillsWith`, not only DeliverPlugin, and assert refusal status for flat downgrade and foreign destination. Guard is specific to sign-in bundle identity content; ordinary plugin semantics do not change.
-
-**Gates:** `go test -short ./packs ./internal/hostskills ./internal/jailcontent ./internal/cli/run -run 'SlackMCP|Plugin|ManagedMCP' -count=1`. Existing `TestPluginTreeIsDeliveredVerbatim`, `TestPluginObserveWritesNothing`, root-plugin collision/flat-refusal tests remain. Deletion control: remove sign-in delivery guard or actual layer writer's plugin call; staged caller assertions fail.
-
-**Fence:** pack packaging, plugin placement and preservation; do not execute upstream hooks or agent plugin validation. Public retrieval is a planner/worker provisioning step, never an automated-test/launch dependency.
-
-**Commit:** `feat(packs): ship the pinned Slack native sign-in plugin`.
-
-**Report:** upstream immutable commit, tree inventory/modes/license evidence, bytes/value preservation, no program/server contribution, embedding green.
+**Gates:** run pack/packload tests and targeted managed sign-in, plugin delivery, composition,
+advice, rendering and status tests. Runtime verification is separate and must respect the
+owner's host-state safety fence.
 
 ### Task 3 — frozen scope, delivered inventory and per-launch decision facts
 
@@ -615,7 +607,7 @@ Lease stores schema, port, launch/runtime identity under user-private state; kee
 
 **Tests first:** account-free `integration/managed_mcp_sign_in_test.go` joins package `integration`, `requireJail(t)`, no parallelism. Use `mcpAuthHome`/`withPrivateFixtureYoloStore` to preserve harness's runtime/mise/nix links while isolating yolo state. Use immutable local fixture pack to exercise namespacing and MIT-original pack to exercise embedding. The probe starts only shell/Go file readers, never an agent/hook/plugin validator.
 
-Add `TestManagedMCPSignInLaunchPlacesAndDerivesWithoutExecutingAgents`: user `packs=["claude","pi","slack-mcp"]`, user once Slack, fake nonauth header. Actual launch renders both consumer forms; source-refresh absent record makes Claude header through capturable point; assert delivered upstream `.mcp.json` byte equality, delivered manifest native name, status verdict/native-name/paste route, no token in files/readout. No native entry is written to a real store. Add `TestManagedMCPSignInHeaderOnlyStatusReadsSyntheticRecord`: seed fixture canonical live access-only response, launch pi+mcp-auth without source, run status and header, compare helper result privately without printing token; no refresh request. Add workspace URL/client override and withdrawal relaunch cases. Compile test file first and run red before each wiring repair; status/output/placement assertions must execute, not a missing-symbol red.
+Add `TestManagedMCPSignInLaunchPlacesAndDerivesWithoutExecutingAgents`: user selects synthetic Claude/pi consumer adapters and a local `fixture-mcp` integration, with a user-scope once server at `https://mcp.fixture.invalid/mcp`. Actual launch renders both consumer forms; source-refresh absent record makes Claude header through capturable point; assert synthetic `.mcp.json` byte equality, delivered manifest native name, status verdict/native-name/paste route, no token in files/readout. No native entry is written to a real store. Add `TestManagedMCPSignInHeaderOnlyStatusReadsSyntheticRecord`: seed fixture canonical live access-only response, launch pi+mcp-auth without source, run status and header, compare helper result privately without printing token; no refresh request. Add workspace URL/client override and withdrawal relaunch cases. Compile test file first and run red before each wiring repair; status/output/placement assertions must execute, not a missing-symbol red.
 
 Add `TestManagedMCPCallbackLaunchPlanRetiresLease`: fake runtime probe in unit suite proves exact create path and busy fallback; real integration checks frozen callback disposition, confirmed-gone retirement and no residual private input. In a nested jail it asserts the documented *no-publication* branch, never the real bridge owner branch. Actual browser callback witness remains separate.
 
@@ -635,7 +627,7 @@ The integration harness builds a fresh CLI; it does not prove installed host/sou
 | [Sharing design](mcp-auth-sharing.md) | Reconcile remaining body claims of login/logout/revocation/native support, source plain entry choice and issuance margin with managed pointers. Update MA-D27 Built cell for pi and new synthetic Claude route; do not claim broader replica/watch/adapter slices built. |
 | [Sharing versions / delivery](mcp-auth-sharing.md#96-delivery-routes) | Codex 0.166.0 `http_headers_helper` versus 0.145.0 absence remains **unmeasured native version difference**, not permission to enable Codex. Mark measurement owed; preserve native-origin blocker. |
 | `packs/mcp-auth/README.md` | Replace currently accurate unbuilt status/Claude-route statements only once tasks pass; no native provider success claim. |
-| `packs/slack-mcp/README.md`, `docs/reference/mcp-configuration.md`, `internal/cli/config_ref.txt` and CLI help | Pack add/config check/relaunch; own-client option; native-name status; headersHelper JSON, bare compatibility, bounded issuance and paste. Existing command registry/help sources gain status grammar, no login/logout verb. |
+| `packs/mcp-auth/README.md`, `docs/reference/mcp-configuration.md`, `internal/cli/config_ref.txt` and CLI help | Pack add/config check/relaunch; own-client option; native-name status; headersHelper JSON, bare compatibility, bounded issuance and paste. Existing command registry/help sources gain status grammar, no login/logout verb. |
 | `userguide/reference/settings-per-setup.md`, census | Placement everywhere supported by agent formats; source and helper limitations distinct; callback convenience only Linux bridge podman, native witness owed. |
 
 **Final gate once, on combined clean candidate**, not per task/agent:
@@ -685,7 +677,7 @@ The final full slow suite and landing belong to the parent. Native/rootless/Mac/
 cd /workspace/.yolo/durable/managed-mcp-probe/workspace
 YOLO_NO_PROGRAM_READINESS=1 YOLO_NO_AUTO_CAPTURE=1 YOLO_NO_UPDATE_CHECK=1 YOLO_NO_AUTO_IMAGE_REAP=1 \
   /ABSOLUTE/EMITTED/LAUNCHER --user-layer /workspace/.yolo/durable/managed-mcp-probe/user.toml \
-  -- bash -c 'yolo mcp-auth status --json; test -f "$HOME/.claude/skills/slack/.mcp.json"'
+  -- bash -c 'yolo mcp-auth status --json; test -f "$HOME/.claude/skills/fixture/.mcp.json"'
 ```
 
 5. Verify before executing that fixture effective config has no inherited owner sources, installer programs or live tokens. `--user-layer` is an overlay, **not a replacement of owner scope**; use a prepared synthetic-only source snapshot fixture/harness to eliminate inherited selection safely. If this cannot be proved without reading owner credentials/config or widening the brief, do not run; report nested validation blocked and use production fake Run + real integration fixture instead. The command is a probe shape, not authorization to run it against ambient owner config.
@@ -710,9 +702,9 @@ Deletion controls are **permanent tests**, plus temporary authorized mutations p
 ## Native/rootless/Mac/provider limits and rollback witness
 
 - **Not claimed:** Slack OAuth, client-id-only refresh, second presenter acceptance, real agent loaded plugin, reconnect/401 helper rerun, own-OAuth suppression, native paste, origin in-memory token takeover, or native behavior after refresh token removal.
-- **Rootless host witness owed:** actual Slack/native callback on a real rootless Linux bridge launch, observing `podman info --format '{{.Host.Security.Rootless}}'` and `podman info --format '{{.Host.RootlessNetworkCmd}}'`, installed version, source stamp and IPv4-only limitation. Nested podman forces host networking/userns and cannot substitute. Browser `localhost`→`::1` preference must be explicitly measured or limitation confirmed.
+- **Rootless host witness owed:** native callback for an explicitly supplied integration on a real rootless Linux bridge launch, observing `podman info --format '{{.Host.Security.Rootless}}'` and `podman info --format '{{.Host.RootlessNetworkCmd}}'`, installed version, source stamp and IPv4-only limitation. Nested podman forces host networking/userns and cannot substitute. Browser `localhost`→`::1` preference must be explicitly measured or limitation confirmed.
 - **Mac witness owed:** file versus Keychain/alternate secure storage; macos-user source location and writable host source lock; Apple Container/podman-Mac start/confirmed-exit boundaries. Static backend fixtures and cross-compilation are not native verification. No new Mac host adoption/header capability is enabled here.
-- **Provider witness owed:** Slack accepts adopted public-client refresh and access from second consumer; source continues after refresh-token removal; single-use takeover race behavior. Public documents/pinned metadata are not measured provider success.
+- **Provider witness owed:** an explicitly supplied integration's provider accepts adopted public-client refresh and access from a second consumer; source continues after refresh-token removal; single-use takeover race behavior. Public documents/metadata are not measured provider success. No particular provider integration is required or shipped.
 - **Claude helper witness owed after synthetic landing:** installed native version loads placed bundle and exposes resolved native name; helper reruns on reconnect and after 401, does not start OAuth; paste works. If helper measurement fails, withdraw only pack header-route declaration and next launch returns baseline plain. Preserve note/status/pack placement and unrelated trust banners.
 - **Codex remains blocked:** native-origin/header provenance and measured helper/version support are separate; no metadata field repairs either. Broader sharing plan Tasks 13–15, confidential refresh, revoke/logout, account selection and unknown adapters are outside this hand-off.
 

@@ -3,7 +3,7 @@ title: "Managed MCP sign-in: the agent's own sign-in first, then capture, delive
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Remove unauthorized bundled Slack content and shipping advice; retain generic MCP-auth sharing and user-owned integrations"
+next: "Review provider-content removal and synthetic fixtures; containment-reviewed census and combined landing gates remain owed"
 depends-on: [mcp-auth-sharing.md]
 tags: [design, mcp, oauth, credentials, broker, packs, status, recovery]
 summary: "The first credential for a one-sign-in MCP server comes from the ordinary sign-in inside a yolo-managed agent, at a sign-in point a selected pack delivers. The existing broker captures and refreshes it; the source agent's duplicate plain entry becomes a header route; a token-free, zero-effect `yolo mcp-auth status` and recovery lines say which layer failed and which native server to authenticate. No third login command, no client id invented or borrowed by core."
@@ -276,7 +276,7 @@ Inputs:
 | Source agent, route supported and reachable | neither | Plain native entry, as at baseline. It is this agent's sign-in point. |
 | Any | route unsupported or unreachable | Baseline plain entry ([OQ-MA8](mcp-auth-sharing.md#decision-ledger)). Status says `delivered plain`. |
 
-**Why two conditions for a source agent.** Replacing the plain entry unconditionally would leave a self-registering server with nowhere to sign in. Never replacing it leaves Slack's dead duplicate. The two conditions cover both cases.
+**Why two conditions for a source agent.** Replacing the plain entry unconditionally would leave a self-registering server with nowhere to sign in. Never replacing it can leave an unauthenticated duplicate beside a user-supplied plugin. The two conditions cover both cases.
 
 **Header output form (MS-D4).**
 
@@ -313,7 +313,7 @@ Rules:
 
 - **Synthetic gate.** It is account-free and must pass before the route lands: the scenarios in [§12](#12-acceptance-scenarios). The local implementation is not blocked on a real sign-in.
 - **Native validation.** It is owed after landing. The sharing design's two measurements ([§16 step 4](mcp-auth-sharing.md#16-what-i-would-build-in-order)) are that the helper reruns on reconnect or a 401, and that Claude starts no OAuth for a helper-rendered server. Public Claude documentation states both. Neither is measured on an installed version.
-- **Why the route may land before the measurement.** The entry it replaces is, for Slack, one that cannot sign in at all. A wrong helper assumption therefore leaves the user no worse off than baseline.
+- **Measurement boundary.** Synthetic helper-route tests do not prove native or provider success. A provider-specific limitation is not authorization to ship that provider's integration or to claim a helper leaves the user no worse off.
 - **If a measurement fails.** The Claude pack withdraws its header-route declaration, and the baseline plain entry returns at the next launch.
 - **Reporting.** Until the measurements pass, the Built column reads "synthetic gate only". Nothing reports the route as working against a provider.
 
@@ -518,12 +518,12 @@ All fixtures are synthetic, with loopback only where an effect is under test. No
 **Native witnesses owed.** These are the owner's checks and are not claimed here:
 
 - Claude loads the placed bundle and shows the resolved native name;
-- the Slack plugin, delivered by pack, signs in from a rootless podman jail through the callback route, with the host's rootless and network facts recorded. Nested podman cannot stand in for this;
+- an explicitly user-supplied integration signs in from a rootless podman jail through the callback route, with the host's rootless and network facts recorded. Nested podman cannot stand in for this; no particular provider bundle is required or shipped;
 - a browser that prefers `::1` for `localhost` still completes, or the IPv4-only limit is confirmed;
 - Claude keeps working after its refresh token is removed;
 - Claude reruns the helper on reconnect and on a 401, and starts no OAuth for a helper entry;
 - Claude's paste fallback;
-- Slack accepts a client-id-only refresh, and a second presenter of the token;
+- the user-selected provider accepts its declared refresh method and a second presenter of the token;
 - the Mac file-versus-Keychain checks already listed in the sharing design.
 
 ## 13. Amendments owed to the sharing design
@@ -552,7 +552,7 @@ These are pointer edits only. No ruling changes.
 | MS-R3 | **Owner:** first-login client metadata comes through pack declarations, not a manual install or an invented registration | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-R4 | **Owner:** token-free status and truthful recovery ship with the capture and delivery repair, Claude's duplicate entry included | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) to [§8](#8-recovery-lines) | Synthetic only |
 | MS-R5 | **Owner:** the own-client preference, user-only credential settings and live stores are unchanged | 2026-11-17 | [§10](#10-compatibility) | Synthetic only |
-| MS-R6 | **Owner:** “I absolutely never approved shipping ANYTHING slack related. I said we should be able to share MCP auth LIKE slack.” Generic sharing only; withdraw bundled Slack provisioning without changing user-owned integrations or credentials | 2026-11-19 | [§4](#4-the-sign-in-point) | Removal owed |
+| MS-R6 | **Owner:** “I absolutely never approved shipping ANYTHING slack related. I said we should be able to share MCP auth LIKE slack.” Generic sharing only; withdraw bundled Slack provisioning without changing user-owned integrations or credentials | 2026-11-19 | [§4](#4-the-sign-in-point) | Removed from candidate source/catalog; regression and synthetic fixtures, review/landing owed |
 | MS-D1 | A managed sign-in point is a server of a sign-in bundle that a user-selected integration pack declares and delivers. The bundle's own server content alone carries the client identity; core reads, never writes (amended by the closure: see MS-D8 and MS-D9) | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-D2 | Unmanaged sign-in points are adopted as at baseline and labelled; yolo never installs or edits them | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-D3 | A source agent's plain entry becomes a header route when it has a managed sign-in point or a usable record at launch; otherwise it stays the sign-in point | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
@@ -560,7 +560,7 @@ These are pointer edits only. No ruling changes.
 | MS-D5 | The callback route has one owner per host port, by a per-user, per-port lease. It is an IPv4 loopback publication on bridge podman only. A second launch, a foreign holder and every other backend run without it and say so; paste completes the same sign-in. Closes MS-E1 | 2026-11-17 | [§5](#5-the-callback-route) | Synthetic only |
 | MS-D6 | Status has zero effects and a closed diagnosis set. It makes no provider request and stages nothing; a jail's exchange with its own endpoint is the read. The broker keeps a token-free outcome note per identity | 2026-11-17 | [§7](#7-token-free-status) | Synthetic only |
 | MS-D7 | The launch input carries the user's expected client id. A native entry or bundle server under another client is refused before any provider request, and is not a sign-in point | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
-| MS-D8 | Withdrawn by MS-R6: the agent's Slack bundling choice was outside the owner's generic MCP-auth-sharing request | 2026-11-19 | [§4](#4-the-sign-in-point) | Removal owed |
+| MS-D8 | Withdrawn by MS-R6: the agent's Slack bundling choice was outside the owner's generic MCP-auth-sharing request | 2026-11-19 | [§4](#4-the-sign-in-point) | Removed from candidate source/catalog; no replacement shipped integration |
 | MS-D9 | Delivery keeps the shipped ownership marks and namespaced name. Server content is never altered. The native name comes from the delivered manifest | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-D10 | Header issuance has an 8-second total deadline. An unexpired token is returned with no refresh. An expired one triggers one daemon pass of at most 5 seconds in a jail and is refused at the host. An expired token is never returned | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
 | MS-D11 | A sign-in point inventory is read from delivered sign-in bundles by a format-named reader and kept apart from `mcp_servers` composition. Closes MS-E3 | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |

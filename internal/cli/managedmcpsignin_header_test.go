@@ -11,7 +11,7 @@ func TestMCPAuthHeaderGrammarRefusesBeforeIssuance(t *testing.T) {
 	t.Cleanup(func() { mcpAuthHostHeader = previous })
 	calls := 0
 	mcpAuthHostHeader = func(context.Context, string, func(string)) (string, error) { calls++; return "must-not-issue", nil }
-	for _, args := range [][]string{{"header", "slack", "--format"}, {"header", "slack", "--format", "xml"}, {"header", "slack", "--format", "json", "extra"}, {"header", "slack", "--format", "json", "--format", "bare"}, {"header", "slack", "--unknown"}, {"header"}} {
+	for _, args := range [][]string{{"header", "fixture", "--format"}, {"header", "fixture", "--format", "xml"}, {"header", "fixture", "--format", "json", "extra"}, {"header", "fixture", "--format", "json", "--format", "bare"}, {"header", "fixture", "--unknown"}, {"header"}} {
 		rc, out, _ := captureStd(t, func() int { return Main(append([]string{"yolo", "mcp-auth"}, args...)) })
 		if rc != 2 || out != "" {
 			t.Fatalf("malformed grammar admitted: %v", args)
@@ -27,7 +27,7 @@ func TestMCPAuthJSONHeaderThroughMain(t *testing.T) {
 	previous := mcpAuthHostHeader
 	t.Cleanup(func() { mcpAuthHostHeader = previous })
 	mcpAuthHostHeader = func(context.Context, string, func(string)) (string, error) { return "fixture-access", nil }
-	rc, out, errs := captureStd(t, func() int { return Main([]string{"yolo", "mcp-auth", "header", "slack", "--format", "json"}) })
+	rc, out, errs := captureStd(t, func() int { return Main([]string{"yolo", "mcp-auth", "header", "fixture", "--format", "json"}) })
 	if rc != 0 || out != "{\"Authorization\":\"Bearer fixture-access\"}\n" || errs != "" {
 		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, out, errs)
 	}

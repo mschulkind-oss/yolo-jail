@@ -11,6 +11,13 @@ summary: "No agent can split its MCP token store per server, so yolo shares user
 
 # One sign-in per user-level MCP server: a host broker that shares the entries, not the store
 
+**Scope:** generic MCP authentication sharing only, under the owner's
+[MS-R6 correction](managed-mcp-sign-in.md#decision-ledger). Slack-specific passages below
+are illustrative research, historical observations or examples involving an integration the
+user supplies; they are not shipping instructions, required product checks, or approval to
+bundle any provider plugin/client identity/server recipe. Yolo ships no provider-specific
+MCP sign-in bundle. Existing user-owned integrations remain selectable and unchanged.
+
 **Integrated source boundary (2026-11-05):** The selected `mcp-auth` pack, private launch-input producer, Codex store daemon, current-keeper binding, startup refusal/journaling, generation-reader leases, and guarded outcome retirement are integrated. The composed source still requires independent HIGH review and matched-source combined tests/landing gates. No real agent, credential, provider, sign-in, or MCP endpoint was used; this is not evidence of native runtime behavior.
 
 Codex's native key hashes empty headers, its native match returns only name and stored URL, and its stored entry has no sign-in header provenance. Unknown native entries are therefore preserved but never promoted or shared; fresh native sign-in harvest remains unsupported until native-origin proof exists. Empty SAVE/LOAD headers and client-ID metadata do not prove origin. No native B1/B2, rootless, macOS, or cross-backend behavior is claimed. Tasks 13–15 remain separate; the accepted design and decision ledger below are unchanged.
@@ -847,9 +854,10 @@ changes.
 
 The Apple Container, podman-on-macOS and macos-user modes of the one-sign-in tier
 ([§10](#10-parity-every-backend-and-notch)) compile and are unit-tested on Linux. These witnesses
-settle them on a Mac. Each names what to run and what passing looks like. The setup for all of
-them: user config with `[mcp_servers.slack]`, `url = "https://mcp.slack.com/mcp"`,
-`sign_in = "once"`, and Claude Code's Slack plugin installed.
+settle them on a Mac. Use an explicitly user-supplied test integration and user-scope
+`sign_in = "once"`. The historical Slack examples below illustrate the observations to
+collect; they do not require installing Slack or imply that yolo supplies it. No native or
+provider success is inferred from synthetic tests.
 
 1. **The launch says who keeps the sign-in.** On Apple Container, `yolo -- claude` prints `MCP
    one sign-in: slack signs in once for every jail on this machine. No broker runs on Apple

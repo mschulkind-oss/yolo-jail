@@ -66,8 +66,12 @@ from="skills"
 	}
 }
 
-func TestShippedSlackMCPIsAPluginNotAServerOrInstaller(t *testing.T) {
-	pack := shippedPack(t, "slack-mcp")
+func TestUserSuppliedMCPBundleIsAPluginNotAServerOrInstaller(t *testing.T) {
+	root := managedSignInFixture(t, t.TempDir(), false)
+	pack, problems := packload.LoadDirForUse(root, "fixture-mcp")
+	if len(problems) != 0 {
+		t.Fatal(problems)
+	}
 	if len(pack.InstallBins()) != 0 {
 		t.Fatal("integration pack installs a program")
 	}
@@ -75,12 +79,12 @@ func TestShippedSlackMCPIsAPluginNotAServerOrInstaller(t *testing.T) {
 	if len(composed.Keys()) != 0 {
 		t.Fatal("integration pack contributed a server")
 	}
-	body, err := os.ReadFile(filepath.Join(pack.Root, "skills", "slack", "LICENSE"))
+	body, err := os.ReadFile(filepath.Join(pack.Root, "skills", "fixture", "LICENSE"))
 	if err != nil || !strings.Contains(string(body), "MIT License") {
-		t.Fatalf("retained upstream license absent: %v", err)
+		t.Fatalf("fixture license absent: %v", err)
 	}
 	points, problems := pack.HonoredPlugins()
-	if len(problems) != 0 || len(points) != 1 || points[0].Name() != "slack" {
-		t.Fatalf("whole upstream plugin not recognized: %v %v", points, problems)
+	if len(problems) != 0 || len(points) != 1 || points[0].Name() != "fixture" {
+		t.Fatalf("whole user-supplied plugin not recognized: %v %v", points, problems)
 	}
 }

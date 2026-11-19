@@ -717,7 +717,7 @@ end
 --- plugin entry (insertion order matched, sorted order did not). Headers are written here in
 --- sorted order, which equals Claude's for zero or one header. Match reads only the entry's own
 --- serverName, serverUrl and issuer, never a credential; the broker matches a one-sign-in
---- server by URL, so a plugin's server (`plugin:slack:slack`) matches the user's `slack`.
+--- server by URL, so a plugin's server (`plugin:fixture:remote`) matches the user's alias.
 yolo.mcp_auth("claude", {
   key = function(server)
     local transport = server.transport

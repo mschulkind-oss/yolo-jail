@@ -57,16 +57,17 @@ Exit status: 0 with the header value on stdout; 1 when there is no token yet
 (stderr names the sign-in); 2 for a server this launch does not serve, or a
 usage error.
 
-Managed native content: yolo pack add PACK; yolo config check; relaunch.
+User-supplied native content: yolo pack add PACK; yolo config check; relaunch.
+Yolo ships no provider-specific MCP sign-in bundle.
 Status names the resolved native entry. Paste the full callback URL there when
 callback publication is unavailable. Placement is not native plugin-loading proof.
 Own-client option: yolo config set mcp_servers.SERVER.oauth.client_id ID --user,
 then yolo config check and relaunch. No other agent borrows that client identity.
 
 Examples:
-  yolo mcp-auth status slack --json
-  yolo mcp-auth header slack --format json
-  yolo mcp-auth header slack`
+  yolo mcp-auth status example --json
+  yolo mcp-auth header example --format json
+  yolo mcp-auth header example`
 
 // mcpAuthEndpointEnv is the broker's jail-facing endpoint variable, a function of the service's
 // name and transport alone (run's hostServiceEnvVar), spelled here because this client reads it.

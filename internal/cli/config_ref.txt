@@ -2539,7 +2539,8 @@
                     TOML-only retained native sign-in content.  Selected skills delivery
                     places the whole tree; this declaration contributes no MCP server,
                     sign_in opt-in, client id in an agent config, or operation authority.
-                    Select with `yolo pack add slack-mcp`, `yolo config check`, relaunch.
+                    Use an explicitly supplied integration pack, then `yolo config check`
+                    and relaunch. Yolo ships no provider-specific MCP sign-in bundle.
                     `yolo mcp-auth status [SERVER] [--json]` reads token-free native-name
                     recovery; placement is not plugin-loading proof. Callback convenience
                     is leased IPv4 loopback TCP on qualifying Linux bridge podman only;

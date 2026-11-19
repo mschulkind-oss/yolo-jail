@@ -189,9 +189,6 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.18.0", pack: "pi", problem: `unknown field "mcp_header_form"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("mcp_header_form")},
-	{release: "v0.18.0", pack: "slack-mcp", problem: `unknown kind "mcp-sign-in-bundle"`,
-		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
-		repair: dropContributionKind("mcp-sign-in-bundle")},
 
 	{release: "v0.10.0", pack: "claude", problem: "api_key_env_name",
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
