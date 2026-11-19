@@ -282,3 +282,103 @@ func TestInJailCheckStillReadsTheKeysThatDoCross(t *testing.T) {
 			withPacks.String())
 	}
 }
+
+// LC-D4: on the host, `yolo check` and `yolo config check` render the jail's inherited user
+// scope from the same computation a launch runs (run.PreviewInheritedScope), so a legacy
+// value that cannot cross into a TOML delivery (here, `enabled: false` on a selected pack
+// beside a TOML user config, or an inline loophole declaration) is disclosed once as a [WARN],
+// naming the host file and line and what the jail does without it, and never refuses.
+func TestHostCheckAndConfigCheckDiscloseInheritedScopeOmissions(t *testing.T) {
+	home := canonicalTempDir(t)
+	t.Setenv("HOME", home)
+	t.Setenv("YOLO_VERSION", "")
+	t.Setenv("YOLO_USER_LAYER", "")
+
+	cfgDir := filepath.Join(home, ".config", "yolo-jail")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	localPackDir := filepath.Join(home, "sample-packs", "house-rules")
+	if err := os.MkdirAll(localPackDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localPackDir, "pack.toml"), []byte("name = \"house-rules\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	userTOML := "packs = [\"sample-packs/house-rules\", \"aws-auth\"]\n\n" +
+		"[pack_sources.sample-packs]\npath = \"~/sample-packs\"\nbare = true\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte(userTOML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := canonicalTempDir(t)
+	if err := os.WriteFile(filepath.Join(ws, "yolo-jail.jsonc"), []byte(`{"loopholes": {"aws-auth": {"enabled": false}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("yolo check", func(t *testing.T) {
+		var out bytes.Buffer
+		opts := baseOptions(t, &out)
+		opts.Workspace = ws
+		opts.Getenv = func(k string) string { return "" }
+		opts.LookPath = func(name string) (string, bool) {
+			if name == "podman" {
+				return "/usr/bin/podman", true
+			}
+			return "", false
+		}
+		podmanAnswers(&opts, ExecResult{Stdout: "{}", Ran: true, RC: 0})
+		opts.Exec = fakeExec(map[string]ExecResult{
+			"podman --version": {Stdout: "podman version 5.0.0", Ran: true, RC: 0},
+		})
+		Check(opts)
+		got := stripANSI(out.String())
+		if n := strings.Count(got, "The jail's inherited user config leaves out config.loopholes.aws-auth.enabled"); n != 1 {
+			t.Fatalf("want the omission disclosed once in Check, got %d:\n%s", n, got)
+		}
+		if !strings.Contains(got, "[WARN] The jail's inherited user config leaves out") ||
+			!strings.Contains(got, "yolo-jail.jsonc:") ||
+			!strings.Contains(got, "runs that loophole") {
+			t.Errorf("Check did not disclose the omission with file, line, and effect:\n%s", got)
+		}
+	})
+
+	t.Run("yolo config check", func(t *testing.T) {
+		var out bytes.Buffer
+		opts := baseOptions(t, &out)
+		opts.Workspace = ws
+		opts.Getenv = func(k string) string { return "" }
+		rc := ConfigCheck(opts)
+		if rc != 0 {
+			t.Fatalf("ConfigCheck rc = %d, want 0 (omissions warn, never fail):\n%s", rc, out.String())
+		}
+		got := stripANSI(out.String())
+		if n := strings.Count(got, "The jail's inherited user config leaves out config.loopholes.aws-auth.enabled"); n != 1 {
+			t.Fatalf("want the omission disclosed once in ConfigCheck, got %d:\n%s", n, got)
+		}
+		if !strings.Contains(got, "[WARN] The jail's inherited user config leaves out") ||
+			!strings.Contains(got, "yolo-jail.jsonc:") ||
+			!strings.Contains(got, "runs that loophole") {
+			t.Errorf("ConfigCheck did not disclose the omission with file, line, and effect:\n%s", got)
+		}
+	})
+
+	t.Run("in-jail skips inherited-scope preview", func(t *testing.T) {
+		var out bytes.Buffer
+		opts := baseOptions(t, &out)
+		opts.Workspace = ws
+		opts.Getenv = func(k string) string {
+			if k == "YOLO_VERSION" {
+				return "9.9.9-test"
+			}
+			return ""
+		}
+		rc := ConfigCheck(opts)
+		if rc != 0 {
+			t.Fatalf("in-jail ConfigCheck rc = %d, want 0:\n%s", rc, out.String())
+		}
+		if strings.Contains(out.String(), "The jail's inherited user config leaves out") {
+			t.Errorf("in-jail ConfigCheck must not re-cross its already-inherited user scope:\n%s", out.String())
+		}
+	})
+}

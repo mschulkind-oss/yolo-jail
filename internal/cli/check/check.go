@@ -791,6 +791,10 @@ func (o *Options) sectionMergedConfig(r *reporter, merged *jsonx.OrderedMap, wor
 		// A grant this setup's inert loophole would hold: out of the gate, so said here (LG-D10).
 		reportInertGrantRequests(r, workspace, merged, runtimeSel)
 	}
+	if o.reportInheritedScope(r, workspace, runtimeSel) {
+		r.blank()
+		return true
+	}
 	if o.AcceptConfigChanges {
 		if o.inJail() {
 			r.warn("--accept-config-changes is host-only (disabled inside running jail)",

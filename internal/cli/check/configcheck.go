@@ -103,7 +103,11 @@ func ConfigCheck(opts Options) int {
 	for _, msg := range errors {
 		r.fail(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace, configRecheck(r.mode)))
 	}
-	if len(errors) == 0 && len(collisionFindings) == 0 {
+	inheritFailed := false
+	if len(errors) == 0 {
+		inheritFailed = opts.reportInheritedScope(r, opts.Workspace, "")
+	}
+	if len(errors) == 0 && !inheritFailed && len(collisionFindings) == 0 {
 		r.ok("Merged config is semantically valid")
 	}
 	r.sectionHeader("Selected Packs")
