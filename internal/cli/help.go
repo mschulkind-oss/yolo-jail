@@ -34,6 +34,7 @@ var commandHelp = []struct{ name, blurb string }{
 	{"check", "Validate runtime, nix, config, image, and running jails (alias: doctor)"},
 	{"update", "Check for a newer yolo-jail and safely update self-contained installs"},
 	{"ps", "List running yolo-* jails and their workspaces"},
+	{"trace", "List collected startup traces machine-wide; 'show [id]' summarizes an offline trace"},
 	{"prune", "Reclaim disk: stale containers, images, caches (dry-run unless --apply)"},
 	// Sits beside prune because the two answer different questions about the same
 	// disk: prune prices what it WOULD delete, stores prices what EXISTS — including
