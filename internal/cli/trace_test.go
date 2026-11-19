@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
 func TestTraceOfflineRegistered(t *testing.T) {
@@ -133,6 +136,105 @@ func TestTraceOfflineKindsAndWorkspaces(t *testing.T) {
 		if rc == 0 || strings.Contains(out, "Trace ") || !strings.Contains(errs, "`yolo trace`") {
 			t.Fatalf("no workspace: rc=%d out=%q errs=%q", rc, out, errs)
 		}
+	}
+}
+
+func TestTraceOfflineLatestMetadataStart(t *testing.T) {
+	const older = "11111111111111111111111111111111"
+	const newer = "22222222222222222222222222222222"
+	const base int64 = 1795111105000000000
+	for _, scenario := range []string{"metadata only", "event order disagreement", "equal start ID tie"} {
+		t.Run(scenario, func(t *testing.T) {
+			root := t.TempDir()
+			oldStart, newStart := base, base+1000000000
+			oldEvents := fmt.Sprintf("{\"t\":%d,\"k\":\"record\",\"name\":\"old\",\"span\":\"1111111111111111\",\"dur\":4000000}\n", base+2000000000)
+			if scenario == "equal start ID tie" {
+				newStart = oldStart
+			}
+			traceOfflineFixture(t, root, older, "launch", "abcd1234", oldStart, oldEvents)
+			newEvents := fmt.Sprintf("{\"t\":%d,\"k\":\"record\",\"name\":\"new\",\"span\":\"1111111111111111\",\"dur\":4000000}\n", base+4000000)
+			dir := traceOfflineFixture(t, root, newer, "launch", "abcd1234", newStart, newEvents)
+			if scenario == "metadata only" {
+				if err := os.Remove(filepath.Join(dir, "launcher-7.jsonl")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			// A trace without metadata cannot identify its workspace or kind.
+			unidentified := traceOfflineFixture(t, root, strings.Repeat("3", 32), "launch", "abcd1234", base+3000000000, "")
+			if err := os.Remove(filepath.Join(unidentified, "meta.json")); err != nil {
+				t.Fatal(err)
+			}
+			rc, out, errs := traceOfflineCall([]string{"trace", "show"}, traceEnv{root: root, workspaceCode: "abcd1234"})
+			if rc != 0 || !strings.Contains(out, "Trace "+newer+" (launch)") {
+				t.Fatalf("latest metadata start: rc=%d out=%q errs=%q", rc, out, errs)
+			}
+		})
+	}
+}
+
+func TestTraceOfflineWrapperHostIdentity(t *testing.T) {
+	const hostID = "11111111111111111111111111111111"
+	const guestID = "22222222222222222222222222222222"
+	const base int64 = 1795111105000000000
+	for _, scenario := range []string{"distinct host label", "host label is guest symlink", "unmatched absolute origin", "missing origin", "relative origin"} {
+		t.Run(scenario, func(t *testing.T) {
+			home, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			guest := filepath.Join(home, "guest-workspace")
+			if err := os.Mkdir(guest, 0755); err != nil {
+				t.Fatal(err)
+			}
+			hostLabel := "/host-origin/trace-project"
+			switch scenario {
+			case "host label is guest symlink":
+				hostLabel = filepath.Join(home, "host-label")
+				if err := os.Symlink(guest, hostLabel); err != nil {
+					t.Fatal(err)
+				}
+			case "missing origin":
+				hostLabel = ""
+			case "relative origin":
+				hostLabel = "relative/host-project"
+			}
+			t.Setenv("HOME", home)
+			t.Setenv("YOLO_VERSION", "trace-wrapper-fixture")
+			t.Setenv("YOLO_WORKSPACE", guest)
+			t.Setenv("YOLO_HOST_DIR", hostLabel)
+			root := filepath.Join(paths.LogsDir(), "traces")
+			if err := os.MkdirAll(root, 0755); err != nil {
+				t.Fatal(err)
+			}
+			hostCode := paths.JailShortHash(runtime.FromResolved(hostLabel))
+			if scenario == "unmatched absolute origin" {
+				hostCode = paths.JailShortHash(runtime.FromResolved("/host-origin/canonical-project"))
+			}
+			guestCode := paths.JailShortHash(runtime.FromWorkspace(guest))
+			if hostCode == guestCode {
+				t.Fatal("fixture does not distinguish host label from guest identity")
+			}
+			traceOfflineFixture(t, root, hostID, "launch", hostCode, base, "")
+			traceOfflineFixture(t, root, guestID, "launch", guestCode, base+1000000000, "")
+			// Exercise the actual wrapper, not an injected traceEnv.
+			rc, out, errs := captureStd(t, func() int { return runTrace([]string{"trace", "show"}) })
+			if scenario == "missing origin" || scenario == "relative origin" || scenario == "unmatched absolute origin" {
+				if rc != 1 || strings.Contains(out, "Trace ") || !strings.Contains(errs, "`yolo trace`") || !strings.Contains(errs, "on the host") {
+					t.Fatalf("unknown origin: rc=%d out=%q errs=%q", rc, out, errs)
+				}
+			} else if rc != 0 || !strings.Contains(out, "Trace "+hostID+" (launch)") || strings.Contains(out, "Trace "+guestID) {
+				t.Fatalf("host-origin selection: rc=%d out=%q errs=%q", rc, out, errs)
+			}
+			// Unknown origin must still permit listing and explicit selection.
+			rc, out, errs = captureStd(t, func() int { return runTrace([]string{"trace"}) })
+			if rc != 0 || !strings.Contains(out, hostID) || !strings.Contains(out, guestID) {
+				t.Fatalf("wrapper list: rc=%d out=%q errs=%q", rc, out, errs)
+			}
+			rc, out, errs = captureStd(t, func() int { return runTrace([]string{"trace", "show", hostID}) })
+			if rc != 0 || !strings.Contains(out, "Trace "+hostID) {
+				t.Fatalf("explicit selection: rc=%d out=%q errs=%q", rc, out, errs)
+			}
+		})
 	}
 }
 

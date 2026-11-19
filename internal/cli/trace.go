@@ -47,13 +47,12 @@ func runTrace(args []string) int {
 		return 0
 	}
 	env := traceEnv{root: filepath.Join(paths.LogsDir(), "traces"), inJail: config.InJail()}
-	ws := ""
 	if env.inJail {
-		ws = config.JailWorkspace()
-	} else if root, ok := resolveWorkspaceRoot(); ok {
-		ws = root
-	}
-	if ws != "" {
+		// The existing host-origin label is not a path to resolve in the guest.
+		if origin := os.Getenv("YOLO_HOST_DIR"); filepath.IsAbs(origin) {
+			env.workspaceCode = paths.JailShortHash(runtime.FromResolved(origin))
+		}
+	} else if ws, ok := resolveWorkspaceRoot(); ok {
 		env.workspaceCode = paths.JailShortHash(runtime.FromWorkspace(ws))
 	}
 	return traceMain(args, env, os.Stdout, os.Stderr)
@@ -128,12 +127,19 @@ func traceMain(args []string, env traceEnv, out, errw io.Writer) int {
 				selected = tr
 			}
 		} else if env.workspaceCode != "" && tr.Kind() == "launch" && tr.Meta.Workspace == env.workspaceCode {
-			selected = tr // ReadRoot orders oldest first.
+			// Observation order need not match launch order (a new trace may have no lanes).
+			// Equal metadata starts choose the lexicographically greater trace id.
+			if selected == nil || tr.Meta.Start > selected.Meta.Start ||
+				(tr.Meta.Start == selected.Meta.Start && tr.ID > selected.ID) {
+				selected = tr
+			}
 		}
 	}
 	if selected == nil {
 		if id != "" {
 			fmt.Fprintf(errw, "yolo trace: no collected trace %s; use `yolo trace` to list retained ids.\n", id)
+		} else if env.inJail && env.workspaceCode == "" {
+			fmt.Fprintln(errw, "yolo trace: host workspace identity is unavailable here; use `yolo trace` to list retained traces, then `yolo trace show <id>` to select one explicitly.")
 		} else {
 			fmt.Fprintln(errw, "yolo trace: no collected launch for this workspace; use `yolo trace` to list all workspaces and kinds.")
 		}
