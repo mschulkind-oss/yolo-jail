@@ -24,7 +24,6 @@ var colorEmitters = map[string]string{
 		"through Color (colorForWriter, the engines' gates)",
 	"internal/cli/check/reporter.go": "check's private palette (background badges); " +
 		"newReporter's color is check's Color gate",
-	"internal/cli/markup.go": "init's renderMarkup; its color is colorForWriter's",
 	"internal/cli/run/command.go": "the generated container script's lines; scriptColor, " +
 		"NoColor over the launch environment",
 	"internal/provision/provision.go": "the provisioning stage's failure line; the caller's " +

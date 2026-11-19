@@ -26,6 +26,18 @@ func TestInitAlreadyExists(t *testing.T) {
 	}
 }
 
+// TestRenderMarkupUsesRichtext pins that renderMarkup routes through richtext
+// (full palette including red/dim, preserving literal bracketed tokens).
+func TestRenderMarkupUsesRichtext(t *testing.T) {
+	in := "[bold cyan]HEAD[/bold cyan] [red]err[/red] [y/N]"
+	if got := renderMarkup(in, true); got != "\x1b[1m\x1b[36mHEAD\x1b[0m \x1b[31merr\x1b[0m [y/N]" {
+		t.Errorf("renderMarkup(color=true) = %q", got)
+	}
+	if got := renderMarkup(in, false); got != "HEAD err [y/N]" {
+		t.Errorf("renderMarkup(color=false) = %q", got)
+	}
+}
+
 var initStatusANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // TestInitStatusColorsThroughDispatch drives both scaffolders through their
