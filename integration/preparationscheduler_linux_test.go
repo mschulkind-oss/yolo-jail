@@ -101,7 +101,7 @@ func TestPreparationSchedulerRealWorkerLifecycle(t *testing.T) {
 	waitPreparationState(t, statePath, 25*time.Second, "public stop to release the worker lease", func(s preparationLifecycleState) bool {
 		return s.Worker.Identity == stopIdentity && preparationWorkerStopped(t, s)
 	})
-	if status := prepCLI(t, yoloBin, home, "pack", "prepare", "status"); !strings.Contains(status, "Tree preparation worker: not running;") {
+	if status := prepCLI(t, yoloBin, home, "pack", "prepare", "status"); !strings.Contains(status, "Preparation worker: not running;") {
 		t.Fatalf("public status did not prove the stopped worker lease free:\n%s", status)
 	}
 	if !workerExited(t, owned.workers[len(owned.workers)-1]) {
@@ -221,7 +221,7 @@ func TestPreparationSchedulerRealWorkerLifecycle(t *testing.T) {
 	if current.Worker.Identity != originalIdentity || !current.Worker.StoppedAt.IsZero() || !workerProcess.alive() || preparationChildWorkspace(workerProcess.pid) != originalWorkspace || !originalChild.alive() {
 		t.Fatalf("replacement changed or cancelled the original draining work: %+v", current)
 	}
-	if status := prepCLI(t, copyBinary, home, "pack", "prepare", "status"); !strings.Contains(status, "Tree preparation worker: running") {
+	if status := prepCLI(t, copyBinary, home, "pack", "prepare", "status"); !strings.Contains(status, "Preparation worker: running") {
 		t.Fatalf("draining incarnation lost its authenticated lease:\n%s", status)
 	}
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
@@ -237,7 +237,7 @@ func TestPreparationSchedulerRealWorkerLifecycle(t *testing.T) {
 	if state := readPreparationLifecycleState(t, statePath); state.Worker.Identity != originalIdentity {
 		t.Fatal("replacement acquired authority before the original drain completed")
 	}
-	if status := prepCLI(t, copyBinary, home, "pack", "prepare", "status"); !strings.Contains(status, "Tree preparation worker: not running;") {
+	if status := prepCLI(t, copyBinary, home, "pack", "prepare", "status"); !strings.Contains(status, "Preparation worker: not running;") {
 		t.Fatalf("replacement did not release its lease:\n%s", status)
 	}
 	if got := prepRecord(readPreparationLifecycleState(t, statePath), "synthetic/example").Phase; got != "admitted" {

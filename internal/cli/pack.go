@@ -273,7 +273,7 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               its recipe digest, the digest a launch's disclosure shows in the
                               line's place
   yolo pack prepare start|stop|status
-                              manage or inspect the detached built-tree preparation worker
+                              manage or inspect the detached launch-preparation worker
   yolo pack series check [dir] [--onto <ref>] [--online]
                               say whether each patch series in a local pack directory (default:
                               the current one) still applies. Patch branches use the current

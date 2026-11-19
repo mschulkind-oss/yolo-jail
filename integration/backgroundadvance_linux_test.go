@@ -649,7 +649,7 @@ func (f *xbFixture) finish(t *testing.T, bg, child xbProcess, staging string) {
 	if !bg.alive() {
 		t.Fatal("persistent preparation worker exited after one admission")
 	}
-	if status := prepCLI(t, yoloBin, os.Getenv("HOME"), "pack", "prepare", "status"); !strings.Contains(status, "Tree preparation worker: running") {
+	if status := prepCLI(t, yoloBin, os.Getenv("HOME"), "pack", "prepare", "status"); !strings.Contains(status, "Preparation worker: running") {
 		t.Fatalf("admitting scheduler lost its authenticated lease:\n%s", status)
 	}
 	xbContainerGone(t, staging)
