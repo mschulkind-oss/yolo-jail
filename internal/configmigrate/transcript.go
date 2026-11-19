@@ -14,7 +14,13 @@ func (p *MigrationPlan) Transcript() string {
 	old, rewritten := p.Graph.Old(), p.Graph.Rewritten()
 	if len(old) == 0 && len(rewritten) == 0 {
 		if p.Equal {
-			b.WriteString("No config file here is in the old format; nothing to migrate.\n")
+			if len(p.NotConverted) == 0 {
+				b.WriteString("No config file here is in the old format; nothing to migrate.\n")
+				return b.String()
+			}
+			b.WriteString("Kept in the old format (nothing to convert):")
+			writeNotConverted(&b, p.NotConverted)
+			b.WriteString("\n")
 			return b.String()
 		}
 		// A TOML file holding a key named setups replace that this migration cannot convert
@@ -89,6 +95,11 @@ func (p *MigrationPlan) Transcript() string {
 		b.WriteString((&InequalityError{Plan: p}).Error())
 		b.WriteString("\n")
 		return b.String()
+	}
+	if len(p.NotConverted) > 0 {
+		b.WriteString("Kept in the old format (not converted):")
+		writeNotConverted(&b, p.NotConverted)
+		b.WriteString("\n\n")
 	}
 	fmt.Fprintf(&b, "Effective config before and after: identical (checked as canonical JSON, %d bytes).\n", p.CanonicalBytes)
 	if p.Refused == nil {
