@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -116,6 +117,29 @@ func Main(args []string) int {
 		bound.CallCLIPath = h.program.path
 	}
 	h.scopePath, h.bound, h.start = h.input.ScopeFile, bound, start
+	if h.input.Version == callbrokerinput.SnapshotLaunchVersion {
+		if _, err := h.currentLegacySnapshot(bound); err != nil {
+			fmt.Fprintln(os.Stderr, "call-broker: initial snapshot validation failed:", err)
+			return 1
+		}
+		proof := brokerscope.SnapshotConsumer{
+			Version: brokerscope.SnapshotConsumerVersion,
+			Binding: brokerscope.PolicyBinding{
+				Source:          h.input.Source,
+				Workspace:       bound.Workspace,
+				LaunchID:        bound.LaunchID,
+				DeclarationHash: h.input.DeclarationHash,
+				InputDigest:     brokerscope.InputDigest(h.original),
+			},
+			Start:                 start,
+			BrokerPID:             bound.BrokerPID,
+			SupportedReaderPolicy: brokerscope.PolicySnapshotVersion,
+		}
+		if err := brokerscope.PublishSnapshotConsumer(bound, proof); err != nil {
+			fmt.Fprintln(os.Stderr, "call-broker: cannot publish snapshot consumer proof; retry the launch:", err)
+			return 1
+		}
+	}
 	if httpHandler != nil {
 		store.Revalidate = httpHandler.revalidateHTTP
 	} else {

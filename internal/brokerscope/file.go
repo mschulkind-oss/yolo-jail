@@ -304,6 +304,9 @@ func removeScopeAndDelivered(path string, f File) error {
 	if err := os.Remove(DeliveredBaselinePath(f)); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := os.Remove(SnapshotConsumerPath(f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }
 
