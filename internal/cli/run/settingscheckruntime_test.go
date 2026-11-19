@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -832,10 +833,46 @@ func TestRunAppleContainerExcludesUnsupportedSettingsValidator(t *testing.T) {
 		}
 		return ExecResult{Ran: true, RC: 0}
 	}
+	const refusal = "settings-validator fixture runtime refused"
+	childRoot := t.TempDir()
+	invocation := filepath.Join(childRoot, "runtime-invoked")
+	child := filepath.Join(childRoot, "container-fixture")
+	script := "#!/bin/sh\nprintf '%s\\n' keeper-runtime-invoked " + shquote.Quote(refusal) + " > " + shquote.Quote(invocation) +
+		"\nprintf '%s\\n' " + shquote.Quote(refusal) + " >&2\nexit 83\n"
+	if err := os.WriteFile(child, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	previousSpawner := defaultKeeperSpawner
+	t.Cleanup(func() { defaultKeeperSpawner = previousSpawner })
+	defaultKeeperSpawner = func(launch *Options, path string, progress, lifeline, lock *os.File, reserved []*os.File) (func() int, error) {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		var plan keeperPlan
+		if err := json.Unmarshal(body, &plan); err != nil {
+			return nil, err
+		}
+		if plan.Runtime != "container" || len(plan.RunCmd) == 0 || plan.RunCmd[0] != "container" {
+			return nil, fmt.Errorf("fixture expected an Apple Container keeper plan")
+		}
+		plan.RunCmd[0] = child
+		body, err = json.Marshal(plan)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(path, body, 0600); err != nil {
+			return nil, err
+		}
+		return inProcessKeeper(launch, path, progress, lifeline, lock, reserved)
+	}
 	rc := Run(*o)
 	output := stdout.String() + stderr.String()
-	if rc != 1 || !strings.Contains(output, "Configured runtime 'container' not found on PATH") {
-		t.Fatalf("Run() = %d, want the stub runtime's expected exec refusal after admission; output:\n%s", rc, output)
+	if rc != 83 {
+		t.Fatalf("Run() = %d, want the owned runtime child's exact refusal after admission; output:\n%s", rc, output)
+	}
+	if body, err := os.ReadFile(invocation); err != nil || string(body) != "keeper-runtime-invoked\n"+refusal+"\n" {
+		t.Fatalf("keeper did not execute its owned runtime child: marker=%q err=%v", body, err)
 	}
 	if !strings.Contains(output, "settings-mode is inert on this backend") || !strings.Contains(output, "keeper: started") {
 		t.Fatalf("Run did not reach Apple Container's selected-backend launch boundary:\n%s", output)
