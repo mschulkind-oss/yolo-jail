@@ -125,6 +125,12 @@ func runSteps(b *bootRun, steps []bootStep) {
 		if s.excludedFrom(b.target) != "" || (b.target == bootContainer && b.sessionPass && s.notSessionPass != "") {
 			continue
 		}
+		// THE TRACE'S START LINE IS WRITTEN BEFORE THE STEP RUNS, and its end after, each as it
+		// happens (docs/design/startup-tracing.md §5.6): the perf marks below are held in memory
+		// and dumped once at the end, so a step that hangs leaves no mark, but it does leave
+		// this start line. Every step that runs is traced, a noMark one included.
+		span := "boot." + s.name
+		b.e.trace.Start(span)
 		switch {
 		case s.gen != nil:
 			label := s.label
@@ -136,6 +142,7 @@ func runSteps(b *bootRun, steps []bootStep) {
 		case s.run != nil:
 			s.run(b)
 		}
+		b.e.trace.End(span)
 		if b.perf != nil && !s.noMark {
 			mark := s.perf
 			if mark == "" {

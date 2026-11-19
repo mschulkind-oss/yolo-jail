@@ -378,6 +378,10 @@ func BootstrapScript(e *Env) string {
 // bootstrapTemplate is the body of the bootstrap script.
 const bootstrapTemplate = `#!/bin/bash
 ` + programPhasePerfShellFn + `
+# The bootstrap is a span of the launch's trace (provision.bootstrap), ended on every way out,
+# the refusal's exit included. A no-op without a trace context (_yolo_trace).
+_yolo_trace start provision.bootstrap
+trap '_yolo_trace end provision.bootstrap' EXIT
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 export GOPATH="${GOPATH:-$HOME/go}"
