@@ -45,6 +45,7 @@ func TestDirectScopedRefreshFailureKeepsAdvancedPinWithoutPublication(t *testing
 	}
 	user := testconfig.User(t, cfg("main", "skill-a"))
 	t.Setenv("HOME", user.Root)
+	t.Cleanup(func() { _ = packsrc.RemoveSealedSkillTree(user.Root, paths.PacksDir()) })
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_PACK_ROOT", "")
 	var report bytes.Buffer

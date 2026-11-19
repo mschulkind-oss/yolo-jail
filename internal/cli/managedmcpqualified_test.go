@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -69,6 +70,9 @@ func qualifiedMCPConsumer(t *testing.T, parent string) string {
 }
 
 func TestManagedMCPQualifiedSourceThroughTOMLShareAdoptionAndHostHeader(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the host header route runs on Linux")
+	}
 	home := hostComputedHome(t, `{"packs":[],"host_management":"own"}`)
 	t.Setenv(claudeview.SecureStorageEnv, "")
 	t.Setenv("YOLO_NO_PROGRAM_READINESS", "1")

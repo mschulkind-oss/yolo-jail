@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,9 @@ import (
 )
 
 func TestApplyHostManagedMCPRouteUsesDeliveredBundleAndRecordFreshness(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the host header route runs on Linux")
+	}
 	for _, tc := range []struct {
 		name, record                                    string
 		bundle, view, ownClient, wantHeader, firstApply bool
