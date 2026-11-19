@@ -337,27 +337,42 @@ func TestHTTPClassifierAnswerRemainsBoundedAndDeadlineIsUnchanged(t *testing.T) 
 }
 
 // The classifier deadline bounds each HTTP classifier process, not the lookups
-// core runs between rounds: a lookup that outlasts the production per-process
-// deadline must not refuse a classification whose classifier answers promptly.
+// core runs between rounds: a host lookup whose duration exceeds one
+// per-process deadline must not cancel the classification or shorten the next
+// round's invocation budget.
 func TestHTTPClassifierDeadlineBoundsEachInvocationNotLookups(t *testing.T) {
 	body := []byte(`{"query":"query { item { id } }"}`)
 	answer := fixtureHTTPAnswer(true, digestHTTPBody(true, body), "", "original")
 	script := "input=$(cat)\nif printf '%s' \"$input\" | grep -q '\"arguments\"'; then cat <<'CLASS'\n" + answer +
 		"\nCLASS\nelse printf '%s' '{\"version\":\"yolo.call-broker-classifier/1\",\"lookups\":[{\"name\":\"task-project\",\"arguments\":[\"a1\"]}]}'; fi"
 	classifier := fixtureHTTPClassifier(t, script)
+	classifier.deadline = fixtureClassifierDeadline
 	classifier.Lookups = []loopholedecl.CallBrokerLookup{{Name: "task-project", HTTPMethod: "GET", HTTPPath: "/items/{id}", HTTPResource: "task"}}
+	var invocationContexts []context.Context
+	var invocationDeadlines []time.Duration
+	classifier.withInvocationTimeout = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+		invocationDeadlines = append(invocationDeadlines, d)
+		cctx, cancel := context.WithTimeout(ctx, d)
+		invocationContexts = append(invocationContexts, cctx)
+		return cctx, cancel
+	}
 	read := func(ctx context.Context, _ loopholedecl.CallBrokerLookup, _ []string) (json.RawMessage, error) {
-		// Outlast the production per-process deadline; a reader whose context
-		// a whole-classification deadline cuts short returns that error.
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(classifierDeadline + 200*time.Millisecond):
-			return json.RawMessage(`{"id":"a1"}`), nil
+		if len(invocationContexts) != 1 || invocationContexts[0].Err() == nil {
+			return nil, fmt.Errorf("round 1 invocation context was not closed before lookup: len=%d err=%v", len(invocationContexts), invocationContexts[0].Err())
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) <= classifierDeadline {
+			return nil, fmt.Errorf("lookup context was capped at per-invocation deadline: deadline=%v ok=%v", deadline, ok)
+		}
+		return json.RawMessage(`{"id":"a1"}`), nil
 	}
 	if _, err := classifier.ClassifyHTTPWithLookups(context.Background(), fixtureHTTPCall(body, true), []string{"Content-Type"}, read); err != nil {
 		t.Fatalf("slow lookup consumed the HTTP classifier deadline: %v", err)
+	}
+	if len(invocationDeadlines) != 2 || invocationDeadlines[0] != fixtureClassifierDeadline || invocationDeadlines[1] != fixtureClassifierDeadline {
+		t.Fatalf("unexpected HTTP invocation deadlines across rounds: %v", invocationDeadlines)
 	}
 }
 
