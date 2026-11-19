@@ -192,7 +192,10 @@ manifest=json.load(open(os.path.expanduser('~/.claude/skills/slack/.claude-plugi
 assert manifest['name']=='slack'
 s=json.loads(subprocess.check_output(['yolo','mcp-auth','status','configured-alias','--json']))
 assert 'plugin:slack:slack' in json.dumps(s)
-assert 'full callback URL' in json.dumps(s)
+row=[o for o in s['once'] if o['name']=='configured-alias'][0]
+callback=row.get('callback','')
+assert ('full callback URL' in json.dumps(row))==(callback not in ('owner','not needed')),(callback,row.get('next_step'))
+print('MANAGED_CALLBACK='+callback)
 print('MANAGED_RENDER=yes')
 PY`
 
@@ -220,7 +223,13 @@ print('ORIGINAL_BYTES=yes')
 PY`
 	r := managedMCPRun(t, workspace, managedMCPRenderProbe+"\n"+compare)
 	if kvLine(r.stdout, "MANAGED_RENDER") != "yes" || kvLine(r.stdout, "ORIGINAL_BYTES") != "yes" {
-		t.Fatal("real boot consumer did not verify rendered routes and originals")
+		t.Fatalf("real boot consumer did not verify rendered routes and originals:\n%s", r.combined())
+	}
+	// The paste hint follows the callback's disposition (mcpsignin.Diagnose omits it for
+	// a published "owner" callback). A nested jail publishes nothing, so there it must be
+	// the unpublished branch; a bridged rootless host publishes the port and gets "owner".
+	if got := kvLine(r.stdout, "MANAGED_CALLBACK"); inContainer() && got != "not published on this backend" {
+		t.Fatalf("nested launch callback disposition = %q, want %q:\n%s", got, "not published on this backend", r.combined())
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(`{"mcp_servers":{"configured-alias":{"url":"https://workspace.fixture.invalid/mcp"}}}`), 0600); err != nil {
 		t.Fatal(err)
@@ -235,7 +244,7 @@ assert not any('yolo mcp-auth header' in str(v) for v in p.get('headers',{}).val
 print('WORKSPACE_NO_BORROW=yes')
 PY`
 	if r := managedMCPRun(t, workspace, noBorrow); kvLine(r.stdout, "WORKSPACE_NO_BORROW") != "yes" {
-		t.Fatal("workspace override borrowed user sign-in route")
+		t.Fatalf("workspace override borrowed user sign-in route:\n%s", r.combined())
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(`{}`), 0600); err != nil {
 		t.Fatal(err)
@@ -271,7 +280,7 @@ assert 'headersHelper' not in c
 print('WITHDRAWAL=yes')
 PY`
 	if r := managedMCPRun(t, workspace, withdrawn); kvLine(r.stdout, "WITHDRAWAL") != "yes" {
-		t.Fatal("withdrawn bundle remained a managed sign-in route")
+		t.Fatalf("withdrawn bundle remained a managed sign-in route:\n%s", r.combined())
 	}
 }
 
