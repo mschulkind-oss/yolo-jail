@@ -105,7 +105,11 @@ func SyncOwnedLinks(src, dst string, links map[string]string) (bool, error) {
 			continue
 		}
 		have, exists := current[e.rel]
-		if exists && e.kind == have.kind && e.mode == have.mode && e.target == have.target && bytes.Equal(e.data, have.data) {
+		// A symlink's own permission bits carry no meaning and differ by OS
+		// (Linux reports 0777, darwin applies the umask, e.g. 0755), so a
+		// link is unchanged when its target text is.
+		sameMode := e.mode == have.mode || e.kind == nofollow.Symlink
+		if exists && e.kind == have.kind && sameMode && e.target == have.target && bytes.Equal(e.data, have.data) {
 			continue
 		}
 		if e.kind == nofollow.Dir && exists && have.kind == nofollow.Dir {

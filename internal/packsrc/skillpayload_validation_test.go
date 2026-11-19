@@ -12,10 +12,14 @@ func TestSkillPayloadSelectedRefusalsAndSupportingOmissions(t *testing.T) {
 	for _, tc := range []struct {
 		name, selected, license, want string
 		setup                         func(*testing.T, string)
+		// index stages entries after `git add --all`, through Git plumbing:
+		// case-colliding names cannot coexist in a case-insensitive working
+		// tree (macOS's default APFS), only in the Git tree the reader inspects.
+		index func(*testing.T, string)
 	}{
-		{name: "ancestor-case", selected: "skills/Foo/chosen", want: "case-collision", setup: func(t *testing.T, r string) {
-			writeSkillFixture(t, r, "skills/Foo/chosen/SKILL.md", "chosen", 0644)
-			writeSkillFixture(t, r, "skills/foo/other/SKILL.md", "other", 0644)
+		{name: "ancestor-case", selected: "skills/Foo/chosen", want: "case-collision", index: func(t *testing.T, r string) {
+			indexSkillFixture(t, r, "100644", "skills/Foo/chosen/SKILL.md", "chosen")
+			indexSkillFixture(t, r, "100644", "skills/foo/other/SKILL.md", "other")
 		}},
 		{name: "selected-escape", want: "escapes selected directory", setup: func(t *testing.T, r string) {
 			if err := os.Symlink("../../VERSION", filepath.Join(r, "skills/chosen/out")); err != nil {
@@ -32,13 +36,13 @@ func TestSkillPayloadSelectedRefusalsAndSupportingOmissions(t *testing.T) {
 				t.Fatal(err)
 			}
 		}},
-		{name: "selected-case", want: "case-collision", setup: func(t *testing.T, r string) {
-			writeSkillFixture(t, r, "skills/chosen/A", "a", 0644)
-			writeSkillFixture(t, r, "skills/chosen/a", "b", 0644)
+		{name: "selected-case", want: "case-collision", index: func(t *testing.T, r string) {
+			indexSkillFixture(t, r, "100644", "skills/chosen/A", "a")
+			indexSkillFixture(t, r, "100644", "skills/chosen/a", "b")
 		}},
-		{name: "selected-unicode-case", want: "case-collision", setup: func(t *testing.T, r string) {
-			writeSkillFixture(t, r, "skills/chosen/Σ", "a", 0644)
-			writeSkillFixture(t, r, "skills/chosen/ς", "b", 0644)
+		{name: "selected-unicode-case", want: "case-collision", index: func(t *testing.T, r string) {
+			indexSkillFixture(t, r, "100644", "skills/chosen/Σ", "a")
+			indexSkillFixture(t, r, "100644", "skills/chosen/ς", "b")
 		}},
 		{name: "missing-marker", want: "SKILL.md", setup: func(t *testing.T, r string) {
 			if err := os.Remove(filepath.Join(r, "skills/chosen/SKILL.md")); err != nil {
@@ -54,9 +58,10 @@ func TestSkillPayloadSelectedRefusalsAndSupportingOmissions(t *testing.T) {
 			writeSkillFixture(t, r, "legal/terms", "license", 0644)
 			writeSkillFixture(t, r, "skills/chosen/TERMS", "own", 0644)
 		}},
-		{name: "safe-support", setup: func(t *testing.T, r string) {
-			writeSkillFixture(t, r, "docs/A", "a", 0644)
-			writeSkillFixture(t, r, "docs/a", "a", 0644)
+		{name: "safe-support", index: func(t *testing.T, r string) {
+			indexSkillFixture(t, r, "100644", "docs/A", "a")
+			indexSkillFixture(t, r, "100644", "docs/a", "a")
+		}, setup: func(t *testing.T, r string) {
 			if err := os.Symlink("cycle", filepath.Join(r, "cycle")); err != nil {
 				t.Fatal(err)
 			}
@@ -79,6 +84,9 @@ func TestSkillPayloadSelectedRefusalsAndSupportingOmissions(t *testing.T) {
 				tc.setup(t, repo)
 			}
 			gitIn(t, repo, "add", "--all")
+			if tc.index != nil {
+				tc.index(t, repo)
+			}
 			gitIn(t, repo, "commit", "--allow-empty", "-m", "case")
 			chosen := tc.selected
 			if chosen == "" {

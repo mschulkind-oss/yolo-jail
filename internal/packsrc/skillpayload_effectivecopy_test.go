@@ -7,14 +7,13 @@ import (
 )
 
 func TestSkillPayloadOmittedIntermediateLinkSurvivesPublicationAndLaunchCopy(t *testing.T) {
-	repo := gitRepo(t, map[string]string{"skills/x/SKILL.md": "selected", "real": "support", "B": "case collision"})
+	repo := gitRepo(t, map[string]string{"skills/x/SKILL.md": "selected", "real": "support"})
 	gitIn(t, repo, "checkout", "-b", "skills-main")
-	for name, target := range map[string]string{"a": "b", "b": "real"} {
-		if err := os.Symlink(target, filepath.Join(repo, name)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	gitIn(t, repo, "add", "--all")
+	// B and b collide on a case-insensitive filesystem, so they are built in the
+	// Git tree directly rather than in the working tree.
+	indexSkillFixture(t, repo, "100644", "B", "case collision")
+	indexSkillFixture(t, repo, "120000", "a", "b")
+	indexSkillFixture(t, repo, "120000", "b", "real")
 	gitIn(t, repo, "commit", "-m", "supporting links")
 	store := &Store{Dir: t.TempDir(), Env: gitTestEnv()}
 	t.Cleanup(func() { _ = RemoveSealedSkillTree(filepath.Dir(store.Dir), store.Dir) })

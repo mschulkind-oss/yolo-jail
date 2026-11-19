@@ -124,6 +124,24 @@ func writeSkillFixture(t *testing.T, root, p, text string, mode os.FileMode) {
 		t.Fatal(err)
 	}
 }
+
+// indexSkillFixture stages one entry straight into repo's index through Git
+// plumbing, never the working tree. Case-colliding names (A/a, Σ/ς), or a link
+// beside a name it collides with, cannot coexist on a case-insensitive
+// filesystem such as macOS's default APFS, but they can in a Git tree, which is
+// what the payload reader inspects. mode is a Git mode: "100644", "100755" or
+// "120000" (content is then the link target text). Stage these after any
+// `git add --all`, which would otherwise record them as deleted.
+func indexSkillFixture(t *testing.T, repo, mode, p, content string) {
+	t.Helper()
+	blob := filepath.Join(t.TempDir(), "blob")
+	if err := os.WriteFile(blob, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oid := gitIn(t, repo, "hash-object", "-w", "--no-filters", blob)
+	gitIn(t, repo, "-c", "core.ignorecase=false", "update-index", "--add", "--cacheinfo", mode+","+oid+","+p)
+}
+
 func unsealSkillFixture(t *testing.T, root string) {
 	t.Helper()
 	_ = filepath.Walk(root, func(p string, fi os.FileInfo, err error) error {
