@@ -93,7 +93,7 @@ func (s *CanonicalStore) withLock(persist, strictRead bool, fn func(*CanonicalFi
 	if !persist {
 		return nil
 	}
-	return writeCanonical(root, s.Filename, state)
+	return persistCanonical(root, s.Filename, state)
 }
 
 // LockRefresh takes the independent refresher lock for one canonical record. The identity is
@@ -204,6 +204,9 @@ func validateCanonical(file CanonicalFile) error {
 	}
 	return nil
 }
+
+// The persistence boundary is injectable for successful-rotation/failed-commit tests.
+var persistCanonical = writeCanonical
 
 func writeCanonical(root *os.Root, filename string, file CanonicalFile) error {
 	if err := validateCanonical(file); err != nil {

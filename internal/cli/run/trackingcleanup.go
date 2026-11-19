@@ -89,6 +89,7 @@ func (o *Options) forgetGone(cname, rt, skeleton, tree string) {
 	if !known || id != "" {
 		return
 	}
+	o.releaseGoneMCPCallbacks(cname, rt)
 	runtime.CleanupContainerTracking(cname)
 	o.removePreparedHTTPGenerations(cname)
 	// The skeleton, the pack tree and the tree's per-launch copies are MOVED aside and deleted

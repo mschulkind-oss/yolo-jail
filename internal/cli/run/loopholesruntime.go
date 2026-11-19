@@ -1507,6 +1507,19 @@ func (o *Options) startExternalService(
 	// The jail this daemon serves, for the line it logs at start (PH-D9): the container name, or the
 	// workspace's key at macos-user. Set AFTER the declared env, which a later entry wins over, so a manifest cannot rename it.
 	env = append(env, helperpin.EnvJail+"="+o.jailName())
+	// The backend socket lives outside this publication directory. Bind the
+	// trusted endpoint locator only on the host child, after manifest/inherited
+	// env, and retain it with this exact spawn's supervisor restarts.
+	privateEnv := env[:0]
+	for _, entry := range env {
+		if !strings.HasPrefix(entry, hostservice.PublicationPathEnv+"=") {
+			privateEnv = append(privateEnv, entry)
+		}
+	}
+	env = privateEnv
+	if fronted {
+		env = append(env, hostservice.PublicationPathEnv+"="+hostPath)
+	}
 	envSet = true
 	// newCmd is the daemon's process, before its start: the argv, the environment and the log,
 	// one spelling for the first spawn and every restart its supervisor makes

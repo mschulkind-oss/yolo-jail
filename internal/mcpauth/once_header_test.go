@@ -8,8 +8,8 @@ import (
 )
 
 // The header route (docs/design/mcp-auth-sharing.md §9.6, phase D of the plan): an agent that
-// sends the token as a header asks for the current access token. A token with more than
-// HeaderMargin left is handed over as it is, with a `header` audit event and no refresh.
+// sends the token as a header asks for the current unexpired access token, with
+// a `header` audit event and no provider or source-store work.
 func TestOnceHeaderHandsOverTheCurrentToken(t *testing.T) {
 	f := newOnceFixture(t)
 	f.pass(f.broker) // adopts: rt-1 redeemed, at-2 issued for 60 minutes
@@ -25,33 +25,34 @@ func TestOnceHeaderHandsOverTheCurrentToken(t *testing.T) {
 	}
 }
 
-// Under five minutes left, the token is refreshed first and the fresh one handed over and
-// written back to the source it came from.
-func TestOnceHeaderRefreshesATokenAboutToExpire(t *testing.T) {
+// Even a token close to expiry is issued as-is; refresh belongs to the poll.
+func TestOnceHeaderDoesNotRefreshATokenAboutToExpire(t *testing.T) {
 	f := newOnceFixture(t)
 	f.pass(f.broker)
 	f.clock.now = f.clock.now.Add(56 * time.Minute)
 	token, err := f.broker.Header(context.Background(), f.server, []OnceSource{f.src})
-	if err != nil || token != "at-3" {
-		t.Fatalf("Header = %q, %v; want the refreshed at-3", token, err)
+	if err != nil || token != "at-2" {
+		t.Fatalf("Header = %q, %v; want the still-unexpired at-2", token, err)
 	}
-	if f.as.callCount() != 2 || f.as.calls[1] != "rt-2" {
-		t.Fatalf("calls = %v, want the broker's own refresh token redeemed", f.as.calls)
+	if f.as.callCount() != 1 {
+		t.Fatal("issuance redeemed a refresh token")
 	}
-	if e := f.entry(); e["accessToken"] != "at-3" {
-		t.Fatalf("the refreshed token was not written back: %v", e)
+	if e := f.entry(); e["accessToken"] != "at-2" {
+		t.Fatal("issuance wrote to the source")
 	}
-	if f.actions() != "adopt,refresh,header" {
+	if f.actions() != "adopt,header" {
 		t.Fatalf("audit = %s", f.actions())
 	}
 }
 
-// A jail whose broker has no source (pi alone takes the header route) still refreshes: the
-// record is the canonical store's, and there is nothing to write back.
-func TestOnceHeaderRefreshesWithNoSource(t *testing.T) {
+// The poll can maintain a canonical record with no local source, without writeback.
+func TestOncePollMaintainsWithNoSource(t *testing.T) {
 	f := newOnceFixture(t)
 	f.pass(f.broker)
 	f.clock.now = f.clock.now.Add(56 * time.Minute)
+	if err := f.broker.Maintain(context.Background(), f.server, nil, false); err != nil {
+		t.Fatal(err)
+	}
 	token, err := f.broker.Header(context.Background(), f.server, nil)
 	if err != nil || token != "at-3" {
 		t.Fatalf("Header = %q, %v; want at-3", token, err)

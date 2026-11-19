@@ -41,7 +41,9 @@ package pluginpack
 import (
 	"bytes"
 	"encoding/json"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -662,6 +664,32 @@ func (p *Plugin) ComponentPaths() []string {
 // the next, and Claude Code never reads a root one, so treating the tree as ordinary content
 // would copy a loadable plugin whole into a flat skills dir with nothing refused.
 func Load(dir string) (*Plugin, bool) {
+	return loadPlugin(dir, os.Stat, os.ReadFile, filepath.Join)
+}
+
+// LoadFS classifies an immutable source without materializing or delivering it.
+func LoadFS(source fs.FS, dir string) (*Plugin, bool) {
+	return loadPlugin(dir, func(p string) (fs.FileInfo, error) { return fs.Stat(source, p) },
+		func(p string) ([]byte, error) { return fs.ReadFile(source, p) }, path.Join)
+}
+
+// IsPluginContent classifies a directory through the same manifest locations and
+// decoder as Load; object-tree validators supply immutable bytes without paths.
+func IsPluginContent(readFile func(string) ([]byte, error)) bool {
+	for _, sub := range manifestDirs {
+		data, err := readFile(path.Join(sub, manifestName))
+		if err != nil {
+			continue
+		}
+		var manifest Manifest
+		if json.Unmarshal(trimBOM(data), &manifest) == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func loadPlugin(dir string, stat func(string) (fs.FileInfo, error), readFile func(string) ([]byte, error), join func(...string) string) (*Plugin, bool) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		abs = dir
@@ -669,11 +697,11 @@ func Load(dir string) (*Plugin, bool) {
 	var found []foundManifest
 	primary := ""
 	for _, sub := range manifestDirs {
-		path := filepath.Join(dir, sub, manifestName)
-		if fi, err := os.Stat(path); err != nil || fi.IsDir() {
+		path := join(dir, sub, manifestName)
+		if fi, err := stat(path); err != nil || fi.IsDir() {
 			continue
 		}
-		data, err := os.ReadFile(path)
+		data, err := readFile(path)
 		if err != nil {
 			continue
 		}

@@ -143,14 +143,22 @@ func TestPreparationNoDueRegistrationCanBecomeDueOnLaterTick(t *testing.T) {
 	pf.agentUpdates(t, `{"treepool":"next-launch"}`)
 	stubPreparationWorkerStart(t)
 	builds := pf.countBuilds()
+	buildFinished := make(chan struct{}, 2)
+	child := pf.child
+	pf.child = func(ctx context.Context, build forkBuild) int {
+		result := child(ctx, build)
+		buildFinished <- struct{}{}
+		return result
+	}
 	_, _ = pf.launch(t, "podman", &run.ActInterrupt{})
 	if builds.Load() != 0 {
 		t.Fatalf("launch did work before due: %d builds", builds.Load())
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	ticks := make(chan time.Time)
+	drain := make(chan struct{})
 	done := make(chan error, 1)
-	go func() { done <- runPreparationScheduler(ctx, ticks, io.Discard) }()
+	go func() { done <- runPreparationScheduler(ctx, ticks, io.Discard, nil, drain) }()
 	// Three synchronous sends ensure the first no-due evaluation completed, without a sleep.
 	ticks <- pf.now
 	ticks <- pf.now
@@ -161,30 +169,38 @@ func TestPreparationNoDueRegistrationCanBecomeDueOnLaterTick(t *testing.T) {
 	pf.commit(t, "", map[int]string{5: "five"})
 	pf.setNow(pf.now.Add(2 * time.Hour))
 	ticks <- pf.now
-	complete := func() bool {
-		if builds.Load() < 2 {
-			return false
-		}
-		for _, key := range []string{poolKeyA, poolKeyB} {
-			if got, err := readBackgroundOutcome(backgroundOutcomePath(key)); err != nil || got.To == "" {
-				return false
-			}
-		}
-		return true
-	}
-	deadline := time.After(5 * time.Second)
-	for !complete() {
+	deadline := time.NewTimer(testsupport.ReadinessBudget(t))
+	defer deadline.Stop()
+	for range 2 {
 		select {
-		case <-deadline:
+		case <-buildFinished:
+		case <-deadline.C:
 			cancel()
 			<-done
-			t.Fatalf("later due tick did not admit both trees: builds=%d", builds.Load())
-		case <-time.After(time.Millisecond):
+			t.Fatalf("later due tick did not finish both real builds: builds=%d", builds.Load())
 		}
 	}
-	cancel()
-	if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
-		t.Fatal(err)
+	// Both real fixture builds have returned. Drain the production loop so its persisted
+	// admissions, not a counter or an intermediate callback, establish completion.
+	close(drain)
+	select {
+	case err := <-done:
+		cancel()
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-deadline.C:
+		cancel()
+		<-done
+		t.Fatal("scheduler did not drain both completed builds")
+	}
+	if builds.Load() < 2 {
+		t.Fatalf("later due tick built %d trees, want both", builds.Load())
+	}
+	for _, key := range []string{poolKeyA, poolKeyB} {
+		if got, err := readBackgroundOutcome(backgroundOutcomePath(key)); err != nil || got.To == "" {
+			t.Fatalf("later due tick did not admit %s: %+v %v", key, got, err)
+		}
 	}
 }
 

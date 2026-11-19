@@ -80,3 +80,76 @@ func TestSelectedNPMSharedDemandRegisteredDuringTeardownIsNotAnsweredWithTheCanc
 		t.Fatalf("the surviving demand did not admit: %+v %v", record, err)
 	}
 }
+
+func TestSelectedNPMSharedDemandWithdrawnBetweenMonitorReadsDoesNotAnswerLateDemandWithCancel(t *testing.T) {
+	f := newSelectedNPMFixture(t)
+	req := selectedNPMUser(t, f, false)
+	workers := selectedNPMSharedWorker(t)
+	started, snapshot, cancelled := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	releaseSnapshot, releaseTeardown := make(chan struct{}), make(chan struct{})
+	oldHook := sharedDemandAfterMonitorReadHook
+	t.Cleanup(func() { sharedDemandAfterMonitorReadHook = oldHook })
+	var paused atomic.Bool
+	sharedDemandAfterMonitorReadHook = func(count int) {
+		if count == 1 && paused.CompareAndSwap(false, true) {
+			close(snapshot)
+			<-releaseSnapshot
+		}
+	}
+	inner := programCaptureChild
+	var calls atomic.Int32
+	programCaptureChild = func(ctx context.Context, workspace string, argv []string, w io.Writer) error {
+		if calls.Add(1) == 1 {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			<-releaseTeardown
+			return ctx.Err()
+		}
+		return inner(ctx, workspace, argv, w)
+	}
+	wait := func(ctx context.Context) error {
+		_, err := waitOrdinaryPreparation(ctx, f.in, req.Fingerprint, req.Runtime, req.Platform, false, io.Discard, foregroundOrdinaryGuard(ctx, req, f.in))
+		return err
+	}
+	first, cancelFirst := context.WithCancel(context.Background())
+	defer cancelFirst()
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- wait(first) }()
+	guard := func(event <-chan struct{}, label string) {
+		t.Helper()
+		select {
+		case <-event:
+		case <-time.After(testHangGuard(t)):
+			t.Fatal("missing controlled event", label)
+		}
+	}
+	guard(started, "first child")
+	guard(snapshot, "first nonempty monitor snapshot")
+	cancelFirst()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatal("first requester", err)
+	}
+	dir := sharedDemandDir(ordinaryProgramKey(f.in), req.Runtime, req.Platform)
+	selectedNPMWaitLeases(t, dir, 0)
+	// Only the monitor's second, authorization read can now cancel the child:
+	// its first snapshot is held nonempty, and the parent worker is not cancelled.
+	close(releaseSnapshot)
+	guard(cancelled, "authorization reread cancellation")
+	secondDone := make(chan error, 1)
+	go func() { secondDone <- wait(context.Background()) }()
+	selectedNPMWaitLeases(t, dir, 1)
+	close(releaseTeardown)
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatalf("surviving demand received the cancelled prior batch: %v", err)
+		}
+	case <-time.After(testHangGuard(t)):
+		t.Fatal("late demand was not answered")
+	}
+	workers.Wait()
+	if calls.Load() < 2 {
+		t.Fatal("late demand did not get a new producer")
+	}
+}

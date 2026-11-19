@@ -22,10 +22,11 @@ type SkillPayloadTreeRecord struct {
 	Omissions   []packsrc.SkillOmission `json:"omissions,omitempty"`
 }
 type SkillTreeRow struct {
-	Row     int    `json:"row"`
-	Source  string `json:"source"`
-	Alias   string `json:"as,omitempty"`
-	Payload string `json:"payload"`
+	Row      int    `json:"row"`
+	Source   string `json:"source"`
+	Alias    string `json:"as,omitempty"`
+	Payload  string `json:"payload"`
+	Location string `json:"location,omitempty"`
 }
 
 // StageSkillPayloads copies each payload once and fixes every registration's
@@ -39,6 +40,16 @@ func StageSkillPayloads(packs []*Pack, treeRoot, readingRoot string) error {
 			}
 			if row.Outcome.State != packsrc.SkillReady || row.Plan == nil {
 				return fmt.Errorf("%s", row.Outcome.Diagnostic(fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row)))
+			}
+			if row.LocalCarrier {
+				location, err := filepath.Rel(treeRoot, row.Outcome.Payload)
+				if err != nil || !filepath.IsLocal(location) {
+					return fmt.Errorf("copied carrier is outside its launch tree; restart")
+				}
+				row.PayloadLocation = filepath.ToSlash(location)
+				row.PayloadRoot = filepath.Join(readingRoot, location)
+				p.sourcedSkills[row.Row] = row
+				continue
 			}
 			id := packsrc.SkillPayloadIdentity(row.Outcome.Repo, row.Outcome.Commit)
 			location := filepath.Join(SkillPayloadTreeDir, id)

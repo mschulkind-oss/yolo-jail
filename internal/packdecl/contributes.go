@@ -1336,6 +1336,9 @@ type Contribution struct {
 	MCPAuthLoginHint            string         `json:"login_hint,omitempty"`
 	MCPAuthUnsupportedReason    string         `json:"unsupported_reason,omitempty"`
 
+	// MCPSignInBundle is populated only by the grouped TOML reader.
+	MCPSignInBundle *MCPSignInBundle `json:"-"`
+
 	// Raw carries kind-specific structured payloads that do not fit a scalar field
 	// — a `config` contribution's surface definition (the agentcfg surface schema),
 	// decoded by internal/agentcfg/manifest, and an `mcp` contribution's server
@@ -5002,6 +5005,8 @@ func validateContribution(label string, c Contribution) []string {
 			}
 			problems = append(problems, hookFlagsProblems(label, c)...)
 		}
+	case KindMCPSignInBundle:
+		problems = append(problems, signInBundleProblems(label, c.MCPSignInBundle)...)
 	case KindMCPAuth:
 		if c.Bin != "" {
 			problems = append(problems, label+`: kind "mcp-auth" does not take "bin" — its store declaration is pack-wide, not bound to one program`)

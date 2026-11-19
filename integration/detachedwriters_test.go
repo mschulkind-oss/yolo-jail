@@ -218,22 +218,15 @@ func TestEveryLaunchSiteAwaitsDetachedWriters(t *testing.T) {
 			if !ok || fn.Body == nil {
 				continue
 			}
-			execsYolo, awaits, waitsScratch, waitsDaemons := false, false, false, false
+			execsYolo := launchesYoloUnderTest(fn)
+			awaits, waitsScratch, waitsDaemons := false, false, false
 			stopsWorkers, stopsNix := false, false
 			ast.Inspect(fn.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok {
 					return true
 				}
-				// The PROGRAM argument only: runSuite's `go build -o yoloBin` builds it.
-				prog := map[string]int{"exec.Command": 0, "exec.CommandContext": 1}
 				switch name := callName(call.Fun); name {
-				case "exec.Command", "exec.CommandContext":
-					if i := prog[name]; i < len(call.Args) {
-						if id, ok := call.Args[i].(*ast.Ident); ok && id.Name == "yoloBin" {
-							execsYolo = true
-						}
-					}
 				case "awaitDetachedWriters":
 					awaits = true
 				case "run.WaitForScratchRemovers":

@@ -2074,6 +2074,47 @@
     on a `{ pack = … }` or `{ git = … }` entry picks another word.  When two entries
     would deliver one name, yolo refuses and names both; choose a namespace or set
     `bare` to fix it.  `yolo pack ls` shows each entry's handle and namespace.
+    [bold]Direct user TOML scoped imports:[/bold] a table may also set `subdir` and `skills`.
+    `subdir` alone relocates the WHOLE pack root; all ordinary effects still apply.
+    Presence of a nonempty `skills` table makes the entry SKILLS-ONLY:
+      { pack = "local/corpus", skills = { only = ["review*"], exclude = ["review-old"] } }
+      { git = "https://example.invalid/team/repo", ref = "v1",
+        subdir = "collections", skills = { dir = "core-tools", only = ["skill-a", "skill-b"] } }
+    Without `skills.dir`, typed candidates come from governed ordinary skill directories
+    and manifest sourced aliases. Typed ordinary directories may be markerless; if a
+    marker exists it must be a regular valid SKILL.md. No marker is manufactured.
+    With `skills.dir`, raw candidates are the root itself if it has a direct SKILL.md,
+    otherwise its immediate marker-bearing children. Raw mode never reads the original
+    pack manifest or plugin wrapper. Both paths select registrations, not support files.
+    `skills.only` and `skills.exclude` match candidate NAMES, not legacy file globs:
+    include then exclude, case-sensitive glob matching with no slashes or **. An explicit
+    list must be nonempty; stale selectors, an entirely excluded inclusion, zero selected
+    rows, plugins and escaping roots refuse with origin/index and a repair. `subdir` and
+    `skills.dir` are clean relative paths inside the source; only skills.dir allows ".".
+    The entry's namespace/bare naming still applies. Distinct nonconflicting roots of one
+    handle can coexist with the same ref; duplicate tuples and conflicting roots refuse.
+    A scoped entry contributes no needs, programs, hooks, briefing, native plugins, MCP or
+    host capabilities. Supporting payload bytes stay inert and do not activate metadata.
+    Manifest sourced rows retain their audience, alias, marker and license requirements.
+    Direct rows can select a repository-root marker; manifest sourced rows cannot.
+    These are user-scope imports for all workspaces, not workspace `skill_imports`.
+    Existing JSONC only/exclude file filters and sourced-row withholding are unchanged;
+    no new legacy syntax or automatic filter equivalence is introduced.
+    Use `yolo pack add local/corpus --skills-dir core-tools --only skill-a --dry-run`
+    to inspect before writing, then omit --dry-run. `yolo pack remove local/corpus`
+    refuses ambiguous handles; choose --subdir/--skills-dir or an indexed edit such as
+    `yolo config unset packs[0] --user`. Indexed `yolo config set` and `yolo config why`
+    preserve author origins.
+    Explain reports every matching tuple and is pure; scoped Check/dry-run inspection is
+    pure too. Missing available content is "selection not yet verified; resolved at next
+    launch", without counts or transport. Readable invalid selection refuses. Optional
+    local license/support details are "determined at publication", not guessed facts.
+    Check retains ordinary whole-entry readiness staging and command-return cleanup;
+    the whole check command is not claimed to be effect-free. Author lint/footprint
+    still inspect directories or ordinary refs, never configured scoped handles.
+    A launch that advances a pin and invalidates selection refuses without publication
+    or fallback. The recorded older running tree stays unchanged; edit the selection or
+    set a known-good full ref with `yolo config set`, then restart for the new selection.
     The legacy JSONC forms (a path, file://, git+ssh:// and { "source", "name" })
     are listed in LEGACY JSONC FORMAT.
     [bold]Order is precedence, in a jail and at the host alike:[/bold] where two packs set one
@@ -2515,13 +2556,32 @@
                     ~/.config/yolo-jail/local) has its entry written; a fetched pack's,
                     `git+file://` included, is left out and named.  The `chrome-devtools`
                     pack is the shipped instance.
+      Agent format metadata is TOML-only: [native_sign_in] formats = ["claude-plugin"].
+                    It declares supported retained formats, not plugin loading or authority.
+      mcp-sign-in-bundle {bundle, format, origin, revision, license, callback_route} —
+                    TOML-only retained native sign-in content.  Selected skills delivery
+                    places the whole tree; this declaration contributes no MCP server,
+                    sign_in opt-in, client id in an agent config, or operation authority.
+                    Select with `yolo pack add slack-mcp`, `yolo config check`, relaunch.
+                    `yolo mcp-auth status [SERVER] [--json]` reads token-free native-name
+                    recovery; placement is not plugin-loading proof. Callback convenience
+                    is leased IPv4 loopback TCP on qualifying Linux bridge podman only;
+                    otherwise paste the full callback URL into the native prompt.
+                    The own-client option is `yolo config set
+                    mcp_servers.<name>.oauth.client_id <id> --user`, then check/relaunch.
+                    `yolo mcp-auth header SERVER [--format bare|json]` is token-bearing,
+                    bounded issuance: Claude derives JSON headersHelper, pi keeps bare.
+                    It never redeems an unexpired token; host requests never refresh.
+                    Native/provider/rootless/Mac witnesses remain separate verification.
       mcp-auth      {store, format, entries_at, companions, empty_store, lock, fields,
                     rereads_before_refresh, login_hint, unsupported_reason} — one pack-wide,
                     agent-neutral MCP sign-in store declaration.  `store` is home-relative;
                     `format` is `json`, `dir`, or `unsupported`; `empty_store` is `delete` or
                     `{}`; `lock.protocol` is `flock`, `proper-lockfile`, `mkdir-heartbeat`,
-                    or `none`. `fields.expires_at.unit` is `ms` or `s`. It is schema-only:
-                    no current setup reads or delivers it.
+                    or `none`. `fields.expires_at.unit` is `ms` or `s`. A selected broker
+                    reads supported stores on Linux podman; one-sign-in source passes on
+                    other jail setups keep their existing boundary/session limitations.
+                    Unknown native entries are never promoted without origin proof.
     AT LAUNCH ONLY (`yolo host -- <program>`): at the host notch the kinds below are
     delivered to the program yolo starts, for that process only, and `yolo host apply`
     writes no file for them: what each declares reaches an agent through its process
@@ -2595,6 +2655,9 @@
                     pack, is a daemon pair plus an endpoint file under the jail's /run.  With
                     no jail there is nothing to supervise the jail half and nothing to read
                     the endpoint.
+      mcp-sign-in-bundle  has no independent host apply writer: native content travels
+                    through the selected skills layer.  The host's sign-in inventory reads
+                    actual placement, never treats a declaration as an installed plugin.
       mcp-auth      the grouped declaration is retained and validated, but no setup's
                     readers or renderers consume it today.  It therefore has no meaning at
                     the host (or at any other setup); this is an interim schema foundation,

@@ -2,7 +2,7 @@
 title: "Build hand-off for direct user-level TOML pack scoping"
 status: accepted
 stage: DECIDED
-next: "Continue authorized implementation under the amended inspection contract and its caller regressions"
+next: "Establish account-free full-suite fixture isolation, then verify primary integration without weakening the gates"
 depends-on:
   - toml-scoped-pack-imports.md
   - ../research/toml-scoped-pack-imports.md
@@ -11,16 +11,50 @@ tags: [packs, skills, toml, implementation-plan]
 
 # Build hand-off for direct user-level TOML pack scoping
 
-**Status:** 2026-11-17. Written against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`.
-The grammar gap and caller seams were confirmed from source at that baseline. The feature remains
-unbuilt; no completed implementation is claimed. The carrier and inspection contracts are accepted.
-This remains the complete hand-off for the authorized ongoing implementation of the full direct
-user-level feature, with the amended inspection contract, not evidence of completed code.
+**Status:** 2026-11-18. Written against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`;
+implementation candidate `f7ac0336cfed659cf25bbae1d81470167d9db004` contains the core feature
+and the reviewed edit-validation/inspection-refusal repairs. Candidate completion and synthetic
+nested delivery passed, but primary landing acceptance and the complete launch suite have not.
+This plan retains the accepted contract, original task sequence and acceptance criteria until
+[remaining presentation and verification](#remaining-presentation-and-verification) is closed;
+unchecked task boxes below are not a claim that the candidate contains no implementation.
 
 **Behavioral authority:** [the design](toml-scoped-pack-imports.md).
 **Evidence:** [the source survey](../research/toml-scoped-pack-imports.md).
 The design wins on behavior; the tree wins on cosmetic fact drift; this plan is the first
 thing to correct. Do not twist production code to match an overtaken plan.
+
+## Remaining presentation and verification
+
+The implemented mechanisms are described in the [four-page reference](../reference/toml-scoped-pack-imports/README.md).
+The design and this plan are retained rather than retired: their accepted rulings and acceptance
+scenarios must not disappear while the following work remains.
+
+- **Markerless host reporting:** `writeSourcedRegistrations` and the host-apply roll-up still count
+  markerless directories and advertise invocation. Preserve absent-marker delivery; carry
+  discoverability into registration results, label folders and exclude them from the actual
+  host-apply census. Verify a mixed marked/markerless caller, not just the projection printer.
+- **Unpublished sourced commit attribution:** the inspection printer can fall back to the
+  enclosing pack's commit for a manifest-sourced repository whose payload is not materialized.
+  Report the sourced outcome's known commit without substituting the enclosing commit; verify
+  two distinct repositories and absent published payload through Explain/Check.
+- **Inspection audience:** scoped inspection bypasses audience formatting. Print retained
+  audience through the actual Explain/Check paths; metadata retention alone is not output proof.
+- **Full launch-suite safety and acceptance:** the current harness selects shipped NPM programs
+  even with readiness and auto-capture suppressed. Its ordinary host preparation still resolves
+  those programs. Establish permanent private inert producer/registry fixtures that preserve
+  shipped selection, surfaces and closure, then run the complete suite once. Do not enable real
+  agents/installers, forge preparation records, skip tests or treat a short compile as acceptance.
+- **Final primary gates:** run the full quality gate, reached integration and the complete launch
+  suite on the integrated tree; only then commit the integration and obtain clean `just done`.
+  Candidate receipts are not primary-tree landing evidence.
+- **Separate observations:** native macOS, real-rootless paths, real-agent discovery and provider
+  integration remain unmeasured. The pre-existing preparation startup/probe `worker.lock` race
+  is not repaired by the test-observer synchronization and remains outside this feature.
+
+The three presentation defects above are deferred from this integration, not approved changes
+to the accepted behavior. Close them with actual caller regressions in a subsequent bounded
+repair. Keep this live planning owner and its roadmap route until the remaining scope is honest.
 
 ## Preconditions and operating fence
 
@@ -130,7 +164,7 @@ boundary; exact helper factoring is cheap and delegated.
 | Marker row | Raw and manifest sourced always direct regular marker-required; manifest sourced non-root/explicit-ref validation unchanged. Existing whole-pack sourced rows retain old compatibility. |
 | License | Own conventional license, otherwise root license; conflict/unsafe/oversized refuses, none recorded. Direct config adds no license path. Per-row source/pin/directory/origin provenance. |
 | Inspection | One printer for configured explain, check and add dry-run: candidates/selected/excluded/names/kind/marker state/carrier/source/license/origin and omitted-kind counts. Markerless directory is folder, delivered but not discoverable, excluded from skill counts. Explain shows every same-handle tuple as its own group, never first match; scoped groups never touch a staged tree. Author lint and footprint keep existing arguments and meanings and never show configured scope. Intentional omission is not warning. |
-| Pure reads | No fetch and no store write on why/edit-validation/add dry-run/explain/check/attach. Syntax always checked; cached/local candidate errors refuse; never-fetched or not-locally-readable selection is unverified with authored facts only, next launch resolves, not failure. No scoped footprint counts. |
+| Pure reads | No pack fetch on why/edit-validation/add dry-run/explain/check/attach. No write of any kind for a scoped entry on those surfaces, or for any entry in explain. Check keeps its existing whole-entry [readiness pass](toml-scoped-pack-imports.md#editing-and-inspect-surfaces) (throwaway staging and cleanup) unchanged; do not migrate its readers. Syntax always checked; cached/local candidate errors refuse; never-fetched or not-locally-readable selection is unverified with authored facts only, next launch resolves, not failure. No scoped footprint counts. |
 | Advanced-pin failure | Lock-first/no rollback. New commit, failing selector and current candidates in error, prior commit only offline. Publish nothing invalid/partial, never use old selection; running tree unchanged. Edit selection or known-good ref remedies; unchanged fresh read repeats refusal. |
 | Record | No original scoped root in discovery; selected rows outside discovery, one recorded effective projection. Row kind/state/governor persisted/versioned. Source-free replay verifies rows, marker state and eligibility; missing/duplicate/unknown/forged/downgrade refuse. No re-enumeration. |
 | CLI/edit | Add handle or git mutually exclusive; exact flags subdir/skills-dir/only/exclude/bare/namespace/dry-run. Table only when options require it. Remove derives handle and deletes one tuple, ambiguity refuses with roots/index/origin. Nested generic edits/why support provenance. No writer emits empty/default/legacy keys. |
@@ -600,7 +634,8 @@ shows rows, omitted counts and unverified state without warning for intentional 
 **Inspection caller controls:** through the real command entry, cover one scoped group with no
 staged-tree dereference; every tuple of one legal same-handle multi-entry fixture; single unscoped
 baseline output; never-fetched explain/check authored facts only; cached stale-selector refusal;
-transport-refusing Git and store snapshots proving no inspection writes; author lint/footprint
+transport-refusing Git and store snapshots proving no scoped-inspection or explain writes, with
+check's whole-entry [readiness pass](toml-scoped-pack-imports.md#editing-and-inspect-surfaces) staging measured as its own baseline in mixed fixtures; author lint/footprint
 unchanged-output controls, including a handle-spelled argument. The multi-entry fixture keeps
 existing distinct-root, authored-ref, physical identity and whole/scoped conflict rules. No test
 may relax identity proof to create it. Preserve the API-mismatch lint/footprint red receipts as
@@ -736,7 +771,7 @@ witnesses. Never claim all setups verified from Linux fixtures.
 | A-18/A-19/A-26/A-27 | Record→run/jail loader + composer after source/cache deletion; forged/downgraded kind/state refusal, host parity. |
 | A-23–A-25/A-28/A-29 | Typed marker/markerless parity, marker-required other modes, nonregular marker refusal, inert data and unchanged legacy. |
 | A-30/A-31 | Real refresh→resolution: advanced lock/no publication, unchanged live tree, repeat refusal and both tested recoveries. |
-| A-32/A-33 | Real explain/check entry: every legal same-handle tuple, local/cached/unverified/refused states without writes, no staged-tree access, single unscoped baseline; unchanged author lint/footprint input/output controls. |
+| A-32/A-33 | Real explain/check entry: every legal same-handle tuple, local/cached/unverified/refused states; no scoped-inspection or explain writes, no scoped staged-tree access; whole-entry check [readiness-pass](toml-scoped-pack-imports.md#editing-and-inspect-surfaces) staging matches its own baseline in mixed fixtures; single unscoped output baseline; unchanged author lint/footprint input/output controls. |
 
 Permanent controls must go red if production ignores selection, clears only modern withholding,
 retains original `needs`, re-enumerates on reload, skips the common registration caller, keys diff

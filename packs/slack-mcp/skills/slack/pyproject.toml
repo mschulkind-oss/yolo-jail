@@ -1,0 +1,89 @@
+[project]
+name = "slack-skills-tests"
+version = "0.0.0"
+description = "Unite tests and evaluations for Slack Skills"
+requires-python = "~=3.15"
+
+[project.optional-dependencies]
+test = [
+    "pytest==9.1.1",
+    "deepeval==4.2.0",
+    "google-genai==2.20.0",
+    "python-dotenv==1.2.4",
+    "pyyaml==6.0.3",
+    "markdown==3.11",
+    "mcp==2.3.0",
+    "certifi>=2026.10.19",
+]
+tools = [
+    "ruff==0.16.9",
+    "rumdl==0.2.62",
+    "mypy==2.3.1",
+    "types-PyYAML==6.0.12.20260906",
+    "types-Markdown==3.10.2.20260712",
+]
+
+# This project is installed only to run the test suite; the importable package
+# is `tests`. Scope discovery to it so setuptools' flat-layout autodiscovery
+# doesn't trip over the sibling `skills/` and `commands/` directories.
+[tool.setuptools.packages.find]
+include = ["tests*"]
+
+[tool.pytest.ini_options]
+addopts = "-p no:deepeval"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "PT"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# rumdl: markdownlint-compatible linter for the plugin's authored markdown.
+[tool.rumdl]
+include = [
+    "skills/**/*.md",
+    "commands/*.md",
+    "docs/**/*.md",
+    "public/**/*.md",
+    "README.md",
+    "AGENTS.md",
+    ".github/maintainers_guide.md",
+    ".github/contributing.md",
+    ".github/CODE_OF_CONDUCT.md",
+]
+exclude = [".venv", "node_modules", ".changeset"]
+respect-gitignore = true
+# Disable rules that conflict with the skill-authoring style:
+#   MD013 — prose lines are intentionally long (LLM-consumed, not reflowed)
+#   MD028 — blank lines inside blockquotes are intentional for readability
+#   MD036 — emphasis is used for styled numbered steps, not headings
+#   MD041 — commands use frontmatter before the first heading; skills validated by pytest
+disable = ["MD013", "MD028", "MD036", "MD041"]
+
+# Allow <div hidden> in docs pages: it keeps agent-only notes out of the docs.slack.dev
+# HTML while the generated .md keeps them. HTML comments can't do this, since MDX drops them.
+[tool.rumdl.MD033]
+allowed-elements = ["div"]
+
+# Emphasis markers: italics use _underscores_, bold uses **asterisks**.
+[tool.rumdl.MD049]
+style = "underscore"
+
+[tool.rumdl.MD050]
+style = "asterisk"
+
+[tool.mypy]
+python_version = "3.15"
+files = ["tests", "scripts"]
+plugins = ["pydantic.mypy"]
+disallow_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true

@@ -32,6 +32,9 @@ import (
 // (or the reverse). Problems are dropped here: a pack whose declared source is missing has
 // no plugins to report, and the refusal is printed by the render paths that act on it.
 func (p *Pack) Plugins() []*pluginpack.Plugin {
+	if p.Projection != nil {
+		return nil
+	}
 	sources, _ := p.SkillsSources()
 	dirs := make([]string, 0, len(sources))
 	for _, src := range sources {

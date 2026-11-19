@@ -223,6 +223,13 @@ func crossingIdentity(publishPath string) (service, jail string) {
 	return crossingName(service), crossingName(jail)
 }
 
+// PublicationJailID returns the host-asserted session principal for a trusted
+// publication path. It is not a container name or an authentication check.
+func PublicationJailID(publishPath string) string {
+	_, jail := crossingIdentity(publishPath)
+	return jail
+}
+
 // crossingName normalizes filepath.Base's answers for degenerate paths ("", ".",
 // "/") to one spelling, so an audit reader never has to wonder whether "." is a
 // directory name or a missing value.

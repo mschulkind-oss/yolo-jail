@@ -954,7 +954,7 @@ func (o *Options) stagePackEntry(entry config.PackEntry, dest string) (*packload
 	if err != nil {
 		return nil, err
 	}
-	if len(res.Staged.Staged) == 0 {
+	if res.Staged != nil && len(res.Staged.Staged) == 0 {
 		o.pr(o.Stderr).print(fmt.Sprintf(
 			"[yellow]Warning: pack %s staged 0 files (%d excluded by only/exclude) — "+
 				"check its filters[/yellow]", entry.Name, len(res.Staged.Excluded)))

@@ -34,7 +34,9 @@ needs a ruling or a Mac sits in the others.
 1. [Direct user-level scoped TOML pack imports](../design/toml-scoped-pack-imports-plan.md) —
    first by the owner's explicit priority: selected upstream skills must reach every project
    without wrapper packs or workspace-only installation. The [behavioral design](../design/toml-scoped-pack-imports.md)
-   owns the contract and the [grounding](../research/toml-scoped-pack-imports.md) proves the current gap.
+   owns the contract. Complete safe primary integration and the plan's remaining presentation
+   and native verification work before retiring it; the [implemented reference](../reference/toml-scoped-pack-imports/README.md)
+   describes the core mechanisms without claiming complete acceptance.
 
 2. Shorten [the `internal/cli/run` package's serial run](BACKLOG.md#landing-gate-flakes-2026-11-12) — about 7.5
    minutes, with several tests waiting out 15 s production limits — which outgrows the landing gate's timeout under
@@ -61,9 +63,10 @@ needs a ruling or a Mac sits in the others.
    - [Managed MCP sign-in build hand-off](../design/managed-mcp-sign-in-plan.md) — ordinary managed-agent
      sign-in, capture and delivery need one coherent implementation, separate from operation-broker policy.
      The [behavioral design](../design/managed-mcp-sign-in.md) owns the contract; the synthetic gate precedes
-     landing and native/rootless/Mac/provider witnesses remain separate verification owed afterward. MCP work
-     can begin in isolation; integration with the scoped-pack candidate is serial at its effective-declaration
-     seam, never evidence that selected skill directories load as native bundles.
+     landing and native/rootless/Mac/provider witnesses remain separate verification owed afterward. The retained
+     serial candidate has [A1–A32 synthetic coverage](../design/managed-mcp-sign-in-coverage.md); independent review
+     and landing remain. Scoped-pack integration is serial at its effective-declaration seam, including custom
+     handle/source identity compatibility, never evidence that skill directories load as native bundles.
 
 4. Smaller builds no ruling holds:
    - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)

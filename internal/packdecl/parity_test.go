@@ -531,8 +531,11 @@ func assertContributionParity(t *testing.T, reader string, old, got *Manifest) {
 			t.Errorf("%s MCPAuth declaration differs: legacy=%#v grouped=%#v", reader, old.MCPAuth, got.MCPAuth)
 		}
 	}
-	if len(seen) != len(KnownKinds()) {
-		t.Errorf("fixture covers %d kinds, current schema has %d: seen=%v", len(seen), len(KnownKinds()), seen)
+	// Managed native bundles have deliberately no legacy JSON spelling. Their
+	// strict/use/tolerant TOML parity is pinned by mcpsigninbundle_test.go.
+	legacyKinds := len(KnownKinds()) - 1
+	if len(seen) != legacyKinds {
+		t.Errorf("fixture covers %d legacy kinds, current schema has %d: seen=%v", len(seen), legacyKinds, seen)
 	}
 	if !reflect.DeepEqual(old.InstallContributions(), got.InstallContributions()) {
 		t.Errorf("%s InstallContributions differ:\n legacy=%#v\n grouped=%#v", reader, old.InstallContributions(), got.InstallContributions())

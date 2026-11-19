@@ -1,6 +1,7 @@
 package run
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -1349,6 +1351,11 @@ func Run(opts Options) (rc int) {
 		// "once" server's sign-in in the session's Claude store, the bridged one above, and takes a
 		// last pass when the session ends.
 		o.freezeLaunchMCP(rt, cfg, staged.packs, o.launchMCPSelection, sharedHome)
+		o.freezeDeliveredMCPSignIn(staging, staged.packs, nil)
+		if o.launchInputMCP.SignIn != nil {
+			body, _ := json.Marshal(o.launchInputMCP.SignIn)
+			launchEnv.Set(mcpsignin.WireEnv, string(body))
+		}
 		stopOnce := o.startOnceSession(rt, cname, staged.packs)
 		sp = o.Perf.Span("launch.macos_user")
 		rc = o.MacosUserRun(cfg, o.Workspace, config.SelectedAgents(cfg), agentArgv,
@@ -1816,11 +1823,6 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	}
 
 	o.freezeLaunchMCP(rt, cfg, loadedPacks, o.launchMCPSelection, "")
-	// THE ONE-SIGN-IN TIER WHERE NO BROKER RUNS (mcpauthboundary.go, ID-19): Apple Container and
-	// podman on macOS take a sign_in = "once" server's sign-in over here, before the container
-	// starts, and again in the keeper once it is gone. A no-op on Linux podman, whose broker does.
-	o.runOnceBoundary(rt, cname, onceAtStart, loadedPacks)
-
 	// --- Freeze this launch's config artifacts under <workspace>/.yolo ---
 	o.writeLaunchConfigArtifacts(cfg)
 
@@ -2467,6 +2469,17 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		discardUnheldSkeleton(cname, in.homeSkeleton)
 		lock.Close()
 		return 1
+	}
+	// Boundary adoption now sees the same placed facts as the keeper, still before
+	// runtime creation. Linux podman's resident poll remains the sole owner there.
+	o.runOnceBoundary(rt, cname, onceAtStart, loadedPacks)
+	o.prepareMCPCallbacks(in)
+	runCmd = assembleMCPCallbackPublications(runCmd, in.imageRef, in.callbacks)
+	if o.launchInputMCP.SignIn != nil {
+		body, _ := json.Marshal(o.launchInputMCP.SignIn)
+		if at := slices.Index(runCmd, in.imageRef); at >= 0 {
+			runCmd = slices.Insert(runCmd, at, "-e", mcpsignin.WireEnv+"="+string(body))
+		}
 	}
 	if rt == "container" { // parity: HonoredBy — Apple Container copies into its home bind; Podman binds the staged file
 		if err := materializeAppleContainerBriefings(staged.packs, agentsPath, wsState); err != nil {

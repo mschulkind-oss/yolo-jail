@@ -6,9 +6,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 )
 
-// defaultCellMaxFor is the shared default for a cell with no selected max_for.
-const defaultCellMaxFor = brokerstore.TimedGrantDefault
-
 // RequestEntries expands a revalidated request into timed, role/context-bound
 // call:<cell> entries. It cannot grant permanent membership.
 func RequestEntries(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {

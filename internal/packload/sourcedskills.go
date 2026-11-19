@@ -1,7 +1,6 @@
 package packload
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
@@ -18,6 +17,7 @@ type SourcedSkill struct {
 	PayloadRoot     string
 	PayloadLocation string
 	Withheld        string
+	LocalCarrier    bool
 }
 
 // SourcedSkillRows includes unresolved declarations so static claims never depend
@@ -29,6 +29,11 @@ func (p *Pack) SourcedSkillRows() []SourcedSkill {
 			continue
 		}
 		row := SourcedSkill{Row: i, By: c, Withheld: p.SourcedSkillsWithheld, Outcome: packsrc.SkillPayloadResult{State: packsrc.SkillNotFetched, Reason: "no shared record"}}
+		if p.Projection != nil && i < len(p.Projection.Rows) && !p.Projection.Rows[i].Sourced && p.Projection.Commit == "" {
+			row.LocalCarrier = true
+			row.Outcome.State = packsrc.SkillNotMaterialized
+			row.Outcome.Reason = "selected local directory is not copied; the next fresh launch or host writer validates its carrier"
+		}
 		if bound, ok := p.sourcedSkills[i]; ok {
 			row = bound
 		}
@@ -67,8 +72,10 @@ func ResolveSelectedSkillPayloads(packs []*Pack, store *packsrc.Store, opts pack
 			if row.Withheld != "" {
 				continue
 			}
-			request := packsrc.SkillRequest{Label: fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row), Source: row.By.Source, License: row.By.License}
-			requests = append(requests, request)
+			if row.LocalCarrier {
+				continue
+			}
+			requests = append(requests, p.skillRequest(row))
 		}
 	}
 	var results []packsrc.SkillPayloadResult
@@ -95,7 +102,7 @@ func SkillPayloadRowLabels(packs []*Pack, result packsrc.SkillPayloadResult) str
 			}
 			addr, err := packsrc.Parse(row.By.Source)
 			if err == nil && addr.Repo == result.Repo && addr.Ref == result.Ref {
-				labels = append(labels, fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row))
+				labels = append(labels, skillRowLabel(p, row.Row))
 			}
 		}
 	}
@@ -113,10 +120,10 @@ func BindSelectedSkillPayloads(packs []*Pack, results []packsrc.SkillPayloadResu
 			continue
 		}
 		for _, row := range p.SourcedSkillRows() {
-			if row.Withheld != "" {
+			if row.Withheld != "" || row.LocalCarrier {
 				continue
 			}
-			label := fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row)
+			label := skillRowLabel(p, row.Row)
 			a, _ := packsrc.Parse(row.By.Source)
 			for _, result := range results {
 				if result.Repo != a.Repo || result.Ref != a.Ref {
@@ -144,6 +151,10 @@ func BindSelectedSkillPayloads(packs []*Pack, results []packsrc.SkillPayloadResu
 				p.sourcedSkills = map[int]SourcedSkill{}
 			}
 			p.sourcedSkills[row.Row] = row
+			if p.Projection != nil && row.Outcome.State == packsrc.SkillReady {
+				p.Projection.Rows[row.Row].ResolvedCommit = row.Outcome.Commit
+				_ = p.Projection.RefreshDigest()
+			}
 		}
 	}
 }

@@ -8,6 +8,7 @@ package integration
 // Unlike the unit SIGTERM fixture, container removal and admission here use the actual CLI.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,28 +70,38 @@ func xbWrite(t *testing.T, path, body string) {
 	}
 }
 
-func xbManifests(t *testing.T, agent, ext, source string) {
-	t.Helper()
-	xbWrite(t, filepath.Join(agent, "install.sh"), "#!/bin/sh\nexit 1\n")
+func xbFixtureFiles(source string) (map[string]string, map[string]string) {
 	// This is the fake declared client, read through bash, not an installed agent launcher.
-	xbWrite(t, filepath.Join(agent, "client"), `#!/bin/sh
-if [ -f "$HOME/`+xbInto+`/built.txt" ]; then cat "$HOME/`+xbInto+`/built.txt"; else echo XB_NO_TREE; fi
+	client := `#!/bin/sh
+if [ -f "$HOME/` + xbInto + `/built.txt" ]; then cat "$HOME/` + xbInto + `/built.txt"; else echo XB_NO_TREE; fi
 printf 'XB_SETTINGS_BEGIN\n'
 cat "$HOME/.xbfixture/settings.json"
 printf '\nXB_SETTINGS_END\n'
 printf '\nXB_PROFILES=%s\n' "$YOLO_PROFILES"
-`)
-	xbWrite(t, filepath.Join(agent, "pack.json"), `{"name":"`+xbAgent+`","contributes":[
-{"kind":"program","bin":"`+xbBin+`","via":"installer","url":"file:///ctx/packs/`+xbAgent+`/install.sh","protocols":["openai"]},
+`
+	agentManifest := `{"name":"` + xbAgent + `","contributes":[
+{"kind":"program","bin":"` + xbBin + `","via":"installer","url":"file:///ctx/packs/` + xbAgent + `/install.sh","protocols":["openai"]},
 {"kind":"state","at":".xbfixture","scope":"workspace"},
 {"kind":"files","from":"client","into":".xbfixture/client"},
-{"kind":"config","config":[{"agent":"`+xbBin+`","name":"settings","codec":"json","path":"~/.xbfixture/settings.json"}]},
-{"kind":"provider","name":"`+xbProfile+`","endpoints":{"openai":{"base_url":"http://127.0.0.1:1","wire_api":"openai-chat-completions"}}},
-{"kind":"profile","name":"`+xbProfile+`","provider":"`+xbProfile+`"}]}`)
+{"kind":"config","config":[{"agent":"` + xbBin + `","name":"settings","codec":"json","path":"~/.xbfixture/settings.json"}]},
+{"kind":"provider","name":"` + xbProfile + `","endpoints":{"openai":{"base_url":"http://127.0.0.1:1","wire_api":"openai-chat-completions"}}},
+{"kind":"profile","name":"` + xbProfile + `","provider":"` + xbProfile + `"}]}`
 	build, _ := json.Marshal(xbBuild)
-	xbWrite(t, filepath.Join(ext, "pack.json"), `{"name":"`+xbExt+`","contributes":[
-{"kind":"files","into":"`+xbInto+`","source":"`+source+`","build":`+string(build)+`,"produces":["built.txt"],"fallback":"xb-local-unbuilt"},
-{"kind":"config-list","surface":"`+xbBin+`/settings","path":"/packages","add":["~/`+xbInto+`"]}]}`)
+	extManifest := `{"name":"` + xbExt + `","contributes":[
+{"kind":"files","into":"` + xbInto + `","source":"` + source + `","build":` + string(build) + `,"produces":["built.txt"],"fallback":"xb-local-unbuilt"},
+{"kind":"config-list","surface":"` + xbBin + `/settings","path":"/packages","add":["~/` + xbInto + `"]}]}`
+	return map[string]string{"install.sh": "#!/bin/sh\nexit 1\n", "client": client, "pack.json": agentManifest}, map[string]string{"pack.json": extManifest}
+}
+
+func xbManifests(t *testing.T, agent, ext, source string) {
+	t.Helper()
+	agentFiles, extFiles := xbFixtureFiles(source)
+	for name, body := range agentFiles {
+		xbWrite(t, filepath.Join(agent, name), body)
+	}
+	for name, body := range extFiles {
+		xbWrite(t, filepath.Join(ext, name), body)
+	}
 }
 
 // Cheap declaration/ownership check; -short never enters requireJail or starts TestMain warmup.
@@ -127,8 +138,10 @@ func newXBFixture(t *testing.T) *xbFixture {
 	up.release("1.0.0", "ten", "")
 	agent, ext := resolvedTempDir(t), resolvedTempDir(t)
 	xbManifests(t, agent, ext, "git+file://"+up.dir+"?ref=main")
-	packHome(t, `{"packs":[{"source":"file://`+agent+`","name":"`+xbAgent+`"},{"source":"file://`+ext+`","name":"`+xbExt+`"}],"profile":{"`+xbBin+`":"`+xbProfile+`"},"agent_updates":{"`+xbAgent+`":"next-launch"}}`)
-	withPrivateFixtureYoloStore(t)
+	userConfig := `{"packs":[{"source":"file://` + agent + `","name":"` + xbAgent + `"},{"source":"file://` + ext + `","name":"` + xbExt + `"}],"profile":{"` + xbBin + `":"` + xbProfile + `"},"agent_updates":{"` + xbAgent + `":"next-launch"}}`
+	packHome(t, userConfig)
+	home := withPrivateFixtureYoloStore(t)
+	usePrivateNativeFixture(t, xbNativeFixture(home, userConfig, agent, ext, up.dir))
 	state := paths.GlobalStorage()
 	f := &xbFixture{store: paths.CapturesDir(), outcome: filepath.Join(paths.BackgroundAdvanceDir(), run.PatchedCopySlug(xbKey)+".json"), log: filepath.Join(state, "logs", "background-advance.log")}
 	// Registered after the private HOME, before any launch. The fixture stops only its own
@@ -636,7 +649,7 @@ func (f *xbFixture) finish(t *testing.T, bg, child xbProcess, staging string) {
 	if !bg.alive() {
 		t.Fatal("persistent preparation worker exited after one admission")
 	}
-	if status := prepCLI(t, yoloBin, os.Getenv("HOME"), "pack", "prepare", "status"); !strings.Contains(status, "Tree preparation worker: running") {
+	if status := prepCLI(t, yoloBin, os.Getenv("HOME"), "pack", "prepare", "status"); !strings.Contains(status, "Preparation worker: running") {
 		t.Fatalf("admitting scheduler lost its authenticated lease:\n%s", status)
 	}
 	xbContainerGone(t, staging)
@@ -814,9 +827,12 @@ func TestBackgroundAdvanceSignalsFenceAndRecoverItsRealBuildWorkspace(t *testing
 			var requester *exec.Cmd
 			var requesterDone chan error
 			if sig == syscall.SIGKILL {
-				requester = exec.Command(yoloBin, append(append(jailRunArgs(), "--update"), "--", "bash", "-c", "true")...)
-				requester.Dir = writeProject(t, `{}`)
-				requester.Env = append(preparationCLIEnv(os.Getenv("HOME")), paths.NoProgramReadinessEnv+"=1", "YOLO_NO_AUTO_CAPTURE=1")
+				requesterDir := writeProject(t, `{}`)
+				requester, err = xbRequesterCommand(context.Background(), requesterDir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				requester.Dir = requesterDir
 				requesterLog := &syncBuffer{}
 				requester.Stdout, requester.Stderr = requesterLog, requesterLog
 				awaitDetachedWriters(t, requester.Dir, launchHome(requester.Env))

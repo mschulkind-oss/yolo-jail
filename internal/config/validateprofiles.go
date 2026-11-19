@@ -111,7 +111,7 @@ func validateProfile(config *jsonx.OrderedMap, errs *[]string, edit ...*editVali
 	if wantsNamespace {
 		if len(edit) != 0 && edit[0] != nil {
 			namespace, sets, err := explicitEditProfileNamespaces(edit[0])
-			if errors.Is(err, errPackUnverifiableInJail) {
+			if errors.Is(err, ErrPackUnverifiableInJail) {
 				// A jail cannot read that pack, so the namespace is unknowable here: the
 				// namespace half steps aside, as below when UseProfileCLINames cannot answer.
 			} else if err != nil {

@@ -110,6 +110,10 @@ type Classifier struct {
 	// deadline bounds one classifier process; zero means classifierDeadline.
 	// Tests set it to exceed or stay within the bound deterministically.
 	deadline time.Duration
+
+	// withInvocationTimeout wraps each classifier invocation's context with its
+	// per-process deadline; nil uses context.WithTimeout(ctx, c.invokeDeadline()).
+	withInvocationTimeout func(context.Context, time.Duration) (context.Context, context.CancelFunc)
 }
 
 func (c Classifier) invokeDeadline() time.Duration {
@@ -117,6 +121,13 @@ func (c Classifier) invokeDeadline() time.Duration {
 		return c.deadline
 	}
 	return classifierDeadline
+}
+
+func (c Classifier) startInvocationTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.withInvocationTimeout != nil {
+		return c.withInvocationTimeout(ctx, c.invokeDeadline())
+	}
+	return context.WithTimeout(ctx, c.invokeDeadline())
 }
 
 // LookupReader is supplied by core only after it has checked a read grant and
@@ -231,7 +242,7 @@ func (c Classifier) invoke(ctx context.Context, input CLIInput) (Answer, error) 
 }
 
 func (c Classifier) invokePayload(ctx context.Context, payload []byte) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.invokeDeadline())
+	ctx, cancel := c.startInvocationTimeout(ctx)
 	defer cancel()
 	binary := c.Argv[0]
 	if strings.HasPrefix(binary, "{program:") && strings.HasSuffix(binary, "}") {

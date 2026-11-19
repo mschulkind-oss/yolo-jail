@@ -190,13 +190,25 @@ func loadPackTree(root string) ([]*packload.Pack, error) {
 	for _, e := range rec {
 		// The launch's own read (packload.LoadDirForUse, as config.ResolvePack loads it), so a
 		// contribution the launch skipped is skipped here too rather than failing the attach.
-		p, problems := packload.LoadDirForUse(filepath.Join(root, filepath.FromSlash(e.Dir)), e.Name)
-		if len(problems) > 0 {
-			return nil, errors.New(problems[0]) // LoadDir's problems already name the pack
-		}
-		e.ApplyNaming(p)
-		if err := e.HydrateSourcedSkills(root, p); err != nil {
-			return nil, err
+		var p *packload.Pack
+		if e.Projection != nil {
+			p, err = e.LoadRecordedScopedPack(root)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if err := packload.RefuseUnrecordedScopedPack(filepath.Join(root, filepath.FromSlash(e.Dir))); err != nil {
+				return nil, err
+			}
+			var problems []string
+			p, problems = packload.LoadDirForUse(filepath.Join(root, filepath.FromSlash(e.Dir)), e.Name)
+			if len(problems) > 0 {
+				return nil, errors.New(problems[0])
+			}
+			e.ApplyNaming(p)
+			if err := e.HydrateSourcedSkills(root, p); err != nil {
+				return nil, err
+			}
 		}
 		markOfficialFromLayout(p, e.Dir)
 		out = append(out, p)
@@ -225,12 +237,15 @@ func loadUnrecordedPackTree(root string) ([]*packload.Pack, error) {
 			return nil, err
 		}
 		for _, ent := range entries {
-			if !ent.IsDir() || ent.Name() == officialStagingDir || ent.Name() == packload.SkillPayloadTreeDir {
+			if !ent.IsDir() || ent.Name() == officialStagingDir || ent.Name() == packload.SkillPayloadTreeDir || ent.Name() == packload.ScopedCarrierDir {
 				continue
 			}
 			name := ent.Name()
 			if dir == root && slugNames[name] != "" {
 				name = slugNames[name]
+			}
+			if err := packload.RefuseUnrecordedScopedPack(filepath.Join(dir, ent.Name())); err != nil {
+				return nil, err
 			}
 			p, problems := packload.LoadDirForUse(filepath.Join(dir, ent.Name()), name)
 			if len(problems) > 0 {
@@ -327,16 +342,30 @@ func diffPackSets(configured, booted []*packload.Pack) packSetDiff {
 	byName := func(ps []*packload.Pack) map[string]*packload.Pack {
 		m := map[string]*packload.Pack{}
 		for _, p := range ps {
-			m[p.Name] = p
+			key := p.Name
+			if p.ImportIdentity != "" {
+				key = p.ImportIdentity
+			}
+			if p.Projection != nil {
+				key = p.Projection.ImportIdentity
+			}
+			m[key] = p
 		}
 		return m
 	}
 	want, have := byName(configured), byName(booted)
 	var d packSetDiff
-	for name, p := range want {
-		q, ok := have[name]
+	for key, p := range want {
+		name := packDiffLabel(p)
+		q, ok := have[key]
 		if !ok {
 			d.Added = append(d.Added, name)
+			continue
+		}
+		if p.Projection != nil || q.Projection != nil {
+			if p.Projection == nil || q.Projection == nil || p.Projection.Digest != q.Projection.Digest {
+				d.Changed = append(d.Changed, name)
+			}
 			continue
 		}
 		a, errA := packContentDigest(p.Root)
@@ -350,9 +379,9 @@ func diffPackSets(configured, booted []*packload.Pack) packSetDiff {
 			d.Changed = append(d.Changed, name)
 		}
 	}
-	for name := range have {
-		if _, ok := want[name]; !ok {
-			d.Removed = append(d.Removed, name)
+	for key, p := range have {
+		if _, ok := want[key]; !ok {
+			d.Removed = append(d.Removed, packDiffLabel(p))
 		}
 	}
 	sort.Strings(d.Added)
@@ -360,6 +389,13 @@ func diffPackSets(configured, booted []*packload.Pack) packSetDiff {
 	sort.Strings(d.Changed)
 	sort.Strings(d.Unreadable)
 	return d
+}
+
+func packDiffLabel(p *packload.Pack) string {
+	if p.Projection == nil {
+		return p.Name
+	}
+	return fmt.Sprintf("%s (subdir=%q dir=%q)", p.Name, p.Projection.Subdir, p.Projection.Selection.Dir)
 }
 
 // attachPackView is the pack set an attach reads: the running jail's own, and what this entry

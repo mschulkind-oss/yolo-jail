@@ -6,6 +6,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -13,9 +14,12 @@ import (
 // frozenLaunchMCP is the launch's approved composition, carried through the keeper
 // plan rather than reconstructed from mutable host configuration in the daemon.
 type frozenLaunchMCP struct {
-	EffectiveJSON string `json:"effective,omitempty"`
-	UserOnlyJSON  string `json:"user_only,omitempty"`
-	Proven        bool   `json:"proven,omitempty"`
+	EffectiveJSON string                   `json:"effective,omitempty"`
+	UserOnlyJSON  string                   `json:"user_only,omitempty"`
+	Proven        bool                     `json:"proven,omitempty"`
+	UserPacks     []string                 `json:"user_packs,omitempty"`
+	SignIn        *mcpsignin.Launch        `json:"sign_in,omitempty"`
+	Advice        *mcpsignin.AdviceContext `json:"advice,omitempty"`
 	// SharedCredentialDir is LaunchInputContext.SharedCredentialDir, decided at launch.
 	SharedCredentialDir string `json:"shared_credential_dir,omitempty"`
 	// SharedCredentialHome is LaunchInputContext.SharedCredentialHome: "" for paths.GlobalHome.
@@ -50,7 +54,7 @@ func (o *Options) snapshotLaunchMCPSelection(cfg *jsonx.OrderedMap, rt string) l
 	}
 	// Where the launcher keeps a sign_in = "once" server itself (mcpauthboundary.go), it needs
 	// the same proven composition a broker's share is built from.
-	if !active && onceTierMode(rt) != "" && hasOnceServer(cfg) {
+	if !active && hasOnceServer(cfg) {
 		active = true
 	}
 	if !active {
@@ -99,7 +103,11 @@ func frozenMCPForLaunch(cfg, user *jsonx.OrderedMap, selected, staged []*packloa
 	}
 	effective := jailMCPServers(cfg, staged)
 	userOnly := packload.ComposeMCPServers(cfgMap(user, "mcp_servers"), verified, jailHome)
-	return frozenLaunchMCP{EffectiveJSON: jsonx.MustDumpsCompact(effective), UserOnlyJSON: jsonx.MustDumpsCompact(userOnly), Proven: true}
+	names := make([]string, 0, len(verified))
+	for _, pack := range verified {
+		names = append(names, pack.Name)
+	}
+	return frozenLaunchMCP{EffectiveJSON: jsonx.MustDumpsCompact(effective), UserOnlyJSON: jsonx.MustDumpsCompact(userOnly), Proven: true, UserPacks: names, Advice: MCPAdviceContext(user, verified, names)}
 }
 
 // freezeLaunchMCP freezes the launch's composition, and the Claude store it bridges under the

@@ -34,7 +34,12 @@ type IdentifiedPack struct {
 // its own name, which the user cannot rename, and a `formerly` rename is the pack's own.
 func IdentifiedPacks(entries []config.PackEntry) []IdentifiedPack {
 	out := make([]IdentifiedPack, 0, len(entries))
+	seen := map[string]bool{}
 	for _, e := range entries {
+		if seen[e.Name] {
+			continue
+		}
+		seen[e.Name] = true
 		if e.Embedded() {
 			continue
 		}

@@ -403,6 +403,10 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		}
 	}
 	o.noteWorkspaceSkills(wsSkills)
+	// Attach refreshes content, but never recomposes the running owner's facts.
+	if o.launchInputMCP.Proven && o.launchInputMCP.SignIn == nil {
+		o.freezeDeliveredMCPSignIn(staging, loadedPacks, wsSkills)
+	}
 	in.InlineTopics = !topicsStaged
 	// Each destination's core names its own agent's jail-mechanics SKILL.md (BD-D6): the skills
 	// destination the same identity declared. A destination with none gets the sentence alone.

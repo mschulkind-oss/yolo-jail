@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -39,6 +40,128 @@ func TestApproveJSONListsOpenRecords(t *testing.T) {
 	}
 	if rc := approveMain(context.Background(), []string{"--json", r.ID}, false, s, &out, &errs); rc != approveExitUsage {
 		t.Fatalf("--json with a decision: %d", rc)
+	}
+}
+
+func TestApproveJSONEndedFlagValidationAndOutput(t *testing.T) {
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	s := &brokerstore.Store{
+		Dir:        t.TempDir(),
+		Source:     "github",
+		Now:        func() time.Time { return now },
+		Revalidate: func(q brokerstore.Request) (brokerstore.Policy, error) { return q.Policy, nil },
+	}
+	base := brokerstore.Request{
+		Jail: "j1", Start: "s1", Workspace: "/ws/app",
+		Repo: "o/r", StdinDigest: "stdin", Set: "read-write",
+		Policy: brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: time.Hour, Uses: 5},
+	}
+
+	// Refused without --json, with --watch, with a value, with decision, or with --revoke.
+	for _, bad := range [][]string{
+		{"--ended"},
+		{"--ended=true"},
+		{"--json", "--ended=1"},
+		{"--json", "--watch", "--ended"},
+		{"--json", "--ended", "r-00000000000000000000000000000000"},
+		{"--json", "--ended", "--deny", "r-00000000000000000000000000000000"},
+		{"--json", "--ended", "--revoke", "all"},
+	} {
+		var out, errs bytes.Buffer
+		if rc := approveMain(context.Background(), bad, false, s, &out, &errs); rc != approveExitUsage {
+			t.Fatalf("%v: got exit %d, want %d (%q)", bad, rc, approveExitUsage, errs.String())
+		}
+	}
+
+	// Populate decided request (with denial_note and via), ended grant, ended working entry, and a live pending request.
+	rDeniedIn := base
+	rDeniedIn.Argv = []string{"pr", "comment", "1", "--body", "secret-token"}
+	rDenied, err := s.File(rDeniedIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(rDenied.ID, "pending", brokerstore.Decision{Deny: true, DenialNote: "not now", Via: brokerstore.ViaHost}); err != nil {
+		t.Fatal(err)
+	}
+
+	rAllowedIn := base
+	rAllowedIn.Argv = []string{"pr", "merge", "2"}
+	rAllowed, err := s.File(rAllowedIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gEnded, err := s.Decide(rAllowed.ID, "pending", brokerstore.Decision{For: 20 * time.Minute, Via: brokerstore.ViaOnRequest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke(gEnded.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	wEnded, _, err := s.AddWorking(brokerstore.WorkingEntry{
+		Workspace: "/ws/app", Repo: "github.com/o/r", Kind: brokerstore.WorkingBranch, Resource: "refs/heads/feat", By: "human",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EndWorking(wEnded.ID, brokerstore.EndDeleted); err != nil {
+		t.Fatal(err)
+	}
+
+	rOpenIn := base
+	rOpenIn.Argv = []string{"pr", "merge", "3"}
+	rOpen, err := s.File(rOpenIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Default `--json` output is unchanged (open records only, no ended metadata).
+	var out, errs bytes.Buffer
+	if rc := approveMain(context.Background(), []string{"--json"}, false, s, &out, &errs); rc != 0 {
+		t.Fatalf("--json: %d %s", rc, errs.String())
+	}
+	var openState brokerstore.StateView
+	if err := json.Unmarshal(out.Bytes(), &openState); err != nil {
+		t.Fatal(err)
+	}
+	if openState.IncludesEnded || openState.HorizonDays != 0 || openState.HorizonNote != "" {
+		t.Fatalf("default --json unexpectedly carried ended metadata: %+v", openState)
+	}
+	if len(openState.Requests) != 1 || openState.Requests[0].ID != rOpen.ID || len(openState.Grants) != 0 || len(openState.Working) != 0 {
+		t.Fatalf("default --json = %+v", openState)
+	}
+
+	// `--json --ended` includes decided requests, ended grants, ended working entries, and 7-day horizon metadata.
+	out.Reset()
+	errs.Reset()
+	if rc := approveMain(context.Background(), []string{"--json", "--ended"}, false, s, &out, &errs); rc != 0 {
+		t.Fatalf("--json --ended: %d %s", rc, errs.String())
+	}
+	var endedState brokerstore.StateView
+	if err := json.Unmarshal(out.Bytes(), &endedState); err != nil {
+		t.Fatal(err)
+	}
+	if endedState.Schema != 1 || !endedState.IncludesEnded || endedState.HorizonDays != 7 || !strings.Contains(endedState.HorizonNote, "7 days") {
+		t.Fatalf("endedState metadata = %+v", endedState)
+	}
+	if len(endedState.Requests) != 3 || len(endedState.Grants) != 1 || len(endedState.Working) != 1 {
+		t.Fatalf("endedState counts = req:%d grant:%d work:%d", len(endedState.Requests), len(endedState.Grants), len(endedState.Working))
+	}
+	reqs := map[string]brokerstore.RequestView{}
+	for _, q := range endedState.Requests {
+		reqs[q.ID] = q
+	}
+	if q := reqs[rDenied.ID]; q.Answer != brokerstore.AnswerDeny || q.Via != brokerstore.ViaHost || q.DenialNote != "not now" || q.Workspace != "/ws/app" {
+		t.Fatalf("rDenied view = %+v", q)
+	}
+	if q := reqs[rAllowed.ID]; q.Answer != brokerstore.AnswerFor || q.Via != brokerstore.ViaOnRequest || q.Until == nil || q.Workspace != "/ws/app" {
+		t.Fatalf("rAllowed view = %+v", q)
+	}
+	if g := endedState.Grants[0]; g.ID != gEnded.ID || g.State != "ended" || g.EndReason != brokerstore.EndRevoked || g.Workspace != "/ws/app" {
+		t.Fatalf("gEnded view = %+v", g)
+	}
+	if w := endedState.Working[0]; w.ID != wEnded.ID || w.State != "ended" || w.EndReason != brokerstore.EndDeleted || w.Ended == nil || w.Workspace != "/ws/app" {
+		t.Fatalf("wEnded view = %+v", w)
 	}
 }
 
@@ -181,9 +304,12 @@ func TestApproveWatchText(t *testing.T) {
 // approvalWatchOutput wakes a test when approveWatch writes, so the test can wait for its
 // opening snapshot and each subsequent event without scheduling sleeps.
 type approvalWatchOutput struct {
-	mu      sync.Mutex
-	b       bytes.Buffer
-	changed chan struct{}
+	mu               sync.Mutex
+	b                bytes.Buffer
+	changed          chan struct{}
+	writeCalls       int
+	bytesWritten     int
+	coalescedWakeups int
 }
 
 func newApprovalWatchOutput() *approvalWatchOutput {
@@ -193,10 +319,17 @@ func newApprovalWatchOutput() *approvalWatchOutput {
 func (o *approvalWatchOutput) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	n, err := o.b.Write(p)
+	if n > 0 {
+		o.writeCalls++
+		o.bytesWritten += n
+	}
 	o.mu.Unlock()
 	select {
 	case o.changed <- struct{}{}:
 	default:
+		o.mu.Lock()
+		o.coalescedWakeups++
+		o.mu.Unlock()
 	}
 	return n, err
 }
@@ -205,6 +338,12 @@ func (o *approvalWatchOutput) String() string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.b.String()
+}
+
+func (o *approvalWatchOutput) writeStats() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return fmt.Sprintf("write-calls=%d bytes=%d coalesced-wakeups=%d", o.writeCalls, o.bytesWritten, o.coalescedWakeups)
 }
 
 func waitApprovalWatchOutput(t *testing.T, out *approvalWatchOutput, want func(string) bool) string {
@@ -219,6 +358,60 @@ func waitApprovalWatchOutput(t *testing.T, out *approvalWatchOutput, want func(s
 		case <-out.changed:
 		case <-timer.C:
 			t.Fatalf("timed out waiting for approval watch output: %q", out.String())
+		}
+	}
+}
+
+// waitProductionRequestFiled keeps the production request event assertion and its original guard,
+// while identifying which boundary failed if the durable request is not written to the watch.
+func waitProductionRequestFiled(t *testing.T, out *approvalWatchOutput, store *brokerstore.Store,
+	before brokerstore.Snapshot, outputStart, stdinDigest string) {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		if got := out.String(); len(got) >= len(outputStart) && strings.Contains(got[len(outputStart):], "request-filed") {
+			return
+		}
+		select {
+		case <-out.changed:
+		case <-timer.C:
+			type snapshotResult struct {
+				snapshot brokerstore.Snapshot
+				err      error
+			}
+			result := make(chan snapshotResult, 1)
+			go func() {
+				snapshot, err := store.Snapshot()
+				result <- snapshotResult{snapshot: snapshot, err: err}
+			}()
+			var after brokerstore.Snapshot
+			snapshotStatus := "available"
+			select {
+			case got := <-result:
+				after = got.snapshot
+				if got.err != nil {
+					snapshotStatus = got.err.Error()
+				}
+			case <-time.After(2 * time.Second):
+				snapshotStatus = "snapshot diagnostic did not return within 2s"
+			}
+			matching := "not present"
+			for _, request := range after.Requests {
+				if request.StdinDigest == stdinDigest {
+					matching = request.ID + ":" + request.State
+					break
+				}
+			}
+			var diff []string
+			for _, event := range brokerstore.Diff(before, after) {
+				id, state := "", ""
+				if event.Request != nil {
+					id, state = event.Request.ID, event.Request.State
+				}
+				diff = append(diff, event.Kind+":"+id+":"+state)
+			}
+			t.Fatalf("timed out waiting for production request-filed event: store=%q expected_stdin_sha256=%s durable=%q snapshot=%s diff=%v output-stats={%s} output=%q", store.Dir, stdinDigest, matching, snapshotStatus, diff, out.writeStats(), out.String())
 		}
 	}
 }
@@ -249,15 +442,17 @@ func TestApproveWatchTextLiveProductionRequestsIncludeCompleteActionIdentity(t *
 	bodies := []string{"private production body one\n", "private production body two\n"}
 	requests := make([]brokerstore.Request, 0, len(bodies))
 	for _, body := range bodies {
+		before, err := fixture.store.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
 		finished := make(chan productionForwardResult, 1)
 		go func(body string) {
 			code, stdout, stderr := fixture.forwardInput(body, "pr", "comment", "41", "--repo", "o/r", "--body-file", "-")
 			finished <- productionForwardResult{code: code, out: stdout, stderr: stderr}
 		}(body)
 
-		waitApprovalWatchOutput(t, out, func(got string) bool {
-			return strings.Contains(got[len(initial):], "request-filed")
-		})
+		waitProductionRequestFiled(t, out, fixture.store, before, initial, stdinSHA256([]byte(body)))
 		current, _, err := fixture.store.List()
 		if err != nil {
 			t.Fatal(err)
@@ -274,6 +469,23 @@ func TestApproveWatchTextLiveProductionRequestsIncludeCompleteActionIdentity(t *
 		}
 		requests = append(requests, request)
 		live := out.String()
+		observed := strings.Contains(live[len(initial):], "request-filed") && strings.Contains(live[len(initial):], request.ID)
+		after, err := fixture.store.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var diff []string
+		for _, event := range brokerstore.Diff(before, after) {
+			id, state := "", ""
+			if event.Request != nil {
+				id, state = event.Request.ID, event.Request.State
+			}
+			diff = append(diff, event.Kind+":"+id+":"+state)
+		}
+		t.Logf("approval-watch observation: request=%s state=%s stdin_sha256=%s store=%q diff=%v output-event=%t output-stats={%s}", request.ID, request.State, request.StdinDigest, fixture.store.Dir, diff, observed, out.writeStats())
+		if !observed {
+			t.Fatalf("production request %s is durable but its request-filed output is missing: %q", request.ID, live[len(initial):])
+		}
 		if !strings.Contains(live[len(initial):], "command SHA-256 "+request.Digest) ||
 			!strings.Contains(live[len(initial):], "stdin SHA-256 "+request.StdinDigest) ||
 			strings.Contains(live[len(initial):], body) {

@@ -80,6 +80,9 @@ func TestUpdatePreludeCompletesBeforeUntouchedTarget(t *testing.T) {
 	if err == nil {
 		t.Fatalf("failed preparation returned success: output=%q", got)
 	}
+	if strings.Contains(string(got), "⚡ Executing:") {
+		t.Fatalf("failed preparation printed Executing banner before target could run: output=%q", got)
+	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("failed preparation reached target (marker stat err=%v): output=%q", err, got)
 	}
@@ -103,20 +106,26 @@ func TestUpdateTimingReportsAfterThePreparedTargetCompletes(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "yolo"), []byte("#!/bin/sh\nprintf 'prepared %s\\n' \"$2\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	o := &Options{Update: true, Timing: true, Getenv: func(string) string { return "" }}
-	cmd := exec.Command("bash", "-c", o.sessionCmd("sh -c 'echo target-completed; exit 7'"))
-	cmd.Env = append(os.Environ(), "HOME="+dir, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	out, err := cmd.CombinedOutput()
-	if err == nil || err.(*exec.ExitError).ExitCode() != 7 {
-		t.Fatalf("target status: %v\n%s", err, out)
-	}
-	text := string(out)
-	last := -1
-	for _, want := range []string{"prepared refresh-programs", "prepared refresh-servers", "\ntarget-completed\n", "=== YOLO Jail Profile ===", "command execution:"} {
-		at := strings.Index(text, want)
-		if at < 0 || at <= last {
-			t.Fatalf("missing/out-of-order %q:\n%s", want, text)
+	for _, timing := range []bool{false, true} {
+		o := &Options{Update: true, Timing: timing, Getenv: func(string) string { return "" }}
+		cmd := exec.Command("bash", "-c", o.sessionCmd("sh -c 'echo target-completed; exit 7'"))
+		cmd.Env = append(os.Environ(), "HOME="+dir, "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		out, err := cmd.CombinedOutput()
+		if err == nil || err.(*exec.ExitError).ExitCode() != 7 {
+			t.Fatalf("timing=%v target status: %v\n%s", timing, err, out)
 		}
-		last = at
+		text := string(out)
+		wantOrder := []string{"prepared refresh-programs", "prepared refresh-servers", "⚡ Executing: ", "\ntarget-completed\n"}
+		if timing {
+			wantOrder = append(wantOrder, "=== YOLO Jail Profile ===", "command execution:")
+		}
+		last := -1
+		for _, want := range wantOrder {
+			at := strings.Index(text, want)
+			if at < 0 || at <= last {
+				t.Fatalf("timing=%v missing/out-of-order %q:\n%s", timing, want, text)
+			}
+			last = at
+		}
 	}
 }

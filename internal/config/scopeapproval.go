@@ -570,7 +570,6 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 		declarationKey := selectedDeclarationRecordKey(s)
 		declarationChanged := selectedDeclarationChanged(s, old[declarationKey])
 		if s.Dormant || len(s.Disclosure) > 0 && !s.concrete() && len(old[s.Source]) == 0 {
-
 			out.approved[s.Label] = []ScopeRepo{}
 			// BB-D110 preserves inert historical records while keeping them out of current
 			// launch authority. FirstRead still presents all scope and grants as added.

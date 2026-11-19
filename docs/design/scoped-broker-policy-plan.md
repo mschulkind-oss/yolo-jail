@@ -15,7 +15,7 @@ summary: "Source-grounded implementation units for the common Git, GitHub, AWS a
 # Implementation plan: scoped operation-broker policy
 
 **Written against:** `62c2f84aa6b294cae0272e73007b2871a83de5db`, 2026-11-17. The publication baseline has the same runtime trees as the planner's `15da1299ffe8c65db4a3f2beef9f8421dabbb99c` source-read baseline.
-**Design:** [Scoped broker policy](scoped-broker-policy.md), accepted but unbuilt; [SBP-D1–D36](scoped-broker-policy.md#decision-ledger) and closed [OQ-SBP1=B](scoped-broker-policy.md#OQ-SBP1) are binding. **Designer:** the original design author. **Planner:** this source-read/artifact-only pass. **Implementer:** a future independently materialized candidate writer, not this session.
+**Design:** [Scoped broker policy](scoped-broker-policy.md), accepted but unbuilt; [SBP-D1–D37](scoped-broker-policy.md#decision-ledger) and closed [OQ-SBP1=B](scoped-broker-policy.md#OQ-SBP1) are binding. **Designer:** the original design author. **Planner:** this source-read/artifact-only pass. **Implementer:** a future independently materialized candidate writer, not this session.
 
 **Readiness:** complete, focused-reviewed build hand-off; accepted and unbuilt. This revision incorporates all six major findings and R1–R7 of the accepted author repair, its fixed V6/V7 fallbacks, all 144 acceptance IDs and the five focused-review publication corrections. Candidate admission and U1 remain the first implementation steps. Publication is not code authorization, runtime acceptance or reference graduation; fresh independent code review and applicable final-tree gates remain required.
 
@@ -110,7 +110,7 @@ Existing paths below were inspected by source read; new paths are explicitly mar
 | Facts | Known admitted repository/scope, read cell, canonical fact intent, candidate set; one call-local counter | No durable/provider facts cache or preapproval lookup. Fact read must run before sending it; fifth refuses. Cached invocation facts are usable only with current scope/policy/context checks at effect boundaries; do not preserve them across a retry or relaunch. |
 | Context identity | Source, declaration hash including set/unset metadata, context name, exact declared field names/values, matched scope | Only nondefault identity enters digest/timed key. Fresh route selection at answer and dispatch; any identity mismatch prevents spend/coverage. Host profile contents are neither read nor verified. Captured environment itself stays pin-time fixed. |
 | Agent wake/publication records | Existing `.yolo/approvals` hints and native notification/web view | Non-authoritative. Wait exit codes preserved; publication failure reported. Never authorize from browser, hook output or agent-writable hints. |
-| Classifier protocol | Step CLI/HTTP classifier version together; typed ordered read cells/descriptions | Zero declared read cells use the derived implicit read only if the existing read grant kind exists; one absorbs an uncelled read; many require a named declared read cell. Zero with no grant kind has no read authority. Cell/description additions are optional; old protocol remains valid except withheld lookup must refuse. Native Git/GH wire versions are not rewritten; generic classifier /1 normal compatibility and /2 withheld fact behavior are explicit below. Reject unknown/duplicate JSON and incompatible frontend/input versions. |
+| Classifier protocol | Step CLI/HTTP classifier version together; typed ordered read cells/descriptions | Zero declared read cells use the derived implicit read only if the existing read grant kind exists; one absorbs an uncelled read; many require a named declared read cell. Zero with no grant kind has no read authority. Cell/description additions are optional; old protocol remains valid except withheld lookup must refuse. Native Git/GH wire versions are not rewritten; generic classifier /1 normal compatibility, the observed-advertisement /2 upgrade for typed reads, and /2 withheld fact behavior are explicit below ([SBP-D37](scoped-broker-policy.md#SBP-D37)). Reject unknown/duplicate JSON and incompatible frontend/input versions. |
 
 **Compatibility assertions, do not reopen:** broad read grants, native branch/tag/repository rights, working-set defaults and historical Add entries keep their meanings. With no new form, decisions/digests stay baseline except the specifically accepted hold/deadline, fresh-holder, placement, selector and cell-apply corrections. A legacy record without a source read grant retains the old all-call refusal; its latent writes become explicitly added gate lines before the new model marker is approved. A marked record with later read removal retains independent write rights, and inspection names `[allow.<pack>] off = true` as the whole-source stop.
 
@@ -150,13 +150,85 @@ U1 is a preflight/evidence checkpoint; U2–U12 are coherent candidate commits e
 
 **Settled:** read/write independent; each governing line final within its layer, stricter layer wins; any refused operation refuses the bundle, any ask makes one request. No read defaults.
 
-**Tests first:** `internal/brokerpolicy/policy_test.go` and public `internal/callbroker/scopedclassification_test.go` cover the full rule state matrix below. Drive built-in AWS/CircleCI classifier Run boundaries and generic CLI/HTTP protocol decoders. Pin the zero/one/many matrix and read-grant/default behavior in H26–H32; malformed named read, forbidden read defaults/tables, reserved cell read and many-cell ambiguity refuse before effects.
+**Tests first:** `internal/brokerpolicy/policy_test.go` and public `internal/callbroker/scopedclassification_test.go` cover the full rule state matrix below. Drive built-in AWS/CircleCI classifier Run boundaries and generic CLI/HTTP protocol decoders. Pin the zero/one/many matrix and read-grant/default behavior in H26–H32; malformed named read, forbidden read defaults/tables, reserved cell read and many-cell ambiguity refuse before effects. [Negotiation cases N1–N12, with N5a–N5c](#planned-classifier-negotiation-controls) (plan-level, under H26–H32 and C7n; no new scenario IDs) drive the real process boundary with counting fake classifiers.
 
 **Change:** use U2's parsed cell Kind and add typed read descriptors to operation protocols/classifiers; write cell omission retains the existing write kind. Read cells have no working-set table/default. No shipped pack is required to declare read cells. Its zero-cell implicit read suffices for scoped AWS/CircleCI policy without a declaration gate change **only while the manifest is unchanged**. AWS segment/anchors/context metadata or explicit AWS/CircleCI read cells change the hash and require one active-source declaration prompt; H26 covers unchanged declarations only. Explicit per-operation AWS read cells (list_objects/get_objects/head_objects/four CE queries) and CircleCI listing are an additive TOML declaration change in this unit, never a prerequisite for the shared model. Native Git fetch/GitHub read remain native single subjects. Keep AWS original canonical argv and grammar; naming a read is not a new AWS operation. Add read-cell metadata without adding program/credential authority.
 
-**Checkable tasks:** implement layer rule selection, the authored four-step never-only exception over the shipped ceiling resolver, exact `never` coverage, strict bundle aggregation and the single live table selector. H1–H14 pin exact/segment byte containment, chain-position/length order, broad anchor rules within admission, selected-source validation and rule-versus-route independence. Retain AWS cover under H9 parity; do not turn route matching into URI parsing. Resolve source containment exclusively through the authored contract. Adapt zero cells to an implicit read without mutating the declaration, one to its declared cell, and many only to named cells. Do not insert implicit metadata into hash/disclosure or grant anything to a zero-cell source lacking read grant kind. A new seven-cell AWS classifier labels every read. Keep `validateChain` repeated-type/parent/verbatim-approved-root checks, HTTP method/read_over_post floor and native resolver contracts before policy.
+**Checkable tasks:** implement layer rule selection, the authored four-step never-only exception over the shipped ceiling resolver, exact `never` coverage, strict bundle aggregation and the single live table selector. H1–H14 pin exact/segment byte containment, chain-position/length order, broad anchor rules within admission, selected-source validation and rule-versus-route independence. Retain AWS cover under H9 parity; do not turn route matching into URI parsing. Resolve source containment exclusively through the authored contract. Adapt zero cells to an implicit read without mutating the declaration, one to its declared cell, and many only to named cells. Do not insert implicit metadata into hash/disclosure or grant anything to a zero-cell source lacking read grant kind. The AWS classifier answers a /1 request with its shipped uncelled reads labelled /2, and labels every read with one of the seven declared cells only on a /2 request; it adds no grammar row. The CircleCI classifier may advertise and name its optional listing cell the same way; an unadvertising classifier with zero read cells is unchanged. The decoder is version-dispatched and source-neutral: no source-name switch, registry, declaration capability field or cell metadata in classifier input. Keep `validateChain` repeated-type/parent/verbatim-approved-root checks, HTTP method/read_over_post floor and native resolver contracts before policy.
 
 **Gates:** `go test -short ./internal/brokerpolicy ./internal/loopholedecl ./internal/awsclassify ./internal/circleciclassify ./internal/callbroker ./internal/config`; fuzz malformed/duplicate classifier fields using existing fuzz boundaries. **Commit:** `feat(brokers): resolve typed read and write cells consistently`.
+
+#### Planned classifier negotiation controls
+
+These are **protocol-testcase IDs**, grouped under existing H26–H32 and C7n, not new acceptance
+scenario IDs. **Predicted outcomes; not executed.** Implement them through U3's real process
+boundary with counting fake classifiers; permission activation, provider execution and approval
+filing remain U7 work, not added to U3.
+
+**Request-owned formats:** the answer body follows the request version, not its advertisement
+label. CLI `/1` and `/2` requests retain `version`, `front`, `argv`, `stdin_sha256`, `roots` and
+`facts`; no cell metadata or authority input is added. HTTP keeps its own request shape and uses
+the same source-neutral negotiation/validation algorithm; the closure author did not read its
+schema, and this publication does not claim those six CLI fields are HTTP fields.
+
+| Request / answer label | Required body and outcome |
+| :--- | :--- |
+| `/1`→`/1` | Strict shipped body: bare read chains, single-cell writes. Old classifier; no successor request. |
+| `/1`→`/2` | Strict shipped body, not typed: advertisement only. All `/1`-request answers in one classification keep this label. |
+| `/2`→`/2` | Strict typed body: `reads: [{cell?, chain, description?}]`; every read passes the zero/one/many matrix. |
+| `/2`→`/1` | Pack bug; refuse before lookup, decision or effect. |
+
+Unknown and duplicate keys refuse in both decoders. A `/1` fact keeps `name`, `arguments`,
+`value`; a `/2` fact carries exactly one of `value` or `status: "withheld"`. A `/2` write carries
+chain/description and exactly one of cell or at least two unique declared write candidates;
+candidates are legal only if the request held a withheld fact. A withheld continuation never
+invents provider data. Zero declared read cells reject any named read, including in a withheld
+`/2` answer; an existing read grant kind alone supplies the unnamed implicit read. One cell
+absorbs an uncelled read or accepts only its own name. Many cells require names; a `/1`-only
+classifier's reads refuse with the next step to update the pack's classifier or declare at most
+one read cell. No supplied cell name is stripped, and core never supplies one.
+
+**Validation order:** strict request-version shape and label; canonical argv/stdin hash, exactly
+one answer kind and declared lookups; admitted chains and applicable HTTP floors; declared
+write/candidate names; then read cardinality. Only the first advertising read/lookup answer under
+explicit read cells is provisional and skips the final cardinality check. All earlier checks
+still run; the entire provisional answer is discarded before any lookup, decision, request or
+effect. The typed replacement passes every check. Withheld continuation defers nothing.
+
+| Bound | Required count / budget |
+| :--- | :--- |
+| Local classifier processes per classification | Baseline at most 4; at most 5 only with the one discarded typed-read upgrade. A withheld continuation adds no process beyond the existing round loop. |
+| Lookup rounds | At most 3; provisional lookups are never performed and do not consume a round. |
+| Actual fact sends per call | At most 4; the fifth refuses. The extra local negotiation process is not a fact send. |
+| Per-process and whole classification budget | 2 s and 30 s unchanged, including the upgrade. No new timeout or cap cache. |
+
+Each replay and nested lookup classification starts `/1` and negotiates afresh. New core remains
+compatible with old classifiers; this does not promise that an advertising new classifier works
+with baseline core. Baseline core already ran the local classifier before refusing its version;
+no broker/provider operation or approval request follows. Shipped commands are source-confirmed
+as `yolo internal call-broker-classify aws` and `yolo internal call-broker-classify circleci` in
+the [AWS manifest](../../packs/aws/loopholes/aws-broker/loophole.toml) and
+[CircleCI manifest](../../packs/circleci/loopholes/circleci-broker/loophole.toml), not proof of an
+always-matching generation. Required label/shape checks apply even to shipped executables.
+No runner emission, AWS grammar-row correspondence or HTTP schema was verified by this publication.
+
+| Case | Setup | Predicted result |
+| :--- | :--- | :--- |
+| N1 | Unchanged AWS declaration (zero read cells), shipped-shape classifier labelled `/1` | One process; reads are the implicit read; identical to baseline. |
+| N2 | Zero read cells, advertising classifier, read-only call | One process; no `/2` request is ever written to the classifier. |
+| N3 | Zero read cells; a `/2`-shape body in answer to a `/1` request | Refused by the strict `/1` decoder. |
+| N4 | One read cell, `/1`-only classifier | One process; uncelled read absorbed. |
+| N5 | Seven read cells, advertising classifier, S3 list | Two processes. The first answer's uncelled read is not refused: cardinality is deferred for it and it is discarded. The second request is `/2` with identical argv, hash, roots and empty facts. The second answer's read is named and passes cardinality. |
+| N5a | N5, but the first answer has an unadmitted chain, an undeclared write cell or a wrong argv echo | Refused on the first answer; no `/2` request is sent. |
+| N5b | N5, but the `/2` answer's read is uncelled or names an undeclared cell | Refused; no lookup, no decision. The deferral did not carry over. |
+| N5c | N5's first answer, with the upgrade path disabled in the test | No decision, request or effect is ever produced from the provisional answer. |
+| N6 | Seven read cells, `/1`-only classifier, read call | One process; refused with the classifier-update next step; no `/2` sent. |
+| N7 | Seven read cells, advertising classifier, first answer refused or write-only | One process; final. |
+| N8 | Advertising classifier, first answer asks a lookup, explicit read cells | The provisional lookup request is discarded. Lookup reader call count is 0 until a `/2` answer has passed all five checks. |
+| N9 | `/2` answer naming an undeclared cell, an uncelled read with many cells, or labelled `/1` | Refused; no lookup, no decision. |
+| N10 | Label flips between two `/1`-request answers | Refused. |
+| N11 | Withheld lookup, `/1`-only classifier | Refused naming the read line (C7n); no `/2` sent. |
+| N12 | Typed upgrade followed by three lookup rounds | Five processes, three lookup rounds, within the 30 s budget; a sixth process is refused. |
 
 ### U4 — store binding, selector parity, holder and placement (after U3; 5–7 h)
 
@@ -440,7 +512,7 @@ Requestable-by-default retains only its old source-scope read-kind gate meaning;
 
 **Real generic producer:** the real Main/frontend/classifier/lookup/transaction path witnesses C6/C7/C7a/C7b/C7d–C7h/H18 with a fake source declaring write cells a/b, correctly paired all/working_set asks, and a bound declared lookup. Host read never or workspace read false with a=false/b=ask must produce no provider call and no request (C7e), including a preexisting b timed entry (C7f). With read changed to run, the counted lookup resolves the actual cell and sends only the allowed write (C7g). Fact ask + mixed refuse/ask follows the spent-at-first-fact fourth row, including denied resolved write/no refund. All-ask/non-refused candidates accept one once answer or all-or-none timed entries; H18 caps are 1h and15m, not GitHub native maxima.
 
-**Protocol mechanics:** retain shipped `yolo.call-broker-classifier/1` request/answer normal reads; introduce its `/2` successor for typed optional reads and withheld facts/candidates. Begin with the existing request shape so old classifiers remain runnable. A /2-capable answer declares support; after a withheld bound lookup only that producer receives a /2 continuation with an explicit withheld status and no Value/provider data. Its write response has either one Cell or >=2 unique declared write Candidates plus the same admitted chain/canonical intent; never both. A /1 answer asking a lookup that cannot run is refused naming the read line (C7n), without treating missing facts as empty real data. Version-dispatched strict decoding preserves old uncelled/description-less reads and rejects new ambiguity/unknown fields. No rule, route/profile, authority path or host secret is classifier input. Actual lookup sends remain capped at four for the invocation and admission is unchanged.
+**Protocol mechanics:** retain shipped `yolo.call-broker-classifier/1` request/answer normal reads; introduce its `/2` successor for typed optional reads and withheld facts/candidates. Begin every classification with the existing /1 request so old classifiers remain runnable. A /2-capable classifier declares support by labelling its answer to a /1 request `/2`; that answer's body stays /1 shape (uncelled reads, single-cell writes), and all answers to /1 requests in one classification carry one label. Core sends /2 only to a producer observed advertising in this classification, and only in two cases. (a) Typed reads: the selected declaration has >=1 explicit read cell and the first answer is a classification with >=1 read or a lookup request; core treats that answer as provisional: it validates strict shape, version label, argv/stdin hash, admitted chains, declared lookups, HTTP floors and declared write cells, defers ONLY uncelled-read cardinality, discards the answer, uses nothing from it (no lookup, decision, request or effect), and resends identical argv/stdin hash/roots with empty facts as /2; every later request in that classification is /2, and each /2 answer passes full read-cell cardinality and name validation before any lookup, provider call or decision. Cardinality is never deferred for a /1-labelled answer, a zero-read-cell declaration, a refused/local/read-free first answer, or any /2 answer; no cell name is stripped or supplied by core. (b) After a withheld bound lookup the next request is /2 with an explicit withheld status and no Value/provider data; this does not discard the prior answer or defer cardinality. /2 answers use `reads: [{cell?, chain, description?}]`; a /1-labelled answer to a /2 request is a pack bug. A refusal, local answer or read-free classification on the first answer is final with no upgrade. No capability cache: replays and nested lookup classifications renegotiate. Upgrade adds at most one classifier process (max 5), no lookup round and no fact send. A never-advertising classifier is never sent /2; with many read cells its reads refuse naming the classifier update. Core/classifier generation match is never assumed, including for shipped packs: label and shape checks run on every answer and refuse on skew before any lookup or effect. A baseline core refuses an advertising classifier at its version check, so third-party packs advertise only for this revision's core. Its write response has either one Cell or >=2 unique declared write Candidates plus the same admitted chain/canonical intent; never both. A /1 answer asking a lookup that cannot run is refused naming the read line (C7n), without treating missing facts as empty real data. Version-dispatched strict decoding preserves old uncelled/description-less reads and rejects new ambiguity/unknown fields. No rule, route/profile, authority path or host secret is classifier input. Actual lookup sends remain capped at four for the invocation and admission is unchanged.
 
 **GitHub:** only implemented canonical ceiling words read/create_pr/create_issue/runs/approve_runs enter never; no all/working_set/cell tokens or new ask tables. Existing legacy alias transformations are preserved by their old path, not advertised as newly implemented cell words. Producer tests use built grants/defaults only. C7c/C7i/C7j/C7l/C7m are built-rights witnesses; differing candidate values for C6/C7/C7a/C7b/C7d–C7h/H18 are injected adapter-boundary checks, **not GitHub config or producer evidence**. The generic producer is the acceptance witness for those cases.
 

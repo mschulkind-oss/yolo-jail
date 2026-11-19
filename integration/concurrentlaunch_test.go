@@ -39,20 +39,35 @@ import (
 // syncBuffer is an io.Writer safe to read while a child process writes to it — the test
 // polls a running launch's output to decide when to start the second one.
 type syncBuffer struct {
-	mu sync.Mutex
-	b  bytes.Buffer
+	mu      sync.Mutex
+	b       bytes.Buffer
+	changed chan struct{}
 }
 
 func (s *syncBuffer) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.b.Write(p)
+	n, err := s.b.Write(p)
+	if s.changed != nil {
+		close(s.changed)
+	}
+	s.changed = make(chan struct{})
+	return n, err
 }
 
 func (s *syncBuffer) String() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.b.String()
+}
+
+func (s *syncBuffer) snapshotAndChanged() (string, <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.changed == nil {
+		s.changed = make(chan struct{})
+	}
+	return s.b.String(), s.changed
 }
 
 // bgRun is a `yolo` invocation running in the BACKGROUND, so a second one can be started
@@ -111,12 +126,20 @@ func startYoloBackgroundWith(t *testing.T, name, dir string, flags []string, scr
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	args := append(append(jailRunArgs(), flags...), "--", "bash", "-lc", script)
-	cmd := exec.CommandContext(ctx, yoloBin, args...)
+	cfg := runConfig{env: env}
+	program, argv := privateLaunchCommand(t, cfg, yoloBin, args)
+	cmd := exec.CommandContext(ctx, program, argv...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=dumb")
-	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
-	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
-	cmd.Env = append(cmd.Env, env...)
+	childEnv := append(os.Environ(), "TERM=dumb")
+	childEnv = append(childEnv, autoCaptureEnvForSuite()...)
+	childEnv = append(childEnv, readinessEnvForSuite()...)
+	childEnv = append(childEnv, env...)
+	var err error
+	cmd.Env, err = privateRouteEnvironment(childEnv)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	out := &syncBuffer{}
 	cmd.Stdout = out

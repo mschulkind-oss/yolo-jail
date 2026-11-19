@@ -92,9 +92,16 @@ func (fx *s3BrokerJail) hostYolo(args ...string) (string, error) {
 	for _, o := range append(append([]runOption{}, fx.opts...), withHostSemantics()) {
 		o(&cfg)
 	}
-	name, argv := launchCommand(cfg, yoloBin, args)
+	name, argv, err := privateLaunchCommandChecked(cfg, yoloBin, args)
+	if err != nil {
+		return "", err
+	}
+	env, err := privateRouteEnvironment(launchEnvironment(cfg))
+	if err != nil {
+		return "", err
+	}
 	cmd := exec.Command(name, argv...)
-	cmd.Dir, cmd.Env = fx.workspace, launchEnvironment(cfg)
+	cmd.Dir, cmd.Env = fx.workspace, env
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

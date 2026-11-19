@@ -79,8 +79,8 @@ func TestMCPAuthHeaderInAJailWithNoBrokerSaysSo(t *testing.T) {
 }
 
 // The host answer composes the user's own config the way `yolo host` does: a sign_in = "once"
-// server it declares is served (here: not signed in yet, naming Claude's sign-in, because the
-// selected claude pack's store in the real home is a source), and a server it does not declare
+// server it declares is served (here: no known delivered or existing native sign-in point,
+// so the refusal gives the own-client alternative), and a server it does not declare
 // is refused with exit 2. No authorization server is reached: nothing is signed in.
 func TestMCPAuthHostHeaderComposesTheUsersOwnConfig(t *testing.T) {
 	if runtime.GOOS != "linux" {
@@ -96,8 +96,8 @@ func TestMCPAuthHostHeaderComposesTheUsersOwnConfig(t *testing.T) {
 	writeUserConfig(t, `{"packs":["claude"],"mcp_servers":{"slack":{"url":"https://mcp.slack.com/mcp","sign_in":"once"}}}`)
 	_, err := mcpAuthHostHeader(context.Background(), "slack", nil)
 	var refusal *mcpauthdaemon.HeaderRefusal
-	if !errors.As(err, &refusal) || refusal.Code != 1 || !strings.Contains(refusal.Message, "not signed in") ||
-		!strings.Contains(refusal.Message, "run /mcp in claude and authenticate slack") {
+	if !errors.As(err, &refusal) || refusal.Code != 1 || !strings.Contains(refusal.Message, "no agent here can sign in") ||
+		!strings.Contains(refusal.Message, "yolo config set mcp_servers.slack.oauth.client_id <id> --user") {
 		t.Fatalf("slack: %v", err)
 	}
 	_, err = mcpAuthHostHeader(context.Background(), "linear", nil)
@@ -127,7 +127,7 @@ func TestMCPAuthHeaderThroughMainPrintsOnlyTheHeaderValue(t *testing.T) {
 	if rc != 2 || out != "" || !strings.Contains(errs, "not served") {
 		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, out, errs)
 	}
-	rc, _, errs = captureStd(t, func() int { return Main([]string{"yolo", "mcp-auth", "status"}) })
+	rc, _, errs = captureStd(t, func() int { return Main([]string{"yolo", "mcp-auth", "status", "--unknown"}) })
 	if rc != 2 || !strings.Contains(errs, "yolo mcp-auth --help") {
 		t.Fatalf("a usage error: rc=%d stderr=%q", rc, errs)
 	}

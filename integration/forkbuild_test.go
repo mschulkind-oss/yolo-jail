@@ -88,7 +88,10 @@ func TestForkBuildDeliversTheForkInPlaceOfItsBase(t *testing.T) {
 		`"build":"`+buildJSON+`","produces":[".local/bin/`+forkFixtureBin+`"]}]}`)
 	packHome(t, `{"packs": [{"source": "file://`+base+`", "name": "`+forkFixtureBasePack+`"}, `+
 		`{"source": "file://`+fork+`", "name": "`+forkFixtureForkPack+`"}]}`)
-	withPrivateFixtureYoloStore(t)
+	home := withPrivateFixtureYoloStore(t)
+	if privateSuite.armed {
+		usePrivateNativeFixture(t, plainForkNativeFixture(home, base, fork, repo))
+	}
 
 	// THE PIN IS WRITTEN TO THE FORK LOCK BESIDE THE USER CONFIG, NEVER TO THE CONFIG ITSELF.
 	userConfig := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail", "config.jsonc")

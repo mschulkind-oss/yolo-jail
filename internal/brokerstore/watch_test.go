@@ -273,3 +273,162 @@ func TestSurfaceJSONCarriesSchemaAndOpenRecordsOnly(t *testing.T) {
 		t.Errorf("event %s", b)
 	}
 }
+
+func TestStateViewWithEndedIncludesDecidedEndedAndHorizon(t *testing.T) {
+	s, now, input := fixture(t)
+	s.PublishRecords = true
+
+	// 1) Allowed once and spent (tests answer=once, via, spent_at, ended grant with EndUsed).
+	rOnce, err := s.File(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gOnce, err := s.Decide(rOnce.ID, "pending", Decision{Via: ViaHost})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.Consume(input.Workspace, input.Jail, input.Set, rOnce.Digest, s.Revalidate); err != nil || !ok {
+		t.Fatalf("consume once: ok=%v err=%v", ok, err)
+	}
+
+	// 2) Denied with note (tests answer=deny, via, denial_note).
+	input.Argv = []string{"pr", "merge", "2", "--body", "super-secret-body"}
+	rDeny, err := s.File(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(rDeny.ID, "pending", Decision{Deny: true, DenialNote: "use release branch", Via: ViaOnRequest}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3) Allowed for duration, then revoked (tests answer=for, until, ended grant with EndRevoked).
+	input.Argv = []string{"pr", "merge", "3"}
+	rFor, err := s.File(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gFor, err := s.Decide(rFor.ID, "pending", Decision{For: 30 * time.Minute, Uses: 5, Via: ViaHost})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke(gFor.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// 4) Working-set entries: one live, one revoked, one timed and expired.
+	wLive, _, err := s.AddWorking(WorkingEntry{Workspace: input.Workspace, Repo: "github.com/o/r", Kind: WorkingBranch, Resource: "refs/heads/live", By: "create-branch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wRevoked, _, err := s.AddWorking(WorkingEntry{Workspace: input.Workspace, Repo: "github.com/o/r", Kind: WorkingBranch, Resource: "refs/heads/revoked", By: "human"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EndWorking(wRevoked.ID, EndRevoked); err != nil {
+		t.Fatal(err)
+	}
+	wTimed, _, err := s.AddWorking(WorkingEntry{Workspace: input.Workspace, Repo: "github.com/o/r", Kind: WorkingBranch, Resource: "refs/heads/timed", By: "human", Expires: now.Add(10 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 5) Pending request, and expired/refused requests.
+	input.Argv = []string{"pr", "merge", "4"}
+	rExpired, err := s.File(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(PendingLife) // expires rExpired and wTimed
+	input.Argv = []string{"pr", "merge", "5"}
+	rRefused, err := s.File(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.End(input.Jail, input.Start); err != nil {
+		t.Fatal(err)
+	}
+	input.Argv = []string{"pr", "merge", "6"}
+	rPending, err := s.File(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := s.Snapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Default StateView remains open-only with no ended metadata.
+	open := s.StateView(snap)
+	if open.IncludesEnded || open.HorizonDays != 0 || open.HorizonNote != "" {
+		t.Fatalf("open StateView unexpectedly set ended metadata: %+v", open)
+	}
+	if len(open.Requests) != 1 || open.Requests[0].ID != rPending.ID {
+		t.Fatalf("open requests = %+v, want only %s", open.Requests, rPending.ID)
+	}
+	if len(open.Grants) != 0 {
+		t.Fatalf("open grants = %+v, want none", open.Grants)
+	}
+	if len(open.Working) != 1 || open.Working[0].ID != wLive.ID {
+		t.Fatalf("open working = %+v, want only %s", open.Working, wLive.ID)
+	}
+
+	// StateViewWithEnded includes all decided/ended records and horizon metadata.
+	ended := s.StateViewWithEnded(snap)
+	if ended.Schema != Schema || !ended.IncludesEnded || ended.HorizonDays != EndedRetentionDays || !strings.Contains(ended.HorizonNote, "7 days") {
+		t.Fatalf("ended metadata = %+v", ended)
+	}
+	reqByID := map[string]RequestView{}
+	for _, rv := range ended.Requests {
+		reqByID[rv.ID] = rv
+	}
+	if len(reqByID) != 6 {
+		t.Fatalf("ended requests count = %d, want 6", len(reqByID))
+	}
+	if got := reqByID[rOnce.ID]; got.State != "allowed" || got.Answer != AnswerOnce || got.Via != ViaHost || got.SpentAt == nil || got.Workspace != input.Workspace {
+		t.Fatalf("rOnce = %+v", got)
+	}
+	if got := reqByID[rDeny.ID]; got.State != "denied" || got.Answer != AnswerDeny || got.Via != ViaOnRequest || got.DenialNote != "use release branch" || got.Workspace != input.Workspace {
+		t.Fatalf("rDeny = %+v", got)
+	}
+	if got := reqByID[rFor.ID]; got.State != "allowed" || got.Answer != AnswerFor || got.Until == nil || got.Workspace != input.Workspace {
+		t.Fatalf("rFor = %+v", got)
+	}
+	if got := reqByID[rExpired.ID]; got.State != "expired" || got.Decided == nil {
+		t.Fatalf("rExpired = %+v", got)
+	}
+	if got := reqByID[rRefused.ID]; got.State != "refused" || got.Reason != ReasonBrokerStopped {
+		t.Fatalf("rRefused = %+v", got)
+	}
+
+	grantByID := map[string]GrantView{}
+	for _, gv := range ended.Grants {
+		grantByID[gv.ID] = gv
+	}
+	if len(grantByID) != 2 {
+		t.Fatalf("ended grants count = %d, want 2", len(grantByID))
+	}
+	if got := grantByID[gOnce.ID]; got.State != "ended" || got.EndReason != EndUsed || got.Ended == nil || got.Workspace != input.Workspace {
+		t.Fatalf("gOnce = %+v", got)
+	}
+	if got := grantByID[gFor.ID]; got.State != "ended" || got.EndReason != EndRevoked || got.Ended == nil || got.Workspace != input.Workspace {
+		t.Fatalf("gFor = %+v", got)
+	}
+
+	workByID := map[string]WorkingView{}
+	for _, wv := range ended.Working {
+		workByID[wv.ID] = wv
+	}
+	if len(workByID) != 3 {
+		t.Fatalf("ended working count = %d, want 3", len(workByID))
+	}
+	if got := workByID[wLive.ID]; got.State != "live" || got.Ended != nil || got.Workspace != input.Workspace {
+		t.Fatalf("wLive = %+v", got)
+	}
+	if got := workByID[wRevoked.ID]; got.State != "ended" || got.EndReason != EndRevoked || got.Ended == nil || got.Workspace != input.Workspace {
+		t.Fatalf("wRevoked = %+v", got)
+	}
+	if got := workByID[wTimed.ID]; got.State != "ended" || got.EndReason != EndExpired || got.Ended == nil || got.Workspace != input.Workspace {
+		t.Fatalf("wTimed = %+v", got)
+	}
+}

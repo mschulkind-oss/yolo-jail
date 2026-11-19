@@ -30,66 +30,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// packEditArgs parses `<handle> [--dry-run]` for add and remove.
-func packEditArgs(verb string, args []string, errw io.Writer) (handle string, dryRun bool, rc int) {
-	for _, a := range args {
-		switch {
-		case a == "--dry-run":
-			dryRun = true
-		case strings.HasPrefix(a, "-"):
-			fmt.Fprintf(errw, "yolo pack %s: unknown flag %s — it takes one pack handle and --dry-run "+
-				"(see `yolo pack --help`)\n", verb, a)
-			return "", false, 2
-		case handle != "":
-			fmt.Fprintf(errw, "yolo pack %s: one pack handle at a time, got a second: %q\n", verb, a)
-			return "", false, 2
-		default:
-			handle = a
-		}
-	}
-	if handle == "" {
-		fmt.Fprintf(errw, "yolo pack %s: name the pack, for example `yolo pack %s local/matt` "+
-			"(`yolo pack --help`)\n", verb, verb)
-		return "", false, 2
-	}
-	if strings.Contains(handle, "://") {
-		fmt.Fprintf(errw, "yolo pack %s: %q is an address, not a handle; `pack %s` takes a shipped name or "+
-			"source/pack such as local/matt. To list a git pack, run "+
-			"`yolo config add packs '{ git = \"URL\" }' --user`\n", verb, handle, verb)
-		return "", false, 2
-	}
-	return handle, dryRun, 0
-}
-
 func printPackHostRun(errw io.Writer, workspace, verb string, args []string) {
 	command := shquote.Join(append([]string{"yolo", "pack", verb}, args...))
 	fmt.Fprintf(errw, "the pack list is the user config's, which only the host edits; run: "+
 		"yolo host-run -C %s --name pack-%s -- %s\n", shquote.QuoteDisplay(workspace), verb, command)
 }
 
-// userPackItems is the user target's authored `packs` strings, by list index, with isString false
-// for an item that is not a plain string (a table), which neither verb matches by handle.
-func userPackItems(target config.ResolvedEditTarget) (items []string, isString []bool, err error) {
-	data := target.ExpectedBytes()
-	if len(strings.TrimSpace(string(data))) == 0 {
-		return nil, nil, nil
-	}
-	doc, err := configdoc.Parse(data, target.Format)
-	if err != nil {
-		return nil, nil, err
-	}
-	raw, _ := doc.Values.Get("packs")
-	list, _ := raw.([]any)
-	for _, item := range list {
-		s, ok := item.(string)
-		items = append(items, s)
-		isString = append(isString, ok)
-	}
-	return items, isString, nil
-}
-
 func packAdd(args []string, out, errw io.Writer) int {
-	handle, dryRun, rc := packEditArgs("add", args, errw)
+	options, rc := packEditArgs("add", args, errw)
+	dryRun := options.DryRun
 	if rc != 0 {
 		return rc
 	}
@@ -98,26 +47,38 @@ func packAdd(args []string, out, errw io.Writer) int {
 		printPackHostRun(errw, workspace, "add", args)
 		return 1
 	}
-	mutation := configedit.Mutation{Action: configedit.Append, Path: []configdoc.Step{{Key: "packs"}}, Value: handle}
+	value := options.value()
+	entry, err := packEditReference(workspace, value)
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack add: %v — nothing written\n", err)
+		return 1
+	}
+	handle := entry.Name
+	mutation := configedit.Mutation{Action: configedit.Append, Path: []configdoc.Step{{Key: "packs"}}, Value: value}
 	target, err := configedit.ResolveTarget(workspace, mutation, config.EditTargetChoice{Kind: config.EditTargetUser})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack add: cannot edit the user config: %v\n", err)
 		return 1
 	}
-	items, isString, err := userPackItems(target)
-	if err != nil {
-		fmt.Fprintf(errw, "yolo pack add: cannot read %s: %v — fix that file, then run `yolo pack add %s` again\n",
-			target.LogicalPath, err, handle)
+	if _, table := value.(string); !table && target.Format != configdoc.TOML {
+		fmt.Fprintln(errw, "yolo pack add: table options require TOML; run yolo config migrate, then retry — nothing written")
 		return 1
 	}
-	for i, item := range items {
-		if isString[i] && item == handle {
-			fmt.Fprintf(errw, "yolo pack add: %q is already in %s; nothing written. "+
-				"To drop it: `yolo pack remove %s`\n", handle, target.LogicalPath, handle)
+	entries, err := authoredPackEntries()
+	if err != nil {
+		fmt.Fprintf(errw, "yolo pack add: %v\n", err)
+		return 1
+	}
+	for i, previous := range entries {
+		if previous.ImportIdentity() == entry.ImportIdentity() {
+			fmt.Fprintf(errw, "yolo pack add: %q is already in %s at packs[%d] (%s); nothing written. To edit it: yolo config set packs[%d]; to drop it: yolo pack remove %s\n", handle, target.LogicalPath, i, previous.ConfigOrigin, i, handle)
 			return 1
 		}
 	}
-	found, err := packHandleSource(workspace, handle)
+	found := "direct Git repository"
+	if options.Git == "" {
+		found, err = packHandleSource(workspace, handle)
+	}
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack add: %v\n", err)
 		return 1
@@ -125,7 +86,7 @@ func packAdd(args []string, out, errw io.Writer) int {
 	// A user config that writes no `packs` list yet (the one `yolo init-user-config` writes,
 	// or any file that never selected a pack) gets the list, holding this pack, as
 	// `yolo config add` does: the append would otherwise refuse a missing value.
-	mutation, target, ok := addMissingKey(workspace, target, mutation, handle,
+	mutation, target, ok := addMissingKey(workspace, target, mutation, value,
 		config.EditTargetChoice{Kind: config.EditTargetUser}, errw)
 	if !ok {
 		return 1
@@ -140,6 +101,9 @@ func packAdd(args []string, out, errw io.Writer) int {
 	fmt.Fprintf(out, "%s\n", result.Path)
 	writeConfigEditHunks(out, result.Plan.Hunks)
 	if dryRun {
+		if entry.Skills != nil && !printScopedPackInspection(out, errw, entry, false) {
+			return 1
+		}
 		fmt.Fprintln(out, "Dry run; nothing was written.")
 		return 0
 	}
@@ -148,7 +112,8 @@ func packAdd(args []string, out, errw io.Writer) int {
 }
 
 func packRemove(args []string, out, errw io.Writer) int {
-	handle, dryRun, rc := packEditArgs("remove", args, errw)
+	options, rc := packEditArgs("remove", args, errw)
+	handle, dryRun := options.Handle, options.DryRun
 	if rc != 0 {
 		return rc
 	}
@@ -157,38 +122,57 @@ func packRemove(args []string, out, errw io.Writer) int {
 		printPackHostRun(errw, workspace, "remove", args)
 		return 1
 	}
-	probe := configedit.Mutation{Action: configedit.Remove, Path: []configdoc.Step{{Key: "packs"}, {Index: 0, IsIndex: true}}}
-	target, err := configedit.ResolveTarget(workspace, probe, config.EditTargetChoice{Kind: config.EditTargetUser})
+	entries, err := authoredPackEntries()
 	if err != nil {
-		fmt.Fprintf(errw, "yolo pack remove: cannot edit the user config: %v\n", err)
-		return 1
-	}
-	items, isString, err := userPackItems(target)
-	if err != nil {
-		fmt.Fprintf(errw, "yolo pack remove: cannot read %s: %v — fix that file, then run `yolo pack remove %s` again\n",
-			target.LogicalPath, err, handle)
+		fmt.Fprintf(errw, "yolo pack remove: %v\n", err)
 		return 1
 	}
 	at := -1
-	for i, item := range items {
-		if isString[i] && item == handle {
-			at = i
-			break
+	var matches []int
+	for i, entry := range entries {
+		if entry.Name != handle {
+			continue
 		}
+		if options.HasSubdir && entry.Subdir != options.Subdir {
+			continue
+		}
+		dir := ""
+		if entry.Skills != nil {
+			dir = entry.Skills.Dir
+		}
+		if options.HasSkillsDir && dir != options.SkillsDir {
+			continue
+		}
+		matches = append(matches, i)
+	}
+	if len(matches) > 1 {
+		fmt.Fprintf(errw, "yolo pack remove: %q is ambiguous; nothing written. Choose --subdir/--skills-dir, or remove one exact indexed path:\n", handle)
+		for _, i := range matches {
+			entry := entries[i]
+			dir := ""
+			if entry.Skills != nil {
+				dir = entry.Skills.Dir
+			}
+			fmt.Fprintf(errw, "  packs[%d] subdir=%q skills.dir=%q (%s): yolo config unset 'packs[%d]' --user\n", i, entry.Subdir, dir, entry.ConfigOrigin, i)
+		}
+		return 1
+	}
+	if len(matches) == 1 {
+		at = matches[0]
 	}
 	if at < 0 {
 		if config.IsSelectedByDefault(handle) {
 			// Removing nothing cannot deselect it, and "not in packs" would read as already gone.
 			fmt.Fprintf(errw, "yolo pack remove: %q is not in %s; nothing written. %s\n", handle,
-				target.LogicalPath, config.SelectedByDefaultNoOff(handle))
+				paths.UserConfigDisplayPath(), config.SelectedByDefaultNoOff(handle))
 			return 1
 		}
 		fmt.Fprintf(errw, "yolo pack remove: %q is not in %s; nothing written. `yolo pack ls` lists the "+
-			"packs a launch reads and where each is listed\n", handle, target.LogicalPath)
+			"packs a launch reads and where each is listed\n", handle, paths.UserConfigDisplayPath())
 		return 1
 	}
 	mutation := configedit.Mutation{Action: configedit.Remove, Path: []configdoc.Step{{Key: "packs"}, {Index: at, IsIndex: true}}}
-	target, err = configedit.ResolveTarget(workspace, mutation, config.EditTargetChoice{Kind: config.EditTargetUser})
+	target, err := configedit.ResolveTarget(workspace, mutation, config.EditTargetChoice{Kind: config.EditTargetUser})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack remove: cannot edit the user config: %v\n", err)
 		return 1

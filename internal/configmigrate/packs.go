@@ -49,6 +49,9 @@ func classifyPack(entry any) convertedPack {
 			return convertedPack{reason: "a pack entry is a source string or an object"}
 		}
 		for _, k := range obj.Keys() {
+			if k == "name" || k == "only" || k == "exclude" {
+				return convertedPack{reason: "legacy pack `name`/`only`/`exclude` are not equivalent to modern candidate-name selection; leave this file unchanged, or make a manual rewrite using `skills.only`/`skills.exclude` and entry naming with `yolo config set` in user TOML — then run `yolo config migrate` again"}
+			}
 			if k != "source" {
 				return convertedPack{reason: "a pack entry's `" + k + "` has no TOML spelling (a pack is named by its source, OQ-RC15); this yolo has no TOML spelling for it yet, so leave it: this yolo keeps reading the old file"}
 			}

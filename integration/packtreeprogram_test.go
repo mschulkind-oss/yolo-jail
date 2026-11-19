@@ -56,7 +56,10 @@ func TestPackTreeProgramBuildsOnceAndRebuildsOnChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "`+packTreeFixturePack+`"}]}`)
-	withPrivateFixtureYoloStore(t)
+	home := withPrivateFixtureYoloStore(t)
+	if privateSuite.armed {
+		usePrivateNativeFixture(t, packTreeNativeFixture(home, pack))
+	}
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
 	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, packTreeFixtureBin) })
@@ -138,7 +141,10 @@ func TestPackTreeProgramBuildFailureRefusesOnlyIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "`+failPack+`"}]}`)
-	withPrivateFixtureYoloStore(t)
+	home := withPrivateFixtureYoloStore(t)
+	if privateSuite.armed {
+		usePrivateNativeFixture(t, packTreeFailureNativeFixture(home, pack))
+	}
 	t.Setenv(paths.AllowMissingProgramsEnv, "")
 	dir := t.TempDir()
 
@@ -202,10 +208,12 @@ func TestPackTreeProgramUsesThePrebuiltWithoutSources(t *testing.T) {
 	sum := sha256.Sum256(script)
 	digest := hex.EncodeToString(sum[:])
 	var hits atomic.Int32
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		_, _ = w.Write(script)
 	}))
+	tcpListener := srv.Listener
+	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	certFile := filepath.Join(t.TempDir(), "server.pem")
 	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE",
@@ -221,7 +229,10 @@ func TestPackTreeProgramUsesThePrebuiltWithoutSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "`+pbPack+`"}]}`)
-	withPrivateFixtureYoloStore(t)
+	home := withPrivateFixtureYoloStore(t)
+	if privateSuite.armed {
+		usePrivateNativeFixture(t, packPrebuiltNativeFixture(home, pack, certFile, srv, tcpListener, script, false))
+	}
 	t.Setenv(paths.AllowMissingProgramsEnv, "")
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
@@ -285,10 +296,12 @@ func TestPackTreeProgramUsesThePrebuiltOverItsSourceOnlyWithTheOptIn(t *testing.
 	sum := sha256.Sum256(script)
 	digest := hex.EncodeToString(sum[:])
 	var hits atomic.Int32
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		_, _ = w.Write(script)
 	}))
+	tcpListener := srv.Listener
+	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	certFile := filepath.Join(t.TempDir(), "server.pem")
 	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE",
@@ -311,7 +324,10 @@ func TestPackTreeProgramUsesThePrebuiltOverItsSourceOnlyWithTheOptIn(t *testing.
 	}
 	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "`+pbPack+`"}], `+
 		`"programs": {"overrides": {"`+pbBin+`": {"prebuilt": true}}}}`)
-	withPrivateFixtureYoloStore(t)
+	home := withPrivateFixtureYoloStore(t)
+	if privateSuite.armed {
+		usePrivateNativeFixture(t, packPrebuiltNativeFixture(home, pack, certFile, srv, tcpListener, script, true))
+	}
 	t.Setenv(paths.AllowMissingProgramsEnv, "")
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)

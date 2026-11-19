@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packstage"
 )
@@ -41,7 +42,11 @@ func ReadSelectedPackFS(fsys fs.FS, sourceRoot, diagnosticRoot, name string, onl
 		return nil, nil, fmt.Errorf("pack %s embedded source %s: %w", name, sourceRoot, err)
 	}
 	selectedFS := filteredSourceFS{source: source, only: append([]string(nil), only...), exclude: append([]string(nil), exclude...)}
-	return readSelectedPackView(fsys, sourceRoot, diagnosticRoot, name, selectedFS, fsPackTreeOps(selectedFS), false, only, exclude)
+	p, problems, err := readSelectedPackView(fsys, sourceRoot, diagnosticRoot, name, selectedFS, fsPackTreeOps(selectedFS), false, only, exclude)
+	if p != nil {
+		p.projectionSource = selectedFS
+	}
+	return p, problems, err
 }
 
 // ReadSelectedPackPath reads a disk-backed source without staging it. The whole source is checked
@@ -94,6 +99,7 @@ func readSelectedPackView(fsys fs.FS, sourceRoot, diagnosticRoot, name string, s
 	_, conventionProblems := finishPackMetadata(name, decl, manifestName, homeFiles, homeProblems, overlayFiles,
 		overlayProblems, description, reservedBriefingFilesFS(selectedFS, name))
 	problems = append(problems, conventionProblems...)
+	problems = append(problems, validateSignInBundles(name, decl, mcpsignin.FSReader{FS: selectedFS})...)
 	selected := &Pack{
 		Name: name, OverlayFiles: overlayFiles, Root: diagnosticRoot, Decl: decl, SkewNotes: skewNotes,
 	}
@@ -110,7 +116,13 @@ func readSelectedPackView(fsys fs.FS, sourceRoot, diagnosticRoot, name string, s
 }
 
 func declarationIdentity(decl *packdecl.Manifest) (string, error) {
-	raw, err := json.Marshal(decl)
+	raw, err := json.Marshal(struct {
+		Declaration *packdecl.Manifest
+		Bundles     []packdecl.MCPSignInBundle
+		Formats     []string
+		HeaderForm  string
+		Paste       bool
+	}{decl, decl.SignInBundles(), decl.MCPSignInFormats, decl.MCPHeaderForm, decl.MCPSignInPaste})
 	if err != nil {
 		return "", err
 	}

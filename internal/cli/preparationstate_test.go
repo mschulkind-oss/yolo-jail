@@ -179,7 +179,7 @@ func TestPreparationStatusNamesAnExplicitStop(t *testing.T) {
 	if rc := printPreparationStatus(&out, io.Discard, false, ""); rc != 0 {
 		t.Fatalf("status rc=%d: %s", rc, out.String())
 	}
-	want := "Tree preparation worker: not running; stopped by `yolo pack prepare stop` at " + stoppedAt.Local().Format(time.RFC3339) + "; run `yolo pack prepare start` to reauthorize and resume"
+	want := "Preparation worker: not running; stopped by `yolo pack prepare stop` at " + stoppedAt.Local().Format(time.RFC3339) + "; run `yolo pack prepare start` to reauthorize and resume"
 	if !strings.Contains(out.String(), want) {
 		t.Fatalf("status did not name the explicit stop; want %q in:\n%s", want, out.String())
 	}
@@ -197,7 +197,18 @@ func TestPreparationStatusNamesAnExplicitStop(t *testing.T) {
 	}
 	out.Reset()
 	_ = printPreparationStatus(&out, io.Discard, false, "")
-	if !strings.Contains(out.String(), "Tree preparation worker: not running; run `yolo pack prepare start`") || strings.Contains(out.String(), "stopped by") {
+	if !strings.Contains(out.String(), "Preparation worker: not running; run `yolo pack prepare start`") || strings.Contains(out.String(), "stopped by") {
 		t.Fatalf("an idle exit read as an explicit stop:\n%s", out.String())
+	}
+}
+
+func TestPreparationStatusEmptyUsesGeneralizedHeading(t *testing.T) {
+	withHomeAndCwd(t)
+	var out bytes.Buffer
+	if rc := printPreparationStatus(&out, io.Discard, false, ""); rc != 0 {
+		t.Fatalf("status rc=%d: %s", rc, out.String())
+	}
+	if got := strings.TrimSpace(out.String()); got != "No launch preparations are registered." {
+		t.Fatalf("empty status = %q, want %q", got, "No launch preparations are registered.")
 	}
 }

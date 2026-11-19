@@ -753,13 +753,31 @@ yolo.mcp_auth("claude", {
 -- mcpServers is REGENERATED IN FULL, and says so (in_full): every entry comes from
 -- ctx.mcp_servers, so one on disk this run did not produce is yolo's own stale output and a
 -- server dropped from config must not come back.
+yolo.mcp_sign_in("claude", {
+  native_name = function(delivered_name, server_key)
+    return "plugin:" .. delivered_name .. ":" .. server_key
+  end,
+})
+
 yolo.derive("claude", "config", function(ctx)
   local servers = {}
   for name, cfg in pairs(ctx.mcp_servers or {}) do
     if cfg.url ~= nil then
       local remote = { type = cfg.transport or "http", url = cfg.url }
-      if cfg.headers ~= nil then remote.headers = cfg.headers end
-      if cfg.oauth ~= nil then
+      local shared = (ctx.mcp_one_sign_in or {})[name]
+      if shared ~= nil and shared.header_json_command ~= nil then
+        remote.headersHelper = shared.header_json_command
+        if cfg.headers ~= nil then
+          local headers = {}
+          for key, value in pairs(cfg.headers) do
+            if string.lower(key) ~= "authorization" then headers[key] = value end
+          end
+          if next(headers) ~= nil then remote.headers = headers end
+        end
+      else
+        if cfg.headers ~= nil then remote.headers = cfg.headers end
+      end
+      if remote.headersHelper == nil and cfg.oauth ~= nil then
         local oauth = {}
         if cfg.oauth.client_id ~= nil then oauth.clientId = cfg.oauth.client_id end
         if cfg.oauth.callback_port ~= nil then oauth.callbackPort = cfg.oauth.callback_port end

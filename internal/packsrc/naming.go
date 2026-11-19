@@ -31,8 +31,8 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 		return PackReference{}, fmt.Errorf("%s: expected a source/pack handle, { pack = HANDLE }, or { git = URL }", origin)
 	}
 	for _, key := range obj.Keys() {
-		if key != "git" && key != "ref" && key != "pack" && key != "bare" && key != "namespace" {
-			return PackReference{}, fmt.Errorf("%s.%s: unknown pack entry field (pack, git, ref, bare or namespace)", origin, key)
+		if key != "git" && key != "ref" && key != "pack" && key != "bare" && key != "namespace" && key != "subdir" && key != "skills" {
+			return PackReference{}, fmt.Errorf("%s.%s: unknown pack entry field (pack, git, ref, bare, namespace, subdir or skills)", origin, key)
 		}
 	}
 	bare, err := explicitBare(obj, origin)
@@ -71,7 +71,11 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 		if err != nil {
 			return PackReference{}, err
 		}
-		return named(ref, scope, true, marked, bare, namespace, origin)
+		ref, err = named(ref, scope, true, marked, bare, namespace, origin)
+		if err != nil {
+			return PackReference{}, err
+		}
+		return scopedReference(ref, obj, origin)
 	}
 	rawRepo, has := obj.Get("git")
 	repoURL, isString := rawRepo.(string)
@@ -92,8 +96,12 @@ func ParsePackReference(raw any, sources map[string]SourceDefinition, localRoot,
 	}
 	out := PackReference{Source: gitPackAddress(repo, "", ref), Name: name,
 		SourceID: repo, AllowDefaultRef: ref == "", Origin: origin}
-	return named(out, handleScope{kind: scopeOwn, owner: "repo:" + repo, pack: name[strings.LastIndex(name, "/")+1:]},
+	out, err = named(out, handleScope{kind: scopeOwn, owner: "repo:" + repo, pack: name[strings.LastIndex(name, "/")+1:]},
 		true, marked, bare, namespace, origin)
+	if err != nil {
+		return PackReference{}, err
+	}
+	return scopedReference(out, obj, origin)
 }
 
 // scopeKind is where a pack's namespace comes from (docs/reference/pack-system.md#pack-namespace).
@@ -126,6 +134,9 @@ func parseHandle(text string, sources map[string]SourceDefinition, localRoot, ho
 	}
 	parts := strings.Split(text, "/")
 	if len(parts) != 2 || !validHandleSegment(parts[0]) || !validHandleSegment(parts[1]) {
+		if len(parts) > 2 && validHandleSegment(parts[0]) && validHandleSegment(parts[1]) {
+			return PackReference{}, handleScope{}, fmt.Errorf("%s: expected source/pack; write { pack = %q, subdir = %q } for a nested root", origin, strings.Join(parts[:2], "/"), strings.Join(parts[2:], "/"))
+		}
 		return PackReference{}, handleScope{}, fmt.Errorf("%s: expected source/pack, such as local/matt", origin)
 	}
 	if parts[0] == "yolo" {

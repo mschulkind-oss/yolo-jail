@@ -3,17 +3,19 @@ title: "Plan: managed MCP sign-in, capture, delivery, status and callback owners
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Build Task 1 in an isolated MCP candidate, then follow the serial tasks and synthetic gates; native witnesses remain separate"
+next: "Finish the retained candidate's synthetic gate and independent review; native/rootless/Mac/provider witnesses and full landing suite remain separate"
 depends-on:
   - managed-mcp-sign-in.md
   - mcp-auth-sharing.md
 tags: [plan, mcp, oauth, packs, broker, status]
-summary: "Complete accepted build hand-off: managed sign-in bundles, capture, delivery, callback ownership and strict effect-free status, including embedded-FS provisioning advice under no sign-in point only. No implementation or native/provider success is claimed."
+summary: "Accepted serial build contract with a retained synthetic implementation candidate: bundles, capture, bounded issuance, delivery, callback ownership and effect-free status/advice. The coverage inventory records account-free evidence; independent landing and native/provider witnesses remain separate."
 ---
 
 # Plan: managed MCP sign-in
 
-**Written against:** `15da1299ffe8c65db4a3f2beef9f8421dabbb99c`, 2026-11-17. The original complete planner hand-off read source and ran baseline fixture tests at `897a7951a44fa79fef305b7d90be9e652e086f01`, then checked HEAD `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`. The range from that HEAD to this stamp changes only the scoped TOML pack-import design, plan, grounding and roadmap; no code, MCP authority or tested fixture changed. This publication preserves that source/test map and incorporates the accepted MS-D14 closure. Primary/index were clean before publication. No runtime behavior is implemented here.
+**Current implementation:** see the [candidate checkpoint](#candidate-implementation-checkpoint) and [coverage inventory](managed-mcp-sign-in-coverage.md). The following source/planner receipts are historical baseline evidence, not candidate greens.
+
+**Original hand-off written against:** `15da1299ffe8c65db4a3f2beef9f8421dabbb99c`, 2026-11-17. The original complete planner hand-off read source and ran baseline fixture tests at `897a7951a44fa79fef305b7d90be9e652e086f01`, then checked HEAD `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`. The range from that HEAD to this stamp changes only the scoped TOML pack-import design, plan, grounding and roadmap; no code, MCP authority or tested fixture changed. This publication preserves that source/test map and incorporates the accepted MS-D14 closure. Primary/index were clean before publication. No runtime behavior is implemented here.
 
 **Authority:** [accepted managed design](managed-mcp-sign-in.md), especially its [decision ledger](managed-mcp-sign-in.md#decision-ledger), [engineering closure](managed-mcp-sign-in.md#engineering-closure) and [acceptance scenarios](managed-mcp-sign-in.md#12-acceptance-scenarios). [Sharing design](mcp-auth-sharing.md) keeps identity, authority, canonical state and sharing; [sharing plan](mcp-auth-sharing-plan.md) keeps its independent native-origin and backend witnesses. The designer seeded; the planner completed against source; the implementer builds the tasks below. MS-D14 closes the provisioning-data seam through embedded-FS advice only. There are zero engineering or policy questions. Native witnesses remain validation owed after the synthetic gate, not build blockers.
 
@@ -52,7 +54,7 @@ Paths below are repository-relative. New paths are marked **new**; test suffixes
 
 | Path | Change and production boundary |
 | :--- | :--- |
-| `internal/packdecl/packdecl.go`, `kinds.go`, `toml.go`, `tomlencode.go`; **new** `mcpsigninbundle.go` | Typed `[[mcp_sign_in_bundle]]` schema, validation, encode/decode parity; agent format/helper/paste capability metadata. |
+| `internal/packdecl/packdecl.go`, `kinds.go`, `toml.go`, `tomlencode.go`; **new** `mcpsigninbundle.go` | Typed `[[mcp_sign_in_bundle]]` schema, validation, encode/decode parity; agent format/helper/paste capability metadata. Format lists use `[native_sign_in] formats = [...]`: the actual v0.18.0 reader rejects any new top-level array, but tolerates this metadata table and retains Claude's program. |
 | `internal/packdecl/*mcpsignin*_test.go` (**new**), `parity_test.go`, `tomlencode_test.go` | Strict/use/tolerant TOML declaration and round-trip regressions; existing legacy reads remain unchanged, with no new legacy spelling. |
 | `internal/packload/packload.go`, `plugins.go`; **new** `mcpsigninbundle.go`, `mcpsigninbundle_test.go` | Selected pack-relative bundle/license validation through filesystem-backed and embedded readers; no launch fetch. |
 | **new** `internal/mcpsignin/{inventory.go,resolve.go,delivery.go,advice.go}` and corresponding tests | Format-named confined reader, pure sign-in point / delivery decisions, and no-point-only embedded-FS provisioning advice; no server composition, egress or state creation. |
@@ -659,6 +661,16 @@ If completion census encounters the known foreign-workspace guard for Python scr
 **Commit:** `test(mcp): pin managed sign-in launch regressions and current authority`.
 
 **Report:** combined commit/HEAD, test counts/results, source-stamped nested probe, clean/index evidence, native witness list still owed, no live config touched.
+
+## Candidate implementation checkpoint
+
+Tasks 1–8 have serial commits through `99130ff312b064b31f78fb46a907519d40037ec4`; Task 9 retains their evidence and adds real account-free launch regressions. The [A1–A32 inventory](managed-mcp-sign-in-coverage.md) records concrete callers, deletion controls and limits, rather than equating compile/short skips with jail or native success. All `Built` entries mean **synthetic only**, not landing or provider verification.
+
+Task 9 found two real caller gaps: authenticated frontend principal versus container name, and nonsource helper rendering after workspace identity override. Core now supplies the actual private endpoint locator to the host child after inherited/manifest env; Main binds its exact frontend principal and the trusted container name to the validated private share. Backend socket location is not that locator. A supplied-invalid packet remains distinct from absent legacy input; valid frozen facts require nonsource eligibility, not a bundle.
+
+Private integration consumer adapters use the actual shipped Lua/surfaces through inert program adapters. Their legacy leaf-name selection remains a fixture choice, not a qualified-handle limitation: the forward review repair separates logical `Source.Pack` from its exact declared program/Lua `Source.Adapter` and explicit private store paths. `TestManagedMCPQualifiedSourceThroughTOMLShareAdoptionAndHostHeader` exercises readable qualified TOML selection through validated share, synthetic adoption and actual host header issuance; the same-leaf source adversary checks separate scripts, roots and provenance. Absent adapters preserve legacy leaf descriptors, replica filenames remain leaf-only, and no source key, canonical version, client identity or digest is migrated. This is checked Claude-compatible adapter evidence, not arbitrary provider/backend parity. Internal synthetic core provisioning ran; external/vendor hooks, agents, installers and auto-capture did not.
+
+The final full slow suite and landing belong to the parent. Native/rootless/Mac/provider/plugin-loading/reconnect/writeback/OAuth witnesses below remain owed. Completion reports do not authorize cleanup or release.
 
 ## Source-snapshot and nested probe discipline
 

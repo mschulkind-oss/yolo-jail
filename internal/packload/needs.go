@@ -97,6 +97,11 @@ func ResolveNeeds(selected []*Pack, embedded func(name string) (*Pack, bool)) (
 							"want %q in the launch, select it explicitly in your "+
 							"config's packs list", p.Name, need.Pack, need.Pack)
 				}
+				for _, scoped := range selected {
+					if scoped != nil && scoped.Projection != nil && scoped.Official && scoped.Name == target.Name {
+						return nil, nil, fmt.Errorf("pack %s needs scoped pack %s (%s); a dependency cannot widen a skills-only import — remove the scoped selection or the needing pack", p.Name, scoped.Name, scoped.Projection.Origin)
+					}
+				}
 				if _, have := set[target.Name]; have {
 					continue // join: already selected, by the user or by an earlier need
 				}

@@ -478,9 +478,18 @@ func TestGitBrokerAllowOncePush(t *testing.T) {
 		for _, o := range append(fx.opts, withHostSemantics()) {
 			o(&cfg)
 		}
-		name, argv := launchCommand(cfg, yoloBin, []string{"approve", a.id})
+		name, argv, err := privateLaunchCommandChecked(cfg, yoloBin, []string{"approve", a.id})
+		if err != nil {
+			a.err = err
+			return
+		}
+		env, err := privateRouteEnvironment(launchEnvironment(cfg))
+		if err != nil {
+			a.err = err
+			return
+		}
 		cmd := exec.Command(name, argv...)
-		cmd.Dir, cmd.Env = fx.dir, launchEnvironment(cfg)
+		cmd.Dir, cmd.Env = fx.dir, env
 		out, err := cmd.CombinedOutput()
 		a.out, a.err = string(out), err
 		if werr := os.WriteFile(marker, []byte("ok\n"), 0o644); a.err == nil {
@@ -572,9 +581,18 @@ func TestGitBrokerAllowPushForATime(t *testing.T) {
 		for _, o := range append(fx.opts, withHostSemantics()) {
 			o(&cfg)
 		}
-		name, argv := launchCommand(cfg, yoloBin, []string{"approve", a.id, "--for", "15m"})
+		name, argv, err := privateLaunchCommandChecked(cfg, yoloBin, []string{"approve", a.id, "--for", "15m"})
+		if err != nil {
+			a.err = err
+			return
+		}
+		env, err := privateRouteEnvironment(launchEnvironment(cfg))
+		if err != nil {
+			a.err = err
+			return
+		}
 		cmd := exec.Command(name, argv...)
-		cmd.Dir, cmd.Env = fx.dir, launchEnvironment(cfg)
+		cmd.Dir, cmd.Env = fx.dir, env
 		out, err := cmd.CombinedOutput()
 		a.out, a.err = string(out), err
 		if werr := os.WriteFile(marker, []byte("ok\n"), 0o644); a.err == nil {

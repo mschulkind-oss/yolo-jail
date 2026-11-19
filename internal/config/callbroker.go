@@ -119,7 +119,9 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 	}
 	if len(b.Classifier) > 0 {
 		out = append(out, "classifier="+strings.Join(b.Classifier, " "))
-		out = append(out, "classifier_argv_json="+callBrokerArgvJSON(b.Classifier))
+		if b.HTTP == nil {
+			out = append(out, "classifier_argv_json="+callBrokerArgvJSON(b.Classifier))
+		}
 	}
 	programNames := make([]string, 0, len(b.ProgramIdentities))
 	for name := range b.ProgramIdentities {
@@ -174,7 +176,7 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 	}
 	for _, lookup := range b.Lookups {
 		out = append(out, "lookup="+lookup.Name+" cli="+strings.Join(lookup.CLI, " ")+" http="+lookup.HTTPMethod+" "+lookup.HTTPPath)
-		if len(lookup.CLI) > 0 {
+		if len(lookup.CLI) > 0 && b.HTTP == nil {
 			out = append(out, "lookup="+lookup.Name+" cli_argv_json="+callBrokerArgvJSON(lookup.CLI))
 		}
 	}

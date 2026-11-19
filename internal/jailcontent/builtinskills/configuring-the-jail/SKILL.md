@@ -335,3 +335,18 @@ yolo config-ref
 
 Read it before inventing a key name. `yolo check` will reject unknown keys, but
 reading first saves a slow, human-gated round-trip.
+
+## Scoped packs are a host-side user choice
+
+**Direct scoped pack selection is user-only.** Ask the human to run
+`yolo pack add local/corpus --skills-dir skills/core-tools --only skill-a --dry-run`
+on the host, then omit `--dry-run` to write the user TOML entry. It applies across
+workspaces, not through this project's config. Omit `--skills-dir` for typed
+candidate-name selectors; `--subdir` alone still imports a whole pack. Scoped
+entries activate no programs, hooks, briefing, native plugins or host capabilities.
+`yolo pack explain local/corpus` inspects all matching tuples without fetching or
+writing; unavailable content is explicitly unverified. Scoped Check is pure, but
+whole-pack readiness keeps its ordinary staging. Ambiguous `yolo pack remove`
+names indexed edits or `--subdir`/`--skills-dir` to choose one tuple. Do not rewrite
+legacy file filters as name selectors by guesswork, or substitute workspace
+`skill_imports`, which has its own approved Git authority.

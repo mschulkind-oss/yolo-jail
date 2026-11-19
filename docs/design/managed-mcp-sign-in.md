@@ -3,7 +3,7 @@ title: "Managed MCP sign-in: the agent's own sign-in first, then capture, delive
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Build Task 1 of the completed companion plan in an isolated candidate; native witnesses remain verification owed after the synthetic gate"
+next: "Complete the retained synthetic candidate's gates and independent review; obtain native/rootless/Mac/provider witnesses separately"
 depends-on: [mcp-auth-sharing.md]
 tags: [design, mcp, oauth, credentials, broker, packs, status, recovery]
 summary: "The first credential for a one-sign-in MCP server comes from the ordinary sign-in inside a yolo-managed agent, at a sign-in point a selected pack delivers. The existing broker captures and refreshes it; the source agent's duplicate plain entry becomes a header route; a token-free, zero-effect `yolo mcp-auth status` and recovery lines say which layer failed and which native server to authenticate. No third login command, no client id invented or borrowed by core."
@@ -11,7 +11,7 @@ summary: "The first credential for a one-sign-in MCP server comes from the ordin
 
 # Managed MCP sign-in: the agent's own sign-in first, then capture, delivery, status and recovery
 
-**Status:** 2026-11-17 — proposed and unbuilt; the engineering closure and MS-D14 provisioning advice are accepted. MS-E1, MS-E2 and MS-E3 are [closed](#engineering-closure); no engineering item is open. The [completed companion plan](managed-mcp-sign-in-plan.md) is written against `15da1299ffe8c65db4a3f2beef9f8421dabbb99c`. Native witnesses are verification still owed, not proof of behavior.
+**Status:** 2026-11-18 — implemented in the retained synthetic candidate, not landed or native-verified. Tasks 1–8 and the Task 9 caller repairs follow the [companion plan](managed-mcp-sign-in-plan.md); the [coverage inventory](managed-mcp-sign-in-coverage.md) separates executable synthetic evidence from witnesses still owed. Independent review and the final landing gates remain separate. MS-E1, MS-E2 and MS-E3 are [closed](#engineering-closure).
 
 > **In short.** The existing broker already adopts, refreshes and (for pi) delivers a one-sign-in credential. This document adds the first step it lacks, a declared place to sign in inside a managed agent. It also repairs Claude's duplicate unauthenticated entry, and makes every failure layer visible without printing or spending a token.
 
@@ -33,7 +33,7 @@ summary: "The first credential for a one-sign-in MCP server comes from the ordin
 
 - Shipped-baseline statements come from the [2026-11-17 source-read grounding](../research/managed-mcp-sign-in-grounding.md) at baseline `a97a0e055`, and from the sharing design's text, read in full.
 - The original design closure ran no tests. Publication checked the existing pure embedded-FS fixture and document rendering/index only; no proposed behavior was tested. No agent, credential store, provider or installer was touched.
-- Everything not under "shipped baseline" is **proposed**.
+- The retained candidate implements this contract with synthetic tests only. Placement does not establish plugin loading, and no provider, native agent, rootless callback or Mac witness is claimed.
 
 ## 1. Requirement
 
@@ -110,7 +110,7 @@ What public documents establish (packet, with the sharing design's Appendix C):
 | `license` | pack-relative path; required | The retained licence file. A missing file fails `yolo config check`. |
 | `callback_route` | boolean; default `false` | Permits the [§5](#5-the-callback-route) route for the callback port the bundle's own content names. |
 
-**What the agent pack declares.** It declares the bundle formats its agent loads. It also supplies one pure function from the delivered manifest name and the server key to the native server name. Core names no agent and no server.
+**What the agent pack declares.** It declares the bundle formats its agent loads through TOML `[native_sign_in]` with `formats = ["claude-plugin"]`. The table preserves the approved list capability while the measured v0.18.0 reader ignores it without losing the agent program; an unknown top-level array instead stops that reader. The unpublished top-level `mcp_sign_in_formats` and `native_sign_in_formats` spellings are not aliases. It also supplies one pure function from the delivered manifest name and the server key to the native server name. Core names no agent and no server.
 
 **The `claude-plugin` reader.** It is a pure read of the delivered tree.
 
@@ -213,24 +213,24 @@ A workspace cannot request, redirect or widen one. The user's `network.ports` is
 **One owner per port (MS-D5).** A host port has one binder, so the route belongs to exactly one launch at a time. The earlier draft's claim that several launches share one port was wrong: a publication holds the host port whether or not an agent is listening.
 
 - **[Callback lease](../glossary.md#callback-lease).** A per-user, per-port record names the launch that owns host loopback port P. Acquisition is serialized across launches.
-- **Acquire.** A launch that qualifies tries to take the lease before its runtime is created. If it gets the lease, its runtime publishes `127.0.0.1:P` to the jail's port P, TCP only. It never publishes on all interfaces.
+- **Acquire.** A launch that qualifies tries to take the lease before its runtime is created. Serialized acquisition has a cancellation-aware two-second operation ceiling, not lease expiry or an OAuth timeout. Failure yields `unavailable` without changing ownership. If acquired, its runtime publishes `127.0.0.1:P` to port P, TCP only; never all interfaces.
 - **Second launch.** A launch that finds the lease held starts normally without the route. Its status names the owning launch.
-- **Foreign holder.** If a process outside yolo holds P, the runtime cannot bind it. The launch still starts, without the route, and releases the lease. A callback port never fails a launch.
-- **The user's own publication.** If this launch's `network.ports` already publishes host port P, no route is added and the lease is not taken.
+- **Foreign holder.** A recognized optional bind conflict retries the runtime client once without the affected publication, in the same keeper. Confirmed absence permits retry and release. A known-own partial create first requires lifecycle exclusion, exact generation/immutable-ID proof, bounded cleanup and confirmed absence. Unknown, foreign or replaced identity and failed cleanup never authorize deletion, retry or release; the failed launch retains evidence and names `yolo check`, the owning-jail stop/relaunch and full callback paste. Nothing reruns staging, services, capture or all of Run.
+- **The user's own publication.** If this launch's `machine.ports` already publishes host port P, no route is added and the lease is not taken. Declared and unaffected publications survive optional retry.
 - **Attach.** Attaching to a running jail never takes or moves the lease. The running owner keeps it.
-- **Release.** The lease is released when the owner's runtime is confirmed gone. If liveness cannot be determined, the lease is kept. A later launch reclaims it only after confirming the recorded owner is gone.
+- **Release.** Release/reclaim requires confirmed runtime absence and matching owner/generation. Unknown liveness retains the lease. Generation-less retirement discovers the current receipt only under the existing container lifecycle lock after confirmed absence; explicit-generation teardown never discovers a replacement.
 - **IPv4 only.** The route binds `127.0.0.1`. A browser that reaches `localhost` over `::1` alone is not served. Status says `IPv4 only`, and paste covers it.
 
 **Per backend.**
 
 | Backend | Callback row in status | What exists |
 |---|---|---|
-| Linux podman, bridge network | `owner`, `held by <launch>`, or `port busy` | The route above, on the shipped publish-and-forward path. |
+| Linux podman, bridge network | `owner`, `publication pending`, `held by <launch>`, `port busy`, or `unavailable` | The route above, on the shipped publish-and-forward path; ancillary observations do not alter sign-in authority/verdict. |
 | Linux podman, host network or nested | `not published on this backend` | Paste. |
 | Apple Container, podman-on-Mac | `not published on this backend` | Paste. This document designs no route there. |
 | `yolo host`, macos-user | `not needed` | The agent listens on the host stack itself. No lease is taken. Two native sessions contending for the listener is the agent's own behavior. |
 
-**What `owner` means.** The lease is held and the publication was created. It does not assert that a redirect will arrive.
+**What `owner` means.** Matching ownership and controlled post-start readiness confirm publication. A successful Start alone is not proof: drained pre-readiness exit can still refuse the bind. Until confirmed, the row is `publication pending`. Neither row asserts that a redirect will arrive; status only reads existing closed receipts/leases, never probes a listener or runtime.
 
 - If the jail-side forward cannot be installed, the shipped boot warning is the disclosure. Its text gains the paste next step.
 - Rootless forwarding on a real host is a witness in [§12](#12-acceptance-scenarios).
@@ -239,7 +239,7 @@ A workspace cannot request, redirect or widen one. The user's `network.ports` is
 
 - `held by <launch>`: sign in from the owning launch, or paste in this one, or relaunch after the owner exits. The first works because a bridged Claude store is machine-wide, so that sign-in serves this launch too.
 - `port busy`: paste, or free the port and relaunch.
-- `not published on this backend`: paste.
+- `not published on this backend`, `publication pending` or `unavailable`: paste the full callback URL; for unhealthy publication state, run `yolo check` then relaunch.
 
 **Rejected.**
 
@@ -266,7 +266,7 @@ Inputs:
 
 | Agent kind | Condition | Rendered entry |
 |---|---|---|
-| Not a source agent, route supported and reachable | always (baseline, pi) | Header route, own OAuth off |
+| Not a source agent, route supported and reachable | matching server/effective-agent decision in valid frozen facts, independent of point/capture/bundle | Header route, own OAuth off. An authoritative empty launch stays plain. Truly absent legacy facts preserve baseline; supplied-invalid facts fail closed. |
 | Source agent, route supported and reachable | a capturable managed sign-in point exists in this agent, **or** a usable record exists at launch | Header route, own OAuth off. Every case variant of a configured `Authorization` header is removed. This realizes MA-D27: the header route replaces the plain entry. |
 | Source agent, route supported and reachable | neither | Plain native entry, as at baseline. It is this agent's sign-in point. |
 | Any | route unsupported or unreachable | Baseline plain entry ([OQ-MA8](mcp-auth-sharing.md#decision-ledger)). Status says `delivered plain`. |
@@ -540,25 +540,25 @@ These are pointer edits only. No ruling changes.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| MS-R1 | **Owner:** the normal sign-in inside a yolo-managed agent is the first credential source; capture and sharing happen behind it | 2026-11-17 | [§1](#1-requirement) | — |
-| MS-R2 | **Owner:** no separately installed host client and no third yolo login ceremony. `yolo mcp-auth login` (MA-D13) is withdrawn from the path | 2026-11-17 | [§4](#4-the-sign-in-point), [§8](#8-recovery-lines) | — |
-| MS-R3 | **Owner:** first-login client metadata comes through pack declarations, not a manual install or an invented registration | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
-| MS-R4 | **Owner:** token-free status and truthful recovery ship with the capture and delivery repair, Claude's duplicate entry included | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) to [§8](#8-recovery-lines) | — |
-| MS-R5 | **Owner:** the own-client preference, user-only credential settings and live stores are unchanged | 2026-11-17 | [§10](#10-compatibility) | — |
-| MS-D1 | A managed sign-in point is a server of a sign-in bundle that a user-selected integration pack declares and delivers. The bundle's own server content alone carries the client identity; core reads, never writes (amended by the closure: see MS-D8 and MS-D9) | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
-| MS-D2 | Unmanaged sign-in points are adopted as at baseline and labelled; yolo never installs or edits them | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
-| MS-D3 | A source agent's plain entry becomes a header route when it has a managed sign-in point or a usable record at launch; otherwise it stays the sign-in point | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | — |
-| MS-D4 | The header output form is an explicit argument the pack's derive selects; bare remains the default | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | — |
-| MS-D5 | The callback route has one owner per host port, by a per-user, per-port lease. It is an IPv4 loopback publication on bridge podman only. A second launch, a foreign holder and every other backend run without it and say so; paste completes the same sign-in. Closes MS-E1 | 2026-11-17 | [§5](#5-the-callback-route) | — |
-| MS-D6 | Status has zero effects and a closed diagnosis set. It makes no provider request and stages nothing; a jail's exchange with its own endpoint is the read. The broker keeps a token-free outcome note per identity | 2026-11-17 | [§7](#7-token-free-status) | — |
-| MS-D7 | The launch input carries the user's expected client id. A native entry or bundle server under another client is refused before any provider request, and is not a sign-in point | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
-| MS-D8 | Managed Slack provisioning is an integration pack (proposed `slack-mcp`) that carries Slack's MIT plugin pinned at `5b880210`, selected by the user and delivered by the shipped whole-plugin route. No fetch at launch, no installer, no server contribution. Closes MS-E2 | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
-| MS-D9 | Delivery keeps the shipped ownership marks and namespaced name. Server content is never altered. The native name comes from the delivered manifest | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
-| MS-D10 | Header issuance has an 8-second total deadline. An unexpired token is returned with no refresh. An expired one triggers one daemon pass of at most 5 seconds in a jail and is refused at the host. An expired token is never returned | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | — |
-| MS-D11 | A sign-in point inventory is read from delivered sign-in bundles by a format-named reader and kept apart from `mcp_servers` composition. Closes MS-E3 | 2026-11-17 | [§4](#4-the-sign-in-point) | — |
-| MS-D12 | A sign-in point counts toward replacing the plain entry only when it is capturable. Credential view, alternate storage and Mac host are reported as `not capturable here` and gain no capture support | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | — |
-| MS-D13 | The synthetic gate precedes landing. Native measurements are validation owed afterward; a failed one withdraws the pack's route declaration. Nothing reports provider success before they pass | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | — |
-| MS-D14 | Under `no sign-in point` only, core derives provisioning advice by a pure read of embedded packs' sign-in bundle declarations and originals, matched on URL, transport, loadable format and the user's expected client id. A candidate is advice and nothing else. One is named, several are listed, none gives a generic line. No pack, server or agent name is hardcoded, no field is added, and unselected user packs are never read. This narrows the recovery contract: the exact command appears only when derived | 2026-11-17 | [§4](#4-the-sign-in-point), [§8](#8-recovery-lines) | — |
+| MS-R1 | **Owner:** the normal sign-in inside a yolo-managed agent is the first credential source; capture and sharing happen behind it | 2026-11-17 | [§1](#1-requirement) | Synthetic only |
+| MS-R2 | **Owner:** no separately installed host client and no third yolo login ceremony. `yolo mcp-auth login` (MA-D13) is withdrawn from the path | 2026-11-17 | [§4](#4-the-sign-in-point), [§8](#8-recovery-lines) | Synthetic only |
+| MS-R3 | **Owner:** first-login client metadata comes through pack declarations, not a manual install or an invented registration | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-R4 | **Owner:** token-free status and truthful recovery ship with the capture and delivery repair, Claude's duplicate entry included | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) to [§8](#8-recovery-lines) | Synthetic only |
+| MS-R5 | **Owner:** the own-client preference, user-only credential settings and live stores are unchanged | 2026-11-17 | [§10](#10-compatibility) | Synthetic only |
+| MS-D1 | A managed sign-in point is a server of a sign-in bundle that a user-selected integration pack declares and delivers. The bundle's own server content alone carries the client identity; core reads, never writes (amended by the closure: see MS-D8 and MS-D9) | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-D2 | Unmanaged sign-in points are adopted as at baseline and labelled; yolo never installs or edits them | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-D3 | A source agent's plain entry becomes a header route when it has a managed sign-in point or a usable record at launch; otherwise it stays the sign-in point | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
+| MS-D4 | The header output form is an explicit argument the pack's derive selects; bare remains the default | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
+| MS-D5 | The callback route has one owner per host port, by a per-user, per-port lease. It is an IPv4 loopback publication on bridge podman only. A second launch, a foreign holder and every other backend run without it and say so; paste completes the same sign-in. Closes MS-E1 | 2026-11-17 | [§5](#5-the-callback-route) | Synthetic only |
+| MS-D6 | Status has zero effects and a closed diagnosis set. It makes no provider request and stages nothing; a jail's exchange with its own endpoint is the read. The broker keeps a token-free outcome note per identity | 2026-11-17 | [§7](#7-token-free-status) | Synthetic only |
+| MS-D7 | The launch input carries the user's expected client id. A native entry or bundle server under another client is refused before any provider request, and is not a sign-in point | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-D8 | Managed Slack provisioning is an integration pack (proposed `slack-mcp`) that carries Slack's MIT plugin pinned at `5b880210`, selected by the user and delivered by the shipped whole-plugin route. No fetch at launch, no installer, no server contribution. Closes MS-E2 | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-D9 | Delivery keeps the shipped ownership marks and namespaced name. Server content is never altered. The native name comes from the delivered manifest | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-D10 | Header issuance has an 8-second total deadline. An unexpired token is returned with no refresh. An expired one triggers one daemon pass of at most 5 seconds in a jail and is refused at the host. An expired token is never returned | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
+| MS-D11 | A sign-in point inventory is read from delivered sign-in bundles by a format-named reader and kept apart from `mcp_servers` composition. Closes MS-E3 | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-D12 | A sign-in point counts toward replacing the plain entry only when it is capturable. Credential view, alternate storage and Mac host are reported as `not capturable here` and gain no capture support | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
+| MS-D13 | The synthetic gate precedes landing. Native measurements are validation owed afterward; a failed one withdraws the pack's route declaration. Nothing reports provider success before they pass | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
+| MS-D14 | Under `no sign-in point` only, core derives provisioning advice by a pure read of embedded packs' sign-in bundle declarations and originals, matched on URL, transport, loadable format and the user's expected client id. A candidate is advice and nothing else. One is named, several are listed, none gives a generic line. No pack, server or agent name is hardcoded, no field is added, and unselected user packs are never read. This narrows the recovery contract: the exact command appears only when derived | 2026-11-17 | [§4](#4-the-sign-in-point), [§8](#8-recovery-lines) | Synthetic only |
 
 ## Engineering closure
 

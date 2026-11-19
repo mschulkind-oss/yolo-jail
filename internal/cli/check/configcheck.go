@@ -145,6 +145,10 @@ func configPackCoverage(r *reporter, selection config.PackSelection, loadErr err
 	}
 	for _, unresolved := range selection.Unresolved {
 		name := unresolved.Entry.Name
+		if errors.Is(unresolved.Err, config.ErrPackUnverifiableInJail) {
+			r.skip("Selected pack "+name+" declaration checks skipped", unresolved.Err.Error())
+			continue
+		}
 		if errors.Is(unresolved.Err, packsrc.ErrNotFetched) ||
 			errors.Is(unresolved.Err, packsrc.ErrNotCheckedOut) ||
 			errors.Is(unresolved.Err, packsrc.ErrRevisionMissing) ||

@@ -11,8 +11,15 @@ import (
 // fileLock is an advisory flock held until Close.
 type fileLock struct{ file *os.File }
 
+// ErrStoreBusy is the closed existing-state lock classification shared by
+// issuance and status; callers must not diagnose arbitrary error text.
+var ErrStoreBusy = errors.New("mcp-auth: timed out waiting for store lock")
+
+var storeLockNow = time.Now
+var storeLockSleep = time.Sleep
+
 func lockFile(file *os.File, wait time.Duration) (*fileLock, error) {
-	deadline := time.Now().Add(wait)
+	deadline := storeLockNow().Add(wait)
 	for {
 		err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
@@ -21,10 +28,10 @@ func lockFile(file *os.File, wait time.Duration) (*fileLock, error) {
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) && !errors.Is(err, syscall.EINTR) {
 			return nil, err
 		}
-		if !time.Now().Before(deadline) {
-			return nil, errors.New("mcp-auth: timed out waiting for store lock")
+		if !storeLockNow().Before(deadline) {
+			return nil, ErrStoreBusy
 		}
-		time.Sleep(5 * time.Millisecond)
+		storeLockSleep(5 * time.Millisecond)
 	}
 }
 

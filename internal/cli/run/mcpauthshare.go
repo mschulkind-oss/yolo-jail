@@ -39,7 +39,7 @@ func produceMCPAuthShare(in LaunchInputContext) ([]byte, error) {
 }
 
 func mcpShareFromPacks(in LaunchInputContext, packs []*packload.Pack) ([]byte, error) {
-	share := mcpauth.Share{Version: 1, Jail: in.Container, Workspace: in.Workspace, Home: shareHomeRel(in), WrittenAt: time.Now().UTC(), Replicas: []mcpauth.Replica{}}
+	share := mcpauth.Share{Version: 1, Jail: in.Container, Workspace: in.Workspace, Home: shareHomeRel(in), WrittenAt: time.Now().UTC(), Replicas: []mcpauth.Replica{}, SignIn: in.MCPSignIn}
 	names := in.EffectiveMCPServers.Keys()
 	sort.Strings(names)
 	for _, pack := range packs {
@@ -206,8 +206,16 @@ func onceShareFrom(in LaunchInputContext, packs []*packload.Pack,
 		if dir == "" {
 			continue
 		}
-		sources = append(sources, mcpauth.Source{Pack: pack.Name, DeriveFile: filepath.Join(pack.Root, "derive.lua"),
-			Dir: dir, Store: path.Base(decl.Store), LockDir: path.Base(decl.Lock.Path), Decl: *decl})
+		adapter := packload.MCPAuthAdapterFor(pack)
+		if adapter == "" && filepath.Base(pack.Name) != pack.Name {
+			continue // no declared executable adapter: native plain, never capturable
+		}
+		source := mcpauth.Source{Pack: pack.Name, Adapter: adapter, DeriveFile: filepath.Join(pack.Root, "derive.lua"),
+			Dir: dir, Store: path.Base(decl.Store), LockDir: path.Base(decl.Lock.Path), Decl: *decl}
+		if err := source.Validate(); err != nil {
+			return nil, nil, err
+		}
+		sources = append(sources, source)
 	}
 	if len(sources) == 0 {
 		return nil, nil, nil
@@ -266,7 +274,7 @@ func onceServersOf(in LaunchInputContext) ([]mcpauth.OnceServer, error) {
 		if err != nil {
 			return nil, err
 		}
-		once = append(once, mcpauth.OnceServer{Name: name, Identity: identity, URL: url})
+		once = append(once, mcpauth.OnceServer{Name: name, Identity: identity, URL: url, Transport: transport, ExpectedClientID: clientID})
 	}
 	return once, nil
 }

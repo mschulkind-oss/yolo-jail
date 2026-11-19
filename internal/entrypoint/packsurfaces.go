@@ -135,15 +135,26 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 		var packs []*packload.Pack
 		for _, entry := range rec {
 			dir := filepath.Join(root, filepath.FromSlash(entry.Dir))
-			p, err := loadJailPack(e, dir, entry.Name, entry.Skipped)
-			if err != nil {
-				return nil, err
+			var p *packload.Pack
+			if entry.Projection != nil {
+				p, err = entry.LoadRecordedScopedPack(root)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				if err := packload.RefuseUnrecordedScopedPack(dir); err != nil {
+					return nil, err
+				}
+				p, err = loadJailPack(e, dir, entry.Name, entry.Skipped)
+				if err != nil {
+					return nil, err
+				}
+				entry.ApplyNaming(p)
+				if err := entry.HydrateSourcedSkills(root, p); err != nil {
+					return nil, err
+				}
 			}
 			p.LaunchName = entry.Name
-			entry.ApplyNaming(p)
-			if err := entry.HydrateSourcedSkills(root, p); err != nil {
-				return nil, err
-			}
 			p.PatchBranchMappings = map[string]packload.PatchBranchMapping{}
 			for owner, mapping := range entry.PatchBranches {
 				if mapping.Mapped {
@@ -175,8 +186,11 @@ func loadPackRootAsStaged(e *Env, root string) ([]*packload.Pack, error) {
 			return nil, fmt.Errorf("pack root %s: %w", dir, err)
 		}
 		for _, ent := range entries {
-			if !ent.IsDir() || ent.Name() == "_official" || ent.Name() == packload.SkillPayloadTreeDir {
+			if !ent.IsDir() || ent.Name() == "_official" || ent.Name() == packload.SkillPayloadTreeDir || ent.Name() == packload.ScopedCarrierDir {
 				continue
+			}
+			if err := packload.RefuseUnrecordedScopedPack(filepath.Join(dir, ent.Name())); err != nil {
+				return nil, err
 			}
 			p, err := loadJailPack(e, filepath.Join(dir, ent.Name()), ent.Name(), nil)
 			if err != nil {
@@ -354,6 +368,8 @@ type surfaceSelection struct {
 	NativeCapabilities []string
 	// RemoteMCPTransports is the remote MCP dialects the agent's own pack says it renders.
 	RemoteMCPTransports []string
+	MCPHeaderForm       string
+	MCPSource           bool
 	// BuiltInProviders is the providers this surface's agent implements itself, keyed by yolo
 	// provider name (packload.BuiltInProvidersFor, from the agent's own pack, by bin ownership)
 	// — ctx.built_in_providers. A derive writes no model entry under one of them
@@ -412,7 +428,10 @@ func surfaceSelectionFor(packs []*packload.Pack, resolved map[string]packload.Re
 			set = []string{profile}
 		}
 	}
+	form, source := packload.MCPConsumerFor(packs, s.Agent)
 	return surfaceSelection{
+		MCPHeaderForm:       form,
+		MCPSource:           source,
 		Profile:             profile,
 		Provider:            packload.ProviderFor(resolved, profile),
 		RemoteMCPTransports: packload.RemoteMCPTransportsFor(packs, s.Agent),
@@ -494,6 +513,9 @@ func deriveCtx(e *Env, surface manifest.Surface, sel surfaceSelection, tables ma
 		Subagents:             sel.Subagents,
 		RemoteMCPTransports:   sel.RemoteMCPTransports,
 		MCPHeaderRoute:        mcpHeaderRoute(e),
+		MCPHeaderForm:         sel.MCPHeaderForm,
+		MCPSource:             sel.MCPSource,
+		MCPSignIn:             e.loadMCPSignIn(),
 		Tables:                tables,
 		UnknownAPI:            func(name string) { e.warnOnce(unknownDeriveAPINote(surface.Agent, name)) },
 		// A helper's warn-don't-refuse note (yolo.model_for's missing tier alias), keyed by

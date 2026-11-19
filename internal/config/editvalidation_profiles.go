@@ -59,7 +59,7 @@ func explicitEditProfileNamespaces(ctx *editValidationContext) (map[string]bool,
 		if pack == nil {
 			root, err := ctx.configuredPackRoot(entry)
 			if err != nil {
-				if errors.Is(err, errPackUnverifiableInJail) {
+				if errors.Is(err, ErrPackUnverifiableInJail) {
 					// The namespace is unknowable from this jail; the caller steps its half
 					// aside, as validateProfile does when UseProfileCLINames cannot answer.
 					return nil, nil, err

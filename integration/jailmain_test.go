@@ -149,16 +149,22 @@ func writeRelease(t *testing.T, dir, name string) {
 // awaitOutput waits for re in a background run's output, failing if the run exits first.
 func awaitOutput(t *testing.T, r *bgRun, re *regexp.Regexp) {
 	t.Helper()
-	deadline := time.Now().Add(jailTimeout())
-	for !re.MatchString(r.combined()) {
-		select {
-		case err := <-r.done:
-			t.Fatalf("%s exited (%v) before printing %s:\n%s", r.name, err, re, r.combined())
-		default:
+	guard := time.NewTimer(jailTimeout())
+	defer guard.Stop()
+	for {
+		text, changed := r.out.snapshotAndChanged()
+		if re.MatchString(text) {
+			return
 		}
-		if time.Now().After(deadline) {
+		select {
+		case <-changed:
+		case <-r.exited:
+			if re.MatchString(r.combined()) {
+				return
+			}
+			t.Fatalf("%s exited before printing %s:\n%s", r.name, re, r.combined())
+		case <-guard.C:
 			t.Fatalf("%s did not print %s within %s:\n%s", r.name, re, jailTimeout(), r.combined())
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
 }

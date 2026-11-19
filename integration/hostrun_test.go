@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -49,8 +50,6 @@ func TestHostRunDeliversAHostCommandToTheJail(t *testing.T) {
 		}
 	}
 	master, slave := openTestPty(t)
-	cmd := exec.Command(yoloBin, "host-run", "--name", "it-1", "--", "printf", "hi")
-	cmd.Dir = dir
 	var env []string
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "YOLO_VERSION=") || strings.HasPrefix(kv, "PATH=") {
@@ -58,7 +57,14 @@ func TestHostRunDeliversAHostCommandToTheJail(t *testing.T) {
 		}
 		env = append(env, kv)
 	}
-	cmd.Env = append(env, "PATH="+binDir)
+	if err := privateNativeWorkspaceAdmission(dir); err != nil {
+		t.Fatal(err)
+	}
+	cmd, err := privateNativeCommandChecked(context.Background(), yoloBin, []string{"host-run", "--name", "it-1", "--", "printf", "hi"}, append(env, "PATH="+binDir), &privateNativeFixture{home: os.Getenv("HOME"), userConfig: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Dir = dir
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}

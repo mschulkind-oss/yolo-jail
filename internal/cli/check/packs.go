@@ -36,6 +36,7 @@ import (
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
 type selectedPackTreeOwner struct {
@@ -184,10 +185,8 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	// what yolo ships, and that is the single most likely instance of the clash
 	// (docs/reference/pack-system.md R1).
 	//
-	// One throwaway tree for the section, removed when it returns: every entry is staged into
-	// <tree>/<slug>, the shape the launcher stages (stagePacks writes <staging root>/<Slug>), so
-	// a loaded pack's Root basename is the staged slug here too. That basename is
-	// packload.Pack.StagedSlug — the key the two halves mount a reads-host grant under.
+	// Ordinary whole-pack machine readiness retains its owned staged tree. Scoped
+	// selections use only pure plans and never copy into this tree.
 	sectionTreeOwner := o.packTreeOwner
 	if sectionTreeOwner == nil {
 		sectionTreeOwner = &selectedPackTreeOwner{}
@@ -238,23 +237,42 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	}
 	var closureSet []*packload.Pack
 	delivered := map[*packload.Pack]string{}
+	inspectionIndexes := map[string]int{}
+	groupedHandles := map[string]bool{}
+	for i, e := range entries {
+		if !e.Implicit && !e.ByDefault {
+			inspectionIndexes[e.ImportIdentity()] = i
+		}
+		if e.Skills != nil || e.Subdir != "" {
+			groupedHandles[e.Name] = true
+		}
+	}
 	sel, _ := config.SelectPacks(entries, config.PackSelectSpec{
 		Resolve: func(e config.PackEntry) (*packload.Pack, error) {
+			if index, authored := inspectionIndexes[e.ImportIdentity()]; authored && groupedHandles[e.Name] {
+				hostskills.PrintPackInspectionHeader(richtext.Printer{W: r.w, Color: r.color}, e, index)
+			}
+			if e.Skills != nil {
+				p, err := hostskills.InspectScopedPack(richtext.Printer{W: r.w, Color: r.color}, e, o.getenv)
+				if err != nil {
+					o.reportUnresolvedPack(r, e, err)
+					return nil, nil
+				}
+				if p == nil {
+					r.skip(e.ConfigOrigin+": selection not yet verified; resolved at next launch", "")
+					return nil, nil
+				}
+				r.ok(e.ConfigOrigin + ": scoped selection inspected without staging")
+				return p, nil
+			}
 			if treeErr != nil {
 				r.fail(e.Name+": "+treeErr.Error(),
-					"yolo check stages each pack under "+os.TempDir()+". Make it writable, or point TMPDIR "+
+					"yolo check stages each whole pack under "+os.TempDir()+". Make it writable, or point TMPDIR "+
 						"at a directory that is, "+recheck)
 				return nil, nil
 			}
-			// THE ONE RESOLVER, the launch's (config.ResolvePack): staged with the REAL executor, so
-			// the escaping-symlink refusal surfaces here instead of at boot, and loaded from the copy,
-			// so the declarations checked are the ones a jail would render — an embedded entry's
-			// `only`/`exclude` included. ReadOnlyStore: check writes nothing and reaches no network,
-			// and Resolve CHECKS OUT a commit whose tree is missing — which, in the partial
-			// (--filter=blob:none) mirror, fetches that commit's blobs from the remote. Getenv is
-			// threaded because resolution falls back to the DELIVERED tree under YOLO_PACK_ROOT when
-			// the address is not visible from here — a jail's inherited config names host paths, so
-			// that is every local pack, every time — and check's tests inject that environment.
+			// Whole-pack machine readiness retains the launch's staged view for
+			// physical model/via readers and the selected host-floor lifetime.
 			res, err := config.ResolvePack(e, config.ResolvePackSpec{
 				Dest: filepath.Join(tree, e.Slug()), ReadOnlyStore: true, Getenv: o.getenv,
 			})
@@ -263,6 +281,8 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 				return nil, nil
 			}
 			switch {
+			case res.Pack != nil && res.Pack.Projection != nil:
+				r.ok(e.Name + ": scoped selection inspected without staging")
 			case e.Embedded():
 				// Reported PASSING rather than skipped silently: a user who wrote
 				// `packs: ["claude"]` should see it acknowledged here, not wonder whether the key
@@ -364,6 +384,9 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 	}
 	packload.ResolveSelectedSkillPayloads(hostPacks, packsrc.LaunchStore(paths.PacksDir()), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
 	for _, p := range loaded {
+		if p.Projection != nil {
+			continue
+		} // The scoped pure report above includes its rows.
 		for _, row := range p.SourcedSkillRows() {
 			label := fmt.Sprintf("pack %s skills[%d]", p.Name, row.Row)
 			if row.Withheld != "" {
@@ -559,6 +582,10 @@ func (o *Options) reportUnresolvedPack(r *reporter, e config.PackEntry, err erro
 	var rerr *config.PackResolveError
 	if errors.As(err, &rerr) {
 		why = rerr.Err
+	}
+	if e.Skills != nil && !e.IsLocal() && !e.Embedded() && (errors.Is(why, packsrc.ErrNotFetched) || errors.Is(why, packsrc.ErrNotCheckedOut) || errors.Is(why, packsrc.ErrDefaultRefUnavailable)) {
+		r.skip(e.ConfigOrigin+": selection not yet verified; resolved at next launch", "No locally readable recorded pin; run the next host launch to verify the selection")
+		return
 	}
 	if !e.Embedded() {
 		if addr, perr := packsrc.Parse(e.Source); perr == nil {

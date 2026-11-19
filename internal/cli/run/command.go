@@ -189,12 +189,16 @@ func buildSessionCmd(targetCmd string, timing, color bool, preludes ...string) s
 	if len(preludes) > 0 {
 		prelude = preludes[0]
 	}
-	command := targetCmd
+	var command string
+	banner := executingBanner(targetCmd, color)
 	if prelude != "" {
-		command = prelude + " && " + targetCmd
-		if !timing {
-			command = prelude + " && exec " + targetCmd
+		if timing {
+			command = prelude + " && { " + banner + "; " + targetCmd + "; }"
+		} else {
+			command = prelude + " && { " + banner + "; exec " + targetCmd + "; }"
 		}
+	} else {
+		command = banner + "; " + targetCmd
 	}
 	if timing {
 		return "" +
@@ -203,7 +207,6 @@ func buildSessionCmd(targetCmd string, timing, color bool, preludes ...string) s
 			"_t1=$(date +%s%N); " +
 			miseActivate + "; " +
 			"_t2=$(date +%s%N); " +
-			executingBanner(targetCmd, color) + "; " +
 			command + "; _rc=$?; " +
 			"_t3=$(date +%s%N); " +
 			"echo '' >&3; echo '=== YOLO Jail Profile ===' >&3; " +
@@ -225,6 +228,5 @@ func buildSessionCmd(targetCmd string, timing, color bool, preludes ...string) s
 	}
 	return "" +
 		miseActivate + "; " +
-		executingBanner(targetCmd, color) + "; " +
 		command
 }

@@ -174,9 +174,9 @@ type ValidatedExplicitEditResult struct {
 	validated        bool
 }
 
-// UnverifiedPacks names, one line each, the configured packs a jail's workspace-config edit
-// could not read (a host-only source with no delivered copy) and so did not check, each line
-// naming where they are checked. Empty on the host, where such a pack refuses the edit instead.
+// UnverifiedPacks names selections this pure edit could not check: host-only
+// sources invisible to a jail, or scoped fetched content not yet locally available.
+// Each line names the host launch/check that resolves the missing coverage.
 func (r ValidatedExplicitEditResult) UnverifiedPacks() []string {
 	return append([]string(nil), r.unverifiedPacks...)
 }

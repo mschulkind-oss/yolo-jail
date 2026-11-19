@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/prune"
@@ -31,9 +32,10 @@ const miseStoreVolume = prune.SharedMiseVolume
 // on Options. It is populated by the fresh-launch path before assembly; grouping
 // it keeps assembleRunCmd a pure function of its inputs ().
 type assembleInput struct {
-	cfg   *jsonx.OrderedMap
-	rt    string
-	cname string
+	callbacks []mcpsignin.CallbackLease
+	cfg       *jsonx.OrderedMap
+	rt        string
+	cname     string
 	// packs are this run's loaded packs (embedded official + configured). Their
 	// DECLARATIONS drive the mounts below — writable dirs, mount targets, host-file
 	// grants — which is what lets core stay ignorant of what an "agent" is.

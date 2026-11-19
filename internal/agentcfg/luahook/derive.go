@@ -42,6 +42,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/modelview"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -176,6 +177,9 @@ type DeriveCtx struct {
 	// ctx.mcp_servers; false leaves that table empty, and every server renders as it would
 	// without the one sign-in.
 	MCPHeaderRoute bool
+	MCPHeaderForm  string
+	MCPSource      bool
+	MCPSignIn      *mcpsignin.Launch
 
 	// Tables are the live config tables a derive may read, keyed by source name
 	// (manifest.SourceMCPServers / SourceLSPServers). Exposed read-only as
@@ -402,14 +406,15 @@ type inFullTable struct{ table *lua.LTable }
 //
 // The caller closes it.
 type deriveSession struct {
-	L        *lua.LState
-	ctxTable *lua.LTable
-	derives  map[deriveKey]*lua.LFunction
-	envs     map[string]*lua.LFunction
-	mcpAuth  map[string]mcpAuthFunctions
-	sentinel *lua.LUserData
-	emptyArr *lua.LUserData
-	cancel   context.CancelFunc
+	L              *lua.LState
+	ctxTable       *lua.LTable
+	derives        map[deriveKey]*lua.LFunction
+	envs           map[string]*lua.LFunction
+	mcpAuth        map[string]mcpAuthFunctions
+	mcpNativeNames map[string]*lua.LFunction
+	sentinel       *lua.LUserData
+	emptyArr       *lua.LUserData
+	cancel         context.CancelFunc
 }
 
 // deriveKey identifies one registered surface producer. Was a function-local type inside
@@ -452,11 +457,12 @@ func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSes
 	L.SetContext(goCtx)
 
 	s := &deriveSession{
-		L:       L,
-		cancel:  cancel,
-		derives: map[deriveKey]*lua.LFunction{},
-		envs:    map[string]*lua.LFunction{},
-		mcpAuth: map[string]mcpAuthFunctions{},
+		L:              L,
+		cancel:         cancel,
+		derives:        map[deriveKey]*lua.LFunction{},
+		envs:           map[string]*lua.LFunction{},
+		mcpAuth:        map[string]mcpAuthFunctions{},
+		mcpNativeNames: map[string]*lua.LFunction{},
 	}
 
 	if err := openSandboxLibs(L); err != nil {
@@ -502,6 +508,7 @@ func newDeriveSession(vm GopherLuaVM, script string, ctx *DeriveCtx) (*deriveSes
 	// OQ-XM1). Installed before the guard, which reads the known members off the table.
 	installModelFor(L, yolo, ctx)
 	installMCPAuth(L, yolo, s)
+	installMCPSignIn(L, yolo, s)
 	guardUnknownAPI(L, yolo, ctx.UnknownAPI)
 	L.SetGlobal("yolo", yolo)
 
@@ -809,7 +816,7 @@ func buildDeriveCtxTable(L *lua.LState, ctx *DeriveCtx, sentinel, emptyArr *lua.
 		if src == sourceMCPServers {
 			eligible := eligibleMCPServers(eligibleRemoteMCPServers(table, ctx.RemoteMCPTransports), have)
 			// Read before withoutProvidesKey strips `sign_in` (DeriveCtx.MCPHeaderRoute).
-			oneSignIn, err := goToLua(L, mcpOneSignIn(eligible, ctx.MCPHeaderRoute))
+			oneSignIn, err := goToLua(L, mcpOneSignIn(eligible, ctx))
 			if err != nil {
 				return nil, fmt.Errorf("luahook: marshalling ctx.mcp_one_sign_in: %w", err)
 			}
@@ -1079,16 +1086,10 @@ func MCPHeaderCommand(name string) string {
 	return "yolo mcp-auth header " + shquote.Quote(name)
 }
 
-// mcpOneSignIn is ctx.mcp_one_sign_in: for each delivered remote server the user made a
-// one-sign-in server (`sign_in = "once"`), a table `{ header_command = <MCPHeaderCommand> }`, and
-// an empty table when route is false (DeriveCtx.MCPHeaderRoute). A derive whose agent takes a
-// header from a command renders that server with the command as its Authorization header and
-// none of its own sign-in.
-func mcpOneSignIn(servers map[string]any, route bool) map[string]any {
+// mcpOneSignIn exposes commands only for approved shared-header consumers.
+// Frozen native facts stay out of Lua's public server tables; no client ID is borrowed.
+func mcpOneSignIn(servers map[string]any, ctx *DeriveCtx) map[string]any {
 	out := map[string]any{}
-	if !route {
-		return out
-	}
 	for name, v := range servers {
 		cfg, ok := v.(map[string]any)
 		if !ok || cfg["sign_in"] != "once" {
@@ -1097,7 +1098,14 @@ func mcpOneSignIn(servers map[string]any, route bool) map[string]any {
 		if url, _ := cfg["url"].(string); url == "" {
 			continue
 		}
-		out[name] = map[string]any{"header_command": MCPHeaderCommand(name)}
+		approved, reason := mcpsignin.HeaderRoute(ctx.MCPSignIn, name, ctx.Agent, ctx.MCPHeaderForm, ctx.MCPSource, ctx.MCPHeaderRoute)
+		if !approved {
+			if ctx.Warn != nil {
+				ctx.Warn(name + ": native plain MCP configuration (" + reason + "); run yolo mcp-auth status " + shquote.Quote(name) + " for the next step")
+			}
+			continue
+		}
+		out[name] = map[string]any{"header_command": MCPHeaderCommand(name), "header_json_command": MCPHeaderCommand(name) + " --format json"}
 	}
 	return out
 }

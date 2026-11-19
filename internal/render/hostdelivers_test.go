@@ -13,12 +13,13 @@ import (
 func TestHostDeliversIsTheCensusPerKind(t *testing.T) {
 	fields := HostFields()
 	withheld := map[packdecl.Kind]bool{
-		packdecl.KindIntercept: true, // refused, and no host verb delivers it (BB-D17)
-		packdecl.KindState:     true,
-		packdecl.KindMount:     true,
-		packdecl.KindReadsHost: true,
-		packdecl.KindHook:      true, // honored, with no renderer behind it
-		packdecl.KindMCPAuth:   true, // metadata only; no host broker consumer exists yet
+		packdecl.KindIntercept:       true, // refused, and no host verb delivers it (BB-D17)
+		packdecl.KindState:           true,
+		packdecl.KindMount:           true,
+		packdecl.KindReadsHost:       true,
+		packdecl.KindHook:            true, // honored, with no renderer behind it
+		packdecl.KindMCPAuth:         true, // store metadata, not itself a rendered host surface
+		packdecl.KindMCPSignInBundle: true, // inventory metadata; whole-plugin delivery is the skills pipeline
 	}
 	for _, k := range packdecl.KnownKinds() {
 		if got := HostDelivers(fields, k); got == withheld[k] {

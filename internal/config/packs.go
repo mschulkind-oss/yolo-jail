@@ -24,6 +24,7 @@ package config
 // verb to promote one.
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -84,6 +85,11 @@ var knownPackKeys = set(
 // into each agent that has a skills dir), so the config-side filter was a second,
 // weaker copy of a decision already made downstream.
 type PackEntry struct {
+	// Subdir relocates the source root; Skills selects modern candidate names.
+	// Origin identifies the authored config item for scoped selection diagnostics.
+	Subdir       string                  `json:"subdir,omitempty"`
+	Skills       *packsrc.SkillSelection `json:"skills,omitempty"`
+	ConfigOrigin string                  `json:"configOrigin,omitempty"`
 	// Source is the pack address. Always set, and always ABSOLUTE: either a `file://`
 	// URL (a local path, the only form phase 0 fetches) or a `git+<transport>://` URL.
 	// A config may write a local pack as a plain path — `~/dotfiles/packs/mine` or
@@ -174,11 +180,31 @@ func (p PackEntry) Identity() string {
 	return packsrc.PackIdentity(embedded, p.PhysicalPath, p.Source)
 }
 
+// ImportIdentity is the authored tuple, independent of physical source identity
+// and selection content. Empty raw dir distinguishes typed and whole at the root.
+func (p PackEntry) ImportIdentity() string {
+	dir := ""
+	if p.Skills != nil {
+		dir = p.Skills.Dir
+	}
+	return p.Name + "\x00" + p.Subdir + "\x00" + dir
+}
+
 // Slug returns a filesystem-safe identifier for this pack's staging dir: internal/slug's
 // escape, the one HostFileEntry.Slug and every other path built from a pack name use, so one
 // escaping bug cannot exist in two forms and one name has one spelling (RC-D48).
 func (p PackEntry) Slug() string {
-	return slug.Escape(p.Name)
+	base := slug.Escape(p.Name)
+	if p.Skills == nil && p.Subdir == "" {
+		return base
+	}
+	raw, _ := json.Marshal(struct {
+		Tuple            string
+		Selection        *packsrc.SkillSelection
+		Namespace, Owner string
+	}{p.ImportIdentity(), p.Skills, p.Namespace, p.NamespaceOwner})
+	digest := sha256.Sum256(raw)
+	return fmt.Sprintf("%s-%x", base, digest[:6])
 }
 
 // IsLocal reports whether Source is a file:// address, which needs no fetch.

@@ -213,23 +213,43 @@ func TestPackCLIClassifierStopsOwnedDescendantAfterSuccessfulWrapperExit(t *test
 }
 
 // The classifier deadline bounds each classifier process, not the lookups core
-// runs between rounds: a host lookup that outlasts one deadline must not refuse
-// a classification whose classifier answers promptly every round.
+// runs between rounds: a host lookup whose duration exceeds one per-process
+// deadline must not cancel the classification or shorten the next round's
+// invocation budget.
 func TestPackCLIClassifierDeadlineBoundsEachInvocationNotLookups(t *testing.T) {
 	classifier := fixtureClassifier(t, `if grep -q '"facts"'; then printf '%s' '`+fixtureAnswer(nil, "team:alpha")+`'; else printf '%s' '{"version":"yolo.call-broker-classifier/1","lookups":[{"name":"task-project","arguments":["a1"]}]}'; fi`)
-	classifier.deadline = time.Second
+	var invocationContexts []context.Context
+	var invocationDeadlines []time.Duration
+	classifier.withInvocationTimeout = func(ctx context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+		invocationDeadlines = append(invocationDeadlines, d)
+		// Bound each process with fixtureClassifierDeadline (2m) so loaded-host
+		// scheduling never fails a healthy shell process, while recording the
+		// derived context so we can verify each round gets its own fresh
+		// invocation context and lookup does not share it.
+		cctx, cancel := context.WithTimeout(ctx, d)
+		invocationContexts = append(invocationContexts, cctx)
+		return cctx, cancel
+	}
 	reader := func(ctx context.Context, _ loopholedecl.CallBrokerLookup, _ []string) (json.RawMessage, error) {
-		// Outlast one classifier deadline; a reader whose context the
-		// classifier's deadline cuts short returns that error instead.
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(classifier.deadline + 200*time.Millisecond):
-			return json.RawMessage(`{"project":"team:alpha"}`), nil
+		// Round 1's invocation context must already be canceled when invokePayload
+		// returned, whereas the lookup's ctx must still be live with the outer
+		// classificationBudget (well above classifierDeadline).
+		if len(invocationContexts) != 1 || invocationContexts[0].Err() == nil {
+			return nil, fmt.Errorf("round 1 invocation context was not closed before lookup: len=%d err=%v", len(invocationContexts), invocationContexts[0].Err())
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) <= classifierDeadline {
+			return nil, fmt.Errorf("lookup context was capped at per-invocation deadline: deadline=%v ok=%v", deadline, ok)
+		}
+		return json.RawMessage(`{"project":"team:alpha"}`), nil
 	}
 	answer, err := classifier.ClassifyCLI(context.Background(), []string{"update", "a1"}, nil, reader)
 	if err != nil || answer.Classification == nil || len(answer.Classification.Writes) != 1 {
 		t.Fatalf("slow lookup consumed the classifier deadline: answer=%+v err=%v", answer, err)
+	}
+	if len(invocationDeadlines) != 2 || invocationDeadlines[0] != fixtureClassifierDeadline || invocationDeadlines[1] != fixtureClassifierDeadline {
+		t.Fatalf("unexpected invocation deadlines across rounds: %v", invocationDeadlines)
 	}
 }

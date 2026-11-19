@@ -1,0 +1,13 @@
+{
+  "name": "slack",
+  "description": "Slack AI tools for users and developers: interact with your workspace via the Slack MCP server and use skills to develop Slack apps.",
+  "version": "1.8.0",
+  "mcpServers": "../.cursor-mcp.json",
+  "author": {
+    "name": "Slack",
+    "url": "https://slack.com"
+  },
+  "homepage": "https://docs.slack.dev/ai/slack-skills-plugin",
+  "repository": "https://github.com/slackapi/slack-skills-plugin",
+  "skills": "./skills/"
+}

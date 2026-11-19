@@ -130,7 +130,7 @@ func (o *Options) onceLaunchShare(cname string, packs []*packload.Pack) (mcpauth
 		return mcpauth.Share{}, false
 	}
 	share := mcpauth.Share{Version: 1, Jail: cname, Workspace: o.Workspace, WrittenAt: time.Now().UTC(),
-		Replicas: []mcpauth.Replica{}, Once: once, Sources: sources}
+		Replicas: []mcpauth.Replica{}, Once: once, Sources: sources, SignIn: frozen.SignIn}
 	if err := share.Validate(); err != nil {
 		o.pr(o.Stderr).print("MCP one sign-in: " + richtext.Escape(err.Error()))
 		return mcpauth.Share{}, false
@@ -277,7 +277,7 @@ func HostOnceSession(cfg *jsonx.OrderedMap, packs []*packload.Pack, agent *packl
 		return nil, err
 	}
 	share := mcpauth.Share{Version: 1, Jail: HostOnceJail, Workspace: workspace, WrittenAt: time.Now().UTC(),
-		Replicas: []mcpauth.Replica{}, Once: once, Sources: sources}
+		Replicas: []mcpauth.Replica{}, Once: once, Sources: sources, SignIn: hostDeliveredMCPSignIn(once, packs, home, sources)}
 	if err := share.Validate(); err != nil {
 		return nil, err
 	}

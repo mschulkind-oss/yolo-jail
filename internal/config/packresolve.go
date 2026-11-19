@@ -41,6 +41,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,11 +88,13 @@ type ResolvedPack struct {
 	// here, so a refusal names what was skipped (PF-D75).
 	Problems []string
 	// Staged is what the filters kept and dropped: the copy's in STAGE mode, the check's in
-	// DECLARATION mode. Nil only for an embedded pack read in place (unfiltered, declaration).
+	// DECLARATION mode. Nil for scoped projections and an unfiltered embedded declaration.
 	Staged *packstage.Result
 	// StagedFrom is packsrc.Resolved.StagedFrom: the delivered tree a nested resolution fell back
 	// to, "" otherwise.
 	StagedFrom string
+	// Commit is the existing fetched commit read by the resolver, never a branch label.
+	Commit string
 }
 
 // PackResolveError is a resolution the resolver could not complete: the address, the store, the
@@ -107,25 +110,76 @@ func (e *PackResolveError) Unwrap() error { return e.Err }
 
 // ResolvePack resolves one `packs` entry by the one rule every notch shares. See the file doc.
 func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
+	return resolvePack(entry, spec, false)
+}
+
+// InspectPack reads a configured selection without transport, checkout, staging
+// or embedded extraction. ReadOnlyStore alone remains a cache policy for writers.
+func InspectPack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
+	spec.Dest = ""
+	spec.ReadOnlyStore = true
+	return resolvePack(entry, spec, true)
+}
+
+func resolvePack(entry PackEntry, spec ResolvePackSpec, inspection bool) (ResolvedPack, error) {
 	fail := func(err error) (ResolvedPack, error) {
 		return ResolvedPack{}, &PackResolveError{Name: entry.Name, Err: err}
 	}
 	if spec.Ctx != nil && spec.Ctx.Err() != nil {
 		return fail(spec.Ctx.Err())
 	}
+	if err := validateScopedPackEntry(entry); err != nil {
+		return fail(err)
+	}
 	filtered := len(entry.Only) > 0 || len(entry.Exclude) > 0
 	var out ResolvedPack
 	var root string
+	var commit string
 	if entry.Embedded() {
 		name := entry.EmbeddedName
 		if name == "" {
 			name = entry.Name
 		}
+		if entry.Skills != nil && inspection {
+			source, err := fs.Sub(packload.EmbeddedFS(), name)
+			if err != nil {
+				return fail(err)
+			}
+			projected, err := projectPackSkills(entry, spec, filepath.Join(string(filepath.Separator), "embedded", name), "", source)
+			if err != nil {
+				return fail(err)
+			}
+			return projected, nil
+		}
+		if inspection {
+			p, problems, err := packload.ReadSelectedPackFS(packload.EmbeddedFS(), name, filepath.Join(string(filepath.Separator), "embedded", name), entry.Name, entry.Only, entry.Exclude)
+			if err != nil {
+				return fail(err)
+			}
+			if len(problems) > 0 {
+				return fail(fmt.Errorf("%s", strings.Join(problems, "; ")))
+			}
+			p.Official = true
+			p.KeepNamesStep, p.AcceptNamesStep, p.BareStep = entry.KeepNamesStep, entry.AcceptNamesStep, entry.BareStep
+			p.Namespace, p.NamespaceOwner, p.Landing = entry.Namespace, entry.NamespaceOwner, entry.Landing
+			if len(entry.Only) > 0 {
+				p.SourcedSkillsWithheld = "legacy only filter withholds every sourced skill; remove only to register these rows"
+			}
+			source, err := fs.Sub(packload.EmbeddedFS(), name)
+			if err != nil {
+				return fail(err)
+			}
+			checked, err := packstage.CheckEmbedded(source, entry.Only, entry.Exclude)
+			if err != nil {
+				return fail(err)
+			}
+			return ResolvedPack{Pack: p, Staged: checked}, nil
+		}
 		p, err := embeddedPackNamed(name)
 		if err != nil {
 			return fail(err)
 		}
-		if spec.Dest == "" && !filtered {
+		if spec.Dest == "" && !filtered && entry.Skills == nil {
 			// The one materialization, read in place: it is yolo's own immutable tree, leased for
 			// the process, with nothing to filter and nothing a no-escape check could find.
 			return ResolvedPack{Pack: p}, nil
@@ -138,6 +192,20 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		}
 		if err != nil {
 			return fail(err)
+		}
+		pureWholeInspection := inspection
+		if (entry.Skills != nil || pureWholeInspection) && !addr.IsLocal() {
+			// A scoped or pure whole read binds to the launch's recorded pin, not a branch tip
+			// that an unrelated mirror refresh may have advanced.
+			lock, err := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
+			if err != nil {
+				return fail(err)
+			}
+			if pin, ok := lock.Get(entry.Name); ok && pin.Source == entry.Source && pin.Commit != "" {
+				addr.Ref = pin.Commit
+			} else if spec.ReadOnlyStore {
+				return fail(fmt.Errorf("%w: selection has no matching recorded pin; the next host launch resolves it", packsrc.ErrDefaultRefUnavailable))
+			}
 		}
 		storeDir := spec.StoreDir
 		if storeDir == "" {
@@ -155,9 +223,48 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 			res, err = store.Resolve(addr, entry.Slug())
 		}
 		if err != nil {
+			if inspection && addr.IsLocal() {
+				if _, statErr := os.Stat(addr.Path); errors.Is(statErr, fs.ErrNotExist) || errors.Is(statErr, fs.ErrPermission) {
+					return fail(fmt.Errorf("%w: local source is not readable; restore its directory before the next launch", packsrc.ErrNotFetched))
+				}
+			}
 			return fail(err)
 		}
-		root, out.StagedFrom = res.Root, res.StagedFrom
+		root, out.StagedFrom, commit = res.Root, res.StagedFrom, res.Commit
+		out.Commit = commit
+	}
+	// Store provenance distinguishes source roots from launcher-delivered copies,
+	// whose import root was already selected before staging.
+	if entry.Subdir != "" && out.StagedFrom == "" {
+		var err error
+		root, err = confinedPackRoot(root, entry.Subdir, entry.IsLocal())
+		if err != nil {
+			return fail(err)
+		}
+	}
+	if entry.Skills != nil {
+		if entry.Skills.Dir != "" {
+			if _, err := confinedPackRoot(root, entry.Skills.Dir, entry.IsLocal()); err != nil {
+				return fail(err)
+			}
+		}
+		if entry.IsLocal() || entry.Embedded() {
+			projected, err := projectPackSkills(entry, spec, root, commit, os.DirFS(root))
+			if err != nil {
+				return fail(err)
+			}
+			return projected, nil
+		}
+		confined, err := os.OpenRoot(root)
+		if err != nil {
+			return fail(err)
+		}
+		defer confined.Close()
+		projected, err := projectPackSkills(entry, spec, root, commit, confined.FS())
+		if err != nil {
+			return fail(err)
+		}
+		return projected, nil
 	}
 
 	stage := packstage.Spec{Root: root, Only: entry.Only, Exclude: entry.Exclude,
@@ -220,6 +327,9 @@ func ResolvePack(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 		// field it could not read that no longer validates. The notes name the field and `update
 		// yolo`, the step the problem alone does not.
 		out.Problems = append(out.Problems, out.Pack.SkewNotes...)
+	}
+	if out.Pack != nil && entry.Subdir != "" {
+		out.Pack.ImportIdentity = entry.ImportIdentity()
 	}
 	if out.Pack != nil && loadFrom != root {
 		out.Pack.SourceRoot = root
@@ -285,6 +395,20 @@ func followsSymlinks(entry PackEntry) bool {
 // daemon outlives the verb whose process tree would hold the copy.
 func ResolvePackForProcess(entry PackEntry, spec ResolvePackSpec) (ResolvedPack, error) {
 	spec.Dest = ""
+	if entry.Skills != nil {
+		resolved, err := ResolvePack(entry, spec)
+		if err != nil {
+			return resolved, err
+		}
+		dir, err := packload.ProcessPackDir(entry.Slug())
+		if err != nil {
+			return ResolvedPack{}, &PackResolveError{Name: entry.Name, Err: err}
+		}
+		if err := materializeProjectedCarrier(resolved.Pack, entry, dir); err != nil {
+			return ResolvedPack{}, &PackResolveError{Name: entry.Name, Err: err}
+		}
+		return resolved, nil
+	}
 	if len(entry.Only) == 0 && len(entry.Exclude) == 0 {
 		return ResolvePack(entry, spec)
 	}

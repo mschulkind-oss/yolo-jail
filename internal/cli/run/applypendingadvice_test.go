@@ -28,6 +28,7 @@ func pendingAWSApplyFixture(t *testing.T, boot string) (*Options, *strings.Build
 	if err := os.WriteFile(filepath.Join(module, "manifest.jsonc"), []byte(manifest), 0600); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(loopholes.SnapshotPackModules())
 	loopholes.SetPackModules([]loopholes.PackModule{{Dir: module, Pack: "fixture-pack", HostExecApproved: true}})
 	return o, output
 }

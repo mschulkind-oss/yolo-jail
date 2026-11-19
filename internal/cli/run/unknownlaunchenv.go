@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/durable"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
@@ -58,7 +59,7 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 		paths.HomeStateEnv,
 		// Contracts a launch writes into the container's environment, so a launch nested in
 		// that container inherits them.
-		paths.HoldExecEnv, ioprio.EnvVar, config.BootBaselineDigestEnv,
+		paths.HoldExecEnv, ioprio.EnvVar, config.BootBaselineDigestEnv, mcpsignin.WireEnv,
 		claudesecurity.EnvVar, paths.LaunchUpdateEnv, paths.ServedAddressesEnv,
 		entrypoint.StoreProfilesEnv, entrypoint.StoreFHSProfilesEnv, entrypoint.SealedBuildEnv,
 		entrypoint.TreeBuildEnv, entrypoint.ProgramCapturesEnv, entrypoint.HostCAFileEnv,

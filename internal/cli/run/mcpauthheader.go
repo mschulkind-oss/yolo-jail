@@ -25,10 +25,8 @@ var hostHeaderGOOS = runtime.GOOS
 
 // HostHeaderShare is the share the host's header route answers with: cfg is the user-scope
 // config and packs its selection, as at `yolo host`, where every server composed is the user's
-// (mcp-auth-sharing.md §6). On Linux its sources are every selected pack's store in the real
-// home, as HostOnceSession's are, so a refresh writes the fresh token back to the agent that
-// signed in; on a Mac that store is the Keychain, so there is none, and the refresh writes
-// nothing back.
+// (mcp-auth-sharing.md §6). Linux sources describe placement/capture facts; the
+// short-lived header reader never opens them for adoption or writeback. Mac has no source.
 func HostHeaderShare(cfg *jsonx.OrderedMap, packs []*packload.Pack, home, workspace string) (mcpauth.Share, error) {
 	servers := packload.ComposeMCPServers(cfgMap(cfg, "mcp_servers"), packs, home)
 	in := LaunchInputContext{Workspace: workspace, Container: HostOnceJail, EffectiveMCPServers: servers,
@@ -47,11 +45,19 @@ func HostHeaderShare(cfg *jsonx.OrderedMap, packs []*packload.Pack, home, worksp
 			return mcpauth.Share{}, err
 		}
 	}
+	share.SignIn = hostDeliveredMCPSignIn(share.Once, packs, home, share.Sources)
+	names := []string{}
+	for _, pack := range packs {
+		if pack != nil {
+			names = append(names, pack.Name)
+		}
+	}
+	share.SignIn.Advice = MCPAdviceContext(cfg, packs, names)
 	return share, nil
 }
 
-// HostHeader is the access token for server from the host's canonical store, refreshed first when
-// under five minutes remain; a refusal is an *mcpauthdaemon.HeaderRefusal naming the next step.
+// HostHeader strictly issues an unexpired token from existing canonical state;
+// it never redeems or writes back. A refusal names the next step.
 func HostHeader(ctx context.Context, share mcpauth.Share, server string, warn func(string)) (string, error) {
 	return mcpauthdaemon.HostHeader(ctx, loopholes.StateDirFor(selectedMCPHostService), share, server, warn)
 }

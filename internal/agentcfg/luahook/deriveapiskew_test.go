@@ -69,6 +69,7 @@ func TestDeriveStrictRefusesAnUnknownAPIByName(t *testing.T) {
 		"yolo.sha256",
 		"yolo.canonical_json",
 		"yolo.mcp_auth",
+		"yolo.mcp_sign_in",
 		"version skew", // the reading a jail user needs
 		"typo",         // the reading a pack author needs
 	} {

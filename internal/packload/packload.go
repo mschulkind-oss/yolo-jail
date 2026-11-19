@@ -30,12 +30,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/arraymerge"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // Pack is a discovered pack: its declaration plus where its files are.
 type Pack struct {
+	Projection       *SkillProjection
+	projectionSource fs.FS
 	// Name is the pack's effective name, and it comes from the CALLER — never from
 	// pack.json. For a configured pack it is config.PackEntry.Name (the entry's explicit
 	// `name`, else the last segment of its source address); for an embedded one it is the
@@ -121,6 +124,9 @@ type Pack struct {
 	// (SourcePath): a refusal a user fixes by editing a file must name the file they edit, not
 	// the throwaway copy the verb read.
 	SourceRoot string
+	// ImportIdentity distinguishes authored subdir/dir roots sharing one handle.
+	// Ordinary entries leave it empty and retain name-based compatibility.
+	ImportIdentity string
 	// PatchBranchMappings are host-established relative-locator identities delivered by the
 	// selected pack-tree record. The directory is the declaring pack's path under the jail's
 	// workspace when that source is mounted there; an unmapped source keeps its identity but
@@ -1262,6 +1268,15 @@ func loadDir(root, name string, forUse, followLocalLinks bool) (*Pack, []string)
 	_, conventionProblems := finishPackMetadata(name, decl, manifestFound, homeFiles, homeProblems, overlayFiles,
 		overlayProblems, packDescription(root, decl, manifestFound), reservedBriefingFiles(root, name))
 	problems = append(problems, conventionProblems...)
+	if len(decl.SignInBundles()) > 0 {
+		reader, err := mcpsignin.OpenDisk(root)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("pack %s: sign-in bundle root unavailable: %v; restore the pack tree", name, err))
+		} else {
+			problems = append(problems, validateSignInBundles(name, decl, reader)...)
+			reader.Close()
+		}
+	}
 	return &Pack{
 		Name: name, OverlayFiles: overlayFiles,
 		Root: root, Decl: decl, SkewNotes: skewNotes,

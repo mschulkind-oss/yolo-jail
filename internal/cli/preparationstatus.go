@@ -20,24 +20,24 @@ func printPreparationStatus(out, errw io.Writer, color bool, key string) int {
 	pr := richtext.Printer{W: out, Color: color}
 	if len(state.Subscriptions) == 0 {
 		if key == "" {
-			pr.Printf("[dim]No built-tree preparations are registered.[/dim]")
+			pr.Printf("[dim]No launch preparations are registered.[/dim]")
 		}
 		return 0
 	}
 	record, live, probeErr := probePreparationWorker(preparationRoot())
 	switch live {
 	case preparationAlive:
-		pr.Printf("Tree preparation worker: running (authenticated incarnation %s; pid %d is diagnostic)", record.Identity, record.PID)
+		pr.Printf("Preparation worker: running (authenticated incarnation %s; pid %d is diagnostic)", record.Identity, record.PID)
 	case preparationUnknown:
-		pr.Printf("Tree preparation worker: unknown (%v); state retained — retry `yolo pack prepare status`", probeErr)
+		pr.Printf("Preparation worker: unknown (%v); state retained — retry `yolo pack prepare status`", probeErr)
 	default:
 		// A new incarnation rewrites the worker record, so a recorded stop request is the last
 		// worker's: it stopped because it was asked to, and stays stopped until resumed.
 		if state.Worker.StopRequested && !state.Worker.StoppedAt.IsZero() {
-			pr.Printf("Tree preparation worker: not running; stopped by `yolo pack prepare stop` at %s; run `yolo pack prepare start` to reauthorize and resume", state.Worker.StoppedAt.Local().Format(time.RFC3339))
+			pr.Printf("Preparation worker: not running; stopped by `yolo pack prepare stop` at %s; run `yolo pack prepare start` to reauthorize and resume", state.Worker.StoppedAt.Local().Format(time.RFC3339))
 			break
 		}
-		pr.Printf("Tree preparation worker: not running; run `yolo pack prepare start` to reauthorize and resume")
+		pr.Printf("Preparation worker: not running; run `yolo pack prepare start` to reauthorize and resume")
 	}
 
 	records := append([]preparationRecord(nil), state.Subscriptions...)
@@ -115,14 +115,14 @@ func packPrepare(args []string, out, errw io.Writer, color bool) int {
 			eligible = eligible || r.Active
 		}
 		if !eligible {
-			fmt.Fprintln(out, "No selected next-launch tree preparations are registered; nothing was started.")
+			fmt.Fprintln(out, "No selected next-launch preparations are registered; nothing was started.")
 			return 0
 		}
 		if err := ensurePreparationScheduler(); err != nil {
 			fmt.Fprintf(errw, "yolo pack prepare start: could not start the owned host worker (%v) — retry `yolo pack prepare start`\n", err)
 			return 1
 		}
-		fmt.Fprintln(out, "The host tree-preparation worker is running; inspect progress with `yolo pack prepare status`.")
+		fmt.Fprintln(out, "The host preparation worker is running; inspect progress with `yolo pack prepare status`.")
 		return 0
 	case "stop":
 		record, live, err := probePreparationWorker(preparationRoot())

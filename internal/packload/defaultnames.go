@@ -9,6 +9,7 @@ package packload
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -90,8 +91,38 @@ func SkillNames(p *Pack) []string {
 	if p == nil {
 		return nil
 	}
+	if p.Projection != nil {
+		for _, row := range p.Projection.Rows {
+			if row.MarkerState == "present" {
+				seen[row.By.SkillBaseName()] = true
+			}
+		}
+		out := make([]string, 0, len(seen))
+		for name := range seen {
+			out = append(out, name)
+		}
+		sort.Strings(out)
+		return out
+	}
 	sources, _ := p.SkillsSources()
 	for _, source := range sources {
+		if p.embeddedMetadata != nil {
+			root, err := filepath.Rel(p.Root, source.Dir)
+			if err != nil {
+				continue
+			}
+			root = filepath.ToSlash(root)
+			entries, err := fs.ReadDir(p.embeddedMetadata.selectedFS, root)
+			if err != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if marker, err := fs.Stat(p.embeddedMetadata.selectedFS, root+"/"+entry.Name()+"/SKILL.md"); err == nil && marker.Mode().IsRegular() {
+					seen[entry.Name()] = true
+				}
+			}
+			continue
+		}
 		src := source.Dir
 		entries, err := os.ReadDir(src)
 		if err != nil {

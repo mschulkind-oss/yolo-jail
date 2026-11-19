@@ -66,6 +66,17 @@ func installMCPAuth(L *lua.LState, yolo *lua.LTable, session *deriveSession) {
 	}))
 }
 
+// MCPAuthRegistered reads the exact declared adapter registration without
+// invoking its key or match functions.
+func MCPAuthRegistered(script, adapter string) bool {
+	s, _, err := mcpAuthSession(script, adapter)
+	if err != nil {
+		return false
+	}
+	s.close()
+	return true
+}
+
 // MCPAuthKeys runs a pack's mcp_auth key function once per composed server.
 func MCPAuthKeys(script, agent string, servers []MCPServerRef) (map[string]string, error) {
 	s, functions, err := mcpAuthSession(script, agent)

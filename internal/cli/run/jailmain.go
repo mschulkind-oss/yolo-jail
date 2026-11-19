@@ -50,6 +50,7 @@ type jailMain struct {
 	ready    chan struct{}
 	exited   chan struct{}
 	exitCode int
+	startup  *startupCapture
 }
 
 // readyRelay copies the main process's stderr to w line by line, and on the first line that
@@ -142,7 +143,7 @@ func startJailMain(argv []string, stdout, stderr io.Writer, onExit func()) (*jai
 		return nil, err
 	}
 	c.Stdin = stdinR
-	m := &jailMain{cmd: c, ready: make(chan struct{}), exited: make(chan struct{})}
+	m := &jailMain{cmd: c, ready: make(chan struct{}), exited: make(chan struct{}), startup: &startupCapture{}}
 	var once sync.Once
 	relay := &readyRelay{w: stderr, onReady: func() { once.Do(func() { close(m.ready) }) }}
 	outR, outW, err := os.Pipe()
@@ -175,7 +176,7 @@ func startJailMain(argv []string, stdout, stderr io.Writer, onExit func()) (*jai
 	for _, p := range []struct {
 		dst io.Writer
 		src *os.File
-	}{{stdout, outR}, {relay, errR}} {
+	}{{stdout, outR}, {io.MultiWriter(m.startup, relay), errR}} {
 		go func() {
 			defer copies.Done()
 			_, _ = io.Copy(p.dst, p.src)

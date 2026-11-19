@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
+	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -78,6 +79,7 @@ var notLaunchSettings = func() map[string]string {
 		"YOLO_SERVICE_OPENAI_AUTH_BROKER_ENDPOINT"} {
 		m[name] = "a loophole's endpoint, recognized when the pack shipping it is selected"
 	}
+	m[hostservice.PublicationPathEnv] = daemonHalf
 	return m
 }()
 

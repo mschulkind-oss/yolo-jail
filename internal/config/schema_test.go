@@ -508,8 +508,15 @@ func TestReadableSchemaContainsLegacyValidatorFieldsAndExactMixedTypes(t *testin
 func TestReadableSchemaRemovalPoliciesCoverAcceptedEmptyListsAndNativeSelection(t *testing.T) {
 	readable := schemaKeyMap(ReadableSchemaKeys())
 	for _, key := range readable {
-		if key.Type == SchemaTypeList && key.Removal != RemovalEmptyList {
-			t.Errorf("list path %q has removal policy %v, want empty-list clearing", key.Path, key.Removal)
+		if key.Type == SchemaTypeList {
+			want := RemovalEmptyList
+			// Scoped selectors reject empty lists: delete the authored key instead.
+			if key.Path == "packs.*.skills.only" || key.Path == "packs.*.skills.exclude" {
+				want = RemovalUnsupported
+			}
+			if key.Removal != want {
+				t.Errorf("list path %q has removal policy %v, want %v", key.Path, key.Removal, want)
+			}
 		}
 	}
 	if got := readable["env.set.*"].Removal; got != RemovalUnsetList {

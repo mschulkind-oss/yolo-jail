@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"sort"
 	"strings"
 	"time"
@@ -23,9 +24,11 @@ import (
 
 // OnceServer is one user-level server configured with sign_in = "once".
 type OnceServer struct {
-	Name     string `json:"name"`
-	Identity string `json:"identity"`
-	URL      string `json:"url"`
+	Name             string `json:"name"`
+	Identity         string `json:"identity"`
+	URL              string `json:"url"`
+	Transport        string `json:"transport,omitempty"`
+	ExpectedClientID string `json:"expected_client_id,omitempty"`
 }
 
 // OnceSource is an agent's machine-wide store the broker adopts from and writes back to.
@@ -36,6 +39,8 @@ type OnceSource struct {
 	// Match reports the server URL and issuer a native entry names (the pack's mcp_auth match
 	// function), and false for an entry it does not recognize.
 	Match func(key string, entry json.RawMessage) (url, issuer string, ok bool)
+	// NativeName is the same pack match result's name, never the store key/hash.
+	NativeName func(key string, entry json.RawMessage) string
 }
 
 // NewOnceStore opens the one-sign-in tier's canonical store: records.json beside its lock.
@@ -61,8 +66,9 @@ type OnceBroker struct {
 
 	// refused holds the SHA-256 of each source refresh token a definitive failure refused, so
 	// it is not sent again; in memory only, never written.
-	refused map[string]bool
-	retry   map[string]retryState
+	refused        map[string]bool
+	retry          map[string]retryState
+	immediateRetry map[string]time.Time
 }
 
 type retryState struct {
@@ -202,11 +208,12 @@ func expiryOf(src OnceSource, raw json.RawMessage) int64 {
 }
 
 func (b *OnceBroker) passServer(ctx context.Context, src OnceSource, server OnceServer) error {
-	entries, parsed, _ := src.Store.Read()
-	if !parsed {
-		// An absent, torn or unreadable store proves nothing; the next pass looks again.
-		return nil
+	snapshot := src.Store.Snapshot()
+	if snapshot.State != SourceParsed {
+		// An absent, torn or unreadable store proves nothing about sign-out.
+		return b.observeSourceProblem(src, server)
 	}
+	entries := snapshot.Entries
 	record, err := b.findRecord(server)
 	if err != nil {
 		return err
@@ -224,16 +231,34 @@ func (b *OnceBroker) passServer(ctx context.Context, src OnceSource, server Once
 	if !present {
 		return b.signOut(src, server)
 	}
+	if !sourceMatchesRecord(src, server, record, raw) {
+		return nil
+	}
 	if b.now().UnixMilli() >= record.ExpiresAtMS-refreshMargin(record.LifetimeMS).Milliseconds() {
 		if !b.retryReady(server) {
 			return nil
 		}
-		return b.refresh(ctx, &src, server)
+		return b.refresh(ctx, &src, server, false)
 	}
 	if b.ours(src, raw, record) && !b.current(src, raw, record) {
-		return b.writeBack(&src, record)
+		return b.writeBack(&src, server, record)
 	}
 	return nil
+}
+
+// A native key or an identical spent grant alone is not a source identity.
+// Reuse adoption's exact URL and issuer semantics, plus the committed/current
+// client fence, on the current entry before source-derived work or writeback.
+func sourceMatchesRecord(src OnceSource, server OnceServer, record *Record, raw json.RawMessage) bool {
+	if src.Match == nil {
+		return false
+	}
+	url, issuer, ok := src.Match(record.SourceKey, raw)
+	if !ok || url != server.URL || record.URL != server.URL || issuer == "" || !sameIssuer(issuer, record.Issuer) {
+		return false
+	}
+	clientID, _ := stringAt(raw, src.Fields.ClientID)
+	return clientID == record.ClientID && (server.ExpectedClientID == "" || clientID == server.ExpectedClientID)
 }
 
 // originOf reports whether src is the store record was adopted from: the one store whose
@@ -353,15 +378,25 @@ func (b *OnceBroker) adopt(ctx context.Context, src OnceSource, server OnceServe
 	if src.Fields.ClientID != "" {
 		clientID, _ = stringAt(raw, src.Fields.ClientID)
 	}
+	native := src.nativeName(key, raw)
+	if server.ExpectedClientID != "" && clientID != server.ExpectedClientID {
+		b.refuse(rt)
+		b.audit("adopt-refused", server.Name, 0)
+		b.writeOutcomeLocked(server, native, OutcomeClientMismatch, 0)
+		b.warn("%s: the native sign-in's client differs from the configured client; authenticate the configured entry with your own client", server.Name)
+		return nil
+	}
 	discovery, err := b.Client.Discover(ctx, server.URL)
 	if err != nil {
 		b.backOff(server)
-		b.warn("%s: discovery failed, the sign-in stays with %s for now: %v", server.Name, src.Pack, err)
+		b.writeOutcomeLocked(server, native, OutcomeDeferredNetwork, 0)
+		b.warn("%s: discovery did not finish; the sign-in stays with %s for now, and the next scheduled pass retries", server.Name, src.Pack)
 		return nil
 	}
 	if issuer == "" || !sameIssuer(issuer, discovery.Issuer) {
 		b.refuse(rt)
 		b.audit("adopt-refused", server.Name, 0)
+		b.writeOutcomeLocked(server, native, OutcomeIssuerMismatch, 0)
 		b.warn("%s: the sign-in names an issuer the server does not; %s keeps signing itself in", server.Name, src.Pack)
 		return nil
 	}
@@ -371,11 +406,13 @@ func (b *OnceBroker) adopt(ctx context.Context, src OnceSource, server OnceServe
 		if errors.As(err, &rerr) && rerr.Definitive {
 			b.refuse(rt)
 			b.audit("adopt-refused", server.Name, 0)
-			b.warn("%s: %v; %s keeps signing itself in", server.Name, err, src.Pack)
+			b.writeOutcomeLocked(server, native, refreshOutcome(err), 0)
+			b.warn("%s: the server refused this sign-in; authenticate again in %s", server.Name, src.Pack)
 			return nil
 		}
 		b.backOff(server)
-		b.warn("%s: %v; adoption retries on backoff", server.Name, err)
+		b.writeOutcomeLocked(server, native, OutcomeDeferredNetwork, 0)
+		b.warn("%s: adoption did not finish; the next scheduled pass retries on backoff", server.Name)
 		return nil
 	}
 	b.succeeded(server)
@@ -414,23 +451,25 @@ func (b *OnceBroker) adopt(ctx context.Context, src OnceSource, server OnceServe
 	})
 	if err != nil {
 		// The refresh token is spent and the new one was not stored: the agent signs in again.
+		b.writeOutcomeLocked(server, native, OutcomeRotatedNotSaved, generation)
 		return fmt.Errorf("the adopted sign-in could not be stored; sign in again with %s: %w", src.Pack, err)
 	}
 	b.audit("adopt", server.Name, generation)
-	return b.writeBack(&src, &Record{SourceKey: key, AccessToken: tokens.AccessToken, ExpiresAtMS: expires, AdoptedRefreshH: tokenHash(rt)})
+	b.writeOutcomeLocked(server, native, OutcomeAdopted, generation)
+	return b.writeBack(&src, server, &Record{SourceKey: key, URL: server.URL, Issuer: discovery.Issuer, ClientID: clientID, AccessToken: tokens.AccessToken, ExpiresAtMS: expires, AdoptedRefreshH: tokenHash(rt)})
 }
 
 // writeBack puts the record's access token and expiry into the source entry, under the
 // agent's lock, when that entry is still the broker's to write. A nil src (a header request
 // whose share holds no store of the record's origin) writes nothing: the next pass of a broker
 // that has the store writes the entry back, since it is then the broker's and not current.
-func (b *OnceBroker) writeBack(src *OnceSource, record *Record) error {
+func (b *OnceBroker) writeBack(src *OnceSource, server OnceServer, record *Record) error {
 	if src == nil {
 		return nil
 	}
 	err := src.Store.Update(func(entries map[string]json.RawMessage) (bool, error) {
 		raw, ok := entries[record.SourceKey]
-		if !ok || !b.ours(*src, raw, record) || b.current(*src, raw, record) {
+		if !ok || !sourceMatchesRecord(*src, server, record, raw) || !b.ours(*src, raw, record) || b.current(*src, raw, record) {
 			return false, nil
 		}
 		next, err := withEntryTokens(*src, raw, record.AccessToken, record.ExpiresAtMS)
@@ -448,7 +487,7 @@ func (b *OnceBroker) writeBack(src *OnceSource, record *Record) error {
 
 // refresh redeems the broker's own refresh token when the record is due, re-reading the
 // record under its lock so a refresh another broker just made is not repeated.
-func (b *OnceBroker) refresh(ctx context.Context, src *OnceSource, server OnceServer) error {
+func (b *OnceBroker) refresh(ctx context.Context, src *OnceSource, server OnceServer, expiredOnly bool) error {
 	release, err := b.lockRecord(server)
 	if err != nil {
 		return err
@@ -458,17 +497,29 @@ func (b *OnceBroker) refresh(ctx context.Context, src *OnceSource, server OnceSe
 	if err != nil || record == nil || record.State != "live" {
 		return err
 	}
+	if src != nil {
+		entries, parsed, _ := src.Store.Read()
+		raw, present := entries[record.SourceKey]
+		if !parsed || !present || !sourceMatchesRecord(*src, server, record, raw) {
+			return nil
+		}
+	}
+	if expiredOnly && b.now().UnixMilli() < record.ExpiresAtMS {
+		return nil
+	}
 	if b.now().UnixMilli() < record.ExpiresAtMS-refreshMargin(record.LifetimeMS).Milliseconds() {
-		return b.writeBack(src, record)
+		return b.writeBack(src, server, record)
 	}
 	tokens, err := b.Client.Refresh(ctx, Discovery{Issuer: record.Issuer, TokenEndpoint: record.TokenEndpoint}, record.ClientID, record.RefreshToken, server.URL)
 	if err != nil {
 		var rerr *RefreshError
 		if errors.As(err, &rerr) && rerr.Definitive {
+			b.writeOutcomeLocked(server, recordNativeName(src, record), refreshOutcome(err), record.Generation)
 			return b.markDead(src, server, record, err)
 		}
 		b.backOff(server)
-		b.warn("%s: %v; retrying on backoff", server.Name, err)
+		b.writeOutcomeLocked(server, recordNativeName(src, record), OutcomeDeferredNetwork, record.Generation)
+		b.warn("%s: refresh did not finish; the next scheduled pass retries on backoff", server.Name)
 		return nil
 	}
 	b.succeeded(server)
@@ -500,10 +551,11 @@ func (b *OnceBroker) refresh(ctx context.Context, src *OnceSource, server OnceSe
 		return errors.New("the record disappeared during its refresh")
 	})
 	if err != nil {
+		b.writeOutcomeLocked(server, recordNativeName(src, record), OutcomeRotatedNotSaved, record.Generation)
 		return fmt.Errorf("a refreshed sign-in could not be stored; sign in again with %s: %w", signInWith(src, record), err)
 	}
 	b.audit("refresh", server.Name, updated.Generation)
-	return b.writeBack(src, &updated)
+	return b.writeBack(src, server, &updated)
 }
 
 // markDead records a definitive refresh failure (§8.4) and removes the source entry when it
@@ -525,13 +577,13 @@ func (b *OnceBroker) markDead(src *OnceSource, server OnceServer, record *Record
 		return err
 	}
 	b.audit("dead", server.Name, generation)
-	b.warn("%s: %v; sign in again with %s", server.Name, cause, signInWith(src, record))
+	b.warn("%s: the server refused renewal; sign in again with %s", server.Name, signInWith(src, record))
 	if src == nil {
 		return nil
 	}
 	if err := src.Store.Update(func(entries map[string]json.RawMessage) (bool, error) {
 		raw, ok := entries[record.SourceKey]
-		if !ok || !b.ours(*src, raw, record) {
+		if !ok || !sourceMatchesRecord(*src, server, record, raw) || !b.ours(*src, raw, record) {
 			return false, nil
 		}
 		at, _ := stringAt(raw, src.Fields.AccessToken)
@@ -597,9 +649,9 @@ func signInWith(src *OnceSource, record *Record) string {
 	return "the agent you signed in with"
 }
 
-// HeaderMargin is the header route's rule (docs/design/mcp-auth-sharing.md §9.6): the token
-// handed out is refreshed first when under 5 minutes of it remain.
-const HeaderMargin = 5 * time.Minute
+// HeaderReadWait bounds the existing canonical-lock snapshot; issuance never
+// takes a record refresh lock or performs provider/source-store work.
+const HeaderReadWait = 2 * time.Second
 
 // ErrNotSignedIn is a header request for a server with no live one-sign-in record: nobody has
 // signed in yet, the sign-in was signed out, or its refresh failed for good.
@@ -609,37 +661,80 @@ var ErrNotSignedIn = errors.New("not signed in")
 // transiently: a later request tries the refresh again.
 var ErrTokenExpired = errors.New("its token has expired and the refresh has not succeeded yet")
 
-// Header is the header route (docs/design/mcp-auth-sharing.md §9.6): the current access token
-// of server's one-sign-in record, refreshed first when under HeaderMargin remain, with the
-// `header` audit event written. The refresh is the poll's own (under the record's lock, the
-// record re-read inside it), so one another broker just made is not repeated. sources are the
-// stores this broker may write back to; the record's origin among them gets the fresh token.
-// Only the access token leaves, never the refresh token.
-func (b *OnceBroker) Header(ctx context.Context, server OnceServer, sources []OnceSource) (string, error) {
+// Maintain is poll-owned record work, including a canonical record with no local
+// origin source. Immediate work can bypass transient backoff once per 30 seconds;
+// the refresh-lock reread refuses another redemption of a now-unexpired token.
+func (b *OnceBroker) Maintain(ctx context.Context, server OnceServer, sources []OnceSource, immediate bool) error {
 	record, err := b.findRecord(server)
-	if err != nil {
-		return "", err
+	if err != nil || record == nil || record.State != "live" {
+		return err
 	}
-	if record == nil || record.State != "live" || record.AccessToken == "" {
-		return "", ErrNotSignedIn
-	}
-	if !b.now().Add(HeaderMargin).Before(time.UnixMilli(record.ExpiresAtMS)) && b.retryReady(server) {
-		var src *OnceSource
-		for i := range sources {
-			if originOf(record, sources[i]) {
-				src = &sources[i]
+	var source *OnceSource
+	for i := range sources {
+		if originOf(record, sources[i]) {
+			entries, parsed, _ := sources[i].Store.Read()
+			raw, present := entries[record.SourceKey]
+			if parsed && present && sourceMatchesRecord(sources[i], server, record, raw) {
+				source = &sources[i]
 				break
 			}
 		}
-		if err := b.refresh(ctx, src, server); err != nil {
-			return "", err
+	}
+	if !immediate && source != nil {
+		return nil
+	} // that source's ordinary Pass already maintained it
+	if immediate && b.now().UnixMilli() < record.ExpiresAtMS {
+		return nil
+	}
+	if !b.retryReady(server) {
+		if !immediate {
+			return nil
 		}
-		if record, err = b.findRecord(server); err != nil {
-			return "", err
+		key := keyFor(server.Name, server.Identity)
+		if last, ok := b.immediateRetry[key]; ok && b.now().Sub(last) < 30*time.Second {
+			return nil
 		}
-		if record == nil || record.State != "live" || record.AccessToken == "" {
-			return "", ErrNotSignedIn
+		if b.immediateRetry == nil {
+			b.immediateRetry = make(map[string]time.Time)
 		}
+		b.immediateRetry[key] = b.now()
+	}
+	return b.refresh(ctx, source, server, immediate)
+}
+
+// Header strictly reads and issues an unexpired canonical access token. Sources
+// are retained in the call shape for legacy callers, but never touched here.
+func (b *OnceBroker) Header(ctx context.Context, server OnceServer, _ []OnceSource) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	store := *b.Canonical
+	store.Wait = HeaderReadWait
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < store.Wait {
+		store.Wait = time.Until(deadline)
+	}
+	if store.Wait <= 0 {
+		return "", context.DeadlineExceeded
+	}
+	file, err := store.ReadStatus()
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", ErrNotSignedIn
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	var record *Record
+	for i := range file.Records {
+		if file.Records[i].Server == server.Name && file.Records[i].Identity == server.Identity {
+			record = &file.Records[i]
+			break
+		}
+	}
+	if record == nil || record.State != "live" || record.AccessToken == "" {
+		return "", ErrNotSignedIn
 	}
 	if !b.now().Before(time.UnixMilli(record.ExpiresAtMS)) {
 		return "", ErrTokenExpired

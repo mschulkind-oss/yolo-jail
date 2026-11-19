@@ -46,6 +46,10 @@ var sharedDemandAdmissionHook func(preparationDemand)
 // pause seam for the worker contending with its own admission.
 var sharedDemandMonitorHook func()
 
+// sharedDemandAfterMonitorReadHook pauses after the first demand snapshot, outside
+// state.lock, to exercise withdrawal before the authorization reread.
+var sharedDemandAfterMonitorReadHook func(int)
+
 // sharedWorkerLockContendedHook runs when a starting worker finds worker.lock taken: a seam for
 // forcing a liveness probe's momentary hold to overlap the worker's acquisition.
 var sharedWorkerLockContendedHook func()
@@ -56,6 +60,10 @@ var sharedWorkerLockContendedHook func()
 var sharedWorkerStartGrace = time.Minute
 
 var errSharedPreparationForegroundOnly = errors.New("the user-scope selection does not authorize detached preparation for this declaration")
+
+// This remains an admission-stale error to other callers, but only a positively
+// empty identity snapshot marks a cancelled batch as belonging to no requester.
+var errPreparationDemandGone = fmt.Errorf("%w", errPreparationAdmissionStale)
 
 type sharedDemandStateLockHeld struct{ cause error }
 
@@ -565,8 +573,10 @@ func authorizedPreparationDemands(ctx context.Context, dir string, identity stri
 	}
 	authorized := map[string]bool{}
 	var unknown error
+	matching := false
 	for _, r := range live {
 		if r.Identity == identity {
+			matching = true
 			_, release, e := resolvePreparationDemand(ctx, r.preparationDemand)
 			release()
 			if e == nil {
@@ -581,6 +591,9 @@ func authorizedPreparationDemands(ctx context.Context, dir string, identity stri
 	}
 	if unknown != nil {
 		return nil, unknown
+	}
+	if !matching {
+		return nil, errPreparationDemandGone
 	}
 	return nil, errPreparationAdmissionStale
 }
@@ -972,6 +985,9 @@ func runSharedPreparation(ctx context.Context, d preparationDemand, w io.Writer)
 					if e != nil {
 						continue
 					} // lock contention/read failure is unknown, not zero demand
+					if sharedDemandAfterMonitorReadHook != nil {
+						sharedDemandAfterMonitorReadHook(len(pending))
+					}
 					keep := false
 					for _, r := range pending {
 						if r.Identity == request.Identity {
@@ -991,6 +1007,9 @@ func runSharedPreparation(ctx context.Context, d preparationDemand, w io.Writer)
 					_, e = authorizedPreparationDemands(workCtx, dir, request.Identity)
 					stateMu.Unlock()
 					if timer == nil && errors.Is(e, errPreparationAdmissionStale) {
+						if errors.Is(e, errPreparationDemandGone) {
+							zeroDemand.Store(true)
+						}
 						cancel()
 						return
 					}

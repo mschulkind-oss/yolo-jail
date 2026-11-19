@@ -57,7 +57,12 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 	// it nor prunes its old entry.
 	ReconcilePackRecords(entries, say, warn)
 	var git []packsrc.RefreshPack
+	seen := map[string]bool{}
 	for _, e := range entries {
+		if seen[e.Name] {
+			continue
+		}
+		seen[e.Name] = true
 		if e.Embedded() || e.IsLocal() {
 			continue
 		}

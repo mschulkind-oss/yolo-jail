@@ -23,6 +23,11 @@ func copyPackTreeBeneath(src string, r *os.Root, rel string) error {
 	copied := map[string]bool{}
 	for _, p := range packs {
 		for _, row := range p.SourcedSkillRows() {
+			// Trusted selected local/shipped copies contain only regular staged
+			// content and were copied with their inert pack root above.
+			if row.LocalCarrier {
+				continue
+			}
 			loc := row.PayloadLocation
 			if loc == "" || copied[loc] {
 				continue

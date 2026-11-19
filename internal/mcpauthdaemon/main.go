@@ -17,6 +17,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/helperpin"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpauth"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -30,6 +31,7 @@ var startupBudget = 40 * time.Second
 
 type broker struct {
 	share     mcpauth.Share
+	session   ShareSessionBinding
 	canonical *mcpauth.CanonicalStore
 	audit     *brokeraudit.Log
 	// The seed's generation fences an exit sign-out against another jail's newer sign-in.
@@ -41,6 +43,7 @@ type broker struct {
 	startupDeadline time.Time
 	// warn, when set, takes the one-sign-in tier's lines instead of stderr (onceWarn).
 	warn func(string)
+	poll *oncePoll // fixed before the daemon listener starts
 }
 
 func Main(args []string) int {
@@ -154,6 +157,7 @@ func Main(args []string) int {
 		_ = lockRoot.Close()
 	}()
 	b := broker{share: share, canonical: canonical, audit: brokeraudit.Open(filepath.Join(paths.BrokerDir(), "audit.jsonl"), func(message string) { fmt.Fprintln(os.Stderr, "mcp-auth-broker: audit warning:", message) }), seeded: map[string]uint64{}}
+	b.session = BindShareSession(share, os.Getenv(helperpin.EnvJail), os.Getenv(hostservice.PublicationPathEnv))
 	b.startupDeadline = time.Now().Add(startupBudget)
 	if err := b.loadScripts(); err != nil {
 		fmt.Fprintln(os.Stderr, "mcp-auth-broker: selected pack script is unavailable; retry with a readable staged pack:", err)
@@ -210,6 +214,7 @@ func Main(args []string) int {
 // harvest never races it (MA-D17).
 func (b *broker) serve(socket string, stop <-chan struct{}) error {
 	onceStop, onceDone := make(chan struct{}), make(chan struct{})
+	b.poll = newOncePoll(len(b.share.Once))
 	go func() { b.runOnce(onceStop); close(onceDone) }()
 	err := hostservice.ServeFrontedUnix(b.handleStatus, socket, stop)
 	close(onceStop)
@@ -219,47 +224,16 @@ func (b *broker) serve(socket string, stop <-chan struct{}) error {
 
 func (b *broker) handleStatus(s *hostservice.Session) {
 	op, _ := s.Get("op")
-	if op == "header" && s.JailID == b.share.Jail {
+	if op == "header" && b.session.accepts(b.share, s) {
 		b.handleHeader(s)
 		return
 	}
-	if op != "status" || s.JailID != b.share.Jail {
+	if op != "status" || !b.session.accepts(b.share, s) {
 		s.Stderr("mcp-auth: unsupported request or jail; inspect the selected pack and retry\n")
 		s.Exit(2)
 		return
 	}
-	agents := make([]any, 0, len(b.share.Replicas))
-	for _, replica := range b.share.Replicas {
-		file, readErr := b.canonicalFor(replica).ReadStatus()
-		if readErr != nil {
-			s.Stderr("mcp-auth: canonical state unavailable; repair host state and retry\n")
-			s.Exit(1)
-			return
-		}
-		servers := make([]any, 0, len(replica.Shared))
-		for _, shared := range replica.Shared {
-			row := map[string]any{"name": shared.Name, "scope": "user", "state": "not-signed-in", "next_step": strings.ReplaceAll(replica.Decl.LoginHint, "{name}", shared.Name)}
-			for _, record := range file.Records {
-				if record.Server == shared.Name && record.Identity == shared.Identity {
-					row["state"], row["generation"], row["expires_at_ms"] = record.State, int64(record.Generation), record.ExpiresAtMS
-					if record.State == "live" {
-						row["next_step"] = ""
-					}
-					break
-				}
-			}
-			servers = append(servers, row)
-		}
-		agents = append(agents, map[string]any{"pack": replica.Pack, "sharing": "launch-boundary", "servers": servers})
-	}
-	once, err := b.onceStatus()
-	if err != nil {
-		s.Stderr("mcp-auth: one-sign-in state unavailable; repair host state and retry\n")
-		s.Exit(1)
-		return
-	}
-	_ = s.JSON(map[string]any{"schema": "yolo.mcp-auth.status/1", "agents": agents, "once": anyRows(once)})
-	s.Exit(0)
+	StatusHandlerForShare(b.canonical.Dir, b.share, b.session, b.onceSources)(s)
 }
 
 func (b *broker) auditEvents(events []mcpauth.Event) {
@@ -328,6 +302,9 @@ func (b *broker) loadScripts() error {
 		script, err := os.ReadFile(source.DeriveFile)
 		if err != nil {
 			return fmt.Errorf("%s: cannot read selected pack derive", source.Pack)
+		}
+		if source.Adapter != "" && !luahook.MCPAuthRegistered(string(script), source.AdapterName()) {
+			return fmt.Errorf("%s: selected source has no declared MCP adapter; restore the selected pack and relaunch", source.Pack)
 		}
 		b.scripts[source.Pack] = string(script)
 	}

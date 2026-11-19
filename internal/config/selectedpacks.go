@@ -21,6 +21,7 @@ package config
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -103,12 +104,23 @@ func SelectedPackDeclarationsDetailedWithStore(entries []PackEntry, selection pa
 	}
 	selected, _ := SelectPacks(entries, PackSelectSpec{
 		Resolve: func(entry PackEntry) (*packload.Pack, error) {
+			if err := validateScopedPackEntry(entry); err != nil {
+				return nil, err
+			}
 			if entry.Embedded() {
 				name := entry.EmbeddedName
 				if name == "" {
 					name = entry.Name
 				}
 				root := filepath.Join(string(filepath.Separator), "embedded", name)
+				if entry.Skills != nil {
+					source, err := fs.Sub(embeddedFS, name)
+					if err != nil {
+						return nil, err
+					}
+					projected, err := projectPackSkills(entry, ResolvePackSpec{ReadOnlyStore: true}, root, "", source)
+					return projected.Pack, err
+				}
 				p, problems, err := packload.ReadSelectedPackFS(embeddedFS, name, root, name, entry.Only, entry.Exclude)
 				if err != nil {
 					return nil, err
@@ -118,6 +130,15 @@ func SelectedPackDeclarationsDetailedWithStore(entries []PackEntry, selection pa
 				}
 				p.Official = true
 				return p, nil
+			}
+			readEnv := getenv
+			if readEnv == nil {
+				readEnv = os.Getenv
+			}
+			if readEnv("YOLO_VERSION") != "" {
+				if err := scopedLocalPackVisibility(entry); err != nil {
+					return nil, err
+				}
 			}
 			res, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true, StoreDir: storeDir, Git: git, Getenv: getenv})
 			if err != nil {
