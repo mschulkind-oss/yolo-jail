@@ -2,7 +2,7 @@
 title: "Plan sketch: startup tracing"
 status: draft
 stage: SKETCH
-next: "Complete against the tree once startup-tracing.md is accepted; until then no unit is a hand-off"
+next: "The design is accepted: complete this against the tree (map, traps, the failing tests in full) and restamp it"
 depends-on:
   - startup-tracing.md#OQ-TR1
   - startup-tracing.md#OQ-TR2
@@ -14,8 +14,9 @@ summary: "The implementation plan's seed for startup tracing: the wire contract 
 
 # Plan sketch: startup tracing
 
-**Status:** 2026-11-19. Seeded during design, read against `f6f13e87d`; not a hand-off, and
-incomplete until the design is accepted.
+**Status:** 2026-11-19. Seeded during design, read against `f6f13e87d`. The design was accepted
+the same day with all four questions ruled, so no unit waits on a ruling; this file is still a
+sketch because the planner has not completed it against the tree.
 **Design:** [`startup-tracing.md`](startup-tracing.md).
 
 Precedence: the design wins on behavior, the tree wins on fact, this file is advice and is the
@@ -24,7 +25,7 @@ does not fail the way its unit predicts, or a fix needs a file outside the unit'
 
 The unit partition below was asked for with the design, so it is fuller than a seed usually is. It
 is a **proposal for the planner to check against the tree**, with paths read once at the commit
-above. Units that rest on an open question say so.
+above. The last column says which ruling shapes each unit.
 
 ## The contract every unit shares
 
@@ -42,8 +43,18 @@ Host line, one per event, in `<trace dir>/<lane>-<pid>.jsonl`:
 - `parent` is present only when the caller gave one. `attrs` is an optional flat string map.
 - The first line of a file is `{"k":"lane","name":"<lane>","pid":<n>,"trace":"<32 hex>","parent":"<16 hex>"}`.
 
-Jail line, in the jail home's trace file: `{"t":<ns>,"k":"start|end|mark","name":"…","pid":<n>}`,
-with `"res":"s"` when the writer had whole seconds only. No ids.
+`meta.json` is one object with exactly these keys: `trace` (32 hex), `kind`, `start` (nanoseconds),
+`jail`, `workspace` (the short code), `version`, `commit`.
+
+Two jail formats, and they are different files:
+
+- **The source**, written inside the jail to the jail home's trace file:
+  `{"t":<ns>,"k":"start|end|mark","name":"…","pid":<n>}`, with `"res":"s"` when the writer had whole
+  seconds only. No ids. Only the host's reader (U7) ever parses it.
+- **`jail.jsonl`** in the trace directory, written by U7: host-format lines, with `span` minted and
+  `parent` explicit on every span, and optionally a first `lane` line. The reader in
+  `internal/tracefile` (U2) reads it exactly as it reads a host file, so U7 must write nothing a
+  host line cannot carry.
 
 Context value: `00-<32 hex trace id>-<16 hex span id>-01`.
 
@@ -52,22 +63,22 @@ Context value: `00-<32 hex trace id>-<16 hex span id>-01`.
 Four lanes of work with disjoint files. A, B and C start together from the contract; D starts
 when A's sink signature exists.
 
-| Unit | Lane | Files | After | Rests on |
+| Unit | Lane | Files | After | Shaped by |
 | :--- | :--- | :--- | :--- | :--- |
 | U1 identity and the trace sink | A | `internal/perf/perf.go`, new `internal/perf/trace.go`, new `internal/perf/context.go` | none | nothing |
 | U2 reader, parent rule, summary | B | new `internal/tracefile/` | none | nothing |
-| U3 exporters | B | new `internal/tracefile/chrome.go`, `otlp.go` | U2 | [OQ-TR1](startup-tracing.md#OQ-TR1) not ruled C |
-| U4 the `yolo trace` verb | B | new `internal/cli/trace.go`, `internal/cli/dispatch.go`, `internal/cli/help.go` | U2 | [OQ-TR3](startup-tracing.md#OQ-TR3) for the root; [OQ-TR4](startup-tracing.md#OQ-TR4) for any endpoint key |
+| U3 exporters | B | new `internal/tracefile/chrome.go`, `otlp.go` | U2 | [OQ-TR1](startup-tracing.md#decision-ledger): both formats, no HTML |
+| U4 the `yolo trace` verb | B | new `internal/cli/trace.go`, `internal/cli/dispatch.go`, `internal/cli/help.go` | U2 | [OQ-TR3](startup-tracing.md#decision-ledger): the machine-wide root; [OQ-TR4](startup-tracing.md#decision-ledger): an `--otlp-endpoint` flag on `export`, and no config key |
 | U5 jail-side writers | C | `internal/entrypoint/boot.go`, `bootsteps.go`, `programphaseperf.go`, `internal/supervisor/supervisor.go`, the provisioning stage's file | none | nothing |
-| U6 host wiring and propagation | A | `internal/paths/paths.go`, `internal/cli/run/runcmd.go`, `keeperplan.go`, `keeperspawn.go`, `keeper.go`, `unknownlaunchenv.go`, the argv assembly file | U1 | [OQ-TR2](startup-tracing.md#OQ-TR2) for the gate's default; [OQ-TR3](startup-tracing.md#OQ-TR3) for the root |
-| U7 the widened jail reader | D | `internal/cli/run/jailperf.go`, `internal/perf/foreign.go` | U1 | [OQ-TR3](startup-tracing.md#OQ-TR3) |
+| U6 host wiring and propagation | A | `internal/paths/paths.go`, `internal/cli/run/runcmd.go`, `keeperplan.go`, `keeperspawn.go`, `keeper.go`, `unknownlaunchenv.go`, the argv assembly file | U1 | [OQ-TR2](startup-tracing.md#decision-ledger): the recording gate is unchanged, off unless user config or a typed flag; [OQ-TR3](startup-tracing.md#decision-ledger): the root, and the retention |
+| U7 the widened jail reader | D | `internal/cli/run/jailperf.go`, `internal/perf/foreign.go` | U1 | [OQ-TR3](startup-tracing.md#decision-ledger): writes into the machine-wide trace directory |
 | U8 dark host spans | A | `internal/cli/run/run.go`, `loopholesruntime.go`, `buildslot.go`, `internal/hostservice/` | U6 | nothing beyond U6's |
 | U9 macos-user | D | `internal/macosuser/bootperf.go`, `orchestrator.go`, `internal/entrypoint/darwin.go` | U5, U7 | as U7 |
 | U10 scheduler traces | D | `internal/cli/preparationscheduler.go`, `backgroundadvance.go` | U6 | as U6 |
 | U11 the reference and the user guide | any | `docs/reference/perf-logging.md`, `userguide/` | each unit, in its own commit | each unit's |
 
-U1, U2 and U5 rest on no open question. Everything else waits on at least one, and nothing is
-built from this file while it is a sketch.
+No unit waits on a ruling. U2's choices are folded into the contract above, so U1 and U7 match
+what it reads.
 
 ### Tests, by unit
 
@@ -147,7 +158,7 @@ elapsed-time bound is a pass condition. No test starts an agent CLI.
   image build breaks while `go test` passes. A new package under `internal/` is inside the `goSrc`
   fileset already; a new `cmd/` binary is not wanted here.
 - **`yolo trace` inside a jail.** The owner's own config mounts the host log directory read-only at
-  `/ctx/host-yolo-logs`. Under option B of [OQ-TR3](startup-tracing.md#OQ-TR3) a jail with that mount can read every
+  `/ctx/host-yolo-logs`. Traces are machine-wide ([OQ-TR3](startup-tracing.md#decision-ledger)), so a jail with that mount can read every
   workspace's traces. Say so in the user guide's section on that mount.
 
 ## Ships with
@@ -155,13 +166,15 @@ elapsed-time bound is a pass condition. No test starts an agent CLI.
 - `docs/reference/perf-logging.md`: its "What this does not do" says spans have no children,
   attributes or propagation, and that nothing crosses the host and jail boundary. Both become false
   and are rewritten, in the unit that makes them false.
-- `yolo config-ref`: the `perf_logging` entry, if [OQ-TR2](startup-tracing.md#OQ-TR2) changes its default.
+- `yolo config-ref`: the `perf_logging` entry says it also records the trace. Its default and its user-only scope do not change ([OQ-TR2](startup-tracing.md#decision-ledger)).
 - `AGENTS.md`, "Where things live": the `--timing` row gains the verb.
 - The quiet line `yolo: timings recorded in …` names `yolo trace show`.
 - `python3 scripts/completion-census.py`, if a new test reads files outside its package.
 
 ## Don't
 
+- Don't add a config key that turns recording on from a workspace, or one that sends traces anywhere.
+- Don't write an HTML report or any viewer code.
 - Don't import a tracing library. The design's [§7](startup-tracing.md#7-the-viewer-decision) has the measurement.
 - Don't change `host-perf.log`'s or `yolo-perf.log`'s line formats; other readers and tests parse
   them.

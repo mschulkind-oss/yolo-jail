@@ -1,15 +1,15 @@
 ---
 title: "One trace per launch: where startup time goes, and how to see it"
-status: in-review
-stage: DESIGN
-next: "Rule OQ-TR1 to OQ-TR4; the first build step (identity, the trace file and the text summary) rests on OQ-TR2 and OQ-TR3 only"
+status: accepted
+stage: DECIDED
+next: "Complete the plan against the tree, then build step 1: identity, the trace directory and the text summary"
 tags: [observability, timing, tracing, startup, perf]
 summary: "Turns the existing timing spans into one trace per launch that follows the launch across every process it starts, fills the stretches no span covers today, and reads it back as a text summary and an exported timeline for an off-the-shelf viewer."
 ---
 
 # One trace per launch: where startup time goes, and how to see it
 
-**Status:** 2026-11-19. Nothing built. Code claims verified at `f6f13e87d`; the measurements are two
+**Status:** 2026-11-19. Every question ruled the same day; nothing built. Code claims verified at `f6f13e87d`; the measurements are two
 launches read from the maintainer's own `host-perf.log` the same day ([Appendix A](#appendix-a-two-measured-launches)).
 
 > **In short.** yolo already times most of a launch, but as flat lines in six files with no way to
@@ -29,15 +29,14 @@ per-launch trace directory with one file per writing process. A reader merges th
 event, and a jail half that writes each step as it happens. No new dependency and no change to the
 two existing log formats.
 
-**Start at [§5](#5-the-trace-model)**, the trace model. The viewer question is
+**Start at [§5](#5-the-trace-model)**, the trace model. Why there is no viewer of yolo's own is
 [§7](#7-the-viewer-decision).
 
-**Needs your ruling:** [OQ-TR1](#OQ-TR1), [OQ-TR2](#OQ-TR2), [OQ-TR3](#OQ-TR3), [OQ-TR4](#OQ-TR4).
+**Needs your ruling:** None.
 
 **Reads with:** [`startup-tracing-plan.md`](startup-tracing-plan.md) (the implementation plan's
-seed, a sketch while any question here is open), [`perf-logging.md`](../reference/perf-logging.md)
-(the reference for the timing system this extends; its principles P1 to P5 hold unchanged except
-where a question below says otherwise).
+seed, still a sketch: the planner completes it against the tree), [`perf-logging.md`](../reference/perf-logging.md)
+(the reference for the timing system this extends; its principles P1 to P5 hold unchanged).
 
 ---
 
@@ -50,7 +49,10 @@ where a question below says otherwise).
   the W3C formats, so an export to OTLP is a re-spelling and never a remodel.
 - **Read with a text summary first, a timeline second.** The first question, "which five things
   took the time, and how much is in no span at all", is answered in the terminal. The timeline is
-  an exported file for a viewer that already exists.
+  an exported file for a viewer that already exists; yolo ships no viewer.
+- **Off unless the user turns it on, and local.** Recording is switched on in the user's own
+  config, never by a project's. Traces live in yolo's machine-wide log directory under a hard size
+  cap, and one leaves the machine only when a command naming an endpoint is typed.
 - **Measure before fixing.** This design names no fix. It builds the instrument, takes a baseline,
   and lets the summary rank what to attack ([§9](#9-finding-where-the-time-goes)).
 
@@ -183,14 +185,23 @@ is an identifier and no secret, so it is left in the session's environment.
 
 ### 5.3 Writers, files and trust
 
-A trace is a directory, `<trace root>/<trace id>/`. Where the root is, is
-[OQ-TR3](#OQ-TR3).
+A trace is a directory, `<trace root>/<trace id>/`. The trace root is machine-wide,
+`~/.local/share/yolo-jail/logs/traces/`, beside `launches.log`. No jail can write there, so every
+file in a trace was written by host code, and what the jail measured arrives only through the
+bounded reader below. A build jail and a host command have no workspace of their own, and need
+none. `meta.json` names the workspace by its short code and never by its path, as `launches.log`
+does; `host-perf.log` stays in the workspace.
+
+> [!WARNING]
+> The workspace's `.yolo/logs/` is where `host-perf.log` lives and looks like the place for the
+> trace too. It is writable from inside the jail, which would make every trace file untrusted
+> input to the summary and the export.
 
 | File | Writer | Contents |
 | :--- | :--- | :--- |
-| `meta.json` | the process that minted the trace, once | trace id, kind, start time, the jail's name and the workspace's short code, yolo's version and commit |
+| `meta.json` | the process that minted the trace, once | `trace`, `kind`, `start` (nanoseconds), `jail` (its name), `workspace` (the short code), `version`, `commit` |
 | `<lane>-<pid>.jsonl` | exactly one host process each | one JSON line per event, appended as it happens |
-| `jail.jsonl` | the host's reader, replacing the whole file | the jail half, after sanitizing |
+| `jail.jsonl` | the host's reader, replacing the whole file | the jail half, after sanitizing, in the host files' own line format: ids minted and every parent explicit |
 | `lock` | held by the keeper, or by the launcher when there is no keeper | nothing; it marks the trace as live |
 
 **One writer per file** is what ends [the interleaving](#the-record-itself). A line is
@@ -275,7 +286,10 @@ visible on a real launch.
 
 Attribute values are names, counts, exit statuses and keys yolo already prints (a pack, a fork, a
 program, a service). Never an environment value, a token, a path under the home, or command output.
-A machine-wide trace names its workspace by short code, as `launches.log` does.
+**Traces cannot grow without bound.** The caps above multiply out: at most 50 traces of at most
+200 KB each, 10 MB for the machine, enforced when a trace is minted. A host that mounts yolo's log
+directory read-only into a jail lets that jail read every workspace's traces, which is why they
+hold names and durations and nothing else.
 
 ## 6. Reading a trace
 
@@ -297,8 +311,8 @@ verb in the one line it already prints.
 
 ## 7. The viewer decision
 
-Three ways to draw a timeline were weighed. [OQ-TR1](#OQ-TR1) puts the choice to the owner; this
-section is the evidence.
+The export writes a file for a viewer that already exists, and yolo ships no viewer of its own.
+Three ways to draw a timeline were weighed:
 
 | | Dependencies | Shows a hang | Works offline | yolo maintains |
 | :--- | :--- | :--- | :--- | :--- |
@@ -312,7 +326,9 @@ which [Perfetto's UI](https://ui.perfetto.dev) opens with one lane per process a
 and [OTLP's JSON encoding](https://opentelemetry.io/docs/specs/otlp/#json-protobuf-encoding), which
 any OTLP collector accepts over HTTP (Jaeger's all-in-one image listens for it on port 4318). Both
 encoders are plain `encoding/json`. Sending the OTLP form to an endpoint is one HTTP POST from the
-export command, never from a launch ([OQ-TR4](#OQ-TR4)).
+export command, `yolo trace export --otlp-endpoint <url>`, which prints where it sent how many
+spans. No launch opens a network connection for tracing, and there is no config key that makes
+one.
 
 **The SDK.** Measured 2026-11-19 in a scratch module importing the SDK and its OTLP HTTP exporter
 at v1.47.0: `go mod vendor` produced 22 modules, 942 Go files and 19 MB, against this repository's
@@ -329,16 +345,22 @@ the launch. The shell on the jail side cannot use it at all.
 > wire format, and both are available without it. Importing the SDK later would replace the
 > recorder that cannot fail a launch with one that can block one.
 
-**A report page of yolo's own** is the only option that can draw unattributed time as bars of its
-own, mark a span that never ended, and overlay the launch against the usual one, and it works
-with no network. It is also a viewer to maintain, in JavaScript no test here drives.
+**A report page of yolo's own** could draw unattributed time as bars of its own, mark a span that
+never ended, and work with no network. It is not built: it is a viewer to maintain, in JavaScript
+no test here drives, and the summary already reports those things as text.
 
 ## 8. Gates and the overhead budget
 
-Recording follows the existing recording gate, and the trace is written exactly when
-`host-perf.log` is. Whether that gate's default becomes "on" is [OQ-TR2](#OQ-TR2). Either way the
-launch prints nothing new: a default that records is silent, and the table still needs a typed
-flag.
+**Recording is off by default.** The trace follows the existing recording gate unchanged and is
+written exactly when `host-perf.log` is. The persistent switch is `perf_logging = true` in the
+**user's** config. A workspace's or project's config cannot turn recording on: the validator
+already refuses the key there, and the workspace is editable from inside the jail. A typed
+`--timing` or `--verbose`, and the host-process variables `YOLO_TIMING` and `YOLO_VERBOSE`, record
+the invocation they are given to, as they do today. An absent or unreadable user config records
+nothing.
+
+The launch prints nothing new: the table still needs a typed flag, and a silently recording launch
+keeps its one line, which now names `yolo trace show`.
 
 The jail half's lines are written whenever the launch handed the jail a trace context, and not
 otherwise. `yolo-perf.log` is written on every boot, as today.
@@ -420,127 +442,38 @@ was in as "did not end"; a build jail's spans sit under the launch span that wai
 | Enclosure in time puts a concurrent span under the wrong parent (the housekeeping slot under the child window) | the summary ranks by own time, which a wrong parent shifts but does not lose; such spans become explicit children as they are noticed |
 | The jail writes misleading timings | bounded, sanitized, clamped to the trace's window, and drawn as its own lane; the host's lanes never depend on it |
 | A new variable in the jail's environment is taken for a contract | it is named in the launcher's list of known launch variables, and the warning in [§5.2](#52-propagation) is pinned by a test |
-| Recording by default surprises someone with files they did not ask for | bounded at 10 MB, local, and one key turns it off; put to the owner as [OQ-TR2](#OQ-TR2) |
-| Perfetto's page is a web page | the export is a local file and the summary needs no viewer; [OQ-TR1](#OQ-TR1) offers a report with no network |
+| A slow launch on a machine that was not recording leaves no trace | `yolo trace show` with nothing recorded names the one user-config line that turns recording on; the next launch is traced |
+| Traces fill the disk of a user who turned recording on and forgot | 50 traces and 10 MB for the machine, pruned whenever a trace is minted |
+| Perfetto's page is a web page | the export is a local file, the summary needs no viewer, and the OTLP form goes to any collector the user runs locally |
 
 ## 13. What I would build, in order
 
-1. **Identity, the trace directory and the summary.** Ids on the collector, the second sink,
-   launcher-to-keeper propagation, the reader with its parent rule, and `yolo trace show`. This
+1. **Identity, the trace directory and the summary.** Ids on the collector, the second sink under
+   the machine-wide root with its retention, launcher-to-keeper propagation, the reader with its
+   parent rule, and `yolo trace show`. This
    alone turns today's spans into a ranked list with the unattributed time named, on the next
    launch.
 2. **The jail half.** Steps written as they happen, the split provisioning stage, per-program and
    per-daemon spans, the session's pass, `session.exec`, and the widened reader.
 3. **The dark host stretches** from [§5.6](#56-what-is-added-to-the-record), and the build jail's
    join to its parent.
-4. **The export.**
+4. **The export**: the two file formats, then the endpoint flag.
 5. **The baseline**, entered in the reference, and the first ranked list.
 
 macos-user and Apple Container take every step in the same change as podman. Each step lands with
 its part of the reference rewritten.
 
-## 14. Open Questions
-
-1. 💬 **OQ-TR1: What should I open to see a launch as a timeline?**
-
-   Matt's launch took a minute. `yolo trace show` has told him which five steps cost the most, and
-   he wants to see them laid out against each other. Today there is nothing to open: the spans are
-   lines in `host-perf.log`. He runs `yolo trace export`, and the choice is what that command
-   produces.
-
-   - **A. A file for a viewer that already exists.** It writes `launch.json`; he drags it into
-     Perfetto's web page and sees one lane per process with nested bars. A second format is the
-     OpenTelemetry one, which a collector such as a local Jaeger accepts. yolo ships no viewer and
-     gains no dependency. The page itself loads from the internet.
-   - **B. That, and a report page of yolo's own.** `--format html` writes one self-contained file
-     that opens with no network and can be attached to an issue. It draws what a generic viewer
-     does not: time in no span, a step that never ended, this launch against his usual one. It is
-     a few hundred lines of JavaScript that no automated test here drives.
-   - **C. The OpenTelemetry SDK inside yolo.** Spans go live to a collector he runs. Twenty new
-     vendored modules beside today's seven, nothing to read until a collector is up, and a launch
-     that hangs sends nothing for the step it hung in.
-
-   <!-- vantage: question id=OQ-TR1 leaning="A. The text summary answers the first question, and Perfetto draws the lanes for nothing. Take B only once real traces show what Perfetto fails to show." -->
-
-   _Leaning:_ A. The text summary answers the first question, and Perfetto draws the lanes for nothing. Take B only once real traces show what Perfetto fails to show.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-TR2: Should every launch be recorded, or only when I have asked?**
-
-   On Thursday a colleague tells Matt that Tuesday's launch took two minutes. Today a launch is
-   recorded only when it was run with `--timing`, or when `perf_logging = true` is in the user
-   config, so Tuesday's launch left `launch.log` and no timings. A trace is at most 200 KB and the
-   newest 50 are kept.
-
-   - **A. Only when asked.** The colleague is told to set `perf_logging = true` and to report the
-     next slow launch. Nothing is written for anyone who has not opted in.
-   - **B. Every launch.** Each launch writes its trace and prints nothing about it;
-     `perf_logging = false` turns it off. `yolo trace show` answers Thursday's question about
-     Tuesday. This reverses an existing rule that a config yolo cannot read must never start
-     writing files: under B, an unreadable user config still records.
-
-   <!-- vantage: question id=OQ-TR2 leaning="B. A slow launch cannot be traced after the fact, and launch.log is already written on every launch." -->
-
-   _Leaning:_ B. A slow launch cannot be traced after the fact, and launch.log is already written on every launch.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-TR3: Where should a launch's trace be kept?**
-
-   Matt launches in `~/code/yolo-jail`. One of his forks rebuilds in a build jail whose scratch
-   workspace is deleted when the build ends, and a daemon starts inside the container. Today the
-   launch's timings go to `<workspace>/.yolo/logs/`, a directory the jail can write, by an
-   earlier ruling that kept both halves of a launch in one place. That ruling named the
-   machine-wide directory as the shape to move to if it were ever needed.
-
-   - **A. In the workspace**, under `.yolo/logs/traces/`, beside `boot.log`. Everything about a
-     project's launches stays in the project. The jail can write there, so the summary and any
-     export must treat every line as untrusted, and a build jail has to be handed its parent's
-     directory.
-   - **B. Machine-wide**, under `~/.local/share/yolo-jail/logs/traces/`, where `launches.log` is.
-     No jail can write it; what the jail measured arrives through the one bounded reader. The
-     trace names the workspace by its short code and never its path. `host-perf.log` stays where
-     it is.
-
-   <!-- vantage: question id=OQ-TR3 leaning="B. A trace spans a build jail and host commands that have no workspace, and one rule (the host wrote every file) is easier to keep than a second untrusted reader." -->
-
-   _Leaning:_ B. A trace spans a build jail and host commands that have no workspace, and one rule (the host wrote every file) is easier to keep than a second untrusted reader.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-TR4: Should launches send their traces to a collector by themselves?**
-
-   Matt runs Jaeger on his workstation and wants to compare this week's launches with last
-   month's. With the export command he types
-   `yolo trace export --otlp-endpoint http://localhost:4318` after a launch he cares about, and
-   that launch appears in Jaeger. Launches he did not export are not there.
-
-   - **A. On demand only.** No launch opens a network connection for tracing. A trace leaves the
-     machine when a command naming the endpoint is typed, and that command prints where it sent
-     how many spans.
-   - **B. A user-config key naming an endpoint.** After each launch's startup a detached `yolo`
-     sends that launch's trace. A collector that is down costs the launch nothing and that trace
-     is simply absent there. Every launch prints one line naming the endpoint, which no flag
-     hides.
-
-   <!-- vantage: question id=OQ-TR4 leaning="A. Build the command first; add the key when a collector is actually running and exporting by hand has become a chore." -->
-
-   _Leaning:_ A. Build the command first; add the key when a collector is actually running and exporting by hand has become a chore.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
 ## Decision Ledger
 
-Implementation decisions taken while designing. Each has one workable answer under options A or B
-of [OQ-TR1](#OQ-TR1); option C would reopen TR-D1, TR-D4 and TR-D8.
+The `OQ-TR` rows are the owner's rulings; the `TR-D` rows are implementation decisions taken while
+designing.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
+| OQ-TR1 | The timeline is an exported file for an existing viewer: Chrome trace JSON for Perfetto, and OTLP JSON. yolo ships no viewer and links no SDK | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
+| OQ-TR2 | Recording is off by default and turned on by user-scope config (`perf_logging = true`); a workspace or project config cannot turn it on. Traces stay small by TR-D11's caps | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | — |
+| OQ-TR3 | Traces are kept machine-wide, under `~/.local/share/yolo-jail/logs/traces/`, naming the workspace by short code | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | — |
+| OQ-TR4 | A trace is sent to a collector only on demand, by `yolo trace export --otlp-endpoint` | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
 | TR-D1 | `internal/perf` stays the recorder; no tracing SDK is linked | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
 | TR-D2 | Ids and the parent reference use the W3C trace-context formats | 2026-11-19 | [§5.1](#51-identity) | — |
 | TR-D3 | The jail receives the context as `YOLO_TRACEPARENT`; a launcher never adopts one from its environment | 2026-11-19 | [§5.2](#52-propagation) | — |
@@ -551,7 +484,7 @@ of [OQ-TR1](#OQ-TR1); option C would reopen TR-D1, TR-D4 and TR-D8.
 | TR-D8 | `host-perf.log` and `yolo-perf.log` keep their formats; the trace is a second sink | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | — |
 | TR-D9 | Scheduler acts are traces of their own, shown to a launch as overlap by time | 2026-11-19 | [§5.5](#55-work-that-is-not-a-child-of-a-launch) | — |
 | TR-D10 | The startup window ends at the `session.exec` mark | 2026-11-19 | [§4](#4-vocabulary) | — |
-| TR-D11 | Limits: 10,000 events per process, 8 attributes per span, 240 bytes per value, 2,000 jail lines, 50 traces kept, a live trace never pruned | 2026-11-19 | [§5.7](#57-limits-and-failure) | — |
+| TR-D11 | Limits: 10,000 events per process, 8 attributes per span, 240 bytes per value, 2,000 jail lines, 200 KB per trace, 50 traces and 10 MB kept, a live trace never pruned | 2026-11-19 | [§5.7](#57-limits-and-failure) | — |
 | TR-D12 | The reading verb is `yolo trace`, with `show` and `export` | 2026-11-19 | [§6](#6-reading-a-trace) | — |
 | TR-D13 | The time budgets are checked by a benchmark and one recorded comparison, never by a test's pass condition | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | — |
 
