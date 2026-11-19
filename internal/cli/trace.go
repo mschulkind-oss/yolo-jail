@@ -35,7 +35,11 @@ Performance recording is opt-in and user-only, on the host:
   yolo init-user-config  # first, only if no user config exists
   yolo config set perf_logging true --user
 
-  --help, -h  Show this help.`
+  --help, -h  Show this help.
+
+Examples:
+  yolo trace list
+  yolo trace show`
 
 type traceEnv struct {
 	root, workspaceCode string
