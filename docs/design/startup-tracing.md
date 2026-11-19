@@ -330,6 +330,28 @@ export command, `yolo trace export --otlp-endpoint <url>`, which prints where it
 spans. No launch opens a network connection for tracing, and there is no config key that makes
 one.
 
+**Export representation, clarified 2026-11-19.** Encoders consume the reader's resolved graph,
+without changing its span identities or parents. A nil trace or writer, an invalid required id,
+a nil span/lane entry, or a negative span interval returns an error; a valid empty trace exports
+empty collections. An OTLP export with duplicate span ids returns an error instead of emitting
+ambiguous identities. Chrome export may retain those observations, with the reader's anomalies
+in diagnostic metadata. Neither encoder invents an observed span to repair the input.
+
+Chrome marks and notes are instant events in their process lane. OTLP marks and notes become
+span events on the shortest span in that same lane whose interval contains the event; equal
+intervals use the reader's stable span order. This association is an export convention, not a
+new recorded parent. An event outside every span is preserved in its lane's resource attribute
+`yolo.unparented_events`: a JSON string containing an array of objects with `timeUnixNano`
+(decimal string), `kind`, `name`, and `attrs`. It is not drawn as a span or silently dropped.
+The event's kind is retained as `yolo.event_kind` when represented as an OTLP span event.
+
+An unfinished interval ends at the reader's trace end for display and carries
+`yolo.unfinished=true`; that flag never asserts the operation finished. Export diagnostics
+retain skipped-file reasons and graph anomalies without adding absolute source paths: skipped
+files are named by their basename only. Encoder write failures are returned to the explicit
+command, not retried or hidden. These are engineering decisions about the two representations,
+not amendments to the owner's recording or export opt-ins.
+
 **The SDK.** Measured 2026-11-19 in a scratch module importing the SDK and its OTLP HTTP exporter
 at v1.47.0: `go mod vendor` produced 22 modules, 942 Go files and 19 MB, against this repository's
 7 modules, 400 files and 9.5 MB; 20 of the 22 are new, gRPC and protobuf among them, and every one
@@ -487,6 +509,7 @@ designing.
 | TR-D11 | Limits: 10,000 events per process, 8 attributes per span, 240 bytes per value, 2,000 jail lines, 200 KB per trace, 50 traces and 10 MB kept, a live trace never pruned | 2026-11-19 | [§5.7](#57-limits-and-failure) | — |
 | TR-D12 | The reading verb is `yolo trace`, with `show` and `export` | 2026-11-19 | [§6](#6-reading-a-trace) | — |
 | TR-D13 | The time budgets are checked by a benchmark and one recorded comparison, never by a test's pass condition | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | — |
+| TR-D14 | Export preserves recorded identities and diagnostics; unparented OTLP events remain resource metadata, malformed graphs error, and no observed span is invented | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
 
 ## Appendix A: two measured launches
 
