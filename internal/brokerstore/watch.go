@@ -202,6 +202,12 @@ type RequestView struct {
 	Expires       time.Time  `json:"expires"`
 	Decided       *time.Time `json:"decided,omitempty"`
 	State         string     `json:"state"` // pending, allowed, denied, expired, refused
+	Answer        string     `json:"answer,omitempty"`
+	Via           string     `json:"via,omitempty"`
+	Until         *time.Time `json:"until,omitempty"`
+	SpentAt       *time.Time `json:"spent_at,omitempty"`
+	Reason        string     `json:"reason,omitempty"`
+	DenialNote    string     `json:"denial_note,omitempty"`
 	// HookFailure and HookOutput say the user's on_request failed for this request
 	// (Request.HookFailure); absent when it did not.
 	HookFailure string `json:"hook_failure,omitempty"`
@@ -239,15 +245,27 @@ type GrantView struct {
 	State        string     `json:"state"`                // live or ended
 }
 
-// StateView is the current state: pending requests and live grants.
+// EndedRetentionDays is how many days the store retains decided requests, ended grants,
+// and ended working-set entries before pruning them.
+const EndedRetentionDays = 7
+
+// EndedHorizonNote states the store's 7-day retention horizon and the exception for
+// records referenced by a live grant or working-set entry (BB-D113).
+const EndedHorizonNote = "Ended records are retained for 7 days, except that a record a live grant or working-set entry references can be kept longer."
+
+// StateView is the current state: pending requests and live grants, plus ended records
+// within the 7-day retention window when requested via `--ended`.
 type StateView struct {
-	Schema      int                  `json:"schema"`
-	Event       string               `json:"event,omitempty"` // "state" when it opens a watch
-	Sources     []ApprovalSourceView `json:"sources,omitempty"`
-	Diagnostics []string             `json:"diagnostics,omitempty"`
-	Requests    []RequestView        `json:"requests"`
-	Grants      []GrantView          `json:"grants"`
-	Working     []WorkingView        `json:"working"`
+	Schema        int                  `json:"schema"`
+	Event         string               `json:"event,omitempty"` // "state" when it opens a watch
+	Sources       []ApprovalSourceView `json:"sources,omitempty"`
+	Diagnostics   []string             `json:"diagnostics,omitempty"`
+	IncludesEnded bool                 `json:"includes_ended,omitempty"`
+	HorizonDays   int                  `json:"horizon_days,omitempty"`
+	HorizonNote   string               `json:"horizon_note,omitempty"`
+	Requests      []RequestView        `json:"requests"`
+	Grants        []GrantView          `json:"grants"`
+	Working       []WorkingView        `json:"working"`
 }
 
 // ApprovalSourceView labels each listed source without conveying authority.
@@ -258,27 +276,47 @@ type ApprovalSourceView struct {
 	SelectionBasis string `json:"selection_basis"`
 }
 
-// WorkingView is a live working-set entry as the surface shows it.
+// WorkingView is a working-set entry as the surface shows it.
 type WorkingView struct {
-	Schema       int       `json:"schema"`
-	ID           string    `json:"id"`
-	Source       string    `json:"source"`
-	SourceStatus string    `json:"source_status,omitempty"`
-	Workspace    string    `json:"workspace"`
-	Repo         string    `json:"repo"`
-	Kind         string    `json:"kind"`     // "branch"
-	Resource     string    `json:"resource"` // the ref
-	By           string    `json:"by"`       // "create-branch", a grant id, "human", or "config"
-	Added        time.Time `json:"added,omitzero"`
-	Expires      time.Time `json:"expires,omitzero"` // a timed entry (Allow push for a time): when it stops covering
+	Schema       int        `json:"schema"`
+	ID           string     `json:"id"`
+	Source       string     `json:"source"`
+	SourceStatus string     `json:"source_status,omitempty"`
+	Workspace    string     `json:"workspace"`
+	Repo         string     `json:"repo"`
+	Kind         string     `json:"kind"`     // "branch"
+	Resource     string     `json:"resource"` // the ref
+	By           string     `json:"by"`       // "create-branch", a grant id, "human", or "config"
+	Added        time.Time  `json:"added,omitzero"`
+	Expires      time.Time  `json:"expires,omitzero"` // a timed entry (Allow push for a time): when it stops covering
+	Ended        *time.Time `json:"ended,omitempty"`
+	EndReason    string     `json:"end_reason,omitempty"`
+	State        string     `json:"state,omitempty"` // live or ended
 	// File is, for a branch a `branch` grant declares in config (By "config"), the workspace
 	// config that declares it; such an entry is not in the store and has no Added.
 	File string `json:"file,omitempty"`
 }
 
 func (s *Store) WorkingView(e WorkingEntry) WorkingView {
-	return WorkingView{Schema: Schema, ID: e.ID, Source: s.SourceName(), SourceStatus: s.ApprovalStatus, Workspace: e.Workspace, Repo: e.Repo,
-		Kind: e.Kind, Resource: e.Resource, By: e.By, Added: e.Added, Expires: e.Expires}
+	return s.workingViewAt(e, s.now())
+}
+
+func (s *Store) workingViewAt(e WorkingEntry, now time.Time) WorkingView {
+	v := WorkingView{Schema: Schema, ID: e.ID, Source: s.SourceName(), SourceStatus: s.ApprovalStatus, Workspace: e.Workspace, Repo: e.Repo,
+		Kind: e.Kind, Resource: e.Resource, By: e.By, Added: e.Added, Expires: e.Expires, EndReason: e.EndReason}
+	if !e.Ended.IsZero() {
+		ended := e.Ended
+		v.Ended = &ended
+		v.State = "ended"
+	} else if !e.Expires.IsZero() && !now.Before(e.Expires) {
+		ended := e.Expires
+		v.Ended = &ended
+		v.EndReason = EndExpired
+		v.State = "ended"
+	} else {
+		v.State = "live"
+	}
+	return v
 }
 
 // EventView is one watch event.
@@ -296,7 +334,8 @@ func (s *Store) RequestView(q Request) RequestView {
 	v := RequestView{Schema: Schema, ID: q.ID, Source: s.SourceName(), SourceStatus: s.ApprovalStatus, Jail: q.Jail, Workspace: q.Workspace,
 		Set: q.Set, Argv: q.Argv, Command: shquote.JoinDisplay(q.Argv), Repo: q.Repo,
 		CommandDigest: q.Digest, StdinDigest: q.StdinDigest, Filed: q.Filed,
-		Expires: q.Expires(), State: q.State, HookFailure: q.HookFailure, HookOutput: q.HookOutput,
+		Expires: q.Expires(), State: q.State, Answer: q.Answer, Via: q.Via, Reason: q.Reason,
+		DenialNote: q.DenialNote, HookFailure: q.HookFailure, HookOutput: q.HookOutput,
 		NeedsApproval: q.NeedsApproval}
 	a := q.About.safe()
 	v.Action, v.Target, v.Headline = a.Action, a.Target, s.Headline(q)
@@ -310,6 +349,14 @@ func (s *Store) RequestView(q Request) RequestView {
 	if !q.Decided.IsZero() {
 		d := q.Decided
 		v.Decided = &d
+	}
+	if !q.Until.IsZero() {
+		u := q.Until
+		v.Until = &u
+	}
+	if !q.SpentAt.IsZero() {
+		sa := q.SpentAt
+		v.SpentAt = &sa
 	}
 	return v
 }
@@ -330,19 +377,35 @@ func (s *Store) GrantView(g Grant) GrantView {
 // StateView keeps what is still open: pending requests, live grants and live working-set
 // entries.
 func (s *Store) StateView(snap Snapshot) StateView {
+	return s.stateView(snap, false)
+}
+
+// StateViewWithEnded returns open records plus decided requests, ended grants, and ended
+// working-set entries retained in the store's 7-day window (BB-D113).
+func (s *Store) StateViewWithEnded(snap Snapshot) StateView {
+	return s.stateView(snap, true)
+}
+
+func (s *Store) stateView(snap Snapshot, includeEnded bool) StateView {
 	v := StateView{Schema: Schema, Requests: []RequestView{}, Grants: []GrantView{}, Working: []WorkingView{}}
+	now := s.now()
+	if includeEnded {
+		v.IncludesEnded = true
+		v.HorizonDays = EndedRetentionDays
+		v.HorizonNote = EndedHorizonNote
+	}
 	for _, e := range snap.Working {
-		if e.LiveAt(time.Now()) {
-			v.Working = append(v.Working, s.WorkingView(e))
+		if includeEnded || e.LiveAt(now) {
+			v.Working = append(v.Working, s.workingViewAt(e, now))
 		}
 	}
 	for _, q := range snap.Requests {
-		if q.State == "pending" {
+		if includeEnded || q.State == "pending" {
 			v.Requests = append(v.Requests, s.RequestView(q))
 		}
 	}
 	for _, g := range snap.Grants {
-		if g.Ended.IsZero() {
+		if includeEnded || g.Ended.IsZero() {
 			v.Grants = append(v.Grants, s.GrantView(g))
 		}
 	}

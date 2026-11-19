@@ -32,7 +32,7 @@ import (
 
 const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | --deny [--note <text>]]
        yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]
-       yolo approve --json
+       yolo approve --json [--ended]
        yolo approve --watch [--json]
        yolo approve --web [--listen 127.0.0.1:<port>] [--reconcile <duration>] [--assets <dir>] [--no-open]
 
@@ -89,7 +89,10 @@ take the capability out of ` + "`allow.git.on_request`" + ` in your user config
 (` + "`brokered.git.grant_kinds`" + ` in one still on JSONC).
 
 --json prints pending requests, live grants and live working-set entries as one
-JSON document; a grant's "workspace" is its holder, "jail" the jail whose
+JSON document; --json --ended also includes decided requests, ended grants and
+ended working-set entries retained within the store's 7-day window (along with
+horizon_days and horizon_note; records referenced by a live grant or working-set
+entry can be kept longer). A grant's "workspace" is its holder, "jail" the jail whose
 request it answered, and "used_by" the jail that spent its latest use; a branch declared in a running jail's config is a working-set
 entry with "by": "config" and "file" naming the config that declares it. --watch prints the current state, then one line per event
 (request filed, decided or expired; grant used, ended or revoked) until
@@ -237,7 +240,7 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 	var request, revoke, workspace string
 	var d brokerstore.Decision
 	var removed string // the first removed answer flag given (GB-D28, OQ-GW2)
-	forSeen, noteSeen, asJSON, watch, workspaceSeen := false, false, false, false, false
+	forSeen, noteSeen, asJSON, ended, watch, workspaceSeen := false, false, false, false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		name, value, eq := strings.Cut(a, "=")
@@ -307,14 +310,17 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 				return fail(fmt.Errorf("specify --deny once, without a value"))
 			}
 			d.Deny = true
-		case "--json", "--watch":
+		case "--json", "--watch", "--ended":
 			if eq {
 				return fail(fmt.Errorf("%s takes no value", name))
 			}
-			if name == "--json" {
+			switch name {
+			case "--json":
 				asJSON = true
-			} else {
+			case "--watch":
 				watch = true
+			case "--ended":
+				ended = true
 			}
 		default:
 			if strings.HasPrefix(a, "-") || request != "" {
@@ -360,6 +366,9 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 	}
 	if (asJSON || watch) && (request != "" || revoke != "") {
 		return fail(fmt.Errorf("decide or revoke without --json or --watch, which only list or follow the store"))
+	}
+	if ended && (!asJSON || watch || request != "" || revoke != "") {
+		return fail(fmt.Errorf("--ended is valid only with --json (and not with --watch or a decision or --revoke)"))
 	}
 	if request != "" && forSeen {
 		source, found, err := pendingRequestSource(stores, request)
@@ -408,7 +417,7 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 		snaps[i] = snap
 	}
 	if asJSON {
-		return approveJSON(out, withConfigBranches(ctx, stores, mergedState(stores, snaps, diagnostics)), errs)
+		return approveJSON(out, withConfigBranches(ctx, stores, mergedStateWithEnded(stores, snaps, diagnostics, ended)), errs)
 	}
 	printApprovalDiagnostics(out, diagnostics)
 	empty := true
@@ -914,7 +923,16 @@ func approveJSON(out io.Writer, v any, errs io.Writer) int {
 // mergedState is every store's state as one view: what `--json` prints, and what `--watch
 // --json` opens with as its one "state" object (boundary-broker.md BB-D72).
 func mergedState(stores []*brokerstore.Store, snaps []brokerstore.Snapshot, diagnostics []string) brokerstore.StateView {
+	return mergedStateWithEnded(stores, snaps, diagnostics, false)
+}
+
+func mergedStateWithEnded(stores []*brokerstore.Store, snaps []brokerstore.Snapshot, diagnostics []string, includeEnded bool) brokerstore.StateView {
 	v := brokerstore.StateView{Schema: brokerstore.Schema, Sources: []brokerstore.ApprovalSourceView{}, Diagnostics: append([]string(nil), diagnostics...), Requests: []brokerstore.RequestView{}, Grants: []brokerstore.GrantView{}, Working: []brokerstore.WorkingView{}}
+	if includeEnded {
+		v.IncludesEnded = true
+		v.HorizonDays = brokerstore.EndedRetentionDays
+		v.HorizonNote = brokerstore.EndedHorizonNote
+	}
 	for _, s := range stores {
 		authority := "deny-only"
 		if s.Revalidate != nil && (s.ApprovalStatus == "" || s.ApprovalStatus == "selected") {
@@ -924,7 +942,12 @@ func mergedState(stores []*brokerstore.Store, snaps []brokerstore.Snapshot, diag
 			Authority: authority, SelectionBasis: "user-scope prediction; request launch selection is not verified"})
 	}
 	for i, s := range stores {
-		sv := s.StateView(snaps[i])
+		var sv brokerstore.StateView
+		if includeEnded {
+			sv = s.StateViewWithEnded(snaps[i])
+		} else {
+			sv = s.StateView(snaps[i])
+		}
 		v.Requests = append(v.Requests, sv.Requests...)
 		v.Grants = append(v.Grants, sv.Grants...)
 		v.Working = append(v.Working, sv.Working...)

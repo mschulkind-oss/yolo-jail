@@ -43,6 +43,128 @@ func TestApproveJSONListsOpenRecords(t *testing.T) {
 	}
 }
 
+func TestApproveJSONEndedFlagValidationAndOutput(t *testing.T) {
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	s := &brokerstore.Store{
+		Dir:        t.TempDir(),
+		Source:     "github",
+		Now:        func() time.Time { return now },
+		Revalidate: func(q brokerstore.Request) (brokerstore.Policy, error) { return q.Policy, nil },
+	}
+	base := brokerstore.Request{
+		Jail: "j1", Start: "s1", Workspace: "/ws/app",
+		Repo: "o/r", StdinDigest: "stdin", Set: "read-write",
+		Policy: brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: time.Hour, Uses: 5},
+	}
+
+	// Refused without --json, with --watch, with a value, with decision, or with --revoke.
+	for _, bad := range [][]string{
+		{"--ended"},
+		{"--ended=true"},
+		{"--json", "--ended=1"},
+		{"--json", "--watch", "--ended"},
+		{"--json", "--ended", "r-00000000000000000000000000000000"},
+		{"--json", "--ended", "--deny", "r-00000000000000000000000000000000"},
+		{"--json", "--ended", "--revoke", "all"},
+	} {
+		var out, errs bytes.Buffer
+		if rc := approveMain(context.Background(), bad, false, s, &out, &errs); rc != approveExitUsage {
+			t.Fatalf("%v: got exit %d, want %d (%q)", bad, rc, approveExitUsage, errs.String())
+		}
+	}
+
+	// Populate decided request (with denial_note and via), ended grant, ended working entry, and a live pending request.
+	rDeniedIn := base
+	rDeniedIn.Argv = []string{"pr", "comment", "1", "--body", "secret-token"}
+	rDenied, err := s.File(rDeniedIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(rDenied.ID, "pending", brokerstore.Decision{Deny: true, DenialNote: "not now", Via: brokerstore.ViaHost}); err != nil {
+		t.Fatal(err)
+	}
+
+	rAllowedIn := base
+	rAllowedIn.Argv = []string{"pr", "merge", "2"}
+	rAllowed, err := s.File(rAllowedIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gEnded, err := s.Decide(rAllowed.ID, "pending", brokerstore.Decision{For: 20 * time.Minute, Via: brokerstore.ViaOnRequest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Revoke(gEnded.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	wEnded, _, err := s.AddWorking(brokerstore.WorkingEntry{
+		Workspace: "/ws/app", Repo: "github.com/o/r", Kind: brokerstore.WorkingBranch, Resource: "refs/heads/feat", By: "human",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.EndWorking(wEnded.ID, brokerstore.EndDeleted); err != nil {
+		t.Fatal(err)
+	}
+
+	rOpenIn := base
+	rOpenIn.Argv = []string{"pr", "merge", "3"}
+	rOpen, err := s.File(rOpenIn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Default `--json` output is unchanged (open records only, no ended metadata).
+	var out, errs bytes.Buffer
+	if rc := approveMain(context.Background(), []string{"--json"}, false, s, &out, &errs); rc != 0 {
+		t.Fatalf("--json: %d %s", rc, errs.String())
+	}
+	var openState brokerstore.StateView
+	if err := json.Unmarshal(out.Bytes(), &openState); err != nil {
+		t.Fatal(err)
+	}
+	if openState.IncludesEnded || openState.HorizonDays != 0 || openState.HorizonNote != "" {
+		t.Fatalf("default --json unexpectedly carried ended metadata: %+v", openState)
+	}
+	if len(openState.Requests) != 1 || openState.Requests[0].ID != rOpen.ID || len(openState.Grants) != 0 || len(openState.Working) != 0 {
+		t.Fatalf("default --json = %+v", openState)
+	}
+
+	// `--json --ended` includes decided requests, ended grants, ended working entries, and 7-day horizon metadata.
+	out.Reset()
+	errs.Reset()
+	if rc := approveMain(context.Background(), []string{"--json", "--ended"}, false, s, &out, &errs); rc != 0 {
+		t.Fatalf("--json --ended: %d %s", rc, errs.String())
+	}
+	var endedState brokerstore.StateView
+	if err := json.Unmarshal(out.Bytes(), &endedState); err != nil {
+		t.Fatal(err)
+	}
+	if endedState.Schema != 1 || !endedState.IncludesEnded || endedState.HorizonDays != 7 || !strings.Contains(endedState.HorizonNote, "7 days") {
+		t.Fatalf("endedState metadata = %+v", endedState)
+	}
+	if len(endedState.Requests) != 3 || len(endedState.Grants) != 1 || len(endedState.Working) != 1 {
+		t.Fatalf("endedState counts = req:%d grant:%d work:%d", len(endedState.Requests), len(endedState.Grants), len(endedState.Working))
+	}
+	reqs := map[string]brokerstore.RequestView{}
+	for _, q := range endedState.Requests {
+		reqs[q.ID] = q
+	}
+	if q := reqs[rDenied.ID]; q.Answer != brokerstore.AnswerDeny || q.Via != brokerstore.ViaHost || q.DenialNote != "not now" || q.Workspace != "/ws/app" {
+		t.Fatalf("rDenied view = %+v", q)
+	}
+	if q := reqs[rAllowed.ID]; q.Answer != brokerstore.AnswerFor || q.Via != brokerstore.ViaOnRequest || q.Until == nil || q.Workspace != "/ws/app" {
+		t.Fatalf("rAllowed view = %+v", q)
+	}
+	if g := endedState.Grants[0]; g.ID != gEnded.ID || g.State != "ended" || g.EndReason != brokerstore.EndRevoked || g.Workspace != "/ws/app" {
+		t.Fatalf("gEnded view = %+v", g)
+	}
+	if w := endedState.Working[0]; w.ID != wEnded.ID || w.State != "ended" || w.EndReason != brokerstore.EndDeleted || w.Ended == nil || w.Workspace != "/ws/app" {
+		t.Fatalf("wEnded view = %+v", w)
+	}
+}
+
 // The stable exit codes, each message naming a next step.
 func TestApproveStableExitCodes(t *testing.T) {
 	s, r := approvalFixture(t)
