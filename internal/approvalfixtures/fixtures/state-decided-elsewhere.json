@@ -32,6 +32,8 @@
     "expires": "2026-11-09T15:00:00Z",
     "decided": "2026-11-09T14:02:00Z",
     "state": "allowed",
+    "answer": "once",
+    "via": "host",
     "action": "pr-write",
     "target": "PR example-org/app#42",
     "headline": "write to PR example-org/app#42",

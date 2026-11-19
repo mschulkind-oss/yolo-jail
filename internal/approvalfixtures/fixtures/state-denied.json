@@ -30,6 +30,9 @@
     "expires": "2026-11-09T15:00:00Z",
     "decided": "2026-11-09T14:02:00Z",
     "state": "denied",
+    "answer": "deny",
+    "via": "host",
+    "denial_note": "Do not push to main from an agent; open a branch instead.",
     "needs_approval": [
       "refs/heads/main"
     ],

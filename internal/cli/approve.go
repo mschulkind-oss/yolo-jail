@@ -368,7 +368,7 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 		return fail(fmt.Errorf("decide or revoke without --json or --watch, which only list or follow the store"))
 	}
 	if ended && (!asJSON || watch || request != "" || revoke != "") {
-		return fail(fmt.Errorf("--ended is valid only with --json (and not with --watch or a decision or --revoke)"))
+		return fail(fmt.Errorf("ended listings are valid only with --json (and not with --watch or a decision or --revoke)"))
 	}
 	if request != "" && forSeen {
 		source, found, err := pendingRequestSource(stores, request)
