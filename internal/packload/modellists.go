@@ -156,12 +156,7 @@ func shapeProviderModels(name string, entry *jsonx.OrderedMap, shapes []shapedMo
 	// continues it. A provider no contribution names is never touched here.
 	next := materializeOrder(models, opts)
 
-	ids := map[string]bool{}
-	for _, alias := range models.Keys() {
-		if id, ok := stringAt(models, alias); ok {
-			ids[id] = true
-		}
-	}
+	ids := declaredModelIDs(models)
 	for _, s := range shapes {
 		for _, e := range s.c.Add {
 			if ids[e.ID] {
@@ -205,7 +200,7 @@ func shapeProviderModels(name string, entry *jsonx.OrderedMap, shapes []shapedMo
 		// Over a COPY of the keys: Keys() is the map's own slice and Delete shifts it in place,
 		// so ranging over it steps past the entry after each one dropped, which then survives.
 		for _, alias := range slices.Clone(models.Keys()) {
-			if id, _ := stringAt(models, alias); !keep[id] {
+			if id, ok := modelEntryID(models, alias); !ok || !keep[id] {
 				models.Delete(alias)
 				opts.Delete(alias)
 			}
@@ -290,7 +285,7 @@ func applyAgentModelViews(out, user *jsonx.OrderedMap, packs []*Pack, note func(
 			if userIDs == nil {
 				userIDs = map[string]bool{}
 			}
-			for id := range userModelIDs(user, name) {
+			for id := range mergedUserModelIDs(user, models, name) {
 				userIDs[id] = true
 			}
 			for _, shape := range shapes {
@@ -510,6 +505,55 @@ func userModelIDs(user *jsonx.OrderedMap, name string) map[string]bool {
 	return declaredModelIDs(subOrderedOrNil(entry, "models"))
 }
 
+// mergedUserModelIDs resolves each key in the user's `providers.<name>.models` against the
+// merged entry's `models` when present, so a partial readable user override preserves the
+// merged row's wire identity (`model`) rather than falling back to the alias key.
+func mergedUserModelIDs(user, mergedModels *jsonx.OrderedMap, name string) map[string]bool {
+	userModels := subOrderedOrNil(providerEntry(user, name), "models")
+	if userModels == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, alias := range userModels.Keys() {
+		v, _ := userModels.Get(alias)
+		if v == nil {
+			continue
+		}
+		if id, ok := modelEntryID(mergedModels, alias); ok {
+			out[id] = true
+			continue
+		}
+		if id, ok := modelEntryID(userModels, alias); ok {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// modelEntryID returns the listed model identity for one alias in models: string value,
+// legacy object `id`, or readable row `readableModelID(alias, model)`.
+func modelEntryID(models *jsonx.OrderedMap, alias string) (string, bool) {
+	if models == nil {
+		return "", false
+	}
+	v, ok := models.Get(alias)
+	if !ok {
+		return "", false
+	}
+	switch t := v.(type) {
+	case string:
+		return t, true
+	case *jsonx.OrderedMap:
+		if id, has := stringAt(t, "id"); has {
+			return id, true
+		}
+		model, _ := stringAt(t, "model")
+		return readableModelID(alias, model), true
+	default:
+		return "", false
+	}
+}
+
 // declaredModelIDs uses the readable lowering identity (model or key) and legacy alias id.
 func declaredModelIDs(models *jsonx.OrderedMap) map[string]bool {
 	out := map[string]bool{}
@@ -518,17 +562,8 @@ func declaredModelIDs(models *jsonx.OrderedMap) map[string]bool {
 	}
 
 	for _, alias := range models.Keys() {
-		v, _ := models.Get(alias)
-		switch t := v.(type) {
-		case string:
-			out[t] = true
-		case *jsonx.OrderedMap:
-			if id, ok := stringAt(t, "id"); ok {
-				out[id] = true
-			} else {
-				model, _ := stringAt(t, "model")
-				out[readableModelID(alias, model)] = true
-			}
+		if id, ok := modelEntryID(models, alias); ok {
+			out[id] = true
 		}
 	}
 	return out

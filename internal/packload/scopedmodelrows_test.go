@@ -124,3 +124,67 @@ func TestScopedModelNotesSortProvidersAndKeepUserRows(t *testing.T) {
 		}
 	}
 }
+
+func readableGatewayPack(t *testing.T) *Pack {
+	t.Helper()
+	return readablePack(t, `
+[providers.gw.endpoints.openai]
+base_url = "https://gw.example/v1"
+wire_api = "openai-chat-completions"
+[providers.gw.models.friendly]
+model = "real-id"
+name = "Pack row"
+[providers.gw.models.beta]
+model = "beta-2"
+`)
+}
+
+func TestScopedPartialUserOverrideKeepsMergedPackWireID(t *testing.T) {
+	pack := readableGatewayPack(t)
+	policy := modelsPack(t, "policy", `{"kind":"models","provider":"gw","only":["beta-2"],"agents":["claude"]}`)
+	user := userProviders(t, `{"gw":{"models":{"friendly":{"name":"User name"}}}}`)
+
+	var notes []string
+	got, err := ComposeProviders(user, []*Pack{pack, policy}, WithModelNotes(func(n string) { notes = append(notes, n) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("unexpected model notes: %v", notes)
+	}
+	projected := modelview.ProjectProviderTable(got, "claude").(*jsonx.OrderedMap)
+	if ids := composedModelIDs(t, projected, "gw"); !reflect.DeepEqual(ids, []string{"beta-2", "real-id"}) {
+		t.Errorf("claude's projected model ids = %v, want [beta-2 real-id]", ids)
+	}
+	entry := providerEntry(projected, "gw")
+	if wire, _ := stringAt(subOrderedOrNil(entry, "models"), "friendly"); wire != "real-id" {
+		t.Errorf("models.friendly = %q, want real-id", wire)
+	}
+	if name, _ := stringAt(subOrderedOrNil(subOrderedOrNil(entry, "model_options"), "friendly"), "name"); name != "User name" {
+		t.Errorf("model_options.friendly.name = %q, want User name", name)
+	}
+}
+
+func TestUnscopedOnlyKeepsReadablePackRowWithoutFalseNotes(t *testing.T) {
+	pack := readableGatewayPack(t)
+	policy := modelsPack(t, "policy", `{"kind":"models","provider":"gw","only":["real-id"]}`)
+
+	var notes []string
+	got, err := ComposeProviders(nil, []*Pack{pack, policy}, WithModelNotes(func(n string) { notes = append(notes, n) }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 0 {
+		t.Errorf("unexpected model notes: %v", notes)
+	}
+	if ids := composedModelIDs(t, got, "gw"); !reflect.DeepEqual(ids, []string{"real-id"}) {
+		t.Errorf("unscoped model ids = %v, want [real-id]", ids)
+	}
+	entry := providerEntry(got, "gw")
+	if wire, _ := stringAt(subOrderedOrNil(entry, "models"), "friendly"); wire != "real-id" {
+		t.Errorf("models.friendly = %q, want real-id", wire)
+	}
+	if name, _ := stringAt(subOrderedOrNil(subOrderedOrNil(entry, "model_options"), "friendly"), "name"); name != "Pack row" {
+		t.Errorf("model_options.friendly.name = %q, want Pack row", name)
+	}
+}
