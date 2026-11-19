@@ -313,7 +313,12 @@ func TestALaunchSelfExecIsItsPinAndNeverTheLauncher(t *testing.T) {
 // the resolver's message (which names the reinstall step) before any keeper, daemon or build runs.
 func TestALaunchWithoutAPinRefusesBeforeSpawning(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	empty := t.TempDir()
+	// Resolved where minted: the refusal names the resolved path, and on darwin t.TempDir()
+	// sits under /var -> /private/var.
+	empty, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	o := skewOptions(t, empty, nil, &stdout, &stderr)
 	// skewOptions' bundle holds a host yolo; this one must not.
