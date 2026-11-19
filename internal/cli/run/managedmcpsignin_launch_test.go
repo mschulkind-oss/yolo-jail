@@ -44,6 +44,11 @@ func TestMCPProducerCarriesExpectedClientNotJustItsDigest(t *testing.T) {
 func TestRunResolvesOnlyUserSelectedDeliveredSignInPoints(t *testing.T) {
 	t.Setenv("YOLO_NO_PROGRAM_READINESS", "1")
 	t.Setenv("YOLO_NO_AUTO_CAPTURE", "1")
+	// The no-canonical-state assertion below is about launch INSPECTION on Linux podman,
+	// where the resident broker owns the store. On any other host podman takes the
+	// boundary tier (onceTierMode, ID-19), whose start pass legitimately opens the store
+	// before the keeper, so pin the Linux tier rather than inherit the test host's OS.
+	setOnceGOOS(t, "linux")
 	for _, tc := range []struct {
 		name, namespace, native                                                                                     string
 		workspaceOnly, changedURL, view, unselected, ownClient, nonOnce, removed, capturable, usable, expired, dead bool
