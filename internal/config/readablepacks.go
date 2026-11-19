@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/configdoc"
+	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -23,11 +24,12 @@ func checkReadablePacksFromEmbeddedNames(raw any, definitions map[string]packsrc
 	type previousEntry struct {
 		index int
 		where string
+		entry PackEntry
 	}
 	entries := make([]PackEntry, 0, len(list))
 	problems := make([]string, 0)
-	seenName := make(map[string]previousEntry)
-	seenLocal := make(map[string]previousEntry)
+	seenName := make(map[string][]previousEntry)
+	seenLocal := make(map[string][]previousEntry)
 	for i, rawEntry := range list {
 		item := fmt.Sprintf("config.packs[%d]", i)
 		loc := packEntryOrigin(sources, item)
@@ -53,6 +55,7 @@ func checkReadablePacksFromEmbeddedNames(raw any, definitions map[string]packsrc
 				continue
 			}
 			entry = PackEntry{
+				Subdir: ref.Subdir, Skills: ref.Skills,
 				Source: ref.Source, Name: ref.Name, SourceID: ref.SourceID,
 				LocalPath: ref.LocalPath, EmbeddedName: ref.EmbeddedName,
 				AllowDefaultRef: ref.AllowDefaultRef,
@@ -60,38 +63,84 @@ func checkReadablePacksFromEmbeddedNames(raw any, definitions map[string]packsrc
 				Namespace:       ref.Namespace, NamespaceOwner: ref.NamespaceOwner, Landing: ref.Landing,
 				KeepNamesStep: ref.KeepNamesStep, AcceptNamesStep: ref.AcceptNamesStep, BareStep: ref.BareStep,
 			}
+			entry.ConfigOrigin = item + " (" + loc + ")"
 			localPath = ref.LocalPath
 		}
-		if previous, duplicate := seenName[entry.Name]; duplicate {
-			if legacy {
-				problems = append(problems, fmt.Sprintf("%s: duplicate pack name %q (also at config.packs[%d]) — give one an explicit \"name\"",
-					item, entry.Name, previous.index))
-			} else {
-				problems = append(problems, fmt.Sprintf("%s (%s): duplicate pack handle %q (also at %s)", item, loc, entry.Name, previous.where))
+		conflict := false
+		for _, previous := range seenName[entry.Name] {
+			if entry.Source != previous.entry.Source || entry.AllowDefaultRef != previous.entry.AllowDefaultRef {
+				problems = append(problems, fmt.Sprintf("%s (%s): entries sharing handle %q must share the authored ref (also at %s); use one ref", item, loc, entry.Name, previous.where))
+				conflict = true
+				break
 			}
+			if legacy || importRootsConflict(entry, previous.entry) {
+				if legacy {
+					problems = append(problems, fmt.Sprintf("%s: duplicate pack name %q (also at config.packs[%d]) — give one an explicit \"name\"", item, entry.Name, previous.index))
+				} else {
+					problems = append(problems, fmt.Sprintf("%s (%s): duplicate pack handle %q import roots (also at %s); remove one entry or use different subdir/skills.dir", item, loc, entry.Name, previous.where))
+				}
+				conflict = true
+				break
+			}
+		}
+		if conflict {
 			continue
 		}
 		if localPath != "" {
 			identity, identityErr := packsrc.LocalDirectoryIdentity(localPath)
 			if identityErr == nil {
 				entry.PhysicalPath = identity
-				if previous, duplicate := seenLocal[identity]; duplicate {
-					if legacy {
-						problems = append(problems, fmt.Sprintf("%s: duplicate local pack directory %q (also at config.packs[%d]) — list the physical directory once",
-							item, entry.Source, previous.index))
-					} else {
-						problems = append(problems, fmt.Sprintf("%s (%s): duplicate local pack directory %q (also at %s) — list the physical directory once",
-							item, loc, localPath, previous.where))
+				for _, previous := range seenLocal[identity] {
+					if legacy || importRootsConflict(entry, previous.entry) {
+						problems = append(problems, fmt.Sprintf("%s (%s): duplicate local pack directory %q (also at %s) — list the physical directory once or choose different import roots", item, loc, localPath, previous.where))
+						conflict = true
+						break
 					}
+				}
+				if conflict {
 					continue
 				}
-				seenLocal[identity] = previousEntry{index: i, where: item + " (" + loc + ")"}
+				seenLocal[identity] = append(seenLocal[identity], previousEntry{index: i, where: item + " (" + loc + ")", entry: entry})
 			}
 		}
-		seenName[entry.Name] = previousEntry{index: i, where: item + " (" + loc + ")"}
+		seenName[entry.Name] = append(seenName[entry.Name], previousEntry{index: i, where: item + " (" + loc + ")", entry: entry})
 		entries = append(entries, entry)
 	}
 	return entries, problems
+}
+
+func importRootsConflict(a, b PackEntry) bool {
+	rootA, rootB := a.Subdir, b.Subdir
+	if a.PhysicalPath != "" && b.PhysicalPath != "" {
+		if actual, err := filepath.EvalSymlinks(filepath.Join(a.PhysicalPath, a.Subdir)); err == nil {
+			rootA = actual
+		}
+		if actual, err := filepath.EvalSymlinks(filepath.Join(b.PhysicalPath, b.Subdir)); err == nil {
+			rootB = actual
+		}
+	}
+	if rootA != rootB {
+		return false
+	}
+	if a.Skills == nil || b.Skills == nil {
+		return true
+	}
+	dirA, dirB := a.Skills.Dir, b.Skills.Dir
+	if a.PhysicalPath != "" && b.PhysicalPath != "" && dirA != "" && dirB != "" {
+		if actual, err := filepath.EvalSymlinks(filepath.Join(rootA, dirA)); err == nil {
+			dirA = actual
+		}
+		if actual, err := filepath.EvalSymlinks(filepath.Join(rootB, dirB)); err == nil {
+			dirB = actual
+		}
+	}
+	return dirA == dirB
+}
+
+// ReadOnlyUserPackEntries lowers an already-read user snapshot without pack
+// resolution, staging or custom-tree reads. It retains EmbeddedName provenance.
+func ReadOnlyUserPackEntries(user *jsonx.OrderedMap) ([]PackEntry, []string) {
+	return lowerReadablePackEntries(user, nil)
 }
 
 func packEntryIsReadable(sources *Sources, item string) bool {

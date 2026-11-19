@@ -70,6 +70,38 @@ func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 		return pack, true
 	}
 	resolve := func(entry PackEntry) (*packload.Pack, error) {
+		if entry.Skills != nil {
+			if entry.Embedded() {
+				name := entry.EmbeddedName
+				if name == "" {
+					name = entry.Name
+				}
+				source, err := fs.Sub(fsys, name)
+				if err != nil {
+					return nil, err
+				}
+				resolved, err := projectPackSkills(entry, ResolvePackSpec{ReadOnlyStore: true}, filepath.Join(string(filepath.Separator), "embedded", name), "", source)
+				return resolved.Pack, err
+			}
+			if ctx.isJailEdit() {
+				if err := scopedLocalPackVisibility(entry); err != nil {
+					if errors.Is(err, ErrPackUnverifiableInJail) {
+						ctx.packNotes = append(ctx.packNotes, err.Error())
+						return nil, nil
+					}
+					return nil, err
+				}
+			}
+			resolved, err := ResolvePack(entry, ResolvePackSpec{ReadOnlyStore: true})
+			if err != nil && !entry.IsLocal() && (errors.Is(err, packsrc.ErrNotFetched) || errors.Is(err, packsrc.ErrNotCheckedOut) || errors.Is(err, packsrc.ErrDefaultRefUnavailable)) {
+				ctx.packNotes = append(ctx.packNotes, fmt.Sprintf("pack %s scoped selection is unverified: %v; the next host launch resolves its candidates", entry.Name, err))
+				return nil, nil
+			}
+			if err != nil {
+				return nil, err
+			}
+			return resolved.Pack, nil
+		}
 		var pack *packload.Pack
 		var problems []string
 		var err error
@@ -89,7 +121,7 @@ func (ctx *editValidationContext) selectedPacks() ([]*packload.Pack, error) {
 			pack.Official = true
 		} else {
 			root, err := ctx.configuredPackRoot(entry)
-			if errors.Is(err, errPackUnverifiableInJail) {
+			if errors.Is(err, ErrPackUnverifiableInJail) {
 				// Unverifiable here, as `yolo check` in the jail leaves it
 				// (SelectedPackDeclarations' partial answer): the edit cannot touch `packs`, so
 				// it changes nothing this pack declares, and the host checks it at its launch.
@@ -222,21 +254,39 @@ func selectedPackRoot(entry PackEntry) (string, error) {
 	return filepath.FromSlash(address.Path), nil
 }
 
-// errPackUnverifiableInJail marks a configured pack a jail's workspace-config edit cannot read:
-// its source is a host path or the host's pack store, and the launch delivered no copy.
-var errPackUnverifiableInJail = errors.New("pack source is not visible in this jail")
+// ErrPackUnverifiableInJail marks host-source facts that cannot be validated in a jail.
+// Readable invalid declarations remain failures, not skipped coverage.
+var ErrPackUnverifiableInJail = errors.New("pack source is not visible in this jail")
+
+func scopedLocalPackVisibility(entry PackEntry) error {
+	if entry.Skills == nil || !entry.IsLocal() {
+		return nil
+	}
+	root, err := selectedPackRoot(entry)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) || errors.Is(err, fs.ErrPermission) {
+		return &unverifiableInJailError{name: entry.Name, err: err, scoped: true}
+	}
+	return nil
+}
 
 type unverifiableInJailError struct {
-	name string
-	err  error
+	name   string
+	err    error
+	scoped bool
 }
 
 func (e *unverifiableInJailError) Error() string {
+	if e.scoped {
+		return fmt.Sprintf("pack %s scoped selection was not checked: %v — its authored source is not visible in this jail; `yolo check` on the host checks it", e.name, e.err)
+	}
 	return fmt.Sprintf("pack %s was not checked: %v — its source is not visible in this jail and "+
 		"no copy was delivered; `yolo check` on the host checks it", e.name, e.err)
 }
 
-func (e *unverifiableInJailError) Is(target error) bool { return target == errPackUnverifiableInJail }
+func (e *unverifiableInJailError) Is(target error) bool { return target == ErrPackUnverifiableInJail }
 
 // isJailEdit says this edit runs in a jail. A jail sees only the copies of the user's packs its
 // launch delivered (YOLO_PACK_ROOT), never the host paths and pack store they came from.
@@ -249,15 +299,16 @@ func (ctx *editValidationContext) isJailEdit() bool {
 // configuredPackRoot is the directory a non-embedded configured pack is read from. On the host
 // it is the configured path or the pack store's tree, and any failure refuses. In a jail it falls
 // back to the delivered copy, as packsrc.Store.Resolve does for `yolo check`, and a pack with
-// neither is errPackUnverifiableInJail for the caller to step aside from.
+// neither is ErrPackUnverifiableInJail for the caller to step aside from.
 func (ctx *editValidationContext) configuredPackRoot(entry PackEntry) (string, error) {
 	jailEdit := ctx.isJailEdit()
 	var root string
 	var err error
+	sourceRoot := true
 	if entry.IsLocal() {
 		root, err = selectedPackRoot(entry)
 		if err == nil && jailEdit {
-			root, err = jailLocalPackRoot(entry, root)
+			root, sourceRoot, err = jailLocalPackRoot(entry, root)
 		} else if err == nil {
 			if _, statErr := os.Stat(root); errors.Is(statErr, fs.ErrNotExist) {
 				// The host sees every local pack, so a missing directory is a real fault.
@@ -266,39 +317,45 @@ func (ctx *editValidationContext) configuredPackRoot(entry PackEntry) (string, e
 			}
 		}
 	} else {
-		root, err = selectedFetchedPackRoot(entry, jailEdit)
+		root, sourceRoot, err = selectedFetchedPackRoot(entry, jailEdit)
 	}
 	if err != nil && jailEdit {
 		return "", &unverifiableInJailError{name: entry.Name, err: err}
 	}
-	return root, err
+	if err != nil {
+		return "", err
+	}
+	if sourceRoot {
+		return confinedPackRoot(root, entry.Subdir, entry.IsLocal())
+	}
+	return root, nil
 }
 
 // jailLocalPackRoot is a local pack's root as a jail can read it: the configured path when it
 // exists here, else the copy the launch delivered under YOLO_PACK_ROOT.
-func jailLocalPackRoot(entry PackEntry, root string) (string, error) {
+func jailLocalPackRoot(entry PackEntry, root string) (resolvedRoot string, sourceRoot bool, err error) {
 	_, statErr := os.Stat(root)
 	if statErr == nil {
-		return root, nil
+		return root, true, nil
 	}
 	store := &packsrc.Store{Dir: paths.PacksDir()}
 	if delivered, ok := store.DeliveredPackDir(entry.Slug()); ok {
-		return delivered, nil
+		return delivered, false, nil
 	}
-	return "", fmt.Errorf("pack root %s: %w", root, statErr)
+	return "", false, fmt.Errorf("pack root %s: %w", root, statErr)
 }
 
 // selectedFetchedPackRoot resolves a fetched pack read-only. A delivered (staged) tree is
 // refused on the host, where its source and filters cannot be proved for the planned entry;
 // jailEdit accepts it, since in a jail that tree is the pack this jail runs and the edit cannot
 // change the entry.
-func selectedFetchedPackRoot(entry PackEntry, jailEdit bool) (string, error) {
+func selectedFetchedPackRoot(entry PackEntry, jailEdit bool) (root string, sourceRoot bool, err error) {
 	address, err := packsrc.Parse(entry.Source)
 	if entry.AllowDefaultRef {
 		address, err = packsrc.ParsePackAddress(entry.Source)
 	}
 	if err != nil {
-		return "", fmt.Errorf("pack %s source address: %w", entry.Name, err)
+		return "", false, fmt.Errorf("pack %s source address: %w", entry.Name, err)
 	}
 	store := &packsrc.Store{Dir: paths.PacksDir()}
 	var resolved *packsrc.Resolved
@@ -309,10 +366,10 @@ func selectedFetchedPackRoot(entry PackEntry, jailEdit bool) (string, error) {
 		resolved, err = store.ResolveExisting(address, entry.Slug())
 	}
 	if err != nil {
-		return "", fmt.Errorf("pack %s read-only source lookup: %w", entry.Name, err)
+		return "", false, fmt.Errorf("pack %s read-only source lookup: %w", entry.Name, err)
 	}
 	if resolved.StagedFrom != "" && !jailEdit {
-		return "", fmt.Errorf("pack %s only resolves through staged tree %s, whose source and filters cannot be proved for this planned entry; rerun the host launch or `yolo pack install` before editing", entry.Name, resolved.StagedFrom)
+		return "", false, fmt.Errorf("pack %s only resolves through staged tree %s, whose source and filters cannot be proved for this planned entry; rerun the host launch or `yolo pack install` before editing", entry.Name, resolved.StagedFrom)
 	}
-	return resolved.Root, nil
+	return resolved.Root, resolved.StagedFrom == "", nil
 }

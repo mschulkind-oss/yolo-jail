@@ -74,6 +74,25 @@ func privateYoloState(t *testing.T) {
 	}
 }
 
+func awaitTerminalText(t *testing.T, out *syncBuffer, done <-chan error, prompt string) {
+	t.Helper()
+	guard := time.NewTimer(jailTimeout())
+	defer guard.Stop()
+	for {
+		text, changed := out.snapshotAndChanged()
+		if strings.Contains(text, prompt) {
+			return
+		}
+		select {
+		case <-changed:
+		case err := <-done:
+			t.Fatalf("launcher exited (%v) before terminal event %q:\n%s", err, prompt, out.String())
+		case <-guard.C:
+			t.Fatalf("no terminal event %q within %s:\n%s", prompt, jailTimeout(), out.String())
+		}
+	}
+}
+
 func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	requireJail(t)
 	dir, cname := startStandInOlderJail(t, true)
@@ -92,10 +111,11 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 
 	// $YOLO_CONTRACT_TAGS expands in the JAIL's shell: the boot echoes the command with the
 	// literal name, so only the fresh jail's own answer contains the tags.
-	cmd := exec.Command(yoloBin, append(jailRunArgs(), "-p", "claude=zai", "--", "bash", "-lc",
-		`echo FRESH-TAGS-"$YOLO_CONTRACT_TAGS"`)...)
+	args := append(jailRunArgs(), "-p", "claude=zai", "--", "bash", "-lc", `echo FRESH-TAGS-"$YOLO_CONTRACT_TAGS"`)
+	program, argv := privateLaunchCommand(t, runConfig{}, yoloBin, args)
+	cmd := exec.Command(program, argv...)
 	cmd.Dir = dir
-	cmd.Env = launchEnvironment(runConfig{})
+	cmd.Env = privateLaunchEnvironment(t, runConfig{})
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	if err := cmd.Start(); err != nil {
@@ -104,7 +124,9 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	// The child holds its own copies; the parent's would keep the master from ever seeing EOF.
 	_ = slave.Close()
 	out := &syncBuffer{}
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		buf := make([]byte, 4096)
 		for {
 			n, err := master.Read(buf)
@@ -124,18 +146,7 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 		}
 	})
 
-	deadline := time.Now().Add(jailTimeout())
-	for !strings.Contains(out.String(), "Restart jail now? [Y/n]") {
-		select {
-		case err := <-done:
-			t.Fatalf("yolo exited (%v) without asking to restart the older jail:\n%s", err, out)
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("no restart question within %s:\n%s", jailTimeout(), out)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	awaitTerminalText(t, out, done, "Restart jail now? [Y/n]")
 	if !strings.Contains(out.String(), "every session in it (1 running now)") {
 		t.Errorf("the question must name the sessions the restart ends:\n%s", out)
 	}
@@ -145,18 +156,7 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 	// The stand-in's explicit host-network setting is a new workspace config for the fresh
 	// launch. Approve that separate, expected change rather than leaving the terminal test
 	// blocked on the config-safety prompt.
-	approvalDeadline := time.Now().Add(jailTimeout())
-	for !strings.Contains(out.String(), "Accept these workspace config changes? [y/N]") {
-		select {
-		case err := <-done:
-			t.Fatalf("yolo exited (%v) before asking to approve the fixture network config:\n%s", err, out)
-		default:
-		}
-		if time.Now().After(approvalDeadline) {
-			t.Fatalf("no workspace-config approval question within %s:\n%s", jailTimeout(), out)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	awaitTerminalText(t, out, done, "Accept these workspace config changes? [y/N]")
 	prompt := strings.ReplaceAll(out.String(), "\r", "")
 	for _, want := range []string{"Interpreted", "Exact", "network.mode", "Raw JSON comparison (read-only, records nothing): yolo config approval-diff"} {
 		if !strings.Contains(prompt, want) {
@@ -190,8 +190,11 @@ func TestAttachRestartsAnOlderJailAtATerminal(t *testing.T) {
 		forceRemoveContainer(dir)
 		t.Fatalf("the restarted launch did not finish within %s:\n%s", jailTimeout(), out)
 	}
-	// The reader goroutine may still be draining; give it a moment to see the last bytes.
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-readerDone:
+	case <-time.After(jailTimeout()):
+		t.Fatal("restart terminal reader did not reach EOF after launcher exit")
+	}
 	got := out.String()
 	if !strings.Contains(got, "Stopping "+cname) {
 		t.Errorf("the restart must say it is stopping the jail:\n%s", got)

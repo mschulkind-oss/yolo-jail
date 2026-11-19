@@ -154,6 +154,12 @@ func runSuite(m *testing.M) int {
 		log.Fatalf("integration: matched launcher's adjacent flake bundle is unavailable: %v", err)
 	}
 
+	privateCleanup, err := armPrivateSuite()
+	if err != nil {
+		log.Fatalf("integration: private fixture admission: %v", err)
+	}
+	defer privateCleanup()
+
 	// Before the warmup, which is the run's first launch: it seeds its home through
 	// seedPackHome like every test does, and so lands in the run's own store too.
 	setUpRunStore()
@@ -306,7 +312,15 @@ func warmJail() {
 	ctx, cancel := context.WithTimeout(context.Background(), warmupTimeout())
 	defer cancel()
 	args := append(jailRunArgs(), "--", "bash", "-lc", "true")
-	cmd := exec.CommandContext(ctx, yoloBin, args...)
+	if err := privateNativeWorkspaceAdmission(dir); err != nil {
+		degraded("warmup native workspace admission: %v — repair the private fixture before running native cases", err)
+		return
+	}
+	cmd, err := privateNativeCommandChecked(ctx, yoloBin, args, launchEnvironment(runConfig{env: []string{"HOME=" + home}}), &privateNativeFixture{home: home, userConfig: "{}"})
+	if err != nil {
+		degraded("warmup native input admission: %v — repair the private fixture before running native cases", err)
+		return
+	}
 	cmd.Dir = dir
 	// HOME goes to the SUBPROCESS only — never os.Setenv — because this runs before
 	// m.Run() and a process-wide HOME would silently redirect every test that expects the
@@ -315,7 +329,6 @@ func warmJail() {
 	// (the warmup home carries an empty user config, so it selects no packs and has nothing
 	// to capture), but it takes them anyway, so "every launch this suite makes" stays one
 	// rule with one exception list rather than several sites that happen to agree.
-	cmd.Env = launchEnvironment(runConfig{env: []string{"HOME=" + home}})
 
 	start := time.Now()
 	out, err := cmd.CombinedOutput()
@@ -806,6 +819,9 @@ type runConfig struct {
 	// prefix is a wrapper argv the yolo binary runs UNDER (withLauncherPrefix). Empty runs
 	// yolo directly, which is every caller but one.
 	prefix []string
+	// expectedLauncher verifies the executable actually selected for an isolated
+	// managed-MCP emitted-source probe; it never redirects ordinary tests.
+	expectedLauncher string
 }
 
 type runOption func(*runConfig)
@@ -918,10 +934,21 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.timeout)
 	defer cancel()
 
-	name, argv := launchCommand(cfg, yoloBin, args)
+	name, argv := privateLaunchCommand(t, cfg, yoloBin, args)
+	if privateSuite.armed && privateNative != nil && len(args) > 0 && args[0] == "run" {
+		if err := privateNativeWorkspaceAdmission(dir); err != nil {
+			t.Fatal(err)
+		}
+	}
 	cmd := exec.CommandContext(ctx, name, argv...)
 	cmd.Dir = dir
-	cmd.Env = launchEnvironment(cfg)
+	if cfg.expectedLauncher != "" {
+		if !filepath.IsAbs(cfg.expectedLauncher) || cmd.Path != cfg.expectedLauncher || cmd.Args[0] != cfg.expectedLauncher {
+			t.Fatal("emitted probe selected a different executable")
+		}
+		t.Logf("emitted probe actual exec path=%s argv[0]=%s workspace=%s", cmd.Path, cmd.Args[0], cmd.Dir)
+	}
+	cmd.Env = privateLaunchEnvironment(t, cfg)
 	// A launch with the automatic reapers on reaps whatever store its HOME names, so it must
 	// name a private one (reaperstore_test.go).
 	if msg := reaperLaunchRefusal(cmd.Env); msg != "" {

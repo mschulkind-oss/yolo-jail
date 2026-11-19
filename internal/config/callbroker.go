@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -74,6 +75,12 @@ func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []
 	return check
 }
 
+// callBrokerArgvJSON preserves argv boundaries in disclosures; space-joined display is ambiguous.
+func callBrokerArgvJSON(argv []string) string {
+	encoded, _ := json.Marshal(argv)
+	return string(encoded)
+}
+
 // CallBrokerDisclosure is the exact selected call-broker policy shown at the config-change gate.
 // The same HTTP fields are frozen by the passing gate; no credential value is displayed.
 func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
@@ -86,6 +93,9 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 	}
 	if len(b.Classifier) > 0 {
 		out = append(out, "classifier="+strings.Join(b.Classifier, " "))
+		if b.HTTP == nil {
+			out = append(out, "classifier_argv_json="+callBrokerArgvJSON(b.Classifier))
+		}
 	}
 	programNames := make([]string, 0, len(b.ProgramIdentities))
 	for name := range b.ProgramIdentities {
@@ -136,6 +146,9 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 	}
 	for _, lookup := range b.Lookups {
 		out = append(out, "lookup="+lookup.Name+" cli="+strings.Join(lookup.CLI, " ")+" http="+lookup.HTTPMethod+" "+lookup.HTTPPath)
+		if len(lookup.CLI) > 0 && b.HTTP == nil {
+			out = append(out, "lookup="+lookup.Name+" cli_argv_json="+callBrokerArgvJSON(lookup.CLI))
+		}
 	}
 	return out
 }

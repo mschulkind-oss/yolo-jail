@@ -157,9 +157,12 @@ func decodeTOML(data []byte, mode manifestReadMode) (*Manifest, []string, []stri
 	if !ok {
 		return nil, []string{ManifestTOMLName + ": expected a TOML table at the root"}, nil
 	}
+	bundles, formats, headerForm, paste, managedProblems, managedSkipped := takeManagedMCPMetadata(root, doc, mode)
 	legacySpellings, bothWays := legacyProviderSpellings(root)
 	normalized, groups, problems, preSkipped := normalizeGrouped(root, doc, mode)
 	problems = append(bothWays, problems...)
+	problems = append(problems, managedProblems...)
+	preSkipped = append(preSkipped, managedSkipped...)
 	if len(problems) > 0 {
 		return nil, problems, preSkipped
 	}
@@ -230,6 +233,11 @@ func decodeTOML(data []byte, mode manifestReadMode) (*Manifest, []string, []stri
 			}
 		}
 	}
+	m.MCPSignInFormats, m.MCPHeaderForm, m.MCPSignInPaste = formats, headerForm, paste
+	m.Contributes = append(m.Contributes, bundles...)
+	sort.SliceStable(m.Contributes, func(i, j int) bool {
+		return m.Contributes[i].Location.Line < m.Contributes[j].Location.Line
+	})
 	if m.Formerly != nil {
 		problems = append(problems, m.validateFormerProviders()...)
 	}

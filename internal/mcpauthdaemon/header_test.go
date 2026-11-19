@@ -38,9 +38,11 @@ func askBroker(t *testing.T, b *broker, request map[string]any) headerReply {
 	}
 	upstream := filepath.Join(parent, "upstream.sock")
 	endpoint := filepath.Join(frontDir, "front.endpoint")
+	local := *b
+	local.session = BindShareSession(b.share, b.share.Jail, endpoint)
 	daemonStop, frontStop := make(chan struct{}), make(chan struct{})
 	daemonDone, frontDone := make(chan struct{}), make(chan struct{})
-	go func() { _ = hostservice.ServeFrontedUnix(b.handleStatus, upstream, daemonStop); close(daemonDone) }()
+	go func() { _ = hostservice.ServeFrontedUnix(local.handleStatus, upstream, daemonStop); close(daemonDone) }()
 	waitForMCPStatusPath(t, upstream)
 	go func() { _ = svcendpoint.ServeFront(endpoint, "127.0.0.1", upstream, frontStop); close(frontDone) }()
 	waitForMCPStatusPath(t, endpoint)
@@ -83,7 +85,7 @@ func TestTheBrokerAnswersTheHeaderOp(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	f := newOnceDaemonFixture(t)
 	if reply := askBroker(t, f.b, map[string]any{"op": "header", "server": "slack"}); reply.rc != 1 || reply.stdout != "" ||
-		!strings.Contains(reply.stderr, "not signed in") || !strings.Contains(reply.stderr, "run /mcp in claude and authenticate slack") {
+		!strings.Contains(reply.stderr, "source entry awaits this launch's broker") || !strings.Contains(reply.stderr, "yolo mcp-auth status") {
 		t.Fatalf("before the sign-in: %+v", reply)
 	}
 	once, err := f.b.newOnceBroker()

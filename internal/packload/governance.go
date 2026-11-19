@@ -34,6 +34,7 @@ package packload
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -247,6 +248,9 @@ func sameFileAsAny(full string, named []os.FileInfo) bool {
 }
 
 func (p *Pack) governedBriefing() ([]GovernedSource, []governanceProblem) {
+	if p.Projection != nil {
+		return nil, nil
+	}
 	govs, order := p.governors(packdecl.KindBriefing)
 	var out []GovernedSource
 	var problems []governanceProblem
@@ -329,6 +333,9 @@ func (p *Pack) governedBriefing() ([]GovernedSource, []governanceProblem) {
 }
 
 func (p *Pack) governedSkills() ([]GovernedSource, []governanceProblem) {
+	if p.Projection != nil {
+		return nil, nil
+	}
 	govs, order := p.governors(packdecl.KindSkills)
 	var out []GovernedSource
 	var problems []governanceProblem
@@ -398,7 +405,13 @@ func (p *Pack) skillsDir(rel string) (string, string) {
 		return "", fmt.Sprintf("pack %s: skills `from` %q escapes the pack tree — refused", p.Name, rel)
 	}
 	conventional := path.Clean(rel) == packdecl.DefaultSkillsDir
-	fi, err := os.Stat(dir) // Stat, not Lstat: a symlinked skills dir is legitimate
+	var fi fs.FileInfo
+	var err error
+	if p.projectionSource != nil {
+		fi, err = fs.Stat(p.projectionSource, rel)
+	} else {
+		fi, err = os.Stat(dir)
+	}
 	switch {
 	case err == nil && fi.IsDir():
 		return dir, ""

@@ -448,6 +448,15 @@ func sortedScopeKeys(rec scopeRecord) []string {
 	return keys
 }
 
+// sameCallBrokerDisclosure treats only display order as irrelevant, preserving exact bytes and multiplicity.
+func sameCallBrokerDisclosure(previous, current []string) bool {
+	previous = slices.Clone(previous)
+	current = slices.Clone(current)
+	slices.Sort(previous)
+	slices.Sort(current)
+	return slices.Equal(previous, current)
+}
+
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -505,7 +514,7 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 	}
 	for _, s := range check.Sources {
 		declarationKey := callBrokerScopeRecordKey(s.Source)
-		declarationChanged := len(s.Disclosure) > 0 && !sameStrings(old[declarationKey], s.Disclosure)
+		declarationChanged := len(s.Disclosure) > 0 && !sameCallBrokerDisclosure(old[declarationKey], s.Disclosure)
 		if len(s.Disclosure) > 0 {
 			out.next[declarationKey] = append([]string(nil), s.Disclosure...)
 		}

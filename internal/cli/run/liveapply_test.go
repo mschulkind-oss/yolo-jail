@@ -244,6 +244,10 @@ func TestConfigApplyNetworkPortsWaitsForRestart(t *testing.T) {
 		strings.Count(out, "[y/N]") > 1 {
 		t.Errorf("the command offered a restart:\n%s", out)
 	}
+	if !strings.Contains(out, "next launch rechecks the config and approvals and may ask again") ||
+		strings.Contains(out, "launch asks nothing") {
+		t.Errorf("the pending footer promised unconditional approval:\n%s", out)
+	}
 	if _, drifted, _, _ := config.WorkspaceConfigDrift(o.Workspace, "podman-self"); !drifted {
 		t.Error("a restart-only key was folded into the effective-config record")
 	}

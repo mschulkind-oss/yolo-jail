@@ -132,6 +132,8 @@ type Layer struct {
 	// them (docs/design/trust-paths.md, 2026-09-04), so a wrapped plugin is delivered whole
 	// whoever shipped it.
 	Plugins []*pluginpack.Plugin
+	// SignInFormats binds selected bundle declarations to their source plugin root.
+	SignInFormats map[string]string
 	// Problem is a failure to report about this layer: an unresolvable source.
 	Problem string
 	// Unresolved marks a layer whose DECLARED source could not be read, which is the sharper half
@@ -390,6 +392,10 @@ func PackLayer(p *packload.Pack) Layer {
 		// The pack's `skills_tier` decides only how a wrapped plugin is delivered (Layer.Tier);
 		// what anything is called is the user's namespace choice (pack-system.md PN-D9).
 		l.Description, l.Tier = p.Decl.Description, PackTier(p.Decl.SkillsTier)
+		l.SignInFormats = map[string]string{}
+		for _, bundle := range p.Decl.SignInBundles() {
+			l.SignInFormats[filepath.Join(p.Root, filepath.FromSlash(bundle.Bundle))] = bundle.Format
+		}
 	}
 	return l
 }
@@ -1221,7 +1227,8 @@ func writeLayer(dir string, l Layer, req ComposeRequest, preOwned map[string]boo
 	for _, pl := range l.Plugins {
 		res, err := DeliverPlugin(PluginRequest{
 			Pack: l.Pack, Namespace: l.Namespace, BareStep: l.BareStep, Plugin: pl, SkillsDir: dir, Tier: l.Tier,
-			Composed: req.Composed, Legacy: req.Legacy, PreOwned: preOwned, Claimed: want,
+			SignInFormat: l.SignInFormats[pl.Dir],
+			Composed:     req.Composed, Legacy: req.Legacy, PreOwned: preOwned, Claimed: want,
 			ArchiveRoot: req.ArchiveRoot, Stamp: req.Stamp, Observe: observe,
 		})
 		out = append(out, res...)

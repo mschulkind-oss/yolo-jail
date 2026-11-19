@@ -32,8 +32,17 @@ type selectedNPMFixture struct {
 
 func init() {
 	if len(os.Args) > 5 && os.Args[1] == "npm-capture-runtime-test" && os.Args[3] == "internal" && os.Args[4] == programCaptureJailVerb {
+		if filepath.Base(os.Args[0]) == "yolo-private-official" {
+			if err := validatePrivateOfficialRoot(os.Args[2]); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+		}
 		npmCaptureImagePath = filepath.Join(os.Args[2], "image")
 		npmCaptureNode = npmCaptureNodeWithSyntheticTrust
+		if _, err := os.Stat(filepath.Join(os.Args[2], "node-digest")); err == nil {
+			npmCaptureNode = privateOfficialNode
+		}
 		// A fixture that stands in an image /bin (image-bins under its root) points the sealed
 		// producer's image probe at it; without one the probe keeps the image's real dirs.
 		if bins := filepath.Join(os.Args[2], "image-bins"); isDir(bins) {
@@ -69,6 +78,9 @@ func init() {
 		(os.Args[4] == "program-npm" || os.Args[4] == "capture-materialize" || os.Args[4] == "log-append") {
 		npmCaptureImagePath = os.Args[2]
 		npmCaptureNode = npmCaptureNodeWithSyntheticTrust
+		if _, err := os.Stat(filepath.Join(filepath.Dir(os.Args[2]), "node-digest")); err == nil {
+			npmCaptureNode = privateOfficialNode
+		}
 		os.Exit(runInternal(os.Args[4:]))
 	}
 }

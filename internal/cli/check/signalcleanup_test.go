@@ -122,96 +122,11 @@ func readSignalCleanupPhases(path string) string {
 	return strings.TrimSpace(string(b))
 }
 
-type signalCleanupCmdWait struct {
-	done chan struct{}
-	err  error
-}
-
-func startSignalCleanupCmdWait(cmd *exec.Cmd) *signalCleanupCmdWait {
-	waited := &signalCleanupCmdWait{done: make(chan struct{})}
-	go func() {
-		waited.err = cmd.Wait()
-		close(waited.done)
-	}()
-	return waited
-}
-
-func (w *signalCleanupCmdWait) wait(guard time.Duration) (error, bool) {
-	timer := time.NewTimer(guard)
-	defer timer.Stop()
-	select {
-	case <-w.done:
-		return w.err, true
-	case <-timer.C:
-		return nil, false
-	}
-}
-
-func (w *signalCleanupCmdWait) isDone() bool {
-	select {
-	case <-w.done:
-		return true
-	default:
-		return false
-	}
-}
-
-type signalCleanupTeardown struct {
-	waitErr     error
-	childJoined bool
-	nixStarted  bool
-	nixExited   bool
-	groupGone   bool
-	groupKill   error
-}
-
-func (r signalCleanupTeardown) safeToReadOutput() bool {
-	return r.childJoined && r.groupGone
-}
-
 // stopSignalCleanupChild closes the fixture-owned lifetime pipe first, then bounds the
-// stand-in exit event, Cmd.Wait, and final owned-group teardown before output may be read.
+// stand-in exit event and Cmd.Wait before captured output may be read.
 func stopSignalCleanupChild(cmd *exec.Cmd, waited *signalCleanupCmdWait, lifetime *os.File,
 	nixStartedPath, nixExitedPath string) signalCleanupTeardown {
 	var result signalCleanupTeardown
-	if lifetime != nil {
-		_ = lifetime.Close()
-	}
-	result.nixStarted = fileExists(nixStartedPath)
-	if result.nixStarted {
-		result.nixExited = waitForSignalCleanupMarker(nixExitedPath, 10*time.Second)
-	}
-	if cmd.Process != nil && !waited.isDone() {
-		_ = cmd.Process.Kill()
-	}
-	result.waitErr, result.childJoined = waited.wait(10 * time.Second)
-	if !result.childJoined {
-		result.groupKill = killSignalCleanupOwnedGroup(cmd)
-		result.groupGone = waitSignalCleanupOwnedGroupExit(cmd, 10*time.Second)
-		result.waitErr, result.childJoined = waited.wait(10 * time.Second)
-	}
-	if result.childJoined {
-		result.groupGone = waitSignalCleanupOwnedGroupExit(cmd, 10*time.Second)
-	}
-	if !result.groupGone {
-		result.groupKill = killSignalCleanupOwnedGroup(cmd)
-		result.groupGone = waitSignalCleanupOwnedGroupExit(cmd, 10*time.Second)
-	}
-	return result
-}
-
-type signalCleanupUnverifiedTeardown struct {
-	nixStarted  bool
-	nixExited   bool
-	childJoined bool
-	waitErr     error
-}
-
-// stopSignalCleanupUnverifiedChild uses only the parent-owned pipe and direct child handle;
-// it never signals a process group whose ownership check failed.
-func stopSignalCleanupUnverifiedChild(cmd *exec.Cmd, waited *signalCleanupCmdWait, lifetime *os.File,
-	nixStartedPath, nixExitedPath string) signalCleanupUnverifiedTeardown {
-	var result signalCleanupUnverifiedTeardown
 	if lifetime != nil {
 		_ = lifetime.Close()
 	}
@@ -344,7 +259,6 @@ func runSignalCleanupCase(t *testing.T, root, home, tmp string, sig syscall.Sign
 		t.Fatal(err)
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSignalExitRemovesSelectedPackTree$", "-test.v")
-	configureSignalCleanupOwnedGroup(cmd)
 	cmd.ExtraFiles = []*os.File{lifetimeReader}
 	cmd.Env = testEnv(map[string]string{
 		signalCleanupChildEnv:      "1",
@@ -367,13 +281,6 @@ func runSignalCleanupCase(t *testing.T, root, home, tmp string, sig syscall.Sign
 	}
 	_ = lifetimeReader.Close()
 	waited := startSignalCleanupCmdWait(cmd)
-	if err := verifySignalCleanupOwnedGroup(cmd); err != nil {
-		result := stopSignalCleanupUnverifiedChild(cmd, waited, lifetimeWriter, nixStarted, nixExited)
-		if !result.childJoined || (result.nixStarted && !result.nixExited) {
-			t.Fatalf("fixture process group setup failed and unverified child teardown did not complete; captured output withheld: %v", err)
-		}
-		t.Fatalf("could not establish fixture-owned process group: %v; child output:\n%s", err, output.String())
-	}
 	teardownComplete := false
 	defer func() {
 		if teardownComplete {
@@ -381,8 +288,8 @@ func runSignalCleanupCase(t *testing.T, root, home, tmp string, sig syscall.Sign
 			return
 		}
 		result := stopSignalCleanupChild(cmd, waited, lifetimeWriter, nixStarted, nixExited)
-		if !result.childJoined || !result.groupGone {
-			t.Errorf("fixture teardown incomplete: standin-exited=%t child-joined=%t group-gone=%t group-kill=%v; captured output withheld", result.nixExited, result.childJoined, result.groupGone, result.groupKill)
+		if !result.safeToReadOutput() {
+			t.Errorf("fixture teardown incomplete: standin-exited=%t child-joined=%t; captured output withheld", result.nixExited, result.childJoined)
 		}
 	}()
 
@@ -396,7 +303,7 @@ func runSignalCleanupCase(t *testing.T, root, home, tmp string, sig syscall.Sign
 		select {
 		case <-waited.done:
 			result := stopSignalCleanupChild(cmd, waited, lifetimeWriter, nixStarted, nixExited)
-			teardownComplete = result.childJoined && result.groupGone
+			teardownComplete = result.safeToReadOutput()
 			if !teardownComplete {
 				t.Fatalf("Check child exited before its post-pack image-build block; phases=%q; teardown incomplete; captured output withheld", readSignalCleanupPhases(phaseLog))
 			}
@@ -407,10 +314,10 @@ func runSignalCleanupCase(t *testing.T, root, home, tmp string, sig syscall.Sign
 	}
 	if len(stagedPaths) != 3 {
 		result := stopSignalCleanupChild(cmd, waited, lifetimeWriter, nixStarted, nixExited)
-		teardownComplete = result.childJoined && result.groupGone
+		teardownComplete = result.safeToReadOutput()
 		if !teardownComplete {
 			trees, _ := filepath.Glob(filepath.Join(tmp, "yolo-check-pack-*"))
-			t.Fatalf("child captured %d paths, want selected, fallback, and process-pack roots: %q; phases=%q; staged trees=%q; standin-exited=%t child-joined=%t group-gone=%t group-kill=%v; captured output withheld", len(stagedPaths), stagedPaths, readSignalCleanupPhases(phaseLog), trees, result.nixExited, result.childJoined, result.groupGone, result.groupKill)
+			t.Fatalf("child captured %d paths, want selected, fallback, and process-pack roots: %q; phases=%q; staged trees=%q; standin-exited=%t child-joined=%t; captured output withheld", len(stagedPaths), stagedPaths, readSignalCleanupPhases(phaseLog), trees, result.nixExited, result.childJoined)
 		}
 		trees, _ := filepath.Glob(filepath.Join(tmp, "yolo-check-pack-*"))
 		t.Fatalf("child captured %d paths, want selected, fallback, and process-pack roots: %q; phases=%q; staged trees=%q; standin-exited=%t child-wait=%v; child output:\n%s", len(stagedPaths), stagedPaths, readSignalCleanupPhases(phaseLog), trees, result.nixExited, result.waitErr, output.String())
@@ -441,22 +348,17 @@ func runSignalCleanupCase(t *testing.T, root, home, tmp string, sig syscall.Sign
 	}
 	select {
 	case <-waited.done:
-		groupGone := waitSignalCleanupOwnedGroupExit(cmd, 10*time.Second)
-		if !groupGone || !fileExists(nixExited) {
-			result := stopSignalCleanupChild(cmd, waited, lifetimeWriter, nixStarted, nixExited)
-			teardownComplete = result.childJoined && result.groupGone
-			if !teardownComplete {
-				t.Fatalf("signal child returned but owned standin teardown did not join: standin-exited=%t group-gone=%t; captured output withheld", result.nixExited, result.groupGone)
-			}
-			t.Fatalf("signal child returned without owned standin exit: standin-exited=%t group-gone=%t child-wait=%v; output:\n%s", result.nixExited, result.groupGone, waited.err, output.String())
+		result := stopSignalCleanupChild(cmd, waited, lifetimeWriter, nixStarted, nixExited)
+		teardownComplete = result.safeToReadOutput()
+		if !teardownComplete {
+			t.Fatalf("signal child returned without owned standin exit: standin-exited=%t child-joined=%t; captured output withheld", result.nixExited, result.childJoined)
 		}
-		teardownComplete = true
-		if exitErr, ok := waited.err.(*exec.ExitError); !ok || exitErr.ExitCode() != code {
-			t.Fatalf("child exit = %v, want status %d; output:\n%s", waited.err, code, output.String())
+		if exitErr, ok := result.waitErr.(*exec.ExitError); !ok || exitErr.ExitCode() != code {
+			t.Fatalf("child exit = %v, want status %d; output:\n%s", result.waitErr, code, output.String())
 		}
 	case <-time.After(15 * time.Second):
 		result := stopSignalCleanupChild(cmd, waited, lifetimeWriter, nixStarted, nixExited)
-		teardownComplete = result.childJoined && result.groupGone
+		teardownComplete = result.safeToReadOutput()
 		if !teardownComplete {
 			t.Fatalf("child did not exit after %s; teardown incomplete; captured output withheld", sig)
 		}

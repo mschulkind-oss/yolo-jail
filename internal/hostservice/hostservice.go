@@ -98,6 +98,10 @@ var Logger = defaultLogger
 // package's tests have pointed Logger elsewhere.
 var defaultLogger = logstamp.Logger(os.Stderr, "")
 
+// PublicationPathEnv is core's host-child-only endpoint locator. It is overwritten
+// from the approved launch after manifest env; it is not authentication or config.
+const PublicationPathEnv = "YOLO_HOST_SERVICE_PUBLICATION_PATH"
+
 // Session is a single client connection. A handler drives it with
 // Stdout/Stderr/JSON/Exit/ExecAllowlisted. Frame writes are serialized by mu,
 // mirroring Session._lock.

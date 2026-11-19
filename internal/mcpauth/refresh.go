@@ -47,9 +47,11 @@ func (t Tokens) redacted() string {
 // error code, "dpop" for a sender-constrained token, or "" when the server named none.
 type RefreshError struct {
 	Definitive bool
-	Code       string
-	Status     int
-	Reason     string
+	// Set only by the parsed token_type, never by a provider's error code.
+	UnsupportedTokenType bool
+	Code                 string
+	Status               int
+	Reason               string
 }
 
 func (e *RefreshError) Error() string {
@@ -253,7 +255,7 @@ func (c TokenClient) Refresh(ctx context.Context, d Discovery, clientID, refresh
 		return Tokens{}, &RefreshError{Status: resp.StatusCode, Reason: "the token response has no access token"}
 	}
 	if strings.EqualFold(body.TokenType, "DPoP") {
-		return Tokens{}, &RefreshError{Definitive: true, Code: "dpop", Reason: "a sender-constrained token cannot be shared"}
+		return Tokens{}, &RefreshError{Definitive: true, UnsupportedTokenType: true, Code: "dpop", Reason: "a sender-constrained token cannot be shared"}
 	}
 	var expiresIn int64
 	if body.ExpiresIn != "" {

@@ -95,6 +95,8 @@ func entryBareStep(origin, handle string, table, bare bool) string {
 // the physical source address; Name is the author-facing handle and never comes from
 // a manifest. LocalPath is set only for local references.
 type PackReference struct {
+	Subdir          string
+	Skills          *SkillSelection
 	Source          string
 	Name            string
 	SourceID        string

@@ -34,7 +34,10 @@ func TestPackBuildPrebuildsWhatALaunchThenHits(t *testing.T) {
 		t.Fatal(err)
 	}
 	packHome(t, `{"packs": [{"source": "file://`+root+`", "name": "`+pack+`"}]}`)
-	withPrivateFixtureYoloStore(t)
+	home := withPrivateFixtureYoloStore(t)
+	if privateSuite.armed {
+		usePrivateNativeFixture(t, packBuildNativeFixture(home, root))
+	}
 	store := filepath.Join(os.Getenv("HOME"), ".local", "share", "yolo-jail", "captures")
 	before := captureEntryNames(t, store)
 	t.Cleanup(func() { removeNewCaptureEntries(t, store, before, bin) })

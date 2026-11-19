@@ -104,6 +104,13 @@ This is the reference for **authoring, debugging, or changing a pack**: what a p
 declares, how the declaration is validated, how packs are selected and fetched, and how
 they are rendered into a jail.
 
+A user TOML entry can also [select only skill registrations](toml-scoped-pack-imports/README.md)
+from a pack. Its effective declaration replaces the original before closure, so programs,
+needs, hooks, native plugins, briefing and host capabilities stay omitted. `subdir` alone
+still imports a whole relocated pack. These candidate-name selectors are distinct from
+legacy file filters, manifest sourced rows and workspace Git skill imports; the scoped
+reference owns their carriers, recorded replay and pure inspection boundary.
+
 | Component | Lives in |
 | :--- | :--- |
 | Manifest schema — the closed kind registry and every field | `internal/packdecl` (`Manifest`, `Contribution`, `Kind`, `footprints`) |

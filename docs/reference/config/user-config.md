@@ -100,6 +100,34 @@ packs = [
   on the entry. `bare = true` on a source or an entry delivers the author's own names, and a clash
   is refused. The rule is [the pack system's](../pack-system.md#pack-namespace).
 
+### Direct skill-only imports
+
+A table in the user `packs` list can select candidate names without a wrapper pack:
+
+```toml
+packs = [
+  { pack = "local/corpus", skills = { dir = "skills/core-tools", only = ["skill-a", "skill-b"] } },
+  { pack = "acme/review", skills = { exclude = ["experimental-*"] } },
+]
+```
+
+Use `yolo pack add` with `--skills-dir` for raw marker-bearing directories, or `--only`/`--exclude`
+for a real pack's typed candidates. `--subdir` alone relocates a whole pack; a nonempty `skills`
+table makes the entry skill-only. User fragments carry the same authority and indexed origin.
+Programs, needs, hooks, briefing, native plugins and host capabilities are omitted before closure,
+not activated by supporting payload metadata. Typed ordinary folders may be markerless; raw and
+manifest sourced rows still require markers. No marker is synthesized.
+
+`yolo pack explain <handle>` reports every tuple in order and writes/fetches nothing; scoped Check
+and scoped add dry-run share that pure inspection. Whole Check keeps its readiness staging.
+Unavailable content is unverified, never fabricated candidates or counts. `yolo config why`
+shows the author; indexed edits and exact-root `yolo pack remove` preserve fragments/comments.
+Old JSONC file filters are not automatically equivalent to candidate-name selectors.
+
+See [direct scoped imports](../toml-scoped-pack-imports/README.md) for roots, replay and failure
+recovery, and `yolo config-ref` for the full schema. Workspace `skill_imports` and a manifest's
+sourced `[[skills]]` rows remain distinct channels, not another spelling for this user entry.
+
 ## One switch: `packs`
 
 `packs` is the only switch. A settings table selects nothing: `[allow.aws-auth]` is valid only

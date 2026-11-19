@@ -159,6 +159,25 @@ no `oauth` table. So pi takes the token from the shared sign-in at each connecti
 sign-in of its own ([ID-23](../design/mcp-auth-sharing-plan.md#id-23)). Elsewhere the server
 renders in the plain form above.
 
+The retained [managed synthetic candidate](../design/managed-mcp-sign-in.md) also derives Claude's
+JSON `headersHelper` only with a capturable delivered sign-in point or a usable frozen record;
+other headers survive, configured Authorization and own OAuth do not. The plugin's original MCP
+content stays unchanged. Nonsource consumers such as pi need matching user-level eligibility in
+valid frozen launch facts, not a bundle; a workspace identity override cannot borrow the helper.
+Absent legacy facts preserve baseline behavior; supplied-invalid facts render plain.
+
+Agent packs declare supported retained formats with TOML `[native_sign_in]` and `formats = ["claude-plugin"]`; this metadata alone neither loads a plugin nor grants a server. The measured v0.18.0 reader tolerates this table without losing the program.
+
+Select a sign-in bundle with `yolo pack add slack-mcp`, run `yolo config check`, then relaunch.
+`yolo mcp-auth status [SERVER] [--json]` is token-free/effect-free and names the resolved native
+entry and recovery. Header supports `--format bare|json`; unexpired issuance never redeems,
+expired jail requests wake the durable poll, and host issuance never refreshes. An own client
+uses `yolo config set mcp_servers.<name>.oauth.client_id <id> --user`, then config check/relaunch.
+Optional callback publication is per-port leased IPv4 loopback TCP on qualifying Linux bridge
+podman only; paste the full callback URL otherwise. Synthetic placement/render tests do not
+prove native plugin loading, OAuth suppression/reconnect or provider acceptance. Those and
+rootless/Mac/writeback witnesses remain separately owed.
+
 `MCPServerScopes` attributes a live server as user-level only when the user's configuration and
 selected packs alone compose the same name with the same sign-in identity (`url`, transport,
 headers, and OAuth client ID for remote entries; command and arguments for stdio). A workspace

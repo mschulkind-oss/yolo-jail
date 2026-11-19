@@ -481,7 +481,7 @@ func seedPackHome(home, realHome, userConfig string) error {
 			return err
 		}
 	}
-	return nil
+	return seedPrivateSuiteHome(home)
 }
 
 // userSymlink is os.Symlink with the owner a CI runner's links have: the invoking user's, not root's.

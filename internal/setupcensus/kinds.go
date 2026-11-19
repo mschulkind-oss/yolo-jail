@@ -35,6 +35,13 @@ var kinds = map[packdecl.Kind]Entry{
 		"block dir when the replacement is on the agent's PATH (shims.go)"),
 	packdecl.KindIntercept: renderedEverywhere("GenerateIntercepts, called from GenerateShims, " +
 		"writes the forwarder into the block dir (interceptshims.go)"),
+	packdecl.KindMCPSignInBundle: {
+		PodmanLinux:    honored("selected declaration and retained bundle/license validated by packload; inventory is not server composition"),
+		PodmanMac:      honored("the same selected metadata reader; callback publication is a separate capability"),
+		AppleContainer: honored("the same selected metadata reader; callback publication is a separate capability"),
+		MacosUser:      honored("the same selected metadata reader; capturability is a separate store boundary"),
+		Guide:          []string{"`mcp-sign-in-bundle` — retained native sign-in content"},
+	},
 	packdecl.KindMCPAuth: {
 		PodmanLinux: honored("the selected mcp-auth pack's host broker is handed the launch's share " +
 			"(mcpauthshare.go) and keeps a user-level sign_in = \"once\" server's Claude sign-in"),

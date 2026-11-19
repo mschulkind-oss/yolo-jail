@@ -361,6 +361,9 @@ const (
 	// KindMCPAuth is one pack's agent-neutral declaration of its program's MCP sign-in store.
 	KindMCPAuth Kind = "mcp-auth"
 
+	// KindMCPSignInBundle declares native content, not composed MCP servers.
+	KindMCPSignInBundle Kind = "mcp-sign-in-bundle"
+
 	// KindMCP: ONE NAMED MCP SERVER ENTRY composed into yolo's own `mcp_servers` table
 	// (docs/reference/mcp-configuration.md OQ-MP3, ruled 2026-09-20), the way `provider` composes
 	// into `providers`: every selected pack's entries first, the user's `mcp_servers` merged over
@@ -580,6 +583,10 @@ var footprints = map[Kind]Footprint{
 		Kind: KindAdapter, Combine: CombineExclusive,
 		Claims: "a protocol conversion (<from> → <to>) served at an address; " +
 			"nothing about who runs it",
+	},
+	KindMCPSignInBundle: {
+		Kind: KindMCPSignInBundle, Combine: CombineShared,
+		Claims: "retained native sign-in bundle metadata; no server or operation authority",
 	},
 	KindMCPAuth: {
 		Kind: KindMCPAuth, Combine: CombineExclusive,

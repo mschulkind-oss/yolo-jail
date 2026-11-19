@@ -145,6 +145,11 @@ type Manifest struct {
 	// serialized as a second copy.
 	MCPAuth *MCPAuth `json:"-"`
 
+	// Managed MCP capabilities are authored in TOML only (MS-D4, MS-D11).
+	MCPSignInFormats []string `json:"-"`
+	MCPHeaderForm    string   `json:"-"`
+	MCPSignInPaste   bool     `json:"-"`
+
 	// Formerly records the names this pack and its profiles had before a rename, read only to
 	// word the refusal of an old name (formerly.go; docs/design/provider-enablement.md PE-D7).
 	Formerly *Formerly `json:"formerly,omitempty"`

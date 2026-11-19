@@ -38,7 +38,7 @@ import (
 // gets no dynamic layer, and an agent whose pack registered no yolo.env composes no
 // provider environment.
 func DeriveScript(p *Pack) string {
-	if p.Root == "" {
+	if p.Root == "" || p.Projection != nil {
 		return ""
 	}
 	data, err := os.ReadFile(filepath.Join(p.Root, "derive.lua"))

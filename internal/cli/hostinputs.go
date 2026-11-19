@@ -25,16 +25,20 @@ package cli
 // workspace's config (P2).
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/claudeview"
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -227,6 +231,7 @@ func composeHostInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, home strin
 
 	c.inputs = &entrypoint.HostInputs{Vars: vars, Packs: packs,
 		AgentLookup: hostAgentLookup(cfg)}
+	refreshHostMCPSignIn(c.inputs, cfg, packs, home)
 	return c, nil
 }
 
@@ -443,4 +448,23 @@ func bridgedSelectionNote(packs []*packload.Pack, agent, profile string, refusal
 		"exits, so no file can name it. It takes effect through `yolo host -- %s` or the host "+
 		"wrappers; %s started any other way runs without it (docs/design/host-notch-services.md "+
 		"OQ-HS3)", agent, profile, d.Pack, d.Service, agent, agent)
+}
+
+// Read only actual whole-tree placement; never manufacture a point for observe.
+func refreshHostMCPSignIn(inputs *entrypoint.HostInputs, cfg *jsonx.OrderedMap, packs []*packload.Pack, home string) {
+	if inputs == nil {
+		return
+	}
+	facts, err := run.HostManagedMCPSignIn(cfg, packs, home, os.Getenv(claudeview.SecureStorageEnv) == "")
+	if err != nil {
+		return
+	}
+	body, err := json.Marshal(facts)
+	if err != nil {
+		return
+	}
+	if inputs.Vars == nil {
+		inputs.Vars = map[string]string{}
+	}
+	inputs.Vars[mcpsignin.WireEnv] = string(body)
 }

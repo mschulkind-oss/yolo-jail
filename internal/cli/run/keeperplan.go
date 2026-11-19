@@ -31,6 +31,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
 
@@ -121,10 +122,11 @@ type keeperPlan struct {
 	// RunCmd is the main process's argv as the launch assembled it, without the host services'
 	// endpoint pairs, which the keeper inserts before ImageRef once it has started them
 	// (insertHostServiceEnv).
-	RunCmd         []string         `json:"run_cmd"`
-	ImageRef       string           `json:"image_ref"`
-	LaunchInputMCP *frozenLaunchMCP `json:"launch_input_mcp,omitempty"`
-	MCPTeardownID  string           `json:"mcp_teardown_id,omitempty"`
+	RunCmd         []string                  `json:"run_cmd"`
+	ImageRef       string                    `json:"image_ref"`
+	LaunchInputMCP *frozenLaunchMCP          `json:"launch_input_mcp,omitempty"`
+	CallbackLeases []mcpsignin.CallbackLease `json:"callback_leases,omitempty"`
+	MCPTeardownID  string                    `json:"mcp_teardown_id,omitempty"`
 	// Skeleton is the jail's home skeleton, "" for none (Apple Container).
 	Skeleton string `json:"skeleton,omitempty"`
 	// ScratchVolumes are the scratch volumes the argv mounts, for the remover at the teardown.

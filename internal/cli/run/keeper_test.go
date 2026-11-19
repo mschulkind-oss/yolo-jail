@@ -114,6 +114,9 @@ func inProcessKeeper(launch *Options, planPath string, progress, lifeline, lock 
 // adoptLaunchSeams hands a keeper the launching Options' fakes.
 func adoptLaunchSeams(ko, launch *Options) {
 	ko.Exec = launch.Exec
+	ko.mcpCallbackLeaseEvent = launch.mcpCallbackLeaseEvent
+	ko.mcpCallbackRoot = launch.mcpCallbackRoot
+	ko.mcpCallbackPortFree = launch.mcpCallbackPortFree
 	ko.PIDAlive = launch.PIDAlive
 	ko.PathExists = launch.PathExists
 	ko.LookPath = launch.LookPath

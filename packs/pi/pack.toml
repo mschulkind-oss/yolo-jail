@@ -29,6 +29,7 @@ name = "pi"
 # validateMcpServerConfig; docs/mcp.md), so an "sse" server is withheld from pi with the boot
 # notice naming it. derive.lua's pi_mcp_servers maps yolo's remote form to pi's spelling.
 mcp_remote_transports = ["http"]
+mcp_header_form = "bare"
 # EACH SESSION READS ITS OWN CONFIG DIR (docs/design/per-session-profiles.md): a session's
 # boot pass renders this pack's surfaces in ~/.pi/agent into ~/.pi/.yolo-sessions/<id>/agent,
 # links everything else back to ~/.pi/agent, and exports PI_CODING_AGENT_DIR, which stock pi

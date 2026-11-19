@@ -34,8 +34,12 @@ agent = "fixture"
 into = ".fixture/skills"
 ```
 
-The content row selects one non-root repository directory with a direct `SKILL.md`. Its Git
-address must include a ref. `as`, when present, replaces the selected directory's basename
+The manifest content row selects one non-root repository directory with a direct `SKILL.md`. Its Git
+address must include a ref. This marker/non-root contract is specific to manifest sourced rows:
+[direct user TOML scoped imports](toml-scoped-pack-imports/README.md) also use the common
+carrier machinery, but raw direct rows may select a repository-root marker, and typed ordinary
+rows may deliver a markerless folder. Selecting a manifest sourced alias through a direct entry
+does not relax that alias's own marker, explicit-ref or non-root requirements. `as`, when present, replaces the selected directory's basename
 before ordinary pack namespacing; two aliases of the same selected directory are independent
 registrations. `license` is an optional repository-relative file, not a host path.
 `source` requires a nonempty non-root subdirectory and explicit ref, uses existing Git
@@ -59,8 +63,9 @@ pack manifests, hooks, plugins and unselected skill markers in it are never disc
 Aliases and refs resolving to the same repository/commit share its bytes.
 
 **Registration** means the selected skill's delivered name and private directory in a declared
-skills destination. Yolo writes a regular, non-executable private `SKILL.md` with its `name`
-rewritten to the delivered name. It may write a regular license copy. Its remaining direct
+skills destination. For a manifest sourced marker row, yolo writes a regular, non-executable
+private `SKILL.md` with its `name` rewritten to the delivered name. A typed direct directory
+row instead records marker presence explicitly and creates no marker when absent. It may write a regular license copy. Its remaining direct
 children are only the explicit links authorized by the validated selected-row plan, into
 that skill's subtree of the supporting payload. The upstream marker and payload stay unchanged.
 

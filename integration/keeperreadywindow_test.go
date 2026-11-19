@@ -138,11 +138,19 @@ func startYoloAtTerminal(t *testing.T, name, dir, script string) *bgRun {
 	t.Helper()
 	master, slave := openTestPty(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, yoloBin, append(jailRunArgs(), "--", "bash", "-lc", script)...)
+	cfg := runConfig{}
+	nameBin, argv := privateLaunchCommand(t, cfg, yoloBin, append(jailRunArgs(), "--", "bash", "-lc", script))
+	cmd := exec.CommandContext(ctx, nameBin, argv...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "TERM=dumb")
-	cmd.Env = append(cmd.Env, autoCaptureEnvForSuite()...)
-	cmd.Env = append(cmd.Env, readinessEnvForSuite()...)
+	env := append(os.Environ(), "TERM=dumb")
+	env = append(env, autoCaptureEnvForSuite()...)
+	env = append(env, readinessEnvForSuite()...)
+	var err error
+	cmd.Env, err = privateRouteEnvironment(env)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	if err := cmd.Start(); err != nil {

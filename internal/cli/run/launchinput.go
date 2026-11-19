@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -40,6 +41,7 @@ type LaunchInputContext struct {
 	UserOnlyMCPServers  *jsonx.OrderedMap
 	MCPScopes           map[string]packload.Scope
 	MCPProven           bool
+	MCPSignIn           *mcpsignin.Launch
 	// SharedCredentialDir is the absolute host directory this launch bridges Claude's credential
 	// store into (CL-D22, claudeSecureStorageDir), or "" when it does not (the credential view,
 	// or no selected pack links it): the machine-wide store a one-sign-in server's sign-in is
@@ -280,6 +282,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 			return false
 		}
 		frozen.MCPProven = true
+		frozen.MCPSignIn = o.launchInputMCP.SignIn
 		frozen.MCPScopes = packload.MCPServerScopes(frozen.EffectiveMCPServers, frozen.UserOnlyMCPServers)
 		frozen.SharedCredentialDir = o.launchInputMCP.SharedCredentialDir
 		frozen.SharedCredentialHome = o.launchInputMCP.SharedCredentialHome

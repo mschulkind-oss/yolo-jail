@@ -47,6 +47,12 @@ config check automatically.
 | set, add to or remove any other key | `yolo config set machine.resources.cpus 4 --project`, `yolo config add`, `yolo config unset` | host (user scope), either (project) |
 | find which file set a key | `yolo config why <key>` | either |
 
+For a user pack's skills only, use `yolo pack add <handle> --skills-dir <path> --only <name>`
+(raw markers), or omit `--skills-dir` to select typed candidate names. This writes user TOML,
+including fragment-bound entries, never workspace pack authority. `--subdir` without skill
+selection imports a whole relocated pack. See [scoped selection](../guides/packs-and-skills.md#select-only-skills-from-a-pack)
+for pure inspection, exact tuple removal and the separate legacy filter behavior.
+
 A project's `yolo request` is a request, not a grant: it takes effect only within what your user
 config allows, and you approve it on the host with `yolo config apply`.
 

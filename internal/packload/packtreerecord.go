@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -42,7 +43,8 @@ type PatchBranchMapping struct {
 // PackTreeEntry is one pack in a tree's record.
 type PackTreeEntry struct {
 	// Name is the pack's name, as the launch loaded it.
-	Name string `json:"name"`
+	Name           string `json:"name"`
+	ImportIdentity string `json:"import_identity,omitempty"`
 	// Dir is the pack's directory, relative to the tree, slash-separated.
 	Dir string `json:"dir"`
 	// Skipped are the version-skew notes the launch already printed for this pack (Pack.SkewNotes
@@ -65,9 +67,10 @@ type PackTreeEntry struct {
 	// BareStep is Pack.BareStep, the exact command that lists the entry bare, so an attach that
 	// refuses two of the pack's names delivered alike prints the command the launch would.
 	// Absent from an older tree, whose refusal names the step in words.
-	BareStep              string         `json:"bare_step,omitempty"`
-	SkillRows             []SkillTreeRow `json:"skill_rows,omitempty"`
-	SourcedSkillsWithheld string         `json:"sourced_skills_withheld,omitempty"`
+	BareStep              string           `json:"bare_step,omitempty"`
+	Projection            *SkillProjection `json:"projection,omitempty"`
+	SkillRows             []SkillTreeRow   `json:"skill_rows,omitempty"`
+	SourcedSkillsWithheld string           `json:"sourced_skills_withheld,omitempty"`
 	skillPayloads         map[string]SkillPayloadTreeRecord
 }
 
@@ -77,6 +80,7 @@ func (e PackTreeEntry) ApplyNaming(p *Pack) {
 	if p == nil {
 		return
 	}
+	p.ImportIdentity = e.ImportIdentity
 	p.Namespace, p.NamespaceOwner, p.Landing, p.BareStep = e.Namespace, e.NamespaceOwner, e.Landing, e.BareStep
 }
 
@@ -112,8 +116,22 @@ func WritePackTreeRecordForWorkspace(root string, packs []*Pack, workspace strin
 			return fmt.Errorf("packs: recording relative patch branches for %s: %w", p.Name, err)
 		}
 		entry.PatchBranches = mappings
+		entry.ImportIdentity = p.ImportIdentity
 		entry.SourcedSkillsWithheld = p.SourcedSkillsWithheld
+		entry.Projection = p.Projection
+		if p.Projection != nil {
+			if err := p.Projection.RefreshDigest(); err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(p.Root, ScopedEntryMarker), []byte(p.Projection.Digest+"\n"), 0644); err != nil {
+				return err
+			}
+		}
 		for _, row := range p.SourcedSkillRows() {
+			if row.LocalCarrier && row.Outcome.State == packsrc.SkillReady {
+				entry.SkillRows = append(entry.SkillRows, SkillTreeRow{Row: row.Row, Source: row.By.Source, Alias: row.By.As, Payload: "copy", Location: path.Join(entry.Dir, ScopedCarrierDir)})
+				continue
+			}
 			if row.PayloadLocation == "" || row.Outcome.State != packsrc.SkillReady || row.Withheld != "" {
 				continue
 			}
@@ -204,8 +222,18 @@ func ReadPackTreeRecord(root string) (entries []PackTreeEntry, recorded bool, er
 		}
 		payloads[payload.ID] = payload
 	}
+	seenDirectories := map[string]bool{}
 	for i := range rec.Packs {
 		e := &rec.Packs[i]
+		if seenDirectories[e.Dir] {
+			return nil, true, fmt.Errorf("the record %s repeats pack directory %q; restore the launch tree or restart", path, e.Dir)
+		}
+		seenDirectories[e.Dir] = true
+		if e.Projection != nil {
+			if err := validateRecordedProjection(e.Projection); err != nil {
+				return nil, true, err
+			}
+		}
 		e.skillPayloads = payloads
 		if e.Name == "" || !filepath.IsLocal(filepath.FromSlash(e.Dir)) {
 			return nil, true, fmt.Errorf("the record %s names %q at %q, which is not a pack inside the tree",

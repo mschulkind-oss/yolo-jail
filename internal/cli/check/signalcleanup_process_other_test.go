@@ -1,24 +1,51 @@
-//go:build !darwin && !linux
-
 package check
 
 import (
-	"errors"
 	"os/exec"
 	"time"
 )
 
-func configureSignalCleanupOwnedGroup(*exec.Cmd) {}
-
-func verifySignalCleanupOwnedGroup(*exec.Cmd) error { return nil }
-
-func killSignalCleanupOwnedGroup(cmd *exec.Cmd) error {
-	if cmd.Process == nil {
-		return errors.New("signal cleanup child was not started")
-	}
-	return cmd.Process.Kill()
+type signalCleanupCmdWait struct {
+	done chan struct{}
+	err  error
 }
 
-func waitSignalCleanupOwnedGroupExit(cmd *exec.Cmd, _ time.Duration) bool {
-	return cmd.ProcessState != nil
+func startSignalCleanupCmdWait(cmd *exec.Cmd) *signalCleanupCmdWait {
+	waited := &signalCleanupCmdWait{done: make(chan struct{})}
+	go func() {
+		waited.err = cmd.Wait()
+		close(waited.done)
+	}()
+	return waited
+}
+
+func (w *signalCleanupCmdWait) wait(guard time.Duration) (error, bool) {
+	timer := time.NewTimer(guard)
+	defer timer.Stop()
+	select {
+	case <-w.done:
+		return w.err, true
+	case <-timer.C:
+		return nil, false
+	}
+}
+
+func (w *signalCleanupCmdWait) isDone() bool {
+	select {
+	case <-w.done:
+		return true
+	default:
+		return false
+	}
+}
+
+type signalCleanupTeardown struct {
+	waitErr     error
+	childJoined bool
+	nixStarted  bool
+	nixExited   bool
+}
+
+func (r signalCleanupTeardown) safeToReadOutput() bool {
+	return r.childJoined && (!r.nixStarted || r.nixExited)
 }

@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -10,7 +11,6 @@ import (
 	"go/token"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
@@ -48,8 +48,10 @@ func TestTheJailsYoloCarriesItsMatchedBundleStamp(t *testing.T) {
 	if r.rc != 0 {
 		t.Fatalf("yolo --version --full in the jail: rc=%d\n%s", r.rc, r.combined())
 	}
-	hostCmd := exec.Command(yoloBin, "--version", "--full")
-	hostCmd.Env = envWithout("YOLO_VERSION")
+	hostCmd, err := privateNativeCommandChecked(context.Background(), yoloBin, []string{"--version", "--full"}, envWithout("YOLO_VERSION"), &privateNativeFixture{home: os.Getenv("HOME"), userConfig: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	hostVersionOutput, err := hostCmd.Output()
 	if err != nil {
 		t.Fatalf("matched host yolo --version --full: %v", err)

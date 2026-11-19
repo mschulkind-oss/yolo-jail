@@ -43,6 +43,7 @@ func TestMCPAuthStatusRequestNeverRepairsCanonicalPermissions(t *testing.T) {
 	}
 	upstream := filepath.Join(parent, "upstream.sock")
 	endpoint := filepath.Join(frontDir, "front.endpoint")
+	b.session = BindShareSession(b.share, b.share.Jail, endpoint)
 	daemonStop, frontStop := make(chan struct{}), make(chan struct{})
 	daemonDone, frontDone := make(chan struct{}), make(chan struct{})
 	go func() { _ = hostservice.ServeFrontedUnix(b.handleStatus, upstream, daemonStop); close(daemonDone) }()
@@ -65,15 +66,19 @@ func TestMCPAuthStatusRequestNeverRepairsCanonicalPermissions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(frame.Payload), "canonical state unavailable") {
+		if strings.Contains(string(frame.Payload), "canonical state is unavailable") {
 			unavailable = true
 		}
 		if frame.StreamID == frameproto.StreamExit {
+			code, err := frameproto.ExitCode(frame.Payload)
+			if err != nil || code != 0 {
+				t.Fatal("readable unsafe status became a health gate")
+			}
 			break
 		}
 	}
 	if !unavailable {
-		t.Fatal("status request did not refuse unsafe canonical mode")
+		t.Fatal("status request did not disclose unsafe canonical mode")
 	}
 	after, err := os.Stat(file)
 	if err != nil {

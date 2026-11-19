@@ -7,6 +7,7 @@
 package run
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -29,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/nixchildren"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -59,8 +61,16 @@ type ExecResult struct {
 // are deterministically unit-testable. nil/zero fields are
 // filled with real implementations by fillDefaults.
 type Options struct {
-	mcpTeardownID    string
-	mcpOutcomeReader *os.File
+	mcpCallbackLeaseEvent  func(string, mcpsignin.CallbackLease)
+	mcpCallbackLockContext context.Context
+	mcpCallbackLockNow     func() time.Time
+	mcpCallbackLockWait    func(context.Context, time.Duration) error
+	mcpCallbackRoot        string
+	mcpCallbackPortFree    func(int) (bool, bool)
+	mcpCallbackLeases      []mcpsignin.CallbackLease
+	mcpCallbackGeneration  string
+	mcpTeardownID          string
+	mcpOutcomeReader       *os.File
 	// --- CLI surface (typer options + ctx.args) ---
 	//
 	// Network is `--network <mode>` as typed on THIS launch, and it beats the config's

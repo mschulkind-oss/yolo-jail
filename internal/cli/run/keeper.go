@@ -57,6 +57,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/launchservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -228,10 +229,12 @@ type keeper struct {
 	// (holdKey, below), in start order, for its watch and its teardown.
 	launched []launchedHeld
 
-	socat   []*forwardProc
-	handles []loopholeDaemon
-	jm      *jailMain
-	running chan struct{} // closed once the container was seen running, or the wait gave up
+	socat                   []*forwardProc
+	handles                 []loopholeDaemon
+	jm                      *jailMain
+	callbackRunCmd          []string
+	callbackPreserveRuntime bool
+	running                 chan struct{} // closed once the container was seen running, or the wait gave up
 	// ending closes at the keeper's last act, so a watch still looking at the runtime stops.
 	ending     chan struct{}
 	endingOnce sync.Once
@@ -317,7 +320,11 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	o.launchInputMountArgv = append([]string(nil), plan.RunCmd...)
 	if plan.LaunchInputMCP != nil {
 		o.launchInputMCP = *plan.LaunchInputMCP
+		if plan.LaunchInputMCP.SignIn != nil {
+			o.mcpCallbackGeneration = plan.LaunchInputMCP.SignIn.CallbackGeneration
+		}
 	}
+	o.mcpCallbackLeases = append([]mcpsignin.CallbackLease(nil), plan.CallbackLeases...)
 	o.settingsPrepared = plan.SettingsPrepared
 	o.settingsFrozen = plan.Settings
 	o.packTree, o.packTreeHeld = plan.PackTree, plan.PackTree != ""
@@ -546,16 +553,19 @@ func (k *keeper) run() int {
 		o.pr(o.Stderr).printf("[bold red]Refusing to start jail: %s. Remove the overlapping mount and retry.[/bold red]", err)
 		return k.unwindUnstarted(1)
 	}
-	jm, err := startJailMain(runCmd, keeperStream{k.sink, frameJailStdout},
-		keeperStream{k.sink, frameJailStderr}, func() { o.Perf.Mark("jail_main.exited") })
+	k.callbackRunCmd = runCmd
+	jm, err := k.startMCPCallbackAttempt(runCmd)
 	if err != nil {
-		reportRuntimeStartError(o.pr(o.Stderr), p.Runtime, err)
-		return k.unwindUnstarted(1)
+		if !k.retryMCPCallbackFailure(callbackBindConflicts(err.Error(), p.CallbackLeases), "start") {
+			reportRuntimeStartError(o.pr(o.Stderr), p.Runtime, err)
+			return k.unwindUnstarted(1)
+		}
+	} else {
+		k.jm = jm
+		go k.awaitRunning(jm, k.running, len(p.CallbackLeases) > 0)
 	}
 	o.Perf.Mark("jail_main.spawned")
-	k.jm = jm
 	k.sink.event(frameSpawned, "")
-	go k.awaitRunning()
 
 	// BEFORE READY: the launch's death, a refused boot, or a signal.
 	for {
@@ -564,6 +574,7 @@ func (k *keeper) run() int {
 			return rc
 		}
 		if ready {
+			k.confirmMCPCallbackPublications()
 			break
 		}
 	}
@@ -653,6 +664,10 @@ func (k *keeper) beforeReady() (ready bool, rc int, ended bool) {
 	case <-jm.exited:
 		if jm.awaitReady() {
 			return true, 0, false
+		}
+		<-k.running // settle this attempt's observer before replacing it
+		if jm.startup != nil && k.retryMCPCallbackFailure(jm.startup.conflicts(p.CallbackLeases), "before-ready") {
+			return false, 0, false
 		}
 		// A main process whose client exits first never booted: a refusal, or a runtime that would
 		// not start it. Its status is the launch's, as the container's always was.
@@ -804,9 +819,9 @@ func (k *keeper) checkPlan() (*jsonx.OrderedMap, error) {
 // awaitRunning is the fresh path's onStarted, in the keeper: it waits (bounded) for the container to
 // be seen running, releases the launch lock, tells the launch, and arms the Window A probe on the
 // main process's client, which is this process's child now (JL-D62).
-func (k *keeper) awaitRunning() {
+func (k *keeper) awaitRunning(jm *jailMain, running chan struct{}, optional bool) {
 	o, p := k.o, k.plan
-	defer close(k.running)
+	defer close(running)
 	ctrID := ""
 	for i := 0; i < lockReleasePollAttempts; i++ {
 		if id, known := o.probeRunningContainer(p.Cname, p.Runtime, attachProbeTimeout); known && id != "" {
@@ -814,14 +829,17 @@ func (k *keeper) awaitRunning() {
 			break
 		}
 		select {
-		case <-k.jm.exited:
+		case <-jm.exited:
 			i = lockReleasePollAttempts
 		case <-time.After(time.Duration(lockReleasePollIntervalSeconds * float64(time.Second))):
 		}
 	}
+	if ctrID == "" && optional {
+		return // failed optional attempt retains the launch lock for safe retry
+	}
 	k.releaseLaunchLockAtRunning()
 	k.sink.event(frameRunning, "")
-	o.startLingerProbe(p.Runtime, p.Cname, ctrID, k.jm.cmd.Process)
+	o.startLingerProbe(p.Runtime, p.Cname, ctrID, jm.cmd.Process)
 }
 
 // watchSessions blocks, on its own goroutine, on the session lock taken exclusively, and closes the
@@ -953,7 +971,7 @@ func (k *keeper) endJail(reason string, stop bool) {
 	o, p := k.o, k.plan
 	// From here every service's end is this keeper's own act (keeperwatch.go).
 	k.beginStopping()
-	if stop && k.jm != nil {
+	if stop && k.jm != nil && !k.callbackPreserveRuntime {
 		// THE RESCUE, while the container still holds the homes' binds: a `.yolo` moved under the
 		// running jail leaves them reachable only through it (keeperrescue.go, SD-D13).
 		k.rescueIfMoved()
@@ -961,7 +979,10 @@ func (k *keeper) endJail(reason string, stop bool) {
 		o.stopJail(p.Cname, p.Runtime, reason)
 		sp.End()
 	}
-	k.jailLeft = !k.confirmGone()
+	k.jailLeft = k.callbackPreserveRuntime
+	if !k.callbackPreserveRuntime {
+		k.jailLeft = !k.confirmGone()
+	}
 	// THE ONE-SIGN-IN TIER'S EXIT PASS (mcpauthboundary.go, ID-19), on a backend whose launch
 	// started no broker: the container is gone, so no agent of this jail writes Claude's store
 	// any more, and a sign-in made in it is taken over now rather than at the next launch. A

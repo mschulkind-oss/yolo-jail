@@ -52,12 +52,17 @@ provider_keys.claude = [
 provider_env = { claude = { surface = "claude/settings", pointer = "/env" } }
 name = "claude"
 mcp_remote_transports = ["http", "sse"]
+mcp_header_form = "json"
+mcp_sign_in_paste = true
 # CLAUDE CODE BRINGS ITS OWN PROVIDER (docs/design/provider-enablement.md OQ-PE1, OQ-PE5):
 # packs/claude-auth declares the `anthropic` provider and the `claude` profile and carries the
 # claude-oauth-broker loophole, so selecting claude makes `-p pi=claude` and an active set
 # holding the subscription nameable, binds the platform to Claude Code's own client, and keeps
 # the broker running whenever Claude Code can be.
 needs = [{ pack = "claude-auth" }, { pack = "wire-bridge" }, { pack = "mcp-auth" }]
+
+[native_sign_in]
+formats = ["claude-plugin"]
 
 # Claude Code's MCP sign-in store (docs/design/mcp-auth-sharing.md §6, MEASURED 2026-11-06 in a
 # real store; key names only): the `mcpOAuth` map in its credential file, each entry carrying

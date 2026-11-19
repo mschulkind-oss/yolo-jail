@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -181,9 +182,12 @@ func TestApproveWatchText(t *testing.T) {
 // approvalWatchOutput wakes a test when approveWatch writes, so the test can wait for its
 // opening snapshot and each subsequent event without scheduling sleeps.
 type approvalWatchOutput struct {
-	mu      sync.Mutex
-	b       bytes.Buffer
-	changed chan struct{}
+	mu               sync.Mutex
+	b                bytes.Buffer
+	changed          chan struct{}
+	writeCalls       int
+	bytesWritten     int
+	coalescedWakeups int
 }
 
 func newApprovalWatchOutput() *approvalWatchOutput {
@@ -193,10 +197,17 @@ func newApprovalWatchOutput() *approvalWatchOutput {
 func (o *approvalWatchOutput) Write(p []byte) (int, error) {
 	o.mu.Lock()
 	n, err := o.b.Write(p)
+	if n > 0 {
+		o.writeCalls++
+		o.bytesWritten += n
+	}
 	o.mu.Unlock()
 	select {
 	case o.changed <- struct{}{}:
 	default:
+		o.mu.Lock()
+		o.coalescedWakeups++
+		o.mu.Unlock()
 	}
 	return n, err
 }
@@ -205,6 +216,12 @@ func (o *approvalWatchOutput) String() string {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.b.String()
+}
+
+func (o *approvalWatchOutput) writeStats() string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return fmt.Sprintf("write-calls=%d bytes=%d coalesced-wakeups=%d", o.writeCalls, o.bytesWritten, o.coalescedWakeups)
 }
 
 func waitApprovalWatchOutput(t *testing.T, out *approvalWatchOutput, want func(string) bool) string {
@@ -219,6 +236,60 @@ func waitApprovalWatchOutput(t *testing.T, out *approvalWatchOutput, want func(s
 		case <-out.changed:
 		case <-timer.C:
 			t.Fatalf("timed out waiting for approval watch output: %q", out.String())
+		}
+	}
+}
+
+// waitProductionRequestFiled keeps the production request event assertion and its original guard,
+// while identifying which boundary failed if the durable request is not written to the watch.
+func waitProductionRequestFiled(t *testing.T, out *approvalWatchOutput, store *brokerstore.Store,
+	before brokerstore.Snapshot, outputStart, stdinDigest string) {
+	t.Helper()
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	for {
+		if got := out.String(); len(got) >= len(outputStart) && strings.Contains(got[len(outputStart):], "request-filed") {
+			return
+		}
+		select {
+		case <-out.changed:
+		case <-timer.C:
+			type snapshotResult struct {
+				snapshot brokerstore.Snapshot
+				err      error
+			}
+			result := make(chan snapshotResult, 1)
+			go func() {
+				snapshot, err := store.Snapshot()
+				result <- snapshotResult{snapshot: snapshot, err: err}
+			}()
+			var after brokerstore.Snapshot
+			snapshotStatus := "available"
+			select {
+			case got := <-result:
+				after = got.snapshot
+				if got.err != nil {
+					snapshotStatus = got.err.Error()
+				}
+			case <-time.After(2 * time.Second):
+				snapshotStatus = "snapshot diagnostic did not return within 2s"
+			}
+			matching := "not present"
+			for _, request := range after.Requests {
+				if request.StdinDigest == stdinDigest {
+					matching = request.ID + ":" + request.State
+					break
+				}
+			}
+			var diff []string
+			for _, event := range brokerstore.Diff(before, after) {
+				id, state := "", ""
+				if event.Request != nil {
+					id, state = event.Request.ID, event.Request.State
+				}
+				diff = append(diff, event.Kind+":"+id+":"+state)
+			}
+			t.Fatalf("timed out waiting for production request-filed event: store=%q expected_stdin_sha256=%s durable=%q snapshot=%s diff=%v output-stats={%s} output=%q", store.Dir, stdinDigest, matching, snapshotStatus, diff, out.writeStats(), out.String())
 		}
 	}
 }
@@ -249,15 +320,17 @@ func TestApproveWatchTextLiveProductionRequestsIncludeCompleteActionIdentity(t *
 	bodies := []string{"private production body one\n", "private production body two\n"}
 	requests := make([]brokerstore.Request, 0, len(bodies))
 	for _, body := range bodies {
+		before, err := fixture.store.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
 		finished := make(chan productionForwardResult, 1)
 		go func(body string) {
 			code, stdout, stderr := fixture.forwardInput(body, "pr", "comment", "41", "--repo", "o/r", "--body-file", "-")
 			finished <- productionForwardResult{code: code, out: stdout, stderr: stderr}
 		}(body)
 
-		waitApprovalWatchOutput(t, out, func(got string) bool {
-			return strings.Contains(got[len(initial):], "request-filed")
-		})
+		waitProductionRequestFiled(t, out, fixture.store, before, initial, stdinSHA256([]byte(body)))
 		current, _, err := fixture.store.List()
 		if err != nil {
 			t.Fatal(err)
@@ -274,6 +347,23 @@ func TestApproveWatchTextLiveProductionRequestsIncludeCompleteActionIdentity(t *
 		}
 		requests = append(requests, request)
 		live := out.String()
+		observed := strings.Contains(live[len(initial):], "request-filed") && strings.Contains(live[len(initial):], request.ID)
+		after, err := fixture.store.Snapshot()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var diff []string
+		for _, event := range brokerstore.Diff(before, after) {
+			id, state := "", ""
+			if event.Request != nil {
+				id, state = event.Request.ID, event.Request.State
+			}
+			diff = append(diff, event.Kind+":"+id+":"+state)
+		}
+		t.Logf("approval-watch observation: request=%s state=%s stdin_sha256=%s store=%q diff=%v output-event=%t output-stats={%s}", request.ID, request.State, request.StdinDigest, fixture.store.Dir, diff, observed, out.writeStats())
+		if !observed {
+			t.Fatalf("production request %s is durable but its request-filed output is missing: %q", request.ID, live[len(initial):])
+		}
 		if !strings.Contains(live[len(initial):], "command SHA-256 "+request.Digest) ||
 			!strings.Contains(live[len(initial):], "stdin SHA-256 "+request.StdinDigest) ||
 			strings.Contains(live[len(initial):], body) {

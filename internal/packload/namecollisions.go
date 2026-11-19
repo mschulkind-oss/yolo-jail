@@ -38,6 +38,9 @@ func NameCollisions(packs []*Pack) []string {
 					namespaceStep(prev.pack, p)))
 			}
 		}
+		if p.Projection != nil {
+			continue
+		} // inert imports own no files/home landing
 		landing := p.LandingName()
 		if prev, seen := landings[landing]; seen {
 			out = append(out, fmt.Sprintf("packs %s and %s would both land their files under %q "+

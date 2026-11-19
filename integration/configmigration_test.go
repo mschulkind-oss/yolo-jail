@@ -132,13 +132,14 @@ type terminalLaunch struct {
 func launchAtTerminal(t *testing.T, dir string, args []string, answer string, opts ...runOption) terminalLaunch {
 	t.Helper()
 	master, slave := openTestPty(t)
-	cmd := exec.Command(yoloBin, args...)
-	cmd.Dir = dir
 	cfg := runConfig{timeout: jailTimeout()}
 	for _, o := range opts {
 		o(&cfg)
 	}
-	cmd.Env = launchEnvironment(cfg)
+	program, argv := privateLaunchCommand(t, cfg, yoloBin, args)
+	cmd := exec.Command(program, argv...)
+	cmd.Dir = dir
+	cmd.Env = privateLaunchEnvironment(t, cfg)
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	if err := cmd.Start(); err != nil {
@@ -146,7 +147,9 @@ func launchAtTerminal(t *testing.T, dir string, args []string, answer string, op
 	}
 	_ = slave.Close()
 	out := &syncBuffer{}
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		buf := make([]byte, 4096)
 		for {
 			n, err := master.Read(buf)
@@ -171,6 +174,12 @@ func launchAtTerminal(t *testing.T, dir string, args []string, answer string, op
 	answered := false
 	deadline := time.After(jailTimeout())
 	for {
+		text, changed := out.snapshotAndChanged()
+		if (!answered && strings.Contains(text, offerPrompt)) || (answered && strings.Count(text, offerPrompt) > 1) {
+			pending := make(chan struct{})
+			close(pending)
+			changed = pending
+		}
 		select {
 		case err := <-done:
 			var exitErr *exec.ExitError
@@ -181,7 +190,11 @@ func launchAtTerminal(t *testing.T, dir string, args []string, answer string, op
 			default:
 				t.Fatalf("waiting for yolo: %v", err)
 			}
-			time.Sleep(200 * time.Millisecond) // the reader may still be draining
+			select {
+			case <-readerDone:
+			case <-deadline:
+				t.Fatal("terminal reader did not reach EOF after launcher exit")
+			}
 			res.out = out.String()
 			res.asked = strings.Contains(res.out, offerPrompt)
 			return res
@@ -189,7 +202,7 @@ func launchAtTerminal(t *testing.T, dir string, args []string, answer string, op
 			_ = cmd.Process.Kill()
 			forceRemoveContainer(dir)
 			t.Fatalf("the launch did not finish within %s:\n%s", jailTimeout(), out)
-		case <-time.After(50 * time.Millisecond):
+		case <-changed:
 		}
 		if answered && strings.Count(out.String(), offerPrompt) > 1 {
 			_ = cmd.Process.Kill()

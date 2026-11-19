@@ -2,7 +2,7 @@
 title: "Build hand-off for direct user-level TOML pack scoping"
 status: accepted
 stage: DECIDED
-next: "Continue authorized implementation under the amended inspection contract and its caller regressions"
+next: "Establish account-free full-suite fixture isolation, then verify primary integration without weakening the gates"
 depends-on:
   - toml-scoped-pack-imports.md
   - ../research/toml-scoped-pack-imports.md
@@ -11,16 +11,50 @@ tags: [packs, skills, toml, implementation-plan]
 
 # Build hand-off for direct user-level TOML pack scoping
 
-**Status:** 2026-11-17. Written against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`.
-The grammar gap and caller seams were confirmed from source at that baseline. The feature remains
-unbuilt; no completed implementation is claimed. The carrier and inspection contracts are accepted.
-This remains the complete hand-off for the authorized ongoing implementation of the full direct
-user-level feature, with the amended inspection contract, not evidence of completed code.
+**Status:** 2026-11-18. Written against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`;
+implementation candidate `f7ac0336cfed659cf25bbae1d81470167d9db004` contains the core feature
+and the reviewed edit-validation/inspection-refusal repairs. Candidate completion and synthetic
+nested delivery passed, but primary landing acceptance and the complete launch suite have not.
+This plan retains the accepted contract, original task sequence and acceptance criteria until
+[remaining presentation and verification](#remaining-presentation-and-verification) is closed;
+unchecked task boxes below are not a claim that the candidate contains no implementation.
 
 **Behavioral authority:** [the design](toml-scoped-pack-imports.md).
 **Evidence:** [the source survey](../research/toml-scoped-pack-imports.md).
 The design wins on behavior; the tree wins on cosmetic fact drift; this plan is the first
 thing to correct. Do not twist production code to match an overtaken plan.
+
+## Remaining presentation and verification
+
+The implemented mechanisms are described in the [four-page reference](../reference/toml-scoped-pack-imports/README.md).
+The design and this plan are retained rather than retired: their accepted rulings and acceptance
+scenarios must not disappear while the following work remains.
+
+- **Markerless host reporting:** `writeSourcedRegistrations` and the host-apply roll-up still count
+  markerless directories and advertise invocation. Preserve absent-marker delivery; carry
+  discoverability into registration results, label folders and exclude them from the actual
+  host-apply census. Verify a mixed marked/markerless caller, not just the projection printer.
+- **Unpublished sourced commit attribution:** the inspection printer can fall back to the
+  enclosing pack's commit for a manifest-sourced repository whose payload is not materialized.
+  Report the sourced outcome's known commit without substituting the enclosing commit; verify
+  two distinct repositories and absent published payload through Explain/Check.
+- **Inspection audience:** scoped inspection bypasses audience formatting. Print retained
+  audience through the actual Explain/Check paths; metadata retention alone is not output proof.
+- **Full launch-suite safety and acceptance:** the current harness selects shipped NPM programs
+  even with readiness and auto-capture suppressed. Its ordinary host preparation still resolves
+  those programs. Establish permanent private inert producer/registry fixtures that preserve
+  shipped selection, surfaces and closure, then run the complete suite once. Do not enable real
+  agents/installers, forge preparation records, skip tests or treat a short compile as acceptance.
+- **Final primary gates:** run the full quality gate, reached integration and the complete launch
+  suite on the integrated tree; only then commit the integration and obtain clean `just done`.
+  Candidate receipts are not primary-tree landing evidence.
+- **Separate observations:** native macOS, real-rootless paths, real-agent discovery and provider
+  integration remain unmeasured. The pre-existing preparation startup/probe `worker.lock` race
+  is not repaired by the test-observer synchronization and remains outside this feature.
+
+The three presentation defects above are deferred from this integration, not approved changes
+to the accepted behavior. Close them with actual caller regressions in a subsequent bounded
+repair. Keep this live planning owner and its roadmap route until the remaining scope is honest.
 
 ## Preconditions and operating fence
 

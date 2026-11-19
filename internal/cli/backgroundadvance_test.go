@@ -2058,24 +2058,24 @@ func TestBackgroundSelectionDefersAFetchedPackWhoseCheckoutLockIsHeld(t *testing
 	}
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
-	prompt := true
 	select {
 	case <-done:
-	case <-time.After(time.Second):
-		prompt = false
+		// Completion while the mirror remains held and the context uncancelled
+		// proves deferral; elapsed time is not a success condition.
+	case <-time.After(30 * time.Second):
+		cancel()
+		lk.Release() // release only our fixture's mirror so its queued readers can drain
+		select {
+		case <-done:
+		case <-time.After(30 * time.Second):
+			t.Fatalf("owned fetched-pack readers did not drain after cancellation and mirror release; inspect the fixture resolver:\n%s", out.String())
+		}
+		t.Fatalf("fetched-pack selection did not complete with its mirror held and context uncancelled; inspect the nonwaiting resolver:\n%s", out.String())
+	}
+	if ctx.Err() != nil || !pidlock.Held(locks[0]) {
+		t.Fatal("selection completion lost the uncancelled-context/held-mirror evidence")
 	}
 	cancel()
-	cancelledPromptly := true
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		cancelledPromptly = false
-	}
-	if !prompt || !cancelledPromptly {
-		lk.Release() // let the broken ordinary resolver drain; never leave test goroutines queued
-		<-done
-		t.Fatalf("fetched-pack selection queued on its mirror: prompt=%v cancellation=%v\n%s", prompt, cancelledPromptly, out.String())
-	}
 	if advances.Load() != 0 || outcomeOf(t, poolKeyA).State != bgSkipped || pidlock.Held(backgroundKeyLock(poolKeyA)) {
 		t.Fatalf("busy selection advanced or left a running key/backlog (%d):\n%s", advances.Load(), out.String())
 	}

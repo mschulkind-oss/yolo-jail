@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -26,14 +27,19 @@ type Share struct {
 	Replicas  []Replica `json:"replicas"`
 	// Once lists the user's `sign_in = "once"` servers, and Sources the machine-wide agent
 	// stores their sign-ins are adopted from and written back to (MA-D17).
-	Once    []OnceServer `json:"once,omitempty"`
-	Sources []Source     `json:"sources,omitempty"`
+	Once    []OnceServer      `json:"once,omitempty"`
+	Sources []Source          `json:"sources,omitempty"`
+	SignIn  *mcpsignin.Launch `json:"sign_in,omitempty"`
 }
 
-// Source is an agent's sign-in store that every jail on the machine reads, named by its host
-// directory: Claude Code's credential file in the machine-scope shared directory.
+// Source is a selected pack's sign-in store in an explicit host-owned directory.
+// Logical pack provenance, declared Lua adapter and store paths are independent.
 type Source struct {
-	Pack       string           `json:"pack"`
+	Pack string `json:"pack"`
+	// Adapter is the selected program's exact Lua mcp_auth registration. Pack
+	// remains logical provenance/a map key, never a filesystem component.
+	// Its absence retains the old leaf-only descriptor behavior.
+	Adapter    string           `json:"adapter,omitempty"`
 	DeriveFile string           `json:"derive_file"`
 	Dir        string           `json:"dir"`
 	Store      string           `json:"store"`
@@ -41,8 +47,22 @@ type Source struct {
 	Decl       packdecl.MCPAuth `json:"decl"`
 }
 
-func (s Source) validate() error {
-	if s.Pack == "" || filepath.Base(s.Pack) != s.Pack || s.Pack == "." || s.Pack == ".." ||
+func (s Source) AdapterName() string {
+	if s.Adapter != "" {
+		return s.Adapter
+	}
+	if validLeaf(s.Pack) {
+		return s.Pack
+	}
+	return ""
+}
+
+func (s Source) Validate() error {
+	logical := s.Pack != "" && !filepath.IsAbs(s.Pack) && !strings.ContainsAny(s.Pack, "\x00\r\n")
+	for _, part := range strings.Split(s.Pack, "/") {
+		logical = logical && validLeaf(part)
+	}
+	if !logical || !validLeaf(s.AdapterName()) ||
 		!filepath.IsAbs(s.DeriveFile) || filepath.Base(s.DeriveFile) != "derive.lua" ||
 		!filepath.IsAbs(s.Dir) || filepath.Clean(s.Dir) != s.Dir || !validLeaf(s.Store) || !validLeaf(s.LockDir) ||
 		s.Decl.Format != "json" || s.Decl.Lock == nil || s.Decl.Lock.Protocol != "proper-lockfile" || s.Decl.Lock.StaleSeconds <= 0 ||
@@ -112,13 +132,19 @@ func (s Share) Validate() error {
 			}
 		}
 	}
+	if s.SignIn != nil && s.SignIn.Version != mcpsignin.LaunchVersion {
+		return errors.New("mcp-auth: unsupported managed sign-in snapshot; relaunch with a current yolo build")
+	}
 	for _, server := range s.Once {
+		if server.Transport != "" && server.Transport != "http" && server.Transport != "sse" || strings.ContainsAny(server.ExpectedClientID, "\x00\r\n") {
+			return errors.New("mcp-auth: invalid once identity facts; correct the user MCP configuration and relaunch")
+		}
 		if server.Name == "" || server.URL == "" || !validDigest(server.Identity) {
 			return errors.New("mcp-auth: invalid one-sign-in server; retry the launch")
 		}
 	}
 	for _, source := range s.Sources {
-		if err := source.validate(); err != nil {
+		if err := source.Validate(); err != nil {
 			return err
 		}
 	}

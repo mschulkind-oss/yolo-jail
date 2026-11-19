@@ -13,12 +13,17 @@ package integration
 
 import (
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 	requireJail(t)
+	privateProducer := runtime.GOOS == "linux" && privateSuite.armed
+	if privateProducer {
+		privateOfficialMachineHome(t)
+	}
 	// Both providers' keys, since the credential pre-flight demands every entry's (AP-D3). They
 	// are hydrated through [env.secrets], the channel the credential gate delivers into an agent's
 	// own env file: the shell yolo is launched from reaches no jail's agent (BR-D2), and opencode's
@@ -30,14 +35,24 @@ func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 	dir := writeProject(t, `{}`)
 	writeUserTOML(t, "packs = [\"opencode\", \"zai\", \"openrouter\"]\n\n[env.secrets]\n"+
 		"set = { ZAI_API_KEY = \"integration-probe-not-a-real-key\", OPENROUTER_API_KEY = \"integration-probe-not-a-real-key\" }\n")
+	var producer []runOption
+	if privateProducer {
+		producer = append(producer, withPrivateOfficialProducer(t))
+	}
 	// opencode's own env file, sourced as opencode's launcher sources it, beside what a bare
 	// shell holds: the set's keys are opencode's alone.
-	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,openrouter", "--", "bash", "-lc",
-		`printf 'shell zai=%s router=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}"; `+
-			`f=~/.config/yolo-agent-env/opencode.sh; if [ -r "$f" ]; then . "$f"; fi; `+
-			`printf 'opencode zai=%s router=%s zhipu=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}" "${ZHIPU_API_KEY:+set}"`))
+	script := `printf 'shell zai=%s router=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}"; ` +
+		`f=~/.config/yolo-agent-env/opencode.sh; if [ -r "$f" ]; then . "$f"; fi; ` +
+		`printf 'opencode zai=%s router=%s zhipu=%s\n' "${ZAI_API_KEY:+set}" "${OPENROUTER_API_KEY:+set}" "${ZHIPU_API_KEY:+set}"`
+	if privateProducer {
+		script += `; printf '%s' "$YOLO_PROGRAM_CAPTURES" | jq -e '.opencode.declared == "opencode-ai" and (.opencode.compatibility | test("^[0-9a-f]{64}$"))' >/dev/null || exit 90; command -v opencode; opencode --version`
+	}
+	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,openrouter", "--", "bash", "-lc", script), producer...)
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())
+	}
+	if privateProducer && (!strings.Contains(r.stdout, "/.yolo/bin/launch/opencode\n") || !strings.Contains(r.stdout, `PRIVATE_OFFICIAL opencode 0.0.0-fixture ["--version"]`)) {
+		t.Fatalf("cold private official delivery/version argv failed:\n%s", r.combined())
 	}
 	if !strings.Contains(r.combined(), "Active set for opencode: zai, openrouter") {
 		t.Errorf("the launch must name opencode's set in order:\n%s", r.combined())
@@ -65,6 +80,17 @@ func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 	for _, own := range []string{"zai", "zai-coding-plan", "openrouter"} {
 		requireNotCataloged(t, cfg.raw, "provider", own, "opencode.json")
 	}
+
+	// Fresh preparation must re-resolve the unchanged official declaration; the
+	// known inert executable then proves delivery and argv without running a vendor.
+	if privateProducer {
+		fresh := runCommand(t, dir, append(jailRunArgs(), "--update", "-p", "opencode=zai,openrouter", "--", "bash", "-lc",
+			`printf '%s' "$YOLO_PROGRAM_CAPTURES" | jq -e '.opencode.declared == "opencode-ai" and (.opencode.compatibility | test("^[0-9a-f]{64}$"))' >/dev/null || exit 90; `+
+				`command -v opencode; opencode --version`), producer...)
+		if fresh.rc != 0 || !strings.Contains(fresh.stdout, "/.yolo/bin/launch/opencode\n") || !strings.Contains(fresh.stdout, `PRIVATE_OFFICIAL opencode 0.0.0-fixture ["--version"]`) {
+			t.Fatalf("fresh private official delivery/version argv failed: rc %d\n%s", fresh.rc, fresh.combined())
+		}
+	}
 }
 
 // A BEDROCK ENTRY AFTER THE FIRST (AP-D12's "anywhere in the set"): `-p opencode=zai,bedrock` with
@@ -74,6 +100,10 @@ func TestOpencodeRunsOnEveryProviderOfItsSet(t *testing.T) {
 // agent runs, and nothing reaches AWS.
 func TestOpencodeRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	requireJail(t)
+	privateProducer := runtime.GOOS == "linux" && privateSuite.armed
+	if privateProducer {
+		privateOfficialMachineHome(t)
+	}
 	t.Setenv("ZAI_API_KEY", "") // delivered through [env.secrets], as above
 	const region, opus = "eu-west-1", "global.anthropic.claude-opus-5-5"
 
@@ -84,7 +114,20 @@ func TestOpencodeRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 		"\"global.anthropic.claude-opus-5-5\" = { model = \"global.anthropic.claude-opus-5-5\", vendor = \"anthropic\" }\n"+
 		"\"us.openai.gpt-6.1-sol\" = { model = \"us.openai.gpt-6.1-sol\", vendor = \"openai\" }\n\n"+
 		"[env.secrets]\nset = { ZAI_API_KEY = \"integration-probe-not-a-real-key\" }\n")
-	r := runCommand(t, dir, append(jailRunArgs(), "-p", "opencode=zai,bedrock", "--", "true"))
+	var producer []runOption
+	script := "true"
+	if privateProducer {
+		producer = append(producer, withPrivateOfficialProducer(t))
+		script = `printf '%s' "$YOLO_PROGRAM_CAPTURES" | jq -e '.opencode.declared == "opencode-ai" and (.opencode.compatibility | test("^[0-9a-f]{64}$"))' >/dev/null || exit 90; command -v opencode; opencode --version`
+	}
+	args := append(jailRunArgs(), "-p", "opencode=zai,bedrock", "--", "true")
+	if privateProducer {
+		args = append(jailRunArgs(), "-p", "opencode=zai,bedrock", "--", "bash", "-lc", script)
+	}
+	r := runCommand(t, dir, args, producer...)
+	if privateProducer && r.rc == 0 && (!strings.Contains(r.stdout, "/.yolo/bin/launch/opencode\n") || !strings.Contains(r.stdout, `PRIVATE_OFFICIAL opencode 0.0.0-fixture ["--version"]`)) {
+		t.Fatalf("cold private official Bedrock delivery/version argv failed:\n%s", r.combined())
+	}
 	if r.rc != 0 {
 		t.Fatalf("the set launch failed: rc %d\n%s", r.rc, r.combined())
 	}
@@ -105,5 +148,11 @@ func TestOpencodeRunsOnABedrockEntryAfterItsFirst(t *testing.T) {
 	}
 	if models, _ := native["models"].(map[string]any); models[opus] == nil {
 		t.Errorf("the native row lacks the Bedrock list's %s: %v", opus, native["models"])
+	}
+	if privateProducer {
+		fresh := runCommand(t, dir, append(jailRunArgs(), "--update", "-p", "opencode=zai,bedrock", "--", "bash", "-lc", script), producer...)
+		if fresh.rc != 0 || !strings.Contains(fresh.stdout, "/.yolo/bin/launch/opencode\n") || !strings.Contains(fresh.stdout, `PRIVATE_OFFICIAL opencode 0.0.0-fixture ["--version"]`) {
+			t.Fatalf("fresh private official Bedrock delivery/version argv failed: rc %d\n%s", fresh.rc, fresh.combined())
+		}
 	}
 }

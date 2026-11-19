@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/luahook"
@@ -51,18 +50,28 @@ func (b *broker) onceSources() []mcpauth.OnceSource {
 	sources := make([]mcpauth.OnceSource, 0, len(b.share.Sources))
 	for _, source := range b.share.Sources {
 		script := b.scripts[source.Pack]
-		pack := source.Pack
-		sources = append(sources, mcpauth.OnceSource{Pack: pack, Store: source.SourceStore(sourceLockWait), Fields: source.Decl.Fields,
+		adapter := source.AdapterName()
+		sources = append(sources, mcpauth.OnceSource{Pack: source.Pack, Store: source.SourceStore(sourceLockWait), Fields: source.Decl.Fields,
 			Match: func(key string, raw json.RawMessage) (string, string, bool) {
 				var entry map[string]any
 				if json.Unmarshal(raw, &entry) != nil || entry == nil || script == "" {
 					return "", "", false
 				}
-				ref, err := luahook.MCPAuthMatch(script, pack, key, entry)
+				ref, err := luahook.MCPAuthMatch(script, adapter, key, entry)
 				if err != nil || ref == nil {
 					return "", "", false
 				}
 				return ref.URL, ref.Issuer, true
+			}, NativeName: func(key string, raw json.RawMessage) string {
+				var entry map[string]any
+				if json.Unmarshal(raw, &entry) != nil || entry == nil || script == "" {
+					return ""
+				}
+				ref, err := luahook.MCPAuthMatch(script, adapter, key, entry)
+				if err != nil || ref == nil {
+					return ""
+				}
+				return ref.Name
 			}})
 	}
 	return sources
@@ -96,13 +105,21 @@ func (b *broker) passAll(ctx context.Context, once *mcpauth.OnceBroker, sources 
 			problems = append(problems, err)
 		}
 	}
+	for _, server := range b.share.Once {
+		if err := once.Maintain(ctx, server, sources, false); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	return errors.Join(problems...)
 }
 
 // runOnce passes once at start and on every tick until stop closes. It runs after readiness,
 // so a slow or unreachable authorization server never delays a launch.
 func (b *broker) runOnce(stop <-chan struct{}) {
-	if len(b.share.Once) == 0 || len(b.share.Sources) == 0 {
+	if b.poll != nil {
+		defer b.poll.stop()
+	}
+	if len(b.share.Once) == 0 {
 		return
 	}
 	once, err := b.newOnceBroker()
@@ -110,24 +127,34 @@ func (b *broker) runOnce(stop <-chan struct{}) {
 		b.onceWarn("one-sign-in state is unavailable; repair host state permissions and relaunch: " + err.Error())
 		return
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		<-stop
-		cancel()
-	}()
 	sources := b.onceSources()
 	ticks, stopTicks := newOnceTicks()
 	defer stopTicks()
-	for {
+	var immediate <-chan *onceWork
+	if b.poll != nil {
+		immediate = b.poll.queue
+	}
+	pass := func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
 		if err := b.passAll(ctx, once, sources); err != nil {
 			b.onceWarn("one-sign-in pass: " + err.Error())
 		}
 		afterOncePass()
+	}
+	pass()
+	for {
 		select {
 		case <-stop:
 			return
 		case <-ticks:
+			pass()
+		case work := <-immediate:
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			err := once.Maintain(ctx, work.server, sources, true)
+			cancel()
+			b.poll.finish(work, err)
+			afterOncePass()
 		}
 	}
 }
@@ -164,7 +191,7 @@ func launcherBroker(stateDir string, share mcpauth.Share, warn func(string)) (*b
 // sign-in the agent left with its refresh token, refreshes a record that is due and writes the
 // access token back, exactly as the daemon's poll does; ctx bounds it.
 func BoundaryPass(ctx context.Context, stateDir string, share mcpauth.Share, warn func(string)) error {
-	if len(share.Once) == 0 || len(share.Sources) == 0 {
+	if len(share.Once) == 0 {
 		return nil
 	}
 	b, err := launcherBroker(stateDir, share, warn)
@@ -182,7 +209,7 @@ func BoundaryPass(ctx context.Context, stateDir string, share mcpauth.Share, war
 // (a macos-user session, ID-20): a pass at once and on every tick until stop closes. It returns
 // once the poll has stopped, so nothing of it outlives the session.
 func ServeOnce(stateDir string, share mcpauth.Share, warn func(string), stop <-chan struct{}) error {
-	if len(share.Once) == 0 || len(share.Sources) == 0 {
+	if len(share.Once) == 0 {
 		return nil
 	}
 	b, err := launcherBroker(stateDir, share, warn)
@@ -191,43 +218,6 @@ func ServeOnce(stateDir string, share mcpauth.Share, warn func(string), stop <-c
 	}
 	b.runOnce(stop)
 	return nil
-}
-
-// onceStatus is the status rows for the one-sign-in servers: never a token.
-func (b *broker) onceStatus() ([]map[string]any, error) {
-	rows := make([]map[string]any, 0, len(b.share.Once))
-	if len(b.share.Once) == 0 || len(b.share.Sources) == 0 {
-		return rows, nil
-	}
-	store, err := b.onceStore()
-	if err != nil {
-		return nil, err
-	}
-	// Status never creates or repairs state (ReadStatus); no lock yet means nothing adopted yet.
-	var file mcpauth.CanonicalFile
-	if _, statErr := os.Lstat(filepath.Join(store.Dir, store.LockName)); statErr == nil {
-		if file, err = store.ReadStatus(); err != nil {
-			return nil, err
-		}
-	}
-	hints := make([]string, 0, len(b.share.Sources))
-	for _, source := range b.share.Sources {
-		hints = append(hints, source.Decl.LoginHint)
-	}
-	for _, server := range b.share.Once {
-		row := map[string]any{"name": server.Name, "scope": "user", "sign_in": "once", "state": "not-signed-in",
-			"next_step": strings.ReplaceAll(strings.Join(hints, "; or "), "{name}", server.Name)}
-		for _, record := range file.Records {
-			if record.Server == server.Name && record.Identity == server.Identity {
-				row["state"], row["generation"], row["expires_at_ms"], row["adopted_from"] = record.State, int64(record.Generation), record.ExpiresAtMS, record.AdoptedFrom
-				if record.State == "live" {
-					row["next_step"] = ""
-				}
-			}
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
 }
 
 // anyRows hands rows to the session's JSON writer, which encodes []any and map[string]any but

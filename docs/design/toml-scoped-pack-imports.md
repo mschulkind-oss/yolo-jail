@@ -2,7 +2,7 @@
 title: "Direct user-level scoped pack imports in TOML"
 status: accepted
 stage: DECIDED
-next: "Build the modern TOML producer from the companion plan"
+next: "Complete safe full-suite integration and the remaining presentation checks in the companion plan"
 depends-on:
   - ../research/toml-scoped-pack-imports.md
 tags: [packs, skills, toml, design]
@@ -10,9 +10,15 @@ tags: [packs, skills, toml, design]
 
 # Direct user-level scoped pack imports in TOML
 
-**Status:** 2026-11-17. Behavior authored against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`;
-source seams and carrier facts rechecked at that commit. The feature remains unbuilt. The behavior,
-typed-directory carrier closure and inspection contract are accepted; no owner or engineering decision remains.
+**Status:** 2026-11-18. Behavior authored against `a4dfc67d847d7d7c0b5fd06515cf93e86a06ad54`.
+The closed implementation candidate `f7ac0336cfed659cf25bbae1d81470167d9db004` implements the
+producer, projection, carrier, replay and editing paths, including the three reviewed refusal
+repairs. MEASURED: program-free synthetic Linux nested delivery and candidate completion.
+Primary integration and full launch-suite acceptance remain incomplete; the
+[remaining presentation and verification work](toml-scoped-pack-imports-plan.md#remaining-presentation-and-verification)
+prevents full graduation. The accepted behavior and rulings below remain authoritative; the
+[implemented reference](../reference/toml-scoped-pack-imports/README.md) describes the built mechanisms
+and their limitations. No owner decision is reopened.
 
 > **In short.** A user-level pack entry can deliver selected skills across projects without
 > a wrapper pack, while every unselected contribution stays inert.

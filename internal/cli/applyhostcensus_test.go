@@ -73,7 +73,7 @@ func TestApplyHostAccountsForEveryDeclaredKind(t *testing.T) {
 	}
 }
 
-// writeCensusPack writes a pack.json declaring one contribution per known kind, plus the
+// writeCensusPack writes a pack.toml declaring one contribution per known kind, plus the
 // minimal tree those contributions point at. It is deliberately built from
 // packdecl.KnownKinds() rather than a hand-written list, so a new kind joins the census
 // automatically instead of being quietly untested.
@@ -175,6 +175,9 @@ func writeCensusPack(t *testing.T, dir string) {
 
 	var entries []string
 	for _, k := range packdecl.KnownKinds() {
+		if k == packdecl.KindMCPSignInBundle {
+			continue
+		} // TOML-only, appended typed below.
 		body, ok := byKind[k]
 		if !ok {
 			t.Fatalf("kind %q has no census contribution — add one to writeCensusPack so "+
@@ -186,5 +189,20 @@ func writeCensusPack(t *testing.T, dir string) {
 	// of `program`, so it is declared beside the recipe, not under a kind of its own.
 	entries = append(entries, `{"kind":"program","bin":"censusreq",`+
 		`"install_hints":{"brew":"census-req","apt":"census-req"}}`)
-	write("pack.json", `{"name":"census","contributes":[`+strings.Join(entries, ",")+`]}`)
+	manifest, problems := packdecl.Decode([]byte(`{"name":"census","contributes":[` + strings.Join(entries, ",") + `]}`))
+	if len(problems) != 0 {
+		t.Fatal(problems)
+	}
+	manifest.SkillsTier = "namespaced"
+	manifest.Contributes = append(manifest.Contributes, packdecl.Contribution{Kind: packdecl.KindMCPSignInBundle, MCPSignInBundle: &packdecl.MCPSignInBundle{Bundle: "skills/native", Format: "claude-plugin", Origin: "https://example.invalid/native", Revision: "0123456789abcdef0123456789abcdef01234567", License: "skills/native/LICENSE"}})
+	if err := os.MkdirAll(filepath.Join(dir, "skills/native/.claude-plugin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	write("skills/native/.claude-plugin/plugin.json", `{"name":"native"}`)
+	write("skills/native/LICENSE", "MIT License")
+	body, err := packdecl.EncodeTOML(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("pack.toml", string(body))
 }

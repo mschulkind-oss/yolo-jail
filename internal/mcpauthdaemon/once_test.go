@@ -3,11 +3,13 @@ package mcpauthdaemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +34,8 @@ func newOnceDaemonFixture(t *testing.T) *onceDaemonFixture {
 	t.Helper()
 	f := &onceDaemonFixture{storeDir: t.TempDir(), refreshs: make(chan string, 4)}
 	var base string
+	var issuerMu sync.Mutex
+	currentRefresh, generation := "rt-1", 1
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
@@ -39,8 +43,18 @@ func newOnceDaemonFixture(t *testing.T) *onceDaemonFixture {
 			_ = json.NewEncoder(w).Encode(map[string]any{"issuer": base, "token_endpoint": base + "/token"})
 		case "/token":
 			_ = r.ParseForm()
-			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "at-2", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "rt-2"})
-			f.refreshs <- r.PostForm.Get("refresh_token")
+			issuerMu.Lock()
+			defer issuerMu.Unlock()
+			incoming := r.PostForm.Get("refresh_token")
+			f.refreshs <- incoming
+			if incoming != currentRefresh {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": "invalid_grant"})
+				return
+			}
+			generation++
+			currentRefresh = fmt.Sprintf("rt-%d", generation)
+			_ = json.NewEncoder(w).Encode(map[string]any{"access_token": fmt.Sprintf("at-%d", generation), "token_type": "Bearer", "expires_in": 3600, "refresh_token": currentRefresh})
 		default:
 			http.NotFound(w, r)
 		}
@@ -77,6 +91,180 @@ func newOnceDaemonFixture(t *testing.T) *onceDaemonFixture {
 		t.Fatal(err)
 	}
 	return f
+}
+
+func TestOnceQualifiedSameLeafSourcesKeepScriptsAndAdoptionDistinct(t *testing.T) {
+	for _, kind := range []string{"unmatched-identical-grant", "wrong-url", "wrong-client", "wrong-issuer", "unmatched-different-grant", "changed-under-source-lock", "changed-before-record-refresh", "compatible"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newOnceDaemonFixture(t)
+			left := f.b.share.Sources[0]
+			left.Pack, left.Adapter = "left/claude", "claude"
+			right := left
+			right.Pack = "right/claude"
+			right.Dir = t.TempDir()
+			right.DeriveFile = filepath.Join(t.TempDir(), "derive.lua")
+			script := packload.DeriveScript(&packload.Pack{Root: filepath.Dir(left.DeriveFile)})
+			if strings.HasPrefix(kind, "unmatched") {
+				script = `yolo.mcp_auth("claude", {key=function(s) return "x" end,match=function(k,e) return nil end})`
+			}
+			if err := os.WriteFile(right.DeriveFile, []byte(script), 0600); err != nil {
+				t.Fatal(err)
+			}
+			original, err := os.ReadFile(filepath.Join(left.Dir, left.Store))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var doc map[string]map[string]map[string]any
+			if err := json.Unmarshal(original, &doc); err != nil {
+				t.Fatal(err)
+			}
+			entry := doc["mcpOAuth"]["plugin:slack:slack|0000000000000000"]
+			f.b.share.Once[0].ExpectedClientID = "client-1"
+			switch kind {
+			case "wrong-url":
+				entry["serverUrl"] = "https://wrong-source.invalid/mcp"
+			case "wrong-client":
+				entry["clientId"] = "wrong-client"
+			case "wrong-issuer":
+				entry["issuer"] = "https://wrong-source.invalid"
+			case "unmatched-different-grant":
+				entry["refreshToken"] = "different-private-fixture-grant"
+			}
+			original, err = json.Marshal(doc)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(right.Dir, right.Store), original, 0600); err != nil {
+				t.Fatal(err)
+			}
+			f.b.share.Sources = []mcpauth.Source{left, right}
+			if err := f.b.share.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.b.loadScripts(); err != nil {
+				t.Fatal(err)
+			}
+			once, err := f.b.newOnceBroker()
+			if err != nil {
+				t.Fatal(err)
+			}
+			sources := f.b.onceSources()
+			changedUnderLock := false
+			if kind == "changed-under-source-lock" {
+				lockDir := filepath.Join(right.Dir, right.LockDir)
+				if err := os.Mkdir(lockDir, 0700); err != nil {
+					t.Fatal(err)
+				}
+				sources[1].Store.Sleep = func(time.Duration) {
+					changedUnderLock = true
+					entry["serverUrl"] = "https://replaced-source.invalid/mcp"
+					original, err = json.Marshal(doc)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(filepath.Join(right.Dir, right.Store), original, 0600); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Remove(lockDir); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if kind == "changed-before-record-refresh" {
+				if err := f.b.passAll(context.Background(), once, sources[:1]); err != nil {
+					t.Fatal(err)
+				}
+				now := time.Now().Add(2 * time.Hour)
+				once.Now = func() time.Time { return now }
+				match := sources[1].Match
+				calls := 0
+				sources[1].Match = func(key string, raw json.RawMessage) (string, string, bool) {
+					url, issuer, ok := match(key, raw)
+					calls++
+					if calls == 2 {
+						entry["serverUrl"] = "https://replaced-source.invalid/mcp"
+						original, err = json.Marshal(doc)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err := os.WriteFile(filepath.Join(right.Dir, right.Store), original, 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					return url, issuer, ok
+				}
+				if err := once.Pass(context.Background(), sources[1], f.b.share.Once); err != nil || calls < 2 {
+					t.Fatal("actual matching-entry mutation event missing", err, calls)
+				}
+			} else if err := f.b.passAll(context.Background(), once, sources); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "changed-under-source-lock" && !changedUnderLock {
+				t.Fatal("source lock event was not exercised")
+			}
+			select {
+			case <-f.refreshs:
+			default:
+				t.Fatal("same-leaf script key collision prevented left source adoption")
+			}
+			select {
+			case <-f.refreshs:
+				t.Fatal("right source derived an unexpected provider redemption")
+			default:
+			}
+			store, err := f.b.onceStore()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.WithLock(func(file *mcpauth.CanonicalFile) error {
+				if len(file.Records) != 1 || file.Records[0].AdoptedFrom != "left/claude" {
+					t.Fatal("logical source identities were conflated")
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if kind != "compatible" {
+				now := time.Now().Add(2 * time.Hour)
+				once.Now = func() time.Time { return now }
+				if err := once.Pass(context.Background(), f.b.onceSources()[1], f.b.share.Once); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case <-f.refreshs:
+					t.Fatal("expired canonical record made mismatched right source transmit")
+				default:
+				}
+				// Refusing one source must not revoke or stall canonical-only work.
+				if err := once.Maintain(context.Background(), f.b.share.Once[0], nil, true); err != nil {
+					t.Fatal(err)
+				}
+				select {
+				case grant := <-f.refreshs:
+					if grant != "rt-2" {
+						t.Fatal("canonical-only refresh used a foreign source grant")
+					}
+				default:
+					t.Fatal("canonical-only refresh became unavailable")
+				}
+			}
+			retained, err := os.ReadFile(filepath.Join(right.Dir, right.Store))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind == "compatible" {
+				if err := json.Unmarshal(retained, &doc); err != nil {
+					t.Fatal(err)
+				}
+				entry = doc["mcpOAuth"]["plugin:slack:slack|0000000000000000"]
+				if entry["accessToken"] != "at-2" || entry["refreshToken"] != nil {
+					t.Fatal("compatible same-grant source lost intentional writeback")
+				}
+			} else if string(original) != string(retained) {
+				t.Fatal("unmatched same-leaf private source bytes/credentials changed")
+			}
+		})
+	}
 }
 
 func (f *onceDaemonFixture) entry(t *testing.T) map[string]any {
@@ -194,10 +382,7 @@ func TestServeOnceRunsThePollUntilStopped(t *testing.T) {
 
 func TestOnceStatusListsTheOneSignInServers(t *testing.T) {
 	f := newOnceDaemonFixture(t)
-	rows, err := f.b.onceStatus()
-	if err != nil {
-		t.Fatal(err)
-	}
+	rows := ReadOnceStatus(f.b.canonical.Dir, f.b.share, f.b.onceSources(), "this launch's broker")
 	if len(rows) != 1 || rows[0]["name"] != "slack" || rows[0]["state"] != "not-signed-in" {
 		t.Fatalf("rows = %v", rows)
 	}
@@ -211,9 +396,9 @@ func TestOnceStatusListsTheOneSignInServers(t *testing.T) {
 	<-passes
 	close(stop)
 	<-done
-	rows, err = f.b.onceStatus()
-	if err != nil || len(rows) != 1 || rows[0]["state"] != "live" || rows[0]["adopted_from"] != "claude" {
-		t.Fatalf("rows = %v, %v", rows, err)
+	rows = ReadOnceStatus(f.b.canonical.Dir, f.b.share, f.b.onceSources(), "this launch's broker")
+	if len(rows) != 1 || rows[0]["state"] != "live" || rows[0]["adopted_from"] != "claude" {
+		t.Fatalf("rows = %v", rows)
 	}
 	data, _ := json.Marshal(rows)
 	if strings.Contains(string(data), "rt-2") || strings.Contains(string(data), "at-2") {
@@ -240,6 +425,7 @@ func TestServeRunsTheOnePollAndReportsItInStatus(t *testing.T) {
 	}
 	upstream := filepath.Join(parent, "upstream.sock")
 	endpoint := filepath.Join(frontDir, "front.endpoint")
+	f.b.session = BindShareSession(f.b.share, f.b.share.Jail, endpoint)
 	stop, frontStop := make(chan struct{}), make(chan struct{})
 	served, frontDone := make(chan error, 1), make(chan struct{})
 	go func() { served <- f.b.serve(upstream, stop) }()

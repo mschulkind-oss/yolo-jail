@@ -22,6 +22,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/nofollow"
+	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
 
 const skillPayloadFormat = "1"
@@ -42,7 +43,23 @@ const (
 )
 
 // SkillRequest is one immutable selected declaration, before any audience gating.
-type SkillRequest struct{ Label, Source, License string }
+type SkillRequest struct {
+	Label, Source, License string
+	Projection             *SkillProjectionEvidence
+	// StagedDir is used only for an already copied local/shipped carrier.
+	StagedDir string
+}
+
+// SkillProjectionEvidence is resolver-produced row authority, never authored
+// manifest or config vocabulary. A nil evidence value keeps whole-pack legacy
+// marker validation unchanged.
+type SkillProjectionEvidence struct {
+	Mode, Kind, MarkerState   string
+	PackRoot, Governor, Child string
+	// Directory is a literal repository-relative direct-import path, separate
+	// from the legacy address grammar. Manifest sourced rows leave it empty.
+	Directory string
+}
 
 // SkillResolveOptions controls the grouped writer. Readers take only a record path.
 type SkillResolveOptions struct {
@@ -64,14 +81,15 @@ type SkillEntry struct {
 
 // SkillRowPlan is the validated selected registration content, before notch mapping.
 type SkillRowPlan struct {
-	Request     SkillRequest
-	Path        string
-	Marker      []byte
-	Entries     []string
-	LicenseName string
-	License     []byte
-	LicenseNote string
-	Executables int
+	Request           SkillRequest
+	Kind, MarkerState string
+	Path              string
+	Marker            []byte
+	Entries           []string
+	LicenseName       string
+	License           []byte
+	LicenseNote       string
+	Executables       int
 }
 
 // SkillPayloadPlan is the common pure object validation result used by both readers and writers.
@@ -124,7 +142,11 @@ func groupSkillRequests(rows []SkillRequest) ([]skillGroup, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", r.Label, err)
 		}
-		if a.Kind != KindGit || a.Path == "" {
+		directory := a.Path
+		if r.Projection != nil && r.Projection.Directory != "" {
+			directory = r.Projection.Directory
+		}
+		if a.Kind != KindGit || (directory == "" || directory == ".") && (r.Projection == nil || r.Projection.Mode != "raw" || r.Projection.Kind != "marker") {
 			return nil, fmt.Errorf("%s: source needs a non-root Git skill directory — correct the skills row", r.Label)
 		}
 		key := skillPair(a.Repo, a.Ref)
@@ -479,7 +501,17 @@ func validateSkillPayloadPlan(p *SkillPayloadPlan, rows []SkillRequest) (*SkillP
 	}
 	for _, request := range rows {
 		a, _ := Parse(request.Source)
-		row, err := validateSkillRow(entries, omitted, request, a.Path)
+		dir := a.Path
+		if request.Projection != nil && request.Projection.Directory != "" {
+			dir = request.Projection.Directory
+		}
+		if request.StagedDir != "" {
+			dir = request.StagedDir
+		}
+		if dir == "" {
+			dir = "."
+		}
+		row, err := validateSkillRow(entries, omitted, request, dir)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", request.Label, err)
 		}
@@ -507,7 +539,7 @@ func skillCleanPath(p string) bool {
 	return p != "" && p != "." && !strings.HasPrefix(p, "/") && path.Clean(p) == p && !strings.ContainsRune(p, '\x00') && !strings.Contains("/"+p+"/", "/../")
 }
 func skillWithin(scope, p string) bool {
-	return scope == "" || p == scope || strings.HasPrefix(p, scope+"/")
+	return scope == "" || scope == "." || p == scope || strings.HasPrefix(p, scope+"/")
 }
 
 // resolveSkillPath walks Git entries, not the filesystem. Supporting cycles are
@@ -575,7 +607,39 @@ func resolveEffectiveSkillPath(entries map[string]*SkillEntry, omitted map[strin
 }
 
 func validateSkillRow(entries map[string]*SkillEntry, omitted map[string]string, request SkillRequest, dir string) (SkillRowPlan, error) {
-	row := SkillRowPlan{Request: request, Path: dir}
+	row := SkillRowPlan{Request: request, Path: dir, Kind: "marker", MarkerState: "present"}
+	if evidence := request.Projection; evidence != nil {
+		if evidence.Directory != "" && ScopedPath(evidence.Directory, true) != nil {
+			return row, fmt.Errorf("invalid literal projection directory; resolve the selection again")
+		}
+		if evidence.Mode != "raw" && evidence.Mode != "typed" || evidence.Kind != "marker" && evidence.Kind != "directory" || evidence.MarkerState != "present" && evidence.MarkerState != "absent" {
+			return row, fmt.Errorf("unknown/missing projection row kind or marker state; resolve the selection again")
+		}
+		if evidence.Kind == "directory" {
+			if ScopedPath(evidence.PackRoot, true) != nil || ScopedPath(evidence.Governor, false) != nil || evidence.Child == "." || evidence.Child == ".." || evidence.Child == "" || strings.ContainsAny(evidence.Child, "/\\\x00") {
+				return row, fmt.Errorf("invalid typed directory eligibility paths; resolve the selection again")
+			}
+			if evidence.Mode != "typed" || evidence.Governor == "" || evidence.Child == "" || path.Dir(dir) != path.Join(evidence.PackRoot, evidence.Governor) || path.Base(dir) != evidence.Child {
+				return row, fmt.Errorf("directory row is not an immediate child of its typed governor; resolve the selection again")
+			}
+		} else if evidence.MarkerState != "present" {
+			return row, fmt.Errorf("marker rows require a present direct regular SKILL.md; repair the marker")
+		}
+		if evidence.Kind == "directory" && pluginpack.IsPluginContent(func(rel string) ([]byte, error) {
+			resolved, err := resolveSkillPath(entries, path.Join(dir, rel), dir, false)
+			if err != nil {
+				return nil, err
+			}
+			entry := entries[resolved]
+			if entry == nil || entry.Mode != "100644" && entry.Mode != "100755" {
+				return nil, fmt.Errorf("not a regular plugin manifest")
+			}
+			return entry.Data, nil
+		}) {
+			return row, fmt.Errorf("directory-kind row is a plugin wrapper; import its pack whole")
+		}
+		row.Kind, row.MarkerState = evidence.Kind, evidence.MarkerState
+	}
 	for prefix := dir; prefix != "."; prefix = path.Dir(prefix) {
 		if e := entries[prefix]; e == nil || e.Mode != "040000" {
 			return row, fmt.Errorf("selected path %s absent or crosses a symlink/gitlink — select a real skill directory", prefix)
@@ -604,23 +668,71 @@ func validateSkillRow(entries map[string]*SkillEntry, omitted map[string]string,
 			row.Entries = append(row.Entries, path.Base(e.Path))
 		}
 	}
-	marker, err := resolveSkillPath(entries, dir+"/SKILL.md", dir, false)
-	if err != nil {
-		return row, fmt.Errorf("SKILL.md: %w", err)
+	markerPath := path.Join(dir, "SKILL.md")
+	var e *SkillEntry
+	if request.Projection != nil {
+		e = entries[markerPath]
+		if row.MarkerState == "absent" {
+			if e != nil {
+				return row, fmt.Errorf("absent marker state disagrees with SKILL.md entry; resolve the selection again")
+			}
+		} else if e == nil || e.Mode != "100644" && e.Mode != "100755" {
+			return row, fmt.Errorf("SKILL.md must be a direct regular blob; repair %s", dir)
+		}
+	} else {
+		marker, err := resolveSkillPath(entries, markerPath, dir, false)
+		if err != nil {
+			return row, fmt.Errorf("SKILL.md: %w", err)
+		}
+		e = entries[marker]
+		if e.Mode != "100644" && e.Mode != "100755" {
+			return row, fmt.Errorf("SKILL.md must resolve to a regular blob — correct %s", dir)
+		}
 	}
-	e := entries[marker]
-	if e.Mode != "100644" && e.Mode != "100755" {
-		return row, fmt.Errorf("SKILL.md must resolve to a regular blob — correct %s", dir)
+	if e != nil {
+		if e.Size > skillMarkerLimit {
+			return row, fmt.Errorf("SKILL.md bytes %d exceed bound %d — shorten the marker", e.Size, skillMarkerLimit)
+		}
+		row.Marker = e.Data
 	}
-	if e.Size > skillMarkerLimit {
-		return row, fmt.Errorf("SKILL.md bytes %d exceed bound %d — shorten the marker", e.Size, skillMarkerLimit)
-	}
-	row.Marker = e.Data
 	licensePath := request.License
 	names := []string{"LICENSE", "LICENSE.md", "LICENSE.txt", "COPYING"}
+	if request.Projection != nil && licensePath == "" {
+		var own, root []string
+		for _, name := range names {
+			if entries[path.Join(dir, name)] != nil {
+				own = append(own, path.Join(dir, name))
+			}
+			if entries[name] != nil {
+				root = append(root, name)
+			}
+		}
+		if len(own) > 1 {
+			return row, fmt.Errorf("conflicting selected licenses %v; keep one conventional license", own)
+		}
+		if len(own) == 1 {
+			resolved, err := resolveEffectiveSkillPath(entries, omitted, own[0], dir, false)
+			if err != nil {
+				return row, fmt.Errorf("license %s: %w", own[0], err)
+			}
+			entry := entries[resolved]
+			if entry == nil || entry.Mode != "100644" && entry.Mode != "100755" || entry.Size > skillMarkerLimit {
+				return row, fmt.Errorf("selected license %s is unsafe or oversized; repair the license", own[0])
+			}
+			row.LicenseNote = path.Base(own[0]) + " already in selected directory; no license added"
+			sort.Strings(row.Entries)
+			return row, nil
+		}
+		if len(root) > 1 {
+			return row, fmt.Errorf("conflicting root licenses %v; keep one conventional license", root)
+		}
+		if len(root) == 1 {
+			licensePath = root[0]
+		}
+	}
 	if licensePath == "" {
 		for _, n := range names {
-			if entries[dir+"/"+n] != nil {
+			if entries[path.Join(dir, n)] != nil {
 				row.LicenseNote = n + " already in selected skill; no license added"
 				sort.Strings(row.Entries)
 				return row, nil

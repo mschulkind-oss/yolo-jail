@@ -14,6 +14,7 @@ package integration
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -36,6 +37,11 @@ const inJailCatCount = `n=0; for p in /proc/[0-9]*; do ` +
 func TestTheDetachSequenceNeverLeavesAnAttachedSessionHeadless(t *testing.T) {
 	requireJail(t)
 	dir := writeProject(t, `{}`)
+	if privateSuite.armed {
+		usePrivateNativeFixture(t, &privateNativeFixture{home: os.Getenv("HOME"), userConfig: "{}", packs: map[string]string{}, check: func() error {
+			return privateNativeWorkspaceAdmission(dir)
+		}})
+	}
 
 	const release = "release-first"
 	first := startYoloBackground(t, "first", dir,
@@ -45,10 +51,11 @@ func TestTheDetachSequenceNeverLeavesAnAttachedSessionHeadless(t *testing.T) {
 	awaitLaunchLockReleased(t, dir, first)
 
 	master, slave := openTestPty(t)
-	cmd := exec.Command(yoloBin, append(jailRunArgs(), "--", "sh", "-c",
-		`echo DK-READY-$((40+2)); exec cat -v`)...)
+	args := append(jailRunArgs(), "--", "sh", "-c", `echo DK-READY-$((40+2)); exec cat -v`)
+	program, argv := privateLaunchCommand(t, runConfig{}, yoloBin, args)
+	cmd := exec.Command(program, argv...)
 	cmd.Dir = dir
-	cmd.Env = launchEnvironment(runConfig{})
+	cmd.Env = privateLaunchEnvironment(t, runConfig{})
 	awaitDetachedWriters(t, dir, launchHome(cmd.Env))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
 	if err := cmd.Start(); err != nil {

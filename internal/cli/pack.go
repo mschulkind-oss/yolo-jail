@@ -20,6 +20,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -70,7 +71,7 @@ jail gets nothing but the built-ins, and no coding agent.
 What a pack delivers:
   • a coding agent: its CLI, its config files, its skills and briefing
   • a SHARED pack of your own skills and house rules, applied in every project
-  • per-project narrowing of that corpus, via only/exclude
+  • direct user TOML narrowing of a corpus, shared across all your workspaces
 
 A zero-ceremony pack needs no manifest: its skills/ tree and every *.md directly inside
 its briefing/ dir reach every selected agent. A root AGENTS.md, CLAUDE.md or GEMINI.md
@@ -132,8 +133,9 @@ one file's audience never stops another file from shipping:
                    one MCP server entry composed into mcp_servers, which every agent's
                    config renders; a "~/" word is a path under the agent's home, your
                    own mcp_servers entry merges over it, and null removes it
-  mcp-auth         declare an agent-neutral MCP sign-in store shape; schema-only today,
-                   with no runtime consumer at any setup
+  mcp-sign-in-bundle  declare retained native sign-in content (TOML only); the selected
+                   skills layer places it, without adding a server or starting a login
+  mcp-auth         declare the agent's MCP sign-in store shape for credential sharing
 
 loophole is the sharpest kind: its module may declare a daemon that runs ON YOUR MACHINE,
 TLS intercepts (a CA every client in the jail trusts), host bind mounts and host devices.
@@ -213,8 +215,28 @@ yolo pack install or yolo pack update re-fetches a tag its author re-pointed.
                               table keyed by those handles, in one edit. The key is the namespace
                               its skills are delivered under, so it lists every agent-facing name
                               that changes and asks. Pins and records follow; nothing re-fetches
+  yolo pack add <handle> [--subdir PATH] [--skills-dir PATH]
+                              [--only NAME-GLOB] [--exclude NAME-GLOB]
+                              [--namespace WORD | --bare] [--dry-run]
+                              write one user TOML entry; repeat --only/--exclude for selectors.
+                              --subdir alone imports a whole relocated pack. --only/--exclude
+                              select typed skills only; --skills-dir selects raw marker-bearing
+                              directories without interpreting the original manifest.
+  yolo pack add --git URL [--ref REF] [the same options]
+                              a direct Git repository instead of a positional handle
+  yolo pack remove <handle> [--subdir PATH] [--skills-dir PATH] [--dry-run]
+                              remove one authored tuple; an ambiguous handle names indexed
+                              config edits or roots to choose, never removes all its tuples
   yolo pack ls                list configured packs and what each stages
-  yolo pack explain <name>    show which files a pack stages, and what it dropped
+  yolo pack explain <name>    inspect every configured tuple for this handle in authored order;
+                              whole body or selected rows, roots, index, origin and read basis.
+                              Reads available local/shipped/cached content without writes or
+                              transport; absent data says "selection not yet verified; resolved
+                              at next launch", with no invented rows or counts.
+                              Scoped check and add --dry-run share this pure inspection.
+                              Check's whole-entry readiness staging remains unchanged.
+                              Author lint and footprint keep their directory/ref inputs; they
+                              do not resolve a configured handle's scope.
   yolo pack footprint [ref]   what packs claim on the environment + collisions;
                               [ref] = an embedded name OR a local path / file:// pack
   yolo pack install           fetch every configured git pack NOW — tags and commit pins
@@ -1553,55 +1575,84 @@ func packLs(out, errw io.Writer, color bool) int {
 	return 0
 }
 
-// packExplain answers "why isn't my skill showing up?" for ONE pack by staging it
-// and reporting both what landed and what the filters dropped.
+// packExplain reports all authored tuples for a handle, using read-only plans
+// for the launch's selected content and filters.
 func packExplain(args []string, out, errw io.Writer, color bool) int {
 	if len(args) == 0 {
 		fmt.Fprintln(errw, "yolo pack explain: need a pack name (see `yolo pack ls`)")
 		return 1
 	}
 	name := args[0]
-	entries, err := config.LoadPacks(nil)
+	entries, problems, err := config.LoadPackEntries()
+	if filepath.Base(paths.UserConfigDisplayPath()) == paths.UserConfigTOMLName && len(problems) > 0 {
+		fmt.Fprintf(errw, "yolo pack explain: %s; run yolo config check, then repair the indexed entry with yolo config set\n", strings.Join(problems, "; "))
+		return 1
+	}
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack explain: %v\n", err)
 		return 1
 	}
 	var entry *config.PackEntry
+	var matched []indexedPackEntry
+	modern := false
 	for i := range entries {
-		if entries[i].Name == name {
-			entry = &entries[i]
-			break
+		if entries[i].Name != name {
+			continue
 		}
+		if entry == nil {
+			entry = &entries[i]
+		}
+		matched = append(matched, indexedPackEntry{Index: i, Entry: entries[i]})
+		modern = modern || entries[i].Skills != nil || entries[i].Subdir != ""
 	}
 	if entry == nil {
 		fmt.Fprintf(errw, "yolo pack explain: no configured pack named %q "+
 			"(see `yolo pack ls`)\n", name)
 		return 1
 	}
+	if modern || len(matched) > 1 {
+		return explainPackEntries(matched, out, errw, color)
+	}
+	return explainWholePack(*entry, out, errw, color, false)
+}
+
+func explainWholePack(entry config.PackEntry, out, errw io.Writer, color, grouped bool) int {
 	// THROUGH THE ONE RESOLVER (config.ResolvePack), the launch's: whatever the entry's origin,
-	// staged by the launch's own rules into a throwaway tree, writing nothing to the pack store.
+	// inspected by the launch's own rules without creating a staged copy.
 	// This used to stage only a local pack, by trimming "file://" off its source, and refused an
 	// embedded one ("its content is fixed, so there are no only/exclude filters to explain") and a
 	// git one ("this build cannot fetch yet"). Both answers stopped being true: the resolver reads
 	// a fetched pack from the store the way a launch does, and it applies an embedded entry's
 	// filters, which every notch used to ignore.
-	tmp, err := os.MkdirTemp("", "yolo-pack-explain-")
+	resolved, err := config.InspectPack(entry, config.ResolvePackSpec{})
 	if err != nil {
-		fmt.Fprintf(errw, "yolo pack explain: %v\n", err)
-		return 1
-	}
-	defer os.RemoveAll(tmp)
-
-	resolved, err := config.ResolvePack(*entry, config.ResolvePackSpec{
-		Dest: filepath.Join(tmp, entry.Slug()), ReadOnlyStore: true,
-	})
-	if err != nil {
+		if !entry.Embedded() && (errors.Is(err, packsrc.ErrNotFetched) || errors.Is(err, packsrc.ErrNotCheckedOut) || errors.Is(err, packsrc.ErrDefaultRefUnavailable)) {
+			fmt.Fprintln(out, "selection not yet verified; resolved at next launch")
+			return 0
+		}
 		fmt.Fprintf(errw, "yolo pack explain: %v\n", err)
 		return 1
 	}
 	res := resolved.Staged
+	if res == nil {
+		res, err = packstage.Check(packstage.Spec{Root: resolved.Pack.Root, Only: entry.Only, Exclude: entry.Exclude, FollowSymlinks: entry.IsLocal()})
+		if err != nil {
+			fmt.Fprintf(errw, "yolo pack explain: %v; repair the pack, then rerun yolo pack explain %s\n", err, entry.Name)
+			return 1
+		}
+	}
 
 	pr := richtext.Printer{W: out, Color: color}
+	if grouped {
+		switch {
+		case entry.Embedded():
+			pr.Printf("  inspected: shipped")
+		case entry.IsLocal():
+			pr.Printf("  inspected: local directory")
+		default:
+			pr.Printf("  inspected: cached commit %s", resolved.Commit)
+		}
+	}
 	packload.ResolveSelectedSkillPayloads([]*packload.Pack{resolved.Pack}, packsrc.LaunchStore(paths.PacksDir()), packsrc.SkillResolveOptions{LockPath: packsrc.SkillsLockPath(paths.UserConfigPath())}, false)
 	printSourcedSkillProjection(pr, []*packload.Pack{resolved.Pack})
 	pr.Printf("[bold]%s[/bold] → %s", entry.Name, entry.Source)

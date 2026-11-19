@@ -175,6 +175,24 @@ const pinAttachLeavesAnOlderJailsTree = "TestAnAttachToAJailTheLastReleaseLaunch
 // provider declares api_key_env_name as a list where v0.10.0's packdecl declares a string, and pi
 // declares two hooks v0.10.0 does not know.
 var knownReleaseBreaks = []knownReleaseBreak{
+	// Measured against v0.18.0: these are harmless unknown metadata/kind skips,
+	// not fatal list-shape exceptions. The real reader retains Claude's program.
+	{release: "v0.18.0", pack: "claude", problem: `unknown field "native_sign_in"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("native_sign_in")},
+	{release: "v0.18.0", pack: "claude", problem: `unknown field "mcp_header_form"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("mcp_header_form")},
+	{release: "v0.18.0", pack: "claude", problem: `unknown field "mcp_sign_in_paste"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("mcp_sign_in_paste")},
+	{release: "v0.18.0", pack: "pi", problem: `unknown field "mcp_header_form"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("mcp_header_form")},
+	{release: "v0.18.0", pack: "slack-mcp", problem: `unknown kind "mcp-sign-in-bundle"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("mcp-sign-in-bundle")},
+
 	{release: "v0.10.0", pack: "claude", problem: "api_key_env_name",
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: firstOfList("api_key_env_name")},
@@ -436,6 +454,33 @@ func main() {
 	}
 }
 `
+
+func TestNativeSignInTablePreservesLastReleaseClaudeProgram(t *testing.T) {
+	root, release := lastRelease(t)
+	old := t.TempDir()
+	extractRelease(t, root, release, old)
+	probeDir := filepath.Join(old, "cmd", "yolo-release-decode-probe")
+	if err := os.MkdirAll(probeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(probeDir, "main.go"), []byte(releaseDecodeProbe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := buildReleaseProbe(t, goBin, old, release)
+	shipped := filepath.Join(t.TempDir(), "packs")
+	materialize(t, shipped)
+	claude := runReleaseProbe(t, probe, shipped, release)["claude"]
+	if len(claude["problems"]) != 0 || strings.Join(claude["programs"], ",") != "claude" {
+		t.Fatalf("%s lost the shipped Claude program or contributions: %v", release, claude)
+	}
+	if !strings.Contains(strings.Join(claude["skipped"], "\n"), `unknown field "native_sign_in" is ignored`) {
+		t.Fatalf("%s did not harmlessly ignore the new metadata table: %v", release, claude["skipped"])
+	}
+}
 
 // TestShippedPacksDecodeUnderTheLastRelease is the check.
 func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {

@@ -93,7 +93,8 @@ type PackSkillSource struct {
 	// Plugins are the wrapped plugin trees this pack carries INSIDE Dir, or at the pack root when
 	// Dir is empty, delivered as the host delivers them: verbatim at a namespaced tier, their
 	// skills alone (and every other component named as refused) at a flat one.
-	Plugins []*pluginpack.Plugin
+	Plugins       []*pluginpack.Plugin
+	SignInFormats map[string]string
 	// SourceOf maps a path under Dir to the file the user edits, for a collision message: the
 	// launch reads a STAGED copy of every pack. Nil is identity.
 	SourceOf func(string) string
@@ -203,7 +204,7 @@ func SkillPlan(sources []PackSkillSource, targets []SkillTarget) []hostskills.De
 				index[src.Pack] = i
 				d.Layers = append(d.Layers, hostskills.Layer{Pack: src.Pack, Description: src.Description,
 					Tier: src.Tier, Namespace: src.Namespace, BareStep: src.BareStep, Shipped: src.Shipped,
-					SourceOf: src.SourceOf})
+					SourceOf: src.SourceOf, SignInFormats: src.SignInFormats})
 			}
 			// A record with no Dir carries plugins and nothing to copy: the host's writer delivers
 			// a layer's plugins whether or not it has a source (hostskills.writeLayer).

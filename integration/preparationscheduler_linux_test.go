@@ -62,9 +62,13 @@ func TestPreparationSchedulerRealWorkerLifecycle(t *testing.T) {
 
 	owned := &preparationLifecycleOwnership{t: t}
 	t.Cleanup(owned.cleanup)
-	worker := exec.Command(yoloBin, "internal", "preparation-scheduler")
+	native := preparationNativeFixture(home, userConfig, packDir, upstream.dir)
+	usePrivateNativeFixture(t, native)
+	worker, err := preparationCommand(context.Background(), yoloBin, home, true, "internal", "preparation-scheduler")
+	if err != nil {
+		t.Fatal(err)
+	}
 	worker.Dir = work
-	worker.Env = preparationHostEnv(home)
 	workerLog, err := os.OpenFile(filepath.Join(t.TempDir(), "minute-worker.log"), os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +111,7 @@ func TestPreparationSchedulerRealWorkerLifecycle(t *testing.T) {
 		t.Fatalf("reap the direct hidden-worker fixture: %v", err)
 	}
 
-	pausedBuild := `mkfifo /workspace/hold; printf 'PAUSED_SYNTHETIC_CHILD\\n'; read ignored < /workspace/hold; printf 'PREPARED_TREE\n' > prepared.txt`
+	pausedBuild := preparationPausedNativeBuild
 	upstream.release("1.1.0", "eleven", "v1.1.0")
 	writePreparationPackRef(t, packDir, upstream.dir, "v1.1.0", pausedBuild)
 	t.Setenv("HTTP_PROXY", "synthetic-provider-secret")
@@ -174,6 +178,7 @@ func TestPreparationSchedulerRealWorkerLifecycle(t *testing.T) {
 	if err := os.WriteFile(copyBinary, binaryBytes, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	native.copyBinary = copyBinary
 	prepCLI(t, copyBinary, home, "pack", "prepare", "start")
 	waitPreparationState(t, statePath, 10*time.Second, "private binary-copy start to record its worker", func(s preparationLifecycleState) bool { return s.Worker.PID != 0 && s.Worker.StoppedAt.IsZero() })
 	state = readPreparationLifecycleState(t, statePath)
@@ -202,8 +207,11 @@ func TestPreparationSchedulerRealWorkerLifecycle(t *testing.T) {
 		t.Fatal("replacement fixture lost the original sealed build child")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	replacementStart := exec.CommandContext(ctx, copyBinary, "pack", "prepare", "start")
-	replacementStart.Dir, replacementStart.Env = bundleRoot, preparationCLIEnv(home)
+	replacementStart, err := preparationCommand(ctx, copyBinary, home, false, "pack", "prepare", "start")
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
 	replacementOutput, replacementErr := replacementStart.CombinedOutput()
 	cancel()
 	if replacementErr == nil || !strings.Contains(string(replacementOutput), "teardown still owns its lease") {
@@ -348,10 +356,6 @@ func writePreparationFixtureState(t *testing.T, path, platform string) {
 	}
 }
 
-func preparationHostEnv(home string) []string {
-	return preparationEnv(home, true)
-}
-
 func preparationCLIEnv(home string) []string {
 	return preparationEnv(home, false)
 }
@@ -373,9 +377,10 @@ func prepCLI(t *testing.T, binary, home string, args ...string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Dir = bundleRoot
-	cmd.Env = preparationCLIEnv(home)
+	cmd, err := preparationCommand(ctx, binary, home, false, args...)
+	if err != nil {
+		t.Fatal(err)
+	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
 		t.Fatalf("%s %v exceeded 20s; stop and inspect the private scheduler state:\n%s", binary, args, out)
@@ -384,6 +389,15 @@ func prepCLI(t *testing.T, binary, home string, args ...string) string {
 		t.Fatalf("%s %v: %v\n%s", binary, args, err, out)
 	}
 	return string(out)
+}
+
+func preparationCommand(ctx context.Context, binary, home string, worker bool, args ...string) (*exec.Cmd, error) {
+	cmd, err := privateNativeCommandChecked(ctx, binary, args, preparationEnv(home, worker), privateNative)
+	if err != nil {
+		return nil, err
+	}
+	cmd.Dir = bundleRoot
+	return cmd, nil
 }
 
 func readPreparationLifecycleState(t *testing.T, path string) preparationLifecycleState {

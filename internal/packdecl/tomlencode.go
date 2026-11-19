@@ -145,6 +145,15 @@ func manifestTree(m *Manifest) (*jsonx.OrderedMap, []contributionMeta, error) {
 		return nil, nil, err
 	}
 	tree := doc.Values
+	if len(m.MCPSignInFormats) > 0 {
+		tree.Set("native_sign_in", map[string]any{"formats": m.MCPSignInFormats})
+	}
+	if m.MCPHeaderForm != "" {
+		tree.Set("mcp_header_form", m.MCPHeaderForm)
+	}
+	if m.MCPSignInPaste {
+		tree.Set("mcp_sign_in_paste", true)
+	}
 	raw, _ := tree.Get("contributes")
 	items, _ := raw.([]any)
 	meta := make([]contributionMeta, len(m.Contributes))
@@ -159,6 +168,20 @@ func manifestTree(m *Manifest) (*jsonx.OrderedMap, []contributionMeta, error) {
 		}
 		meta[i].grouped = c.Origin.Format == ManifestFormatTOML
 		meta[i].replace = c.Replace
+		if c.MCPSignInBundle != nil {
+			body, err := json.Marshal(c.MCPSignInBundle)
+			if err != nil {
+				return nil, nil, err
+			}
+			bundleDoc, err := configdoc.Parse(body, configdoc.JSONC)
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, key := range bundleDoc.Values.Keys() {
+				value, _ := bundleDoc.Values.Get(key)
+				fields.Set(key, value)
+			}
+		}
 		if c.Options != nil {
 			fields.Set("options", optionTree(c.Options))
 		}

@@ -18,15 +18,16 @@ import (
 // asServer is a loopback authorization server whose refresh tokens are single-use, as the
 // owner's Slack server's are: redeeming one spends it and issues the next.
 type asServer struct {
-	mu      sync.Mutex
-	base    string
-	valid   map[string]bool
-	n       int
-	calls   []string
-	fail    string // an OAuth error code to answer with, or "" to succeed
-	status  int
-	issuer  string // the issuer the metadata names; "" means base
-	lifeSec int
+	mu        sync.Mutex
+	base      string
+	valid     map[string]bool
+	n         int
+	calls     []string
+	fail      string // an OAuth error code to answer with, or "" to succeed
+	status    int
+	issuer    string // the issuer the metadata names; "" means base
+	lifeSec   int
+	tokenType string // synthetic sender-constrained response cases
 }
 
 func newASServer(t *testing.T) *asServer {
@@ -58,7 +59,11 @@ func newASServer(t *testing.T) *asServer {
 			a.n++
 			next := fmt.Sprintf("rt-%d", a.n)
 			a.valid[next] = true
-			writeJSON(w, 200, map[string]any{"access_token": fmt.Sprintf("at-%d", a.n), "token_type": "Bearer", "expires_in": a.lifeSec, "refresh_token": next})
+			tokenType := a.tokenType
+			if tokenType == "" {
+				tokenType = "Bearer"
+			}
+			writeJSON(w, 200, map[string]any{"access_token": fmt.Sprintf("at-%d", a.n), "token_type": tokenType, "expires_in": a.lifeSec, "refresh_token": next})
 		})
 		return m
 	})

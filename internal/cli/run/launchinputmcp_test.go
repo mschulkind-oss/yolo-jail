@@ -46,7 +46,7 @@ func TestRunSnapshotsAndFreezesSelectedMCPBeforeKeeperSpawn(t *testing.T) {
 		StateDir: func(LaunchInputContext) string { return stateDir },
 		Produce: func(in LaunchInputContext) ([]byte, error) {
 			produced = true
-			if !in.MCPProven || in.MCPScopes["user"].Level != "user" || in.MCPScopes["private"].Level != "workspace" {
+			if !in.MCPProven || in.MCPSignIn == nil || in.MCPSignIn.Version != 1 || in.MCPScopes["user"].Level != "user" || in.MCPScopes["private"].Level != "workspace" {
 				return nil, fmt.Errorf("Run's selected producer lost source attribution: %+v", in.MCPScopes)
 			}
 			return []byte("synthetic-selected-input"), nil
@@ -124,6 +124,9 @@ func TestFrozenMCPForLaunchUsesOnlyProvenSelectedPackSources(t *testing.T) {
 	if !first.Proven {
 		t.Fatal("empty user selection must be provable")
 	}
+	if len(first.UserPacks) != 0 {
+		t.Fatal("non-user staged pack gained managed bundle provenance")
+	}
 	decoded, err := jsonx.Decode([]byte(first.EffectiveJSON))
 	if err != nil {
 		t.Fatal(err)
@@ -138,6 +141,9 @@ func TestFrozenMCPForLaunchUsesOnlyProvenSelectedPackSources(t *testing.T) {
 		t.Fatalf("CLI-only pack promoted to %q", got)
 	}
 	second := frozenMCPForLaunch(cfg, user, []*packload.Pack{pack}, []*packload.Pack{pack})
+	if !slices.Equal(second.UserPacks, []string{"selected"}) {
+		t.Fatal("verified user selection/order lost")
+	}
 	decoded, err = jsonx.Decode([]byte(second.UserOnlyJSON))
 	if err != nil {
 		t.Fatal(err)

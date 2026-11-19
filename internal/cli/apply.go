@@ -953,6 +953,22 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 	survey.noteNotch(notch)
 	printNotchFacts(pr, notch)
 
+	// Compose skills pack-wide before derived config reads native placement. A
+	// declaration or would-copy result alone cannot create a sign-in point.
+	candidates := append(loaded, embeddedPacksForPrune()...)
+	// Skills FIRST, deliberately. Both migrations create the local pack and both re-resolve after
+	// a confirmed one, so either order converges — but a user answering two prompts should be
+	// asked about the bigger move first, and moving a directory of skills is bigger than moving
+	// one file's prose.
+	// The lsp_servers table the composition above carries (jail-only paths already left out and
+	// named), for Claude's yolo-lsp plugin — written beside the composed skills (applyHostLSPPlugin).
+	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
+		home, stamp, write, reloadPacks, inputs.lsp, userCfg, delivery, survey); src != 0 {
+		rc = src
+		survey.noteStageFailure(stageSkills)
+	}
+	refreshHostMCPSignIn(inputs.inputs, userCfg, loaded, home)
+
 	for _, p := range loaded {
 		// Account for EVERY kind the pack declares. Three outcomes, and the invariant is that
 		// there is no fourth: named once above — as a kind `yolo host --` delivers at launch, or
@@ -1009,23 +1025,7 @@ func applyHostSurveyed(out, errw io.Writer, color bool, write bool, stdin io.Rea
 		rc = urc
 	}
 
-	// Compose the SKILLS and BRIEFING destinations, for the WHOLE pack set at once. After the
-	// per-pack loop because each destination's content is the union of every contributing pack's
-	// (§6a, §6a-2): rendering inside the loop would either accumulate or let the last pack's write
-	// erase the others' — and for `skills` it would additionally have to negotiate a name two
-	// packs both claim, which is the negotiation composition deletes (§6a-5).
-	candidates := append(loaded, embeddedPacksForPrune()...)
-	// Skills FIRST, deliberately. Both migrations create the local pack and both re-resolve after
-	// a confirmed one, so either order converges — but a user answering two prompts should be
-	// asked about the bigger move first, and moving a directory of skills is bigger than moving
-	// one file's prose.
-	// The lsp_servers table the composition above carries (jail-only paths already left out and
-	// named), for Claude's yolo-lsp plugin — written beside the composed skills (applyHostLSPPlugin).
-	if src := applyHostSkills(pr, out, stdin, loaded, candidates, active, configured, resolvedAll,
-		home, stamp, write, reloadPacks, inputs.lsp, userCfg, delivery, survey); src != 0 {
-		rc = src
-		survey.noteStageFailure(stageSkills)
-	}
+	// Compose briefing after the pack-wide skill and config passes.
 	if brc := applyHostBriefings(pr, out, stdin, loaded, candidates, active, resolvedAll,
 		home, stamp, write, reloadPacks, delivery, survey); brc != 0 {
 		rc = brc

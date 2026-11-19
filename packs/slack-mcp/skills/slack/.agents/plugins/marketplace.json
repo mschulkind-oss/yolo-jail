@@ -1,0 +1,20 @@
+{
+  "name": "slack",
+  "interface": {
+    "displayName": "Slack"
+  },
+  "plugins": [
+    {
+      "name": "slack",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

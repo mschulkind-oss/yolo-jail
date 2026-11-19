@@ -53,7 +53,10 @@ func sourcedReadinessError(dests []Destination) error {
 }
 
 func registrationContent(row packload.SourcedSkill, name string) (map[string][]byte, map[string]string) {
-	files := map[string][]byte{"SKILL.md": renamedSkill(row.Plan.Marker, name)}
+	files := map[string][]byte{}
+	if row.Plan.MarkerState != "absent" {
+		files["SKILL.md"] = renamedSkill(row.Plan.Marker, name)
+	}
 	if row.Plan.LicenseName != "" {
 		files[row.Plan.LicenseName] = row.Plan.License
 	}

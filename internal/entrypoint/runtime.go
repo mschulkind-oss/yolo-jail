@@ -36,8 +36,8 @@ var (
 var forwardSocketDir = "/tmp/yolo-fwd"
 
 // iptables DNAT rules so published ports reach services bound to 127.0.0.1.
-// Reads YOLO_PUBLISHED_PORTS (JSON array of "PORT/PROTO" strings). Silently
-// skips if iptables is unavailable (e.g. when NET_ADMIN is missing).
+// Reads YOLO_PUBLISHED_PORTS (JSON array of "PORT/PROTO" strings). A failed
+// forward is a convenience warning, never a sign-in or launch refusal.
 func setupPublishedPortLocalnet(e *Env) {
 	raw := e.Getenv("YOLO_PUBLISHED_PORTS")
 	if raw == "" {
@@ -61,6 +61,7 @@ func setupPublishedPortLocalnet(e *Env) {
 
 	iptablesBin, err := exec.LookPath("iptables")
 	if err != nil {
+		e.warn("Warning: published-port loopback forwarding is unavailable (iptables missing); run yolo check. For native MCP sign-in, paste the full callback URL into the agent's prompt.")
 		return
 	}
 
@@ -83,7 +84,7 @@ func setupPublishedPortLocalnet(e *Env) {
 		cmd.Stdout = nil
 		cmd.Stderr = nil
 		if err := runWithTimeoutSeconds(cmd, 5); err != nil {
-			e.warn("Warning: iptables DNAT for port " + port + "/" + proto + ": " + err.Error())
+			e.warn("Warning: iptables DNAT for port " + port + "/" + proto + ": " + err.Error() + "; run yolo check. For native MCP sign-in, paste the full callback URL into the agent's prompt.")
 		}
 	}
 }

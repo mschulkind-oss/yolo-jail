@@ -12,6 +12,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 func preparationFixture(t *testing.T) (string, string) {
@@ -23,44 +24,23 @@ func preparationFixture(t *testing.T) (string, string) {
 	}
 	return root, exe
 }
-func waitPreparationOwner(root string, done <-chan error, timeout time.Duration) (preparationWorker, error) {
-	deadline := time.Now().Add(timeout)
-	lastStatus := preparationUnknown
-	var lastProbeErr error
-	for time.Now().Before(deadline) {
-		select {
-		case err, ok := <-done:
-			if !ok || err == nil {
-				return preparationWorker{}, errors.New("worker exited before readiness without an error")
-			}
-			return preparationWorker{}, fmt.Errorf("worker exited before readiness: %w", err)
-		default:
-		}
-
-		record, status, err := probePreparationWorker(root)
-		lastStatus, lastProbeErr = status, err
-		if status == preparationAlive {
-			return record, nil
-		}
-		select {
-		case workerErr, ok := <-done:
-			if !ok || workerErr == nil {
-				return preparationWorker{}, errors.New("worker exited before readiness without an error")
-			}
-			return preparationWorker{}, fmt.Errorf("worker exited before readiness: %w", workerErr)
-		default:
-		}
-		time.Sleep(time.Millisecond)
-	}
+func waitPreparationOwner(root string, ready <-chan preparationWorker, done <-chan error, timeout time.Duration) (preparationWorker, error) {
+	guard := time.NewTimer(timeout)
+	defer guard.Stop()
 	select {
+	case record := <-ready:
+		return record, nil
 	case err, ok := <-done:
 		if !ok || err == nil {
 			return preparationWorker{}, errors.New("worker exited before readiness without an error")
 		}
 		return preparationWorker{}, fmt.Errorf("worker exited before readiness: %w", err)
-	default:
+	case <-guard.C:
+		// Probe only after the failure guard, never while the owner is starting:
+		// even a free-lease probe briefly locks out the owner's NoWait acquire.
+		_, status, err := probePreparationWorker(root)
+		return preparationWorker{}, fmt.Errorf("worker not ready after %s (last probe status=%s, error=%v)", timeout, status, err)
 	}
-	return preparationWorker{}, fmt.Errorf("worker not ready after %s (last probe status=%s, error=%v)", timeout, lastStatus, lastProbeErr)
 }
 
 func TestPreparationReadinessReportsStartupFailure(t *testing.T) {
@@ -69,10 +49,11 @@ func TestPreparationReadinessReportsStartupFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil })
+		done <- runPreparationWorkerReady(ctx, root, exe, nil, func(context.Context) error { return nil }, func(r preparationWorker) { ready <- r })
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -82,7 +63,7 @@ func TestPreparationReadinessReportsStartupFailure(t *testing.T) {
 			t.Error("startup worker did not exit")
 		}
 	})
-	_, err := waitPreparationOwner(root, done, 3*time.Second)
+	_, err := waitPreparationOwner(root, ready, done, 3*time.Second)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("readiness error %v does not preserve the startup failure", err)
 	}
@@ -90,13 +71,13 @@ func TestPreparationReadinessReportsStartupFailure(t *testing.T) {
 
 func TestPreparationReadinessTimeoutRetainsProbeDiagnostic(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "scheduler")
-	_, err := waitPreparationOwner(root, make(chan error), 5*time.Millisecond)
+	_, err := waitPreparationOwner(root, make(chan preparationWorker), make(chan error), 5*time.Millisecond)
 	if err == nil || !strings.Contains(err.Error(), "last probe status=gone") || !strings.Contains(err.Error(), "error=<nil>") {
 		t.Fatalf("timeout did not retain last probe status and error: %v", err)
 	}
 }
 
-func awaitPreparationOwner(t *testing.T, root string, done <-chan error, cancel context.CancelFunc) preparationWorker {
+func awaitPreparationOwner(t *testing.T, root string, ready <-chan preparationWorker, done <-chan error, cancel context.CancelFunc) preparationWorker {
 	t.Helper()
 	t.Cleanup(func() {
 		cancel()
@@ -109,9 +90,13 @@ func awaitPreparationOwner(t *testing.T, root string, done <-chan error, cancel 
 			t.Error("preparation worker did not exit after cancellation")
 		}
 	})
-	record, err := waitPreparationOwner(root, done, 3*time.Second)
+	record, err := waitPreparationOwner(root, ready, done, 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
+	}
+	actual, status, err := probePreparationWorker(root)
+	if err != nil || status != preparationAlive || actual.Identity != record.Identity {
+		t.Fatalf("ready event did not identify the authenticated lease owner: callback=%+v actual=%+v status=%s error=%v", record, actual, status, err)
 	}
 	return record
 }
@@ -121,12 +106,13 @@ func TestPreparationWakeStopAndIncarnation(t *testing.T) {
 	defer cancel()
 	ticks := make(chan time.Time)
 	started := make(chan struct{}, 2)
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, ticks, func(ctx context.Context) error { started <- struct{}{}; <-ctx.Done(); return ctx.Err() })
+		done <- runPreparationWorkerReady(ctx, root, exe, ticks, func(ctx context.Context) error { started <- struct{}{}; <-ctx.Done(); return ctx.Err() }, func(r preparationWorker) { ready <- r })
 	}()
-	r := awaitPreparationOwner(t, root, done, cancel)
+	r := awaitPreparationOwner(t, root, ready, done, cancel)
 	if err := controlPreparationWorker(ctx, root, "stale", "stop"); err == nil {
 		t.Fatal("stale incarnation accepted")
 	}
@@ -166,12 +152,13 @@ func TestPreparationReplacementDrainsAndBlocksDispatch(t *testing.T) {
 	ticks := make(chan time.Time)
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { started <- struct{}{}; <-release; return nil })
+		done <- runPreparationWorkerReady(ctx, root, exe, ticks, func(context.Context) error { started <- struct{}{}; <-release; return nil }, func(r preparationWorker) { ready <- r })
 	}()
-	r := awaitPreparationOwner(t, root, done, cancel)
+	r := awaitPreparationOwner(t, root, ready, done, cancel)
 	ticks <- time.Now()
 	<-started
 	if err := controlPreparationWorker(ctx, root, r.Identity, "replace"); err != nil {
@@ -221,13 +208,14 @@ func TestPreparationTimerChecksSelectedExecutable(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ticks := make(chan time.Time)
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	calls := make(chan struct{}, 2)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { calls <- struct{}{}; return nil })
+		done <- runPreparationWorkerReady(ctx, root, exe, ticks, func(context.Context) error { calls <- struct{}{}; return nil }, func(r preparationWorker) { ready <- r })
 	}()
-	awaitPreparationOwner(t, root, done, cancel)
+	awaitPreparationOwner(t, root, ready, done, cancel)
 	ticks <- time.Now()
 	select {
 	case <-calls:
@@ -335,6 +323,35 @@ func startReadyPreparationOwner(t *testing.T, root, exe string) (preparationWork
 	return preparationWorker{}, nil, nil
 }
 
+func TestPreparationReadyEventProvesLeaseRecordAndEndpoint(t *testing.T) {
+	generousPreparationControl(t)
+	root, exe := preparationFixture(t)
+	owner, done, cancel := startReadyPreparationOwner(t, root, exe)
+	defer cancel()
+	lock, err := pidlock.Acquire(filepath.Join(root, "worker.lock"), pidlock.NoWait, nil)
+	if err == nil {
+		lock.Release()
+		t.Fatal("ready was published before the kernel lease was owned")
+	}
+	if !errors.Is(err, pidlock.ErrHeld) {
+		t.Fatalf("ready lease is unproven: %v", err)
+	}
+	state, err := loadPreparationStateAt(root)
+	if err != nil || owner.Identity == "" || state.Worker.Identity != owner.Identity || state.Worker.Executable != exe || state.Worker.PID != os.Getpid() {
+		t.Fatalf("ready record differs from the real owner: callback=%+v state=%+v error=%v", owner, state.Worker, err)
+	}
+	if err := controlPreparationWorker(context.Background(), root, owner.Identity, "status"); err != nil {
+		t.Fatalf("ready endpoint cannot authenticate its owner: %v", err)
+	}
+	if err := runPreparationWorker(context.Background(), root, exe, nil, func(context.Context) error { t.Fatal("competing lease dispatched"); return nil }); !errors.Is(err, pidlock.ErrHeld) {
+		t.Fatalf("competing owner was not refused by the genuine kernel lease: %v", err)
+	}
+	cancel()
+	if err := awaitPreparationExit(t, done); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPreparationNewLeaseRejectsPriorIdentity(t *testing.T) {
 	generousPreparationControl(t)
 	root, exe := preparationFixture(t)
@@ -365,12 +382,13 @@ func TestPreparationConcurrentLeaseDoesNotDispatch(t *testing.T) {
 	root, exe := preparationFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { return nil })
+		done <- runPreparationWorkerReady(ctx, root, exe, nil, func(context.Context) error { return nil }, func(r preparationWorker) { ready <- r })
 	}()
-	r := awaitPreparationOwner(t, root, done, cancel)
+	r := awaitPreparationOwner(t, root, ready, done, cancel)
 	if err := runPreparationWorker(ctx, root, exe, nil, func(context.Context) error { t.Fatal("duplicate dispatch"); return nil }); !errors.Is(err, pidlock.ErrHeld) {
 		t.Fatalf("%v", err)
 	}
@@ -410,12 +428,13 @@ func TestPreparationUnreadableExecutableStopsBeforeDispatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ticks := make(chan time.Time)
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { t.Error("unproven executable dispatched"); return nil })
+		done <- runPreparationWorkerReady(ctx, root, exe, ticks, func(context.Context) error { t.Error("unproven executable dispatched"); return nil }, func(r preparationWorker) { ready <- r })
 	}()
-	awaitPreparationOwner(t, root, done, cancel)
+	awaitPreparationOwner(t, root, ready, done, cancel)
 	if err := os.Remove(exe); err != nil {
 		t.Fatal(err)
 	}
@@ -435,12 +454,36 @@ func TestPreparationSlowAuthenticatedClientDoesNotDelayStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ticks := make(chan time.Time)
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { return nil })
+		done <- runPreparationWorkerReady(ctx, root, exe, ticks, func(context.Context) error { return nil }, func(owner preparationWorker) {
+			ready <- owner
+		})
 	}()
-	owner := awaitPreparationOwner(t, root, done, cancel)
+	t.Cleanup(func() {
+		cancel()
+		if err := <-done; err != nil && !errors.Is(err, context.Canceled) {
+			t.Error(err)
+		}
+	})
+	deadline := time.NewTimer(testsupport.ReadinessBudget(t))
+	defer deadline.Stop()
+	var owner preparationWorker
+	select {
+	case owner = <-ready:
+	case err := <-done:
+		t.Fatalf("worker exited before owned readiness: %v", err)
+	case <-deadline.C:
+		t.Fatal("worker did not publish owned readiness")
+	}
+	// The production callback follows lease acquisition and endpoint serving. Authenticate
+	// that incarnation only now: a pre-acquisition probe can briefly steal its startup lease.
+	recorded, status, err := probePreparationWorker(root)
+	if err != nil || status != preparationAlive || recorded.Identity != owner.Identity || owner.Identity == "" {
+		t.Fatalf("readiness did not identify the authenticated lease owner: callback=%+v recorded=%+v status=%s err=%v", owner, recorded, status, err)
+	}
 	slow, err := svcendpoint.DialLocal(filepath.Join(root, "control.endpoint"), time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -466,11 +509,12 @@ func startAuthenticatedPreparationOwner(t *testing.T, root string) preparationWo
 	t.Helper()
 	_, exe := preparationFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
+	ready := make(chan preparationWorker, 1)
 	done := make(chan error, 1)
 	ticks := make(chan time.Time)
 	go func() {
 		defer close(done)
-		done <- runPreparationWorker(ctx, root, exe, ticks, func(context.Context) error { return nil })
+		done <- runPreparationWorkerReady(ctx, root, exe, ticks, func(context.Context) error { return nil }, func(r preparationWorker) { ready <- r })
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -478,5 +522,5 @@ func startAuthenticatedPreparationOwner(t *testing.T, root string) preparationWo
 			t.Error(err)
 		}
 	})
-	return awaitPreparationOwner(t, root, done, cancel)
+	return awaitPreparationOwner(t, root, ready, done, cancel)
 }

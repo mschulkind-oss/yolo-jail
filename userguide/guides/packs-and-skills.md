@@ -161,6 +161,64 @@ stops and says why; `"host_floor": {"<pack>": false}` lets it run your own copy 
 If your fork is a few changes on top of someone else's project, yolo can keep them on its newest
 release for you instead: see [Follow an Upstream with a Patch Series](patch-series.md).
 
+## Select only skills from a pack
+
+On the host, narrow a user pack without writing a wrapper pack or installing it per project:
+
+```bash
+yolo pack add local/corpus --skills-dir skills/core-tools --only skill-a --only skill-b --dry-run
+yolo pack add local/corpus --skills-dir skills/core-tools --only skill-a --only skill-b
+yolo config check
+yolo pack explain local/corpus
+```
+
+This writes a table in **user TOML**, so every workspace gets the same selection. The named
+folder is `~/.config/yolo-jail/packs/corpus`; for a Git repository, use
+`yolo pack add --git <url> --ref <ref>` with the same options. A project cannot select packs.
+
+With `--skills-dir`, yolo treats that directory as raw data and never interprets its original
+manifest or plugin metadata. A direct regular `SKILL.md` makes the root one candidate;
+otherwise only immediate marker-bearing children qualify. Shared or deeper directories are
+not recursively registered. `--only` and `--exclude` are repeatable candidate-name globs,
+not the old JSONC file filters.
+
+For a real pack's declared skills, omit `--skills-dir` and use `--only`/`--exclude` instead.
+Typed mode keeps selected ordinary folders, including a folder with no marker, and selected
+manifest sourced aliases with their own ref, license and audience. A markerless folder is
+delivered but not counted as a discoverable skill; yolo never invents its marker.
+`--subdir` relocates the pack root; **without skill selectors it still imports the whole pack**.
+
+A scoped import activates no programs, needs, hooks, briefing, native plugins, MCP services or
+host capabilities. Supporting bytes remain inert. A payload-backed script can read repository
+siblings through some linked paths, but skill deployment does not install workspace dependencies
+or guarantee arbitrary relative marker paths.
+
+Explain prints every matching import tuple, its origin/index/roots, and what available content
+proves. It writes/fetches nothing. Missing content is “selection not yet verified; resolved at
+next launch”, with no guessed names or counts. Scoped Check and scoped add dry-run use the same
+pure inspection; ordinary whole entries in Check keep their existing readiness staging.
+Optional local license/support details can remain “determined at publication”.
+
+A stale selector refuses rather than silently widening. After a branch advances, the new pin
+may be recorded even though selection fails; the old running tree stays unchanged. Use
+`yolo config set` to edit the selector or choose a known-good full ref, check the config, then
+restart. A selection-only change also needs a restart, not a refetch.
+
+```bash
+yolo config why 'packs[1].skills.only[0]'
+yolo config set 'packs[1].skills.only[0]' '"skill-c"' --user
+yolo pack remove local/corpus --skills-dir skills/core-tools
+```
+
+Removal drops at most one authored tuple. Ambiguous handles name indices and roots to choose;
+fragment origins and neighboring comments are preserved. Legacy filtered files are retained by
+migration: old path globs and modern name selectors are not automatically equivalent.
+
+This is distinct from a pack manifest's Git-sourced `[[skills]]` rows and from workspace
+`skill_imports`; it adds no broker grant or workspace pack authority. The
+[implemented reference](https://github.com/mschulkind-oss/yolo-jail/blob/main/docs/reference/toml-scoped-pack-imports/README.md)
+explains the shared carriers, recorded replay and verification limits.
+
 ## Check a pack before you trust it
 
 A pack can read files from your home, install programs, and ship a loophole that runs a program on

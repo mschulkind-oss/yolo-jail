@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -57,9 +59,57 @@ func (s SourceStore) sleep(d time.Duration) {
 
 func (s SourceStore) open() (*os.Root, error) {
 	if !validLeaf(s.File) || !validLeaf(s.LockDir) {
-		return nil, errors.New("mcp-auth: source store and lock names must be single path components")
+		return nil, fmt.Errorf("%w: mcp-auth: source store and lock names must be single path components", fs.ErrInvalid)
 	}
 	return paths.OpenStateDirRoot(s.Dir)
+}
+
+type SourceState string
+
+const (
+	SourceParsed      SourceState = "parsed"
+	SourceAbsent      SourceState = "absent"
+	SourceMalformed   SourceState = "malformed"
+	SourceUnsafe      SourceState = "unsafe"
+	SourceUnavailable SourceState = "unavailable"
+)
+
+type SourceSnapshot struct {
+	State   SourceState
+	Entries map[string]json.RawMessage
+	Err     error
+}
+
+var errSourceMalformed = errors.New("mcp-auth: source store is malformed")
+var errSourceUnsafe = errors.New("mcp-auth: source store is unsafe")
+
+// Snapshot is the shared classification for adoption and status. Only a clean
+// parsed snapshot proves an entry disappeared; missing/unsafe/torn bytes do not.
+func (s SourceStore) Snapshot() SourceSnapshot {
+	root, err := s.open()
+	if err != nil {
+		return sourceReadFailure(err)
+	}
+	defer root.Close()
+	entries, _, err := s.readIn(root)
+	if err != nil {
+		return sourceReadFailure(err)
+	}
+	return SourceSnapshot{State: SourceParsed, Entries: entries}
+}
+
+func sourceReadFailure(err error) SourceSnapshot {
+	state := SourceUnavailable
+	var linked *paths.LinkedStateDirError
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		state = SourceAbsent
+	case errors.Is(err, errSourceMalformed):
+		state = SourceMalformed
+	case errors.Is(err, errSourceUnsafe), errors.As(err, &linked), errors.Is(err, syscall.EINVAL), errors.Is(err, syscall.ELOOP), errors.Is(err, syscall.ENOTDIR), errors.Is(err, fs.ErrInvalid):
+		state = SourceUnsafe
+	}
+	return SourceSnapshot{State: state, Err: err}
 }
 
 // Read returns a snapshot of the entries map without taking the lock: the agent replaces the
@@ -68,26 +118,30 @@ func (s SourceStore) open() (*os.Root, error) {
 // any of them for a sign-out (OQ-MA4 needs a cleanly parsed store). An absent entries map in a
 // parsed file is an empty one.
 func (s SourceStore) Read() (map[string]json.RawMessage, bool, error) {
-	root, err := s.open()
-	if err != nil {
-		return nil, false, err
-	}
-	defer root.Close()
-	entries, _, err := s.readIn(root)
-	if err != nil {
-		return nil, false, err
-	}
-	return entries, true, nil
+	snapshot := s.Snapshot()
+	return snapshot.Entries, snapshot.State == SourceParsed, snapshot.Err
 }
 
 func (s SourceStore) readIn(root *os.Root) (map[string]json.RawMessage, map[string]json.RawMessage, error) {
-	data, err := paths.ReadRegularFileBeneath(root, s.File)
+	file, err := paths.OpenRegularFileBeneath(root, s.File)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, nil, err
+	}
+	if info.Mode().Perm()&0077 != 0 {
+		return nil, nil, errSourceUnsafe
+	}
+	data, err := io.ReadAll(file)
 	if err != nil {
 		return nil, nil, err
 	}
 	doc, err := decodeObject(data)
 	if err != nil {
-		return nil, nil, fmt.Errorf("mcp-auth: source store is not a JSON object")
+		return nil, nil, fmt.Errorf("%w: not a JSON object", errSourceMalformed)
 	}
 	raw, err := rawAtPath(doc, s.EntriesAt)
 	if err != nil {
@@ -105,11 +159,11 @@ func (s SourceStore) readIn(root *os.Root) (map[string]json.RawMessage, map[stri
 				break
 			}
 		}
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("%w: entries path is not an object", errSourceMalformed)
 	}
 	entries, err := decodeObject(raw)
 	if err != nil {
-		return nil, nil, fmt.Errorf("mcp-auth: source store's entries are not an object")
+		return nil, nil, fmt.Errorf("%w: entries are not an object", errSourceMalformed)
 	}
 	return entries, doc, nil
 }

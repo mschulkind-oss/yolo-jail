@@ -35,6 +35,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 	"github.com/mschulkind-oss/yolo-jail/internal/packname"
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
 )
@@ -52,6 +53,8 @@ type PluginRequest struct {
 	BareStep string
 	// Plugin is the recognized tree.
 	Plugin *pluginpack.Plugin
+	// SignInFormat is set only by a selected native bundle declaration.
+	SignInFormat string
 	// SkillsDir is the absolute destination skills dir (the tool's own).
 	SkillsDir string
 	// Tier is the DECLARED tier of that destination; ProbeTier decides what is used.
@@ -108,6 +111,10 @@ func DeliverPlugin(req PluginRequest) ([]Result, error) {
 			Detail: "plugin delivery downgraded to flat skills — " + downgrade,
 		})
 	}
+	if req.SignInFormat != "" && tier != TierNamespaced {
+		out = append(out, Result{Name: name, Path: filepath.Join(req.SkillsDir, name), Action: ActionRefused,
+			Detail: "sign-in bundle not delivered: this destination accepts flat skills only; use a supported native-plugin destination, then relaunch"})
+	}
 	if tier == TierNamespaced {
 		res, err := deliverPluginTree(req, name)
 		return append(out, res...), err
@@ -126,6 +133,14 @@ func plainPluginName(name string) bool {
 // contents and manifest included, and the tool loads it in place.
 func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 	dest := filepath.Join(req.SkillsDir, name)
+	var original mcpsignin.Inventory
+	if req.SignInFormat != "" {
+		var err error
+		original, err = readPluginSignIn(req.Plugin.Dir, req.SignInFormat)
+		if err != nil {
+			return signInDeliveryRefused(name, dest, err), nil
+		}
+	}
 
 	// A plugin NAME is exclusive at a destination even though `skills` as a kind merges: two
 	// packs wrapping plugins that call themselves the same thing want one directory, and
@@ -214,13 +229,26 @@ func deliverPluginTree(req PluginRequest, name string) ([]Result, error) {
 		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
 	}
-	if err := copyTree(req.Plugin.Dir, dest); err != nil {
+	if err := copyPluginTree(req.Plugin.Dir, dest); err != nil {
 		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
 	}
 	if err := markManifest(dest, req.Plugin.ManifestRel(), req.mark(name)); err != nil {
 		out[0].Action, out[0].Detail, out[0].WouldChange = ActionRefused, err.Error(), false
 		return out, nil
+	}
+	if req.SignInFormat != "" {
+		delivered, err := readPluginSignIn(dest, req.SignInFormat)
+		if err == nil {
+			err = mcpsignin.CheckPreserved(original, delivered)
+		}
+		if err != nil {
+			// This is the fresh, owned copy, never a foreign destination.
+			if removeErr := os.RemoveAll(dest); removeErr != nil {
+				err = fmt.Errorf("%v; failed to remove refused copy: %v", err, removeErr)
+			}
+			return signInDeliveryRefused(name, dest, err), nil
+		}
 	}
 	return out, nil
 }

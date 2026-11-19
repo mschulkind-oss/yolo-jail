@@ -5,3 +5,6 @@
 chrome-devtools/home/.local/share/yolo-chrome-devtools/chrome-devtools-mcp-wrapper
 hello-daemon/loopholes/hello-daemon/bin/hello
 muse-planner/home/.pi/agent/bin/muse-planner-exec.sh
+slack-mcp/skills/slack/scripts/changeset_version.sh
+slack-mcp/skills/slack/skills/deploy-slack-app/references/deploy-heroku.sh
+slack-mcp/skills/slack/skills/deploy-slack-app/references/deploy-railway.sh
