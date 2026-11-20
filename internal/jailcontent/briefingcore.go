@@ -27,13 +27,11 @@ const corePortListMax = 4
 // coreLines are the core's bullets and its pointer, after the header and any alert.
 func coreLines(in BriefingInput, v briefingView, topics []BriefingTopic) []string {
 	lines := []string{coreWorkspaceLine(in, v), coreSurvivesLine(in, v), coreNetworkLine(in, v), coreNotInHereLine(in)}
-	// The three rules the host-requests topic opens with: approvals are the human's, commands go
-	// on their own lines, and a background waiter follows. A refusal prints the menu; it cannot
-	// make the agent relay it.
-	lines = append(lines, "- **Asking the human**: relay a refusal's whole menu, each command alone in a "+
-		"code block; run `yolo wait <id>` in the background and retry once on exit 0. "+
-		"`yolo approve`, `yolo config apply` and `yolo allow` are the human's to run; anything "+
-		"else only the host can do: `yolo host-run`.")
+	// The host-requests topic carries the procedure; this always-loaded line makes the host-only
+	// trigger visible before the refusal and approval reminders.
+	lines = append(lines, "- **Host-only work**: Need host environment/capability? Request `yolo host-run`; "+
+		"no confinement bypass or human handoff. Relay full refusal menu; one command per code block. "+
+		"Background `yolo wait <id>`; retry once on exit 0. Human runs `yolo approve`, `yolo config apply`, `yolo allow`.")
 	if blocked := coreBlockedLine(in.BlockedTools); blocked != "" {
 		lines = append(lines, blocked)
 	}
