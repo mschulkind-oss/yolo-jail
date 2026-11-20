@@ -191,8 +191,9 @@ func TestStagedBriefingCarriesGoCacheRuleUnlessSealed(t *testing.T) {
 	home := packHome(t)
 	writeUserPacks(t, home, `["claude"]`)
 	body := stagedClaudeBriefing(t, home, nil)
-	if !strings.Contains(body, "- **Go cache**:") || !strings.Contains(body, "`~/.cache/go-build`") {
-		t.Errorf("staged container briefing must carry the Go cache rule:\n%s", body)
+	const rule = "- **Go cache**: keep shared `GOCACHE` and owner overrides; no repo/worktree/agent/version caches or routine `go env -w`/`go clean -cache` (tell workers). If unwritable, read the storage topic."
+	if !strings.Contains(body, rule) || strings.Contains(body, "~/.cache/go-build") {
+		t.Errorf("staged container briefing must carry the concise rule and leave details to the storage topic:\n%s", body)
 	}
 	sealed := sealedBriefingInput(jailcontent.BriefingInput{Workspace: "/w", Mechanism: "podman", SharedGoCache: true})
 	if sealed.SharedGoCache {
