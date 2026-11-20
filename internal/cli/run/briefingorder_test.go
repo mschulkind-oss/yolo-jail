@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/ioprio"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 )
 
 // THE USER BLOCK COMES FIRST (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, the owner's ruling BD-D11). Each
@@ -183,5 +184,18 @@ func TestAnAttachReadsEachPacksOriginBackFromTheTree(t *testing.T) {
 	}
 	if !shipped["github"] || shipped["mine"] {
 		t.Errorf("read back from the tree, github is shipped and mine is not: %v", shipped)
+	}
+}
+
+func TestStagedBriefingCarriesGoCacheRuleUnlessSealed(t *testing.T) {
+	home := packHome(t)
+	writeUserPacks(t, home, `["claude"]`)
+	body := stagedClaudeBriefing(t, home, nil)
+	if !strings.Contains(body, "- **Go cache**:") || !strings.Contains(body, "`~/.cache/go-build`") {
+		t.Errorf("staged container briefing must carry the Go cache rule:\n%s", body)
+	}
+	sealed := sealedBriefingInput(jailcontent.BriefingInput{Workspace: "/w", Mechanism: "podman", SharedGoCache: true})
+	if sealed.SharedGoCache {
+		t.Error("sealedBriefingInput must clear SharedGoCache")
 	}
 }

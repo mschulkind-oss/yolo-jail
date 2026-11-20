@@ -198,6 +198,10 @@ type BriefingInput struct {
 	// filesystem, so its roots are real and it never sets this.
 	HostNix bool
 
+	// SharedGoCache is true when Go is present and shares a machine-wide build cache across
+	// workspaces (baked into container images, or on PATH on macos-user; false when sealed).
+	SharedGoCache bool
+
 	// Persistence is the launch's persistence map (persistence.go): which paths survive a
 	// restart, which are shared by every workspace, and which are gone once the jail
 	// exits. The run pipeline builds it from the definitions the mount argv reads, and it
