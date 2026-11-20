@@ -386,3 +386,36 @@ func TestATOMLProjectBesideAConvertedUserFileGainsNoRemoteTable(t *testing.T) {
 		t.Fatalf("the proof read the TOML project's line on the second remote: %s", p.canonical.grants)
 	}
 }
+
+// A wildcard in a JSONC `brokered.<source>.repos` list (like `*/*`) retains the file unconverted
+// while Plan succeeds (so other files can still convert). Transcript must name the retained entry
+// rather than claiming there is no old-format file to migrate.
+func TestAJSONCBrokeredReposWildcardIsRetainedAndNamedInTranscript(t *testing.T) {
+	project := `{"brokered": {"github": {"repos": ["*/*"]}}}`
+	dir, ws, _ := jsoncWorkspace(t, project, "origin", "https://github.com/acme/app.git")
+	g, err := Discover(Request{UserConfigDir: dir, Workspace: ws})
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+	p, err := Plan(g)
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if !p.Equal {
+		t.Fatalf("Plan: equal=false, want true")
+	}
+	named := false
+	for _, n := range p.NotConverted {
+		named = named || n.Path == "brokered.github.repos"
+	}
+	if !named {
+		t.Fatalf("NotConverted does not name brokered.github.repos: %+v", p.NotConverted)
+	}
+	tr := p.Transcript()
+	if strings.Contains(tr, "No config file here is in the old format") {
+		t.Fatalf("transcript falsely claims no file is in the old format:\n%s", tr)
+	}
+	if !strings.Contains(tr, "brokered.github.repos") || !strings.Contains(tr, "not converted:") {
+		t.Fatalf("transcript does not name retained brokered.github.repos:\n%s", tr)
+	}
+}

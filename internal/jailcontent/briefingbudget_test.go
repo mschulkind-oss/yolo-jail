@@ -54,12 +54,14 @@ func referenceFactSheets() map[string]BriefingInput {
 	podman.Durable = &DurableDir{Path: "/workspace/.yolo/durable"}
 	podman.ContextMounts = []ContextMount{{Path: "/ctx/host-yolo-logs", Host: "/home/someone/.local/share/yolo-jail/logs", Optional: true}}
 	podman.HostNix = true
+	podman.SharedGoCache = true
 
 	ac := common("apple-container-self")
 	ac.Mechanism, ac.IsMacOS, ac.AppliedNetMode = "container", true, "bridge"
 	ac.Persistence = appleContainerShapedMap()
 	ac.Durable = &DurableDir{Path: "/workspace/.yolo/durable"}
 	ac.ContextMounts = []ContextMount{{Path: "/ctx/notes", Host: "/Users/someone/notes"}}
+	ac.SharedGoCache = true
 
 	native := func(name string) BriefingInput {
 		in := common(name)

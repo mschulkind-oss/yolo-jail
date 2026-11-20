@@ -162,3 +162,28 @@ func TestTheRgWarningNeedsAnRgBlock(t *testing.T) {
 // coreAnchor opens the core's bullets: what follows the header and any alert. It replaces the
 // "## Environment" heading the pre-diet body opened with, as the boundary tests measure from.
 const coreAnchor = "- **Workspace**"
+
+func TestGoCacheCoreLine(t *testing.T) {
+	without := BriefingContent(BriefingInput{Workspace: "/w"})
+	if strings.Contains(without, "**Go cache**") {
+		t.Errorf("SharedGoCache=false must not emit Go cache rule:\n%s", without)
+	}
+	container := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "podman", SharedGoCache: true})
+	for _, want := range []string{
+		"- **Go cache**:",
+		"`~/.cache/go-build`",
+		"no per-repo/worktree/agent/version dirs",
+		"tell workers",
+		"`GOCACHE`/`GOENV`/`GOCACHEPROG`/script overrides",
+		"`go env -w`/`go clean -cache`",
+		"Report unwritable default; no worktree cache",
+	} {
+		if !strings.Contains(container, want) {
+			t.Errorf("container Go cache line missing %q:\n%s", want, container)
+		}
+	}
+	native := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: "macos-user", SharedGoCache: true})
+	if !strings.Contains(native, "`~/Library/Caches/go-build`") {
+		t.Errorf("native Go cache line must name ~/Library/Caches/go-build:\n%s", native)
+	}
+}

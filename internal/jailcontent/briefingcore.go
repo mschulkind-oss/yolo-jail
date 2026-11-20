@@ -37,6 +37,9 @@ func coreLines(in BriefingInput, v briefingView, topics []BriefingTopic) []strin
 	if blocked := coreBlockedLine(in.BlockedTools); blocked != "" {
 		lines = append(lines, blocked)
 	}
+	if goCache := coreGoCacheLine(in, v); goCache != "" {
+		lines = append(lines, goCache)
+	}
 	return append(lines, "", corePointer(in, topics), "")
 }
 
@@ -211,6 +214,22 @@ func joinAnd(names []string) string {
 		return names[0]
 	}
 	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// coreGoCacheLine states the Go build-cache rule when Go is present with a shared cache:
+// keep the default shared GOCACHE, preserve explicit owner overrides, and never invent
+// per-repo/worktree/agent/version dirs or run go env -w / go clean -cache routinely.
+func coreGoCacheLine(in BriefingInput, v briefingView) string {
+	if !in.SharedGoCache {
+		return ""
+	}
+	cachePath := "~/.cache/go-build"
+	if v.native {
+		cachePath = "~/Library/Caches/go-build"
+	}
+	return "- **Go cache**: keep default `GOCACHE` (`" + cachePath + "`); no per-repo/worktree/agent/version dirs (tell workers). " +
+		"Keep owner `GOCACHE`/`GOENV`/`GOCACHEPROG`/script overrides; no routine `go env -w`/`go clean -cache`. " +
+		"Report unwritable default; no worktree cache."
 }
 
 // corePointer is the core's last line: the one place it names the skill that holds the rest

@@ -253,6 +253,7 @@ Its bullets, from `jailcontent.coreLines`, are each conditional on the fact they
 | **Not in here**: the host's credentials, sudo, the host's home, and where shared host directories are | Agents spend turns hunting for `~/.ssh` or trying `sudo` |
 | **Asking the human**: relay a refusal's whole menu, each command alone in a code block, `yolo wait` in the background, which commands are the human's, and `yolo host-run` | A refusal prints the menu; it cannot make the agent relay it |
 | **Blocked here**, only when a selected pack blocks a tool | Names each block's replacement and groups the guards by kind; the `rg -r` trap is stated only when a replacement is `rg` ([BD-D7](#BD-D7)) |
+| **Go cache**, only when Go is present with a shared cache | Agents invent per-worktree or per-agent `GOCACHE` directories or run `go clean -cache`, defeating the shared cache |
 
 **The pointer** closes the core (`jailcontent.corePointer`): read the `jail-mechanics` skill
 before editing config, asking for a restart, or diagnosing a refusal, then the topic files this
