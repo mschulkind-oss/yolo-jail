@@ -2,15 +2,25 @@
 title: "One trace per launch: where startup time goes, and how to see it"
 status: accepted
 stage: DECIDED
-next: "Complete the plan against the tree, then build step 1: identity, the trace directory and the text summary"
+next: "Restamp the grounded partial plan, reuse completed foundations and offline readers/encoders, and build the remaining collection, ingestion, retention, and explicit export behavior"
 tags: [observability, timing, tracing, startup, perf]
 summary: "Turns the existing timing spans into one trace per launch that follows the launch across every process it starts, fills the stretches no span covers today, and reads it back as a text summary and an exported timeline for an off-the-shelf viewer."
 ---
 
 # One trace per launch: where startup time goes, and how to see it
 
-**Status:** 2026-11-19. Every question ruled the same day; nothing built. Code claims verified at `f6f13e87d`; the measurements are two
-launches read from the maintainer's own `host-perf.log` the same day ([Appendix A](#appendix-a-two-measured-launches)).
+**Status:** 2026-11-20. [OQ-TR1–4](#decision-ledger) remain settled; **Needs your ruling: None**.
+Source evidence supplied at `979ed329ad5dba45c9f776a54acd1de7246f0a8e`
+(tree `ad948e64dcf84197e4b5ab8c65b0fd29c847aac2`) establishes partial implementation:
+U1 identity/recorder foundations, U2 host-format reader/graph/summary, U5 immediate jail-writing
+foundations, U3 Chrome/OTLP encoders, and U4a offline list/show exist. Production recording still
+uses the legacy collector initialization. Production collection, bounded admission/retention,
+safe live ingestion/refresh, and the export command remain unbuilt.
+
+This is source evidence, not a test, backend, runtime, or overhead pass. The two measured launches
+in [Appendix A](#appendix-a-two-measured-launches) remain historical timing observations, not
+measurements of this tracing implementation. The 10 ms host and 5 ms boot budgets still require
+the benchmark and recorded on/off evidence specified in [§8](#8-gates-and-the-overhead-budget).
 
 > **In short.** yolo already times most of a launch, but as flat lines in six files with no way to
 > say which process, which launch or which parent a line belongs to. Giving every line a trace
@@ -34,9 +44,11 @@ two existing log formats.
 
 **Needs your ruling:** None.
 
-**Reads with:** [`startup-tracing-plan.md`](startup-tracing-plan.md) (the implementation plan's
-seed, still a sketch: the planner completes it against the tree), [`perf-logging.md`](../reference/perf-logging.md)
-(the reference for the timing system this extends; its principles P1 to P5 hold unchanged).
+**Reads with:** [`startup-tracing-plan.md`](startup-tracing-plan.md) (a tree-grounded partial
+implementation plan whose status, completed U3/U4a slices, and remaining handoffs must be
+restamped against the candidate; this design amendment does not rewrite its tasks),
+[`perf-logging.md`](../reference/perf-logging.md) (the reference for the timing system this
+extends; its principles P1 to P5 hold unchanged).
 
 ---
 
@@ -166,70 +178,229 @@ A process joins a trace only when its parent hands it the context deliberately:
 | Boundary | Carrier |
 | :--- | :--- |
 | Launcher to keeper | a field in the keeper's plan, beside the recording gate it already carries |
-| Launcher or keeper to a host service it starts | the child's environment |
-| Launcher to a capture jail or build jail's launch, which runs in the launcher's own process | a field on the launch options; the sub-launch's root span is a child of the span that waited on it, and it writes into the parent's trace |
+| Launcher or keeper to a host service it starts | an explicitly populated child environment, not ambient launcher context |
+| Launcher to an in-process capture or other in-process sub-launch | a field on the launch options carrying the explicit waiting-span context; the sub-launch reuses the collector and sink |
+| Launcher to the separate fork-build child | the hidden self-exec argument `--trace-context <context>`, passed deliberately with the existing build arguments and parsed only by that child entrypoint |
 | Keeper to the container: pid 1, and each session's exec | `YOLO_TRACEPARENT` on the runtime's command line |
 | macos-user launcher to the bootstrap and the guest's daemons | the same variable, in the session's environment file |
 | Development wrapper to launcher | the wrapper's start time, in the environment; the launcher enters it as a completed interval |
 
+The fork-build path is a separate writing process, not an in-process capture. The hidden
+argument is an engineering addition to its existing argument contract, not a symbol already
+built. It carries the waiting span's `perf.Context`; validation uses `perf.ParseContext`, and
+joining uses the resulting `Context.Join()`. Deliberate producers emit the canonical
+`00-<32 lowercase hex trace>-<16 lowercase hex span>-01` form. The existing parser also accepts
+other valid lowercase two-hex flags bytes; that accepted input is not evidence that producers
+emit a different canonical form. Trace and span IDs must be nonzero.
+
+Each separate writing process owns one collector and one exclusive lane. An in-process
+sub-launch starts its root as an explicit child of the waiting span and never opens another sink
+for that lane. A valid child context joins only an admitted live trace under
+[§5.7](#57-limits-and-failure); it cannot recreate a missing trace directory. An absent or invalid
+hidden context falls back to ordinary recording gates, never fails the build, and never echoes
+the invalid value. Failure to join a valid context degrades tracing rather than silently
+creating a replacement trace with that ID.
+
 > [!WARNING]
-> **A launcher never adopts a trace context from its own environment.** Everything a launch writes
-> into the container's environment is inherited by a `yolo` run inside that jail, so a nested
-> launch would otherwise attach itself to the outer launch's trace. `YOLO_TRACEPARENT` is read by
-> the entrypoint, the in-jail daemons and the generated shell only. The one launch-to-launch
-> hand-over is in-process.
+> **An ordinary or nested launcher never adopts a trace context from its own environment.**
+> The launch-to-launch handovers are explicit launch options for an in-process sub-launch and
+> the validated hidden argument for the fork-build child. Neither entrypoint reads ambient
+> `YOLO_TRACEPARENT` to choose its trace. The entrypoint, in-jail daemons, and generated shell
+> consume the deliberately supplied jail variable. A host service's explicit child environment
+> is a separate service-entrypoint carrier, not permission for a launcher to adopt ambient context.
+
+Scheduler acts remain independent traces, not children selected through inherited context.
+A joined build's staging workspace is a source location, not a replacement for the originating
+trace's metadata workspace.
 
 `YOLO_TRACEPARENT` shares no prefix with `YOLO_TIMING`, which
 [P5](../reference/perf-logging.md#principles) requires of anything that crosses into the jail. It
-is an identifier and no secret, so it is left in the session's environment.
+is an identifier and no secret, so it is left in the session's environment. This amendment adds
+no recording gate or configuration key.
 
 ### 5.3 Writers, files and trust
 
-A trace is a directory, `<trace root>/<trace id>/`. The trace root is machine-wide,
-`~/.local/share/yolo-jail/logs/traces/`, beside `launches.log`. No jail can write there, so every
-file in a trace was written by host code, and what the jail measured arrives only through the
-bounded reader below. A build jail and a host command have no workspace of their own, and need
-none. `meta.json` names the workspace by its short code and never by its path, as `launches.log`
-does; `host-perf.log` stays in the workspace.
+A trace is a directory, `<trace root>/<trace id>/`. The trace root remains machine-wide,
+`~/.local/share/yolo-jail/logs/traces/`, beside `launches.log`. No jail can write there.
+`meta.json` retains exactly seven keys: `trace`, `kind`, `start`, `jail`, `workspace`, `version`,
+`commit`. `workspace` is the originating workspace's short code, never its path. A deliberately
+joined capture/build source can have another workspace, including a build staging workspace;
+registering it never changes that metadata. `host-perf.log` stays in its existing workspace.
 
 > [!WARNING]
-> The workspace's `.yolo/logs/` is where `host-perf.log` lives and looks like the place for the
-> trace too. It is writable from inside the jail, which would make every trace file untrusted
-> input to the summary and the export.
+> Workspace `.yolo/logs/` is guest-writable. Neither its location nor a valid trace ID makes
+> its bytes trusted host trace data. Private locators and bookkeeping must not become metadata,
+> exported attributes, or absolute-path diagnostics.
 
-| File | Writer | Contents |
+| File or state | Writer / owner | Contents |
 | :--- | :--- | :--- |
-| `meta.json` | the process that minted the trace, once | `trace`, `kind`, `start` (nanoseconds), `jail` (its name), `workspace` (the short code), `version`, `commit` |
-| `<lane>-<pid>.jsonl` | exactly one host process each | one JSON line per event, appended as it happens |
-| `jail.jsonl` | the host's reader, replacing the whole file | the jail half, after sanitizing, in the host files' own line format: ids minted and every parent explicit |
-| `lock` | held by the keeper, or by the launcher when there is no keeper | nothing; it marks the trace as live |
+| `meta.json` | the minting process, once | exactly the seven keys above; `start` is Unix nanoseconds |
+| `<lane>-<pid>.jsonl` | exactly one host writing process | a lane header and admitted events, appended synchronously |
+| `jail.jsonl` | serialized host refresh | sanitized host-format observations from registered sources |
+| Ingestion bookkeeping | serialized host refresh | occurrence-to-span associations, continuity and calibration state, committed transactionally with the sanitized snapshot |
+| Private source registry | host registration under store admission | confined host locators and host-minted source-instance keys; never an export input |
+| `lock` | every participating host writer or refresh | no content; its live claims prevent pruning |
 
-**One writer per file** is what ends [the interleaving](#the-record-itself). A line is
-`{t, k, name, span, parent, dur, attrs}`: nanoseconds since the Unix epoch, the kind (`start`,
-`end`, `mark`, `note`, `record`), and for a span its id, its parent's id when it was given one, and
-on `end` the duration. A process's first line names its lane and pid.
+**Existing foundations and their limits.** U2 reads host-format lines and resolves their graph;
+it is not an id-less jail-source converter. The legacy jail reader and current jail writer's
+leaf-only no-follow open do not provide the all-component confinement specified below.
+The current `TraceSink` creates missing directories and ignores write counts/errors; neither
+behavior supplies the admission or join guarantees in [§5.7](#57-limits-and-failure).
+These foundations are reused, not treated as a complete ingestion or storage lifecycle.
 
-**The jail half is written by the jail and read by the host.** Processes on the jail side (pid 1's
-boot, a session's boot pass, the provisioning shell, each program launcher, the daemon supervisor)
-append lines to one file in the jail's home, named for the trace. Each line is a single short
-append, so lines from several processes never split. These writers **mint no ids**: a line carries
-a time, a kind, a name and the writer's pid. The host's reader mints the ids and parents every jail
-line under the host span that was waiting on the jail at that time.
+**Host-private multisource registration.** A source instance is one host-registered lifetime of
+one append-only jail source. Its opaque key is minted by the host, never read from jail content.
+A trace may register at most 16 source instances, with at most 4,096 content bytes of registry
+state per trace, including replacement copies at peak. Registration declines when either limit
+or the aggregate store admission limit would be exceeded.
 
-The reader is the existing one, widened: it reads beneath a root on the workspace's `.yolo`,
-regular files only, at most the last mebibyte and 2,000 lines, reduces every name to `[a-z0-9_.]`
-and 64 bytes, and drops a line that does not parse or whose time falls outside the trace. It runs
-at the two moments the host already reads the jail's file (the keeper's ready frame and the
-session's end) and whenever `yolo trace` reads a trace whose jail file still exists. Each run
-re-reads the whole source and replaces `jail.jsonl` by rename, so a late run can only add.
+The registry belongs in a dedicated host-private `trace-sources` leaf beneath global storage,
+outside the log root and outside service-retirement state. This names a new storage leaf, not an
+existing source API. Each entry identifies the trace, its opaque source instance, its own
+validated host workspace/setup and backend, and its confined source-relative name. Original,
+capture, and staging workspaces therefore coexist rather than overwrite a single locator.
+Jail records supply none of those fields.
 
-**The jail's clock is aligned at the ready event.** On podman on Linux and on macos-user the jail
-shares the host's clock; under Apple Container and podman on a Mac it is a virtual machine's. The
-reader compares the jail's own "boot done" line with the host's time for the ready event; a
-difference over 50 ms is applied as an offset to every jail line and recorded as a note.
+Registration requires evidence that generated mounts and context links expose neither this
+private leaf nor an ancestor. If that cannot be established, decline registration; do not widen
+mounts. Registry and ingestion-control content is charged to its trace and the retained-store
+budget even when physically outside the trace directory. Orphan or unattributed private content
+must be accounted for conservatively before admitting more recording. Registry paths never enter
+the seven-key metadata or exports. Missing, stale, unavailable, or full registration produces a
+bounded diagnostic and preserves the last good snapshot.
 
-`host-perf.log` and `yolo-perf.log` keep their formats and their readers. The trace is a second
-sink on the same collector.
+**Fresh and attach exposure.** Jail processes append to the trace-named source at
+`~/.local/state/yolo-jail-traces/.yolo-trace-<traceid>.jsonl`, using the existing writable
+workspace-backed `.local` surface, not a new mount. A workspace-backed surface means storage
+already mapped from that source's host workspace into the guest home; it is terminology, not a
+new `workspaceLocal` API. This changes the current Go and generated-shell home-root filename
+contract and must be applied consistently to both producers.
+
+A later attach creates its per-trace source through that existing writable anchor, without
+changing a running jail's mounts or home skeleton. An individual file bind at initial container
+creation cannot satisfy this contract. Do not use `~/.yolo/bin`, which is reset on boot.
+The supplied Podman mapping makes `.local` a narrow candidate; exact host mappings and safe
+opening on Apple Container, macos-user, and sealed capture/build variants remain proof obligations.
+Unavailable exposure, pre-creation, or seal compatibility means a missing source, never a launch
+or mount failure. No common-backend success is claimed here.
+
+**Producer grammar and lexical reading.** Jail producers mint no span or parent IDs. They emit
+`{t,k,name,pid}` with optional `res:"s"`; `k` is `start`, `end`, or `mark`. Existing Go/shell
+producer spellings allow ASCII uppercase letters and hyphens. The reader accepts those spellings,
+then lowercases ASCII, replaces each byte outside `[a-z0-9_.]` with `_`, and limits the result to
+64 output bytes. Unknown fields, including injected IDs, parents, paths, and credentials, do not
+become sanitized attributes. Times and pids must be integral and representable. Coarse `res:"s"`
+is preserved as a resolution observation, not fabricated subsecond precision.
+
+Every admitted source read examines at most its last 1,048,576 bytes and latest 2,000 complete
+physical rows. Malformed complete rows consume that row budget. A partial first row and an
+incomplete final row are not complete occurrences. Across all source instances, a trace admits
+at most 2,000 source occurrences over its lifetime; rereading an occurrence consumes no additional
+slot. This is separate from U2's host-format parser bounds. Limits on reading and normal producers
+do not bound arbitrary bytes a hostile guest can write.
+
+A producer's short append is not proof that multiple processes or failed writes can never leave
+torn lines. Readers tolerate incomplete/malformed rows. Go/shell writing and source cleanup must
+honor the same confined source contract; an existence test followed by pathname redirection is
+not a race-free no-follow guarantee. If a producer cannot use a safely established append target,
+it omits tracing and leaves the legacy timing output unchanged.
+
+**Confined opening and cleanup.** Starting from the validated host workspace anchor, open each
+untrusted directory component descriptor-relative, without following links, and verify directory
+type. Open the final source non-blocking and without following links; check it is regular before
+reading bytes. Retain that descriptor for reading: validation never authorizes a path-based
+reopen. Reject links, nonregular files, moved or substituted anchors, and unverifiable continuity.
+
+Cleanup uses only the registered source name beneath that same confined anchor, with validated
+ownership and continuity. It never recursively removes workspace content, follows a substituted
+link, resolves a moved workspace to another location, or deletes a replacement user file.
+Uncertain ownership means skip source cleanup and report retained auxiliary content. Pruning a
+host trace does not independently authorize workspace deletion.
+
+**Occurrences are not spans.** An occurrence is a complete physical source row. Its ingestion
+key is `(host source instance, absolute byte offset)`, not its time, name, pid, normalized bytes,
+or content digest. Two byte-identical rows at different offsets remain distinct, including
+whole-second shell rows. Rereading the same verified occurrence reuses its persisted association.
+Host-minted random span IDs remain nonzero and stable. A start and its unambiguously matched end
+share one span ID; marks and diagnostics do not become invented observed spans.
+
+**Display names are not matching names.** A matching name is the exact original decoded
+producer spelling in the source row, before ASCII case folding, replacement, or output truncation.
+Matching evidence is eligible only when that spelling is at most 64 bytes and every byte belongs
+to `[A-Za-z0-9_.-]`, the existing producer alphabet. Equality is exact byte equality of those
+bounded spellings; no normalized name, shortened prefix, digest, or probabilistic comparison
+establishes it. An empty spelling, if accepted by the lexical reader, compares only with another
+empty spelling. This identifies the emitted spelling, not an unknowable name before a producer
+itself shortened it.
+
+The existing transactional ingestion bookkeeping retains only the bounded exact spelling needed
+for admitted pairing state, alongside the existing source-instance, pid, and occurrence
+associations. It is host-private matching evidence, never a display name, exported attribute,
+metadata field, or diagnostic value. Do not retain the rest of a raw source row or an unrestricted
+payload for this purpose. At most one at-most-64-byte matching spelling is stored per admitted
+source occurrence; the existing 2,000-occurrence trace ceiling therefore also bounds this state.
+All actual serialized spelling, association, and control bytes, including old/temporary copies
+at peak, remain charged under the 200,000-byte trace and 10,000,000-byte machine limits.
+This is part of the existing committed ingestion state, not an unaccounted private cache.
+
+A spelling outside that alphabet or longer than 64 bytes is ineligible for pairing; truncating,
+normalizing, or hashing it cannot repair eligibility. If exact matching evidence cannot be
+retained, validated, or admitted within the budget, do not fall back to display-name equality.
+Preserve earlier evidence and decline the new pairing-dependent ingestion, or retain an admitted
+start as unfinished and report an end as orphan/unmatched. Diagnostics expose only bounded
+categories and counts, never the original spelling, rejected payload, or credential-like content.
+Raw matching evidence is excluded from exports even when the sanitized display name differs.
+
+Pairing follows byte-offset source order within `(source instance, pid, exact matching name)`.
+An end completes a start only when exactly one matching open start is supported by continuous,
+unambiguous source evidence. Overlapping starts with the same exact matching name are retained
+as unfinished starts and diagnosed; no FIFO/LIFO rule guesses their completions. Different exact
+names remain different pairing streams even when their display names collide. Orphan ends and
+missing-window evidence are diagnostics, not completed spans. After ambiguity or a continuity
+gap, an affected pairing stream cannot assert completion without unambiguous history. Timestamp
+or display-name equality alone neither pairs nor deduplicates rows. An end before its start
+cannot produce a negative interval.
+
+**Monotonic refresh and recorded parents.** The host refresh owner serializes ingestion and
+commits sanitized observations together with their occurrence associations, continuity,
+calibration, and parent decisions. Recovery exposes either the prior complete state or the new
+complete state, never a snapshot paired with different identity bookkeeping. A missing or failed
+refresh leaves the prior snapshot readable.
+
+Refresh preserves every previously admitted occurrence, its span association, and every completed
+interval. It may add new occurrences or complete an unfinished span with an unambiguous newly
+observed end; it cannot replace a completed interval, renumber spans, or discard prior evidence
+to make room. Only additional evidence that fits [§5.7](#57-limits-and-failure) is admitted.
+
+A jail span's recorded explicit parent is selected once from host waiting-span evidence belonging
+to that source and covering the observed start. Ambiguous or absent waiting evidence does not
+authorize an invented parent: omit it and diagnose the missing relationship. Recorded explicit
+parents are frozen, including after an end arrives. U2 continues resolving known explicit parents
+before its derived enclosure rule. Derived enclosure means the reader's display relationship
+inferred from interval containment; it and unfinished display extents may change with new
+evidence. Those changes are not rewritten recorded causality.
+
+The refresh owner persists continuity evidence for captured source ranges and the established
+source identity. Replacement, shortening, or conflicting previously captured content makes the
+source stale; earlier offsets are not reinterpreted. Resume a replaced source only through a new
+host registration. No jail-chosen identity or content deduplication bypasses this rule.
+Continuity/bookkeeping byte costs must fit admission; inability to retain or validate them means
+decline new ingestion, not weaken identity.
+
+**Clock calibration.** Persist each source's calibration before admitting its timed observations.
+For a source sharing the host clock, establish zero offset only with supported backend evidence.
+Otherwise compare that source's jail "boot done" observation with its corresponding host ready
+event. Apply a measured difference over 50 ms and retain a sanitized alignment note; smaller
+differences use zero offset. Apply calibration before trace-window filtering. If calibration
+cannot be established unambiguously, report the unavailable source and preserve any prior
+snapshot rather than admit observations whose timestamps must later be rewritten. Established
+calibration is not recomputed merely because refresh runs again.
+
+Refresh is attempted at the keeper's ready frame, session end, and explicit trace reads when
+registered sources remain available. It requires the live-claim and admission protocol below.
+An offline readable store remains usable without a source registry or refresh access.
+`host-perf.log` and `yolo-perf.log` keep their formats and readers; tracing is an additional sink,
+not their replacement.
 
 ### 5.4 Parents
 
@@ -273,23 +444,100 @@ visible on a real launch.
 
 ### 5.7 Limits and failure
 
+**Store admission, not parser limits.** The retained store admits at most 50 traces, at most
+200,000 decimal content bytes attributable to any trace, and at most 10,000,000 retained content
+bytes machine-wide. Content bytes mean actual file lengths, not allocated filesystem blocks.
+The host admission owner serializes admission and accounting; pure admission decisions determine
+whether an effect may occur before any writer creates or extends content. Every host writer and
+refresh participates. Reader bounds alone cannot enforce these ceilings.
+
+Count metadata, lane headers/events, sanitized observations, ingestion bookkeeping, private
+registry state, diagnostic/control content, and temporary or crash-left files. Empty lock files
+add zero content bytes. Private content outside the trace directory is still charged.
+Unattributed control content must be included in machine accounting; if safe attribution or
+accounting is unavailable, decline new recording.
+
+Admission reserves **peak physical occupancy before writing**. During replacement, both the
+old file and the temporary new file count until the old content is safely removed. The same
+rule applies to registry, bookkeeping, and truncation-diagnostic replacements, and to any files
+needed for transactional publication. There is no transient excess allowance and no discount
+for a file that is merely scheduled for deletion. If a non-destructive replacement cannot fit,
+preserve the old snapshot. Previously admitted observations are not an expendable fallback.
+
+A bounded diagnostic reserve is included in admission, with enough peak credit for every
+simultaneously present diagnostic copy. No unaccounted fixed reserve is assumed. A truncation
+mark is written only from admitted credit; lack of room leaves existing evidence intact and
+uses the out-of-store warning or command diagnostic. Reservations reduce available admission
+credit but are not buffered evidence. A writer may reserve bounded lane credit to avoid
+machine-wide admission work per event; it must still account for actual bytes and outstanding
+credit without oversubscription.
+
+**Mint, join, handover, and prune.** A live claim is a host-held claim on the exact admitted trace
+directory and its lock object that prevents pruning while a writer or refresh uses it.
+Minting serializes count/byte admission, directory registration, and its initial live claim.
+A writer or refresh joins only while validating and claiming that same admitted directory/lock
+identity under the admission protocol. It never makes a missing directory, follows a substituted
+directory, or joins an old lock inode after removal.
+
+Pruning selects oldest eligible traces by metadata start, with trace ID as the deterministic
+tie-break, and holds its exclusive claim continuously through removal and accounting release.
+All participating host writers are covered, including launcher, keeper, build child, host
+service, and preparation writers. Parent-to-child handover retains a live claim continuously
+until the child acknowledges its own acquired claim. Sharing or duplicating descriptors must not
+let a parent's unlock release a child's protection.
+
+Unknown liveness, identity, locking support, or accounting means keep the trace and decline unsafe
+recording. No writer, including a late child, recreates a pruned trace. These rules require changing
+the current `TraceSink` missing-directory creation path; it is not already a safe join primitive.
+
+At capacity, mint may remove safely claimable inactive traces before admitting a new one.
+If live or uncertain traces prevent room, do not mint. Unsupported, incompatible, or already
+over-budget stores are not automatically shrunk or deleted by this protocol. Decline new recording
+and report the condition until safe accounting and room exist; refusal does not retroactively
+bring legacy excess within the cap.
+
+**Immediate admitted writes.** An admitted host event is appended synchronously as it happens,
+without `fsync`, a delayed batch, or an intentional contention wait. A failed non-blocking claim
+or admission degrades tracing with one actionable warning; it does not add a 50 ms append wait
+or 250 ms mint wait. The launch and legacy sink proceed independently. Append visibility is the
+guarantee, not durable-storage survival.
+
+A short or failed append is not reported as stored. Disable that lane after the first failure,
+do not retry into its torn tail, and keep all physically written bytes charged. Another process
+never appends to that process's lane. Failed snapshot/control publication preserves the prior
+complete state. Partial temporary content remains charged until safely removed; unknown cleanup
+means retain and account for it, not reuse its credit.
+
 | When | What happens |
 | :--- | :--- |
-| The trace directory or a file cannot be created | one warning, then a silent sink; the launch proceeds and `host-perf.log` is still written |
-| A process exits through `os.Exit` or is killed | every line it had recorded is on disk; an open span is a `start` with no `end`, which the summary reports as "did not end" |
-| A process records more than 10,000 events | it writes one `truncated` mark and stops writing |
-| A span carries more than 8 attributes, or a value over 240 bytes | the excess is dropped |
-| The jail half is absent, unreadable, a link, or oversized | the trace has no `jail.jsonl`, or a short one; the summary says the jail half is missing |
-| Two launches on one workspace at once | two trace ids, two directories; nothing is shared |
-| More than 50 traces exist | the launcher that mints a new trace removes the oldest beyond 50, skipping any whose `lock` is held and declining to remove one it cannot ask about |
-| A trace from an older yolo, with fields this one does not know | unknown fields are ignored; a file whose first line is unreadable is skipped and named |
+| Creation, safe join, admission, or locking fails | one bounded actionable warning; tracing degrades, the launch proceeds, and `host-perf.log` remains independent |
+| A process exits through `os.Exit` or is killed | successfully appended lines required no exit flush; an unfinished start remains unfinished, and an interrupted/failed append may leave a rejected torn tail; no SIGKILL or durable-storage guarantee |
+| A process reaches 10,000 trace events | stop trace-event emission and use admitted diagnostic credit for at most one `truncated` mark |
+| A span carries more than 8 attributes, or a value over 240 bytes | drop the excess |
+| A source is absent, stale, unsafe, malformed, or outside the read window | retain earlier sanitized evidence, admit only safely supported new evidence, and report missing, stale, or incomplete collection |
+| A trace reaches 2,000 admitted jail occurrences, or source/registry limits | retain previous evidence and decline additional occurrences or registrations |
+| Two independent launches use one workspace | distinct trace IDs and host directories; deliberately joined children register separate source instances within their parent's trace |
+| The retained store lacks count or byte room | prune only safely claimed inactive traces; otherwise decline recording |
+| A trace has unknown fields or an unreadable first line | ignore unknown fields; skip an unreadable file and identify it by basename |
 
-Attribute values are names, counts, exit statuses and keys yolo already prints (a pack, a fork, a
-program, a service). Never an environment value, a token, a path under the home, or command output.
-**Traces cannot grow without bound.** The caps above multiply out: at most 50 traces of at most
-200 KB each, 10 MB for the machine, enforced when a trace is minted. A host that mounts yolo's log
-directory read-only into a jail lets that jail read every workspace's traces, which is why they
-hold names and durations and nothing else.
+The 10,000-event trace-sink limit is not a collector-memory ceiling. At the inspected pin,
+`perf.Log.emit` appends to its in-memory event slice without such a ceiling. No bounded-memory
+claim follows from this design's file limits, and no buffering remedy depends on that false
+premise.
+
+Attribute values remain names, counts, exit statuses, and keys yolo already prints, never
+environment values, tokens, home paths, or command output. A readable mounted log root may expose
+every workspace's traces, which is why exported data contains only approved names and timings.
+
+The retained-store cap does not bound arbitrary guest-writable workspace content. Normal source
+producers keep their 10,000-event limit; each source scan, source count, admitted occurrence count,
+and private registry has the separate bounds in [§5.3](#53-writers-files-and-trust).
+A hostile guest can exceed producer limits. Cleanup remains confined and ownership-checked;
+uncertain auxiliary source content is reported and left in place, never recursively deleted.
+
+The 10 ms host and 5 ms boot budgets remain unchanged. A non-blocking protocol is not a measured
+overhead pass: benchmark and recorded on/off evidence are still required by
+[§8](#8-gates-and-the-overhead-budget).
 
 ## 6. Reading a trace
 
@@ -320,15 +568,78 @@ Three ways to draw a timeline were weighed:
 | **Also a single-file HTML report** | none | yes, drawn as yolo chooses | yes | the encoders and a viewer |
 | **OpenTelemetry Go SDK, exporting live** | 20 new modules | no | no; needs a running collector | the wiring |
 
-**Exporting a file.** The export writes
-[Chrome trace-event JSON](https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU),
-which [Perfetto's UI](https://ui.perfetto.dev) opens with one lane per process and nested bars,
-and [OTLP's JSON encoding](https://opentelemetry.io/docs/specs/otlp/#json-protobuf-encoding), which
-any OTLP collector accepts over HTTP (Jaeger's all-in-one image listens for it on port 4318). Both
-encoders are plain `encoding/json`. Sending the OTLP form to an endpoint is one HTTP POST from the
-export command, `yolo trace export --otlp-endpoint <url>`, which prints where it sent how many
-spans. No launch opens a network connection for tracing, and there is no config key that makes
-one.
+**Exporting a file.** The existing plain-`encoding/json` encoders write
+[Chrome trace-event JSON](https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU)
+for [Perfetto's UI](https://ui.perfetto.dev), and
+[OTLP JSON](https://opentelemetry.io/docs/specs/otlp/#json-protobuf-encoding)
+for compatible HTTP collectors. No SDK or custom viewer is added. The command below is not
+built at the inspected pin; it reuses those encoders without redesigning their representations.
+
+**Command contract.**
+
+`yolo trace export [id] [--format chrome|otlp] [-o <file>] [--otlp-endpoint <url>]`
+
+| Argument or condition | Behavior |
+| :--- | :--- |
+| Explicit `id` | select that retained trace; reject an invalid or unknown ID |
+| No `id` | use show's existing selection: kind `launch` in the current workspace, greatest metadata `start`, then lexicographically greatest trace ID |
+| No workspace identity or matching launch | actionable failure; do not select another workspace or a preparation trace |
+| No endpoint and no explicit format | Chrome JSON |
+| `--format chrome` or `--format otlp` | choose that existing encoder; reject other values |
+| `-o <file>` | a literal file path, not a directory, suffix rule, or stdout alias |
+| No `-o` and no endpoint | JSON on stdout; diagnostics on stderr |
+| `--otlp-endpoint <url>` without an explicit format | OTLP JSON, sent only to that explicit URL |
+| Endpoint with explicit `chrome`, or endpoint with `-o` | argument error before sending or replacing output |
+| Repeated value flags, missing values, or extra positional arguments | argument error; no output replacement or request |
+
+Selection is based on metadata start, not latest observation or refresh time.
+A readable read-only host-store view inside a jail can support offline export. When the view is
+missing or unreadable, guidance is conditional on being in a jail, as for existing list/show.
+Unavailable refresh preserves the last snapshot with a diagnostic; it is not an unconditional
+in-jail refusal. When refresh is possible, it obeys [§5.3](#53-writers-files-and-trust) and
+[§5.7](#57-limits-and-failure) before export reads a consistent committed snapshot.
+
+For file output, require an existing parent directory and refuse symlink or nonregular targets.
+Publish through an exclusive temporary file in the destination directory, with race-safe
+validation and replacement. Encoding/write/close/publication failure leaves a previous regular
+output intact and returns failure; no partial output is called successful. Do not create parent
+directories or follow a substituted target. Explicit user-selected export files are outside the
+retained-store budget. Stdout cannot be rolled back: propagate a write failure and return failure.
+Success leaves stdout containing only the selected JSON representation.
+
+**Explicit collector POST.** Validate the endpoint before any request: it must be an absolute
+`http` or `https` URL with a host, no userinfo, and no fragment. Reject invalid ports, malformed
+escapes, and unsupported schemes. Preserve its validated path and query exactly; do not insert
+`/v1/traces`, add a suffix, or derive a different endpoint. Never echo userinfo, rejected input,
+query values, response bodies, or `url.Error` verbatim.
+
+Encode and validate the selected trace before sending. Make one HTTP POST with
+`Content-Type: application/json`, using the OTLP encoder's JSON body. Use a proxy-free transport:
+no environment proxy, ambient authorization, cookies, client credentials, or new credential
+configuration. HTTPS uses normal server-certificate verification. No redirects, application
+retries, authentication negotiation, or follow-up requests. The total request, including response
+reading, has a 10-second deadline. A failed or uncertain send is not retried.
+
+Read at most 65,536 response bytes, using one extra byte only to detect excess. An oversized,
+truncated, unreadable, non-2xx, or malformed response is an export error, not unchecked success.
+A success response must decode as an OTLP JSON `ExportTraceServiceResponse` object.
+Decode `partialSuccess.rejectedSpans` as a nonnegative 64-bit count according to protobuf JSON:
+decimal strings and valid integral numeric representations are accepted; negative,
+fractional, or overflowing values are errors. Absent partial success or a zero rejected count
+means no reported rejection. A nonzero count returns failure and reports only the bounded count,
+never the collector's free-form error text. Unknown response fields do not become diagnostics.
+
+On successful POST, stderr reports the accepted destination as its scheme and host only, and the
+number of submitted spans; stdout contains no payload or response. Failures use bounded,
+redacted categories such as validation, connection, timeout, HTTP status, response decoding, or
+rejected spans. Do not print transport errors containing the URL. The file-export fallback is
+`yolo trace export [id] --format otlp -o <file>` for users whose collector access needs a proxy or
+credentials outside this command's authority.
+
+Command failure returns nonzero; successful file/stdout export or a fully accepted POST returns
+zero. None of these command failures affect launch success. No launch opens a tracing network
+connection, and no recording or endpoint configuration key is added. These command defaults are
+engineering decisions under the settled explicit-export owner ruling.
 
 **Export representation, clarified 2026-11-19.** Encoders consume the reader's resolved graph,
 without changing its span identities or parents. A nil trace or writer, an invalid required id,
@@ -395,8 +706,9 @@ the ceiling is 600 host events and 400 jail lines, each one short append with no
 | :--- | :--- |
 | Wall time added to a launch's startup window, host side | 10 ms |
 | Wall time added to the container's boot | 5 ms |
-| Disk per trace | 200 KB |
-| Disk for all retained traces | 10 MB |
+| Content bytes attributable to one trace, including temporary/control copies at peak | 200,000 bytes |
+| Retained content bytes machine-wide, including private/control content at peak | 10,000,000 bytes |
+| Admitted retained traces | 50 |
 
 The time ceilings are checked by a benchmark of the sink (cost per event times the event ceiling)
 and by one recorded comparison of the same launch with recording on and off, entered in the
@@ -487,29 +799,36 @@ its part of the reference rewritten.
 
 ## Decision Ledger
 
-The `OQ-TR` rows are the owner's rulings; the `TR-D` rows are implementation decisions taken while
-designing.
+The `OQ-TR` rows are the owner's settled rulings; the `TR-D` rows are engineering decisions.
+TR-D15–19 settle the contract corrections, not new owner questions.
+Built entries below describe source existence at `979ed329ad5dba45c9f776a54acd1de7246f0a8e`,
+not tests run or backend/runtime/overhead passes. A partial entry is not feature completion.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-TR1 | The timeline is an exported file for an existing viewer: Chrome trace JSON for Perfetto, and OTLP JSON. yolo ships no viewer and links no SDK | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
-| OQ-TR2 | Recording is off by default and turned on by user-scope config (`perf_logging = true`); a workspace or project config cannot turn it on. Traces stay small by TR-D11's caps | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | — |
-| OQ-TR3 | Traces are kept machine-wide, under `~/.local/share/yolo-jail/logs/traces/`, naming the workspace by short code | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | — |
-| OQ-TR4 | A trace is sent to a collector only on demand, by `yolo trace export --otlp-endpoint` | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
-| TR-D1 | `internal/perf` stays the recorder; no tracing SDK is linked | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
-| TR-D2 | Ids and the parent reference use the W3C trace-context formats | 2026-11-19 | [§5.1](#51-identity) | — |
-| TR-D3 | The jail receives the context as `YOLO_TRACEPARENT`; a launcher never adopts one from its environment | 2026-11-19 | [§5.2](#52-propagation) | — |
-| TR-D4 | A trace is a directory with one file per writing process, each line written as it happens | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | — |
-| TR-D5 | Jail-side writers mint no ids; the host's reader mints them and replaces `jail.jsonl` whole | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | — |
-| TR-D6 | The jail's clock is aligned to the host's at the ready event, past a 50 ms difference | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | — |
-| TR-D7 | A span given no parent is placed by enclosure in time within its lane; existing call sites stay flat | 2026-11-19 | [§5.4](#54-parents) | — |
-| TR-D8 | `host-perf.log` and `yolo-perf.log` keep their formats; the trace is a second sink | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | — |
-| TR-D9 | Scheduler acts are traces of their own, shown to a launch as overlap by time | 2026-11-19 | [§5.5](#55-work-that-is-not-a-child-of-a-launch) | — |
-| TR-D10 | The startup window ends at the `session.exec` mark | 2026-11-19 | [§4](#4-vocabulary) | — |
-| TR-D11 | Limits: 10,000 events per process, 8 attributes per span, 240 bytes per value, 2,000 jail lines, 200 KB per trace, 50 traces and 10 MB kept, a live trace never pruned | 2026-11-19 | [§5.7](#57-limits-and-failure) | — |
-| TR-D12 | The reading verb is `yolo trace`, with `show` and `export` | 2026-11-19 | [§6](#6-reading-a-trace) | — |
-| TR-D13 | The time budgets are checked by a benchmark and one recorded comparison, never by a test's pass condition | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | — |
-| TR-D14 | Export preserves recorded identities and diagnostics; unparented OTLP events remain resource metadata, malformed graphs error, and no observed span is invented | 2026-11-19 | [§7](#7-the-viewer-decision) | — |
+| OQ-TR1 | The timeline is an exported file for an existing viewer: Chrome trace JSON for Perfetto, and OTLP JSON. yolo ships no viewer and links no SDK | 2026-11-19 | [§7](#7-the-viewer-decision) | Partial: U3 encoders exist; export command pending |
+| OQ-TR2 | Recording is off by default and turned on by user-scope config (`perf_logging = true`); a workspace or project config cannot turn it on. Traces stay small by TR-D11's caps | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | Existing timing gates; production trace admission pending |
+| OQ-TR3 | Traces are kept machine-wide, under `~/.local/share/yolo-jail/logs/traces/`, naming the workspace by short code | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | Partial: offline reader/CLI understand the store; production lifecycle pending |
+| OQ-TR4 | A trace is sent to a collector only on demand, by `yolo trace export --otlp-endpoint` | 2026-11-19 | [§7](#7-the-viewer-decision) | —; POST command pending |
+| TR-D1 | `internal/perf` stays the recorder; no tracing SDK is linked | 2026-11-19 | [§7](#7-the-viewer-decision) | Existing recorder and U1 tracing foundations |
+| TR-D2 | Ids and the parent reference use the W3C trace-context formats | 2026-11-19 | [§5.1](#51-identity) | U1 identity/context APIs exist |
+| TR-D3 | The jail receives the context as `YOLO_TRACEPARENT`; a launcher never adopts one from its environment | 2026-11-19 | [§5.2](#52-propagation) | Partial: U5 consumers/writers exist; complete deliberate host wiring pending |
+| TR-D4 | A trace is a directory with one file per writing process, each admitted line appended synchronously as it happens | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | Partial: U1 lane sink exists; admitted production store pending |
+| TR-D5 | Jail writers mint no IDs; host conversion persists random span IDs and publishes a non-destructive sanitized snapshot with matching bookkeeping | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | Partial: U5 id-less producers exist; conversion/publication pending |
+| TR-D6 | Establish and persist per-source clock calibration before admission; apply ready-event differences over 50 ms before trace-window filtering | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | — |
+| TR-D7 | A span given no parent is placed by enclosure in time within its lane; existing call sites stay flat | 2026-11-19 | [§5.4](#54-parents) | U2 graph resolves explicit parents before derived enclosure |
+| TR-D8 | `host-perf.log` and `yolo-perf.log` keep their formats; the trace is a second sink | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | Partial: sink foundations exist; production additional-sink wiring pending |
+| TR-D9 | Scheduler acts are traces of their own, shown to a launch as overlap by time | 2026-11-19 | [§5.5](#55-work-that-is-not-a-child-of-a-launch) | —; production scheduler traces pending |
+| TR-D10 | The startup window ends at the `session.exec` mark | 2026-11-19 | [§4](#4-vocabulary) | Partial: reader/summary foundations; complete collection pending |
+| TR-D11 | Limits: 10,000 trace events per process, 8 attributes per span, 240 bytes per value, 2,000 admitted jail occurrences per trace, 200,000 content bytes per trace, 50 traces and 10,000,000 retained content bytes at physical peak; never prune a live trace | 2026-11-20 | [§5.7](#57-limits-and-failure) | Partial: producer/sink/parser bounds exist; aggregate admission and retention pending |
+| TR-D12 | The reading verb is `yolo trace`, with list/show and explicit export | 2026-11-20 | [§6](#6-reading-a-trace) | U4a offline list/show exist; refresh and export pending |
+| TR-D13 | The time budgets are checked by a benchmark and one recorded comparison, never by a test's pass condition | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | —; benchmark and recorded on/off evidence pending |
+| TR-D14 | Export preserves recorded identities and diagnostics; unparented OTLP events remain resource metadata, malformed graphs error, and no observed span is invented | 2026-11-19 | [§7](#7-the-viewer-decision) | U3 encoders and source tests/goldens exist; tests not run in this amendment |
+| TR-D15 | Join deliberately through launch options or the validated fork-build hidden argument; each separate process owns one lane, while in-process children reuse collector/sink and an explicit parent | 2026-11-20 | [§5.2](#52-propagation) | —; complete carrier wiring pending |
+| TR-D16 | Host-private multisource registration retains each source's workspace/setup; at most 16 instances and 4,096 registry content bytes per trace at peak. Dynamic exposure uses the existing writable `.local` anchor, without mount widening; unsafe or unavailable exposure degrades collection | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | —; safe locator, producer path change, and backend proof pending |
+| TR-D17 | Occurrence identity is source instance plus absolute byte offset, never content equality. Pair only continuous, unambiguous source-order evidence using bounded exact original producer spelling; normalization is display-only. Matching evidence stays private, transactionally persisted, and charged at physical peak; unavailable equality means unfinished/orphan evidence, never guessed completion. Preserve random span associations, calibration, frozen explicit parents, admitted observations, and completed intervals | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | —; lexical source reader and identity/conversion pending |
+| TR-D18 | Reserve all physical peak content before effects, including private/control and old/temp copies. Mint/join/prune validate one admitted directory/lock with continuous live claims; no join mkdir, delayed batching, intentional contention waits, or destructive fallback. Failed lanes stop and partial bytes remain charged | 2026-11-20 | [§5.7](#57-limits-and-failure) | —; admission, liveness, recovery, and failure accounting pending |
+| TR-D19 | Export uses metadata-start selection, Chrome default, literal `-o` or stdout, and explicit exact-URL OTLP POST with no proxy, ambient credentials, redirects, or retries; enforce bounded/redacted responses and typed rejection counts | 2026-11-20 | [§7](#7-the-viewer-decision) | —; command and endpoint behavior pending |
 
 ## Appendix A: two measured launches
 

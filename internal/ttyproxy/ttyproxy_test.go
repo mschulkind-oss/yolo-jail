@@ -322,7 +322,7 @@ func TestOutputPressureDoesNotStopInputForwarding(t *testing.T) {
 	if os.Getenv("YOLO_TTYPROXY_PRESSURE_HELPER") == "1" {
 		fifo := os.Getenv("YOLO_TTYPROXY_PRESSURE_FIFO")
 		outputBytes := os.Getenv("YOLO_TTYPROXY_PRESSURE_BYTES")
-		observer := Observer{Env: []string{"YOLO_TTYPROXY_PRESSURE_FIFO=" + fifo, "YOLO_TTYPROXY_PRESSURE_BYTES=" + outputBytes, "YOLO_TTYPROXY_OUTPUT_ACK=" + os.Getenv("YOLO_TTYPROXY_OUTPUT_ACK")}}
+		observer := Observer{Env: []string{"YOLO_TTYPROXY_PRESSURE_FIFO=" + fifo, "YOLO_TTYPROXY_PRESSURE_BYTES=" + outputBytes, "YOLO_TTYPROXY_OUTPUT_ACK=" + os.Getenv("YOLO_TTYPROXY_OUTPUT_ACK"), "YOLO_TTYPROXY_HOLD_AFTER_INPUT=" + os.Getenv("YOLO_TTYPROXY_HOLD_AFTER_INPUT")}}
 		if os.Getenv("YOLO_TTYPROXY_HOLD_REAP") == "1" {
 			observer.beforeChildReaped = func(childDone <-chan struct{}) {
 				go func() {
@@ -472,6 +472,19 @@ func TestOutputPressureDoesNotStopInputForwarding(t *testing.T) {
 				_ = os.WriteFile(fifo+".boundary", []byte(strconv.FormatUint(n, 10)), 0600)
 			}
 			observer.Stage = func(stage string) {
+				// StageSpawned is synchronous and precedes the default signal.Notify setup.
+				// The parent holds this gate through target S to make the old S-only signal
+				// ordering a deterministic pre-registration race reproduction.
+				if stage == StageSpawned && os.Getenv("YOLO_TTYPROXY_HOLD_AFTER_SPAWNED") == "1" {
+					if err := writePressureReceipt(fifo+".spawned", 'G'); err != nil {
+						_, _ = fmt.Fprintln(os.Stderr, "write spawned gate marker:", err)
+						os.Exit(2)
+					}
+					if err := waitForFile(fifo+".spawned-release", time.Now().Add(childDeadline)); err != nil {
+						_, _ = fmt.Fprintln(os.Stderr, "wait for spawned gate release:", err)
+						os.Exit(2)
+					}
+				}
 				if stage == StageResumed && os.Getenv("YOLO_TTYPROXY_CANCEL_DURING_RESUME") == "1" {
 					if resumeHandle.Terminate() {
 						_ = os.WriteFile(fifo+".cancel-published", []byte("terminated"), 0600)
@@ -1502,6 +1515,25 @@ func runSuspendResumePreservesOutputQueueOrder(t *testing.T, backgroundChildExit
 	}
 }
 
+type synchronizedTestBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *synchronizedTestBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *synchronizedTestBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestOwnedChildEarlySignalCleanupReapsChild signals only after the proxy has crossed its
+// pre-registration gate and observed input, while keeping the owned child alive for reap checks.
 func TestOwnedChildEarlySignalCleanupReapsChild(t *testing.T) {
 	master, slave, err := openPty()
 	if err != nil {
@@ -1517,67 +1549,150 @@ func TestOwnedChildEarlySignalCleanupReapsChild(t *testing.T) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "YOLO_TTYPROXY_PRESSURE_HELPER=1", "YOLO_TTYPROXY_PRESSURE_FIFO="+control,
 		"YOLO_TTYPROXY_PRESSURE_BYTES="+strconv.Itoa(readChunk), "YOLO_TTYPROXY_EXPECT_SUSPEND=1",
-		"YOLO_TTYPROXY_HOLD_REAP=1", "YOLO_TTYPROXY_OUTPUT_ACK=1", "YOLO_TTYPROXY_ACK_AFTER_WRITE=1")
-	var stderr bytes.Buffer
+		"YOLO_TTYPROXY_HOLD_REAP=1", "YOLO_TTYPROXY_HOLD_AFTER_SPAWNED=1", "YOLO_TTYPROXY_HOLD_AFTER_INPUT=1",
+		"YOLO_TTYPROXY_OUTPUT_ACK=1", "YOLO_TTYPROXY_ACK_AFTER_WRITE=1")
+	var stderr synchronizedTestBuffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
+	type helperWait struct {
+		done chan struct{}
+		err  error
+	}
+	wait := helperWait{done: make(chan struct{})}
+	go func() {
+		wait.err = cmd.Wait()
+		close(wait.done)
+	}()
 	var pid int
 	helperDone := false
+	phase := func() string {
+		read := func(suffix string) string {
+			data, err := os.ReadFile(control + suffix)
+			if errors.Is(err, os.ErrNotExist) {
+				return "<absent>"
+			}
+			if err != nil {
+				return "<read-error:" + err.Error() + ">"
+			}
+			return strconv.Quote(string(data))
+		}
+		waitState := "pending"
+		select {
+		case <-wait.done:
+			waitState = fmt.Sprintf("%v", wait.err)
+		default:
+		}
+		childState := "unknown"
+		if pid != 0 {
+			err := unix.Kill(pid, 0)
+			switch {
+			case err == nil:
+				childState = "alive"
+			case errors.Is(err, unix.ESRCH):
+				childState = "gone"
+			default:
+				childState = "probe-error:" + err.Error()
+			}
+		}
+		return fmt.Sprintf("spawn=%s target=%s input=%s proxy=%s reap=%s spawn-release=%s reap-release=%s helper-wait=%s child=%s stderr=%q",
+			read(".spawned"), read(""), read(".input"), read(".proxy"), read(".reap"), read(".spawned-release"), read(".reap-release"), waitState, childState, stderr.String())
+	}
 	defer func() {
+		_ = os.WriteFile(control+".spawned-release", []byte("release"), 0600)
 		_ = os.WriteFile(control+".reap-release", []byte("release"), 0600)
 		if !helperDone {
-			_ = cmd.Process.Kill()
-			<-waitDone
+			_ = unix.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			select {
+			case <-wait.done:
+				helperDone = true
+			case <-time.After(childDeadline):
+				t.Errorf("owned helper process group did not stop during cleanup: %s", phase())
+			}
 		}
-		if pid != 0 && !errors.Is(unix.Kill(pid, 0), unix.ESRCH) {
+		if pid != 0 {
 			_ = unix.Kill(pid, syscall.SIGKILL)
+			if err := waitForPIDGone(pid, time.Now().Add(childDeadline)); err != nil {
+				t.Errorf("owned child %d remained after cleanup: %v; %s", pid, err, phase())
+			}
 		}
 	}()
-	if err := waitPressureMarker(t, control, 'S', time.Now().Add(childDeadline)); err != nil {
-		t.Fatalf("owned child did not start: %v stderr=%q", err, stderr.String())
+	if err := waitPressureMarker(t, control+".spawned", 'G', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("proxy did not enter the pre-registration gate: %v; %s", err, phase())
 	}
+	if err := waitPressureMarker(t, control, 'S', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("owned child did not start while pre-registration gate was held: %v; %s", err, phase())
+	}
+	t.Log("phase: target S observed while synchronous StageSpawned gate remains held")
 	pidBytes, err := os.ReadFile(control + ".pid")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("read owned child PID: %v; %s", err, phase())
 	}
 	pid, err = strconv.Atoi(string(pidBytes))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("parse owned child PID: %v; %s", err, phase())
 	}
+	if err := os.WriteFile(control+".spawned-release", []byte("release"), 0600); err != nil {
+		t.Fatalf("release pre-registration gate: %v; %s", err, phase())
+	}
+	if _, err := unix.Write(master, []byte{'q'}); err != nil {
+		t.Fatalf("send input after arm-ready spawn release: %v; %s", err, phase())
+	}
+	if err := waitPressureMarker(t, control+".input", 'I', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("proxy did not observe forwarded input after signal registration: %v; %s", err, phase())
+	}
+	if err := waitPressureMarker(t, control, 'R', time.Now().Add(childDeadline)); err != nil {
+		t.Fatalf("owned child did not consume q and hold after input: %v; %s", err, phase())
+	}
+	t.Log("phase: proxy Input I and owned-child R observed after StageSpawned release")
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatal(err)
+		t.Fatalf("send SIGTERM after the arm-ready input event: %v; %s", err, phase())
 	}
 	if err := waitPressureMarker(t, control+".reap", 'K', time.Now().Add(childDeadline)); err != nil {
-		t.Fatalf("signal arm did not kill and reap its owned child: %v", err)
+		t.Fatalf("signal arm did not kill and reap its owned child: %v; %s", err, phase())
 	}
 	if stages, err := os.ReadFile(control + ".reap"); err != nil || bytes.Contains(stages, []byte{'P'}) {
-		t.Fatalf("reaper published exit while held: stages=%q err=%v", stages, err)
+		t.Fatalf("reaper published exit while held: stages=%q err=%v; %s", stages, err, phase())
 	}
+	t.Log("phase: K observed after child Wait while P remains absent")
 	if err := os.WriteFile(control+".reap-release", []byte("release"), 0600); err != nil {
-		t.Fatal(err)
+		t.Fatalf("release reaper publication gate: %v; %s", err, phase())
 	}
 	select {
-	case err := <-waitDone:
+	case <-wait.done:
 		helperDone = true
-		if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 128+int(syscall.SIGTERM) {
-			t.Fatalf("signal arm exit=%v, want SIGTERM status; stderr=%q", err, stderr.String())
+		if exitErr, ok := wait.err.(*exec.ExitError); !ok || exitErr.ExitCode() != 128+int(syscall.SIGTERM) {
+			t.Fatalf("signal arm exit=%v, want SIGTERM status; %s", wait.err, phase())
 		}
 	case <-time.After(childDeadline):
-		t.Fatal("signal arm did not finish after reaping its child")
+		t.Fatalf("signal arm did not finish after reaping its child; %s", phase())
 	}
+	t.Log("phase: reap release completed and helper exited with SIGTERM status 143")
 	if err := unix.Kill(pid, 0); !errors.Is(err, unix.ESRCH) {
-		t.Fatalf("owned child %d was not reaped: %v", pid, err)
+		t.Fatalf("owned child %d was not reaped: %v; %s", pid, err, phase())
 	}
 	if stages, err := os.ReadFile(control + ".proxy"); err != nil || !bytes.Contains(stages, []byte{'A'}) {
-		t.Fatalf("default signal arm did not publish cancellation: stages=%q err=%v", stages, err)
+		t.Fatalf("default signal arm did not publish cancellation: stages=%q err=%v; %s", stages, err, phase())
 	}
 	if after := mustGetTermios(t, slave); *after != *cooked {
-		t.Fatalf("signal arm did not restore cooked terminal: before=%+v after=%+v", *cooked, *after)
+		t.Fatalf("signal arm did not restore cooked terminal: before=%+v after=%+v; %s", *cooked, *after, phase())
 	}
+	t.Log("phase: owned PID is ESRCH and cooked termios matches its original snapshot")
+}
+
+func waitForPIDGone(pid int, deadline time.Time) error {
+	for time.Now().Before(deadline) {
+		err := unix.Kill(pid, 0)
+		if errors.Is(err, unix.ESRCH) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for PID to disappear")
 }
 
 func TestOwnedChildExitPreemptsPendingSuspend(t *testing.T) {
