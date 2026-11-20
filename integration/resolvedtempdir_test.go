@@ -4,9 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
-// resolvedTempDir is t.TempDir() with every symlink in the path resolved.
+// resolvedTempDir mints a canonical owned fixture, outside a configured workspace's
+// ancestry when the inherited TMPDIR would put it beneath one.
 //
 // THE RULE IT GIVES A HOME TO, which three fixtures in this package each found
 // separately: on macOS `t.TempDir()` returns a path under `/var/folders/…`, and `/var`
@@ -32,7 +36,34 @@ func resolvedTempDir(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("resolving the test temp dir: %v", err)
 	}
-	return dir
+	// Native constructors refuse ancestor config inputs. A dedicated census TMPDIR
+	// can itself be below the live checkout; inspect names only, never its bytes.
+	for ancestor := filepath.Dir(dir); ; ancestor = filepath.Dir(ancestor) {
+		for _, name := range config.WorkspaceConfigFileNames() {
+			if _, err := os.Lstat(filepath.Join(ancestor, name)); os.IsNotExist(err) {
+				continue
+			} else if err != nil {
+				t.Fatalf("inspecting fixture ancestry: %v", err)
+			}
+			private, err := os.MkdirTemp(testtmp.ShortDir(), "yolo-integration-fixture-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := testtmp.RemoveAll(private); err != nil {
+					t.Errorf("removing owned integration fixture: %v", err)
+				}
+			})
+			canonical, err := filepath.EvalSymlinks(private)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return canonical
+		}
+		if ancestor == filepath.Dir(ancestor) {
+			return dir
+		}
+	}
 }
 
 // THE DARWIN CLASS, REPRODUCED ON LINUX — AGENTS.md gives the one-line recipe and this is
