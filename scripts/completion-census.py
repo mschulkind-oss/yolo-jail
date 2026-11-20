@@ -618,8 +618,18 @@ def main():
         remove_shared_test_cache(gate)
 
 
-def collect(gate):
+def collect(gate, *, initialize_fixture=None):
+    """An explicit trusted caller may populate only a freshly validated fixture namespace.
+
+    Ordinary CLI runs have no initializer. Validation consumes the empty-root marker
+    exactly once before setup; setup failures propagate before any Go work or output.
+    """
     fixture_root = validate_fixture_root(ROOT, os.environ)
+    if initialize_fixture is not None:
+        if fixture_root is None:
+            raise CensusError("fixture initialization needs a fresh validated namespace; create the "
+                              "dedicated census marker and rerun scripts/completion-census.py")
+        initialize_fixture(fixture_root)
     jobs_n = int(os.environ.get("CENSUS_JOBS", str(max(2, (os.cpu_count() or 4) // 2))))
     pkgs, pkg_dirs = go_packages()
     by_dir = tracked_dirs()

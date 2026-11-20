@@ -176,6 +176,114 @@ class ParseLogTest(unittest.TestCase):
         with self.assertRaises(census.CensusError):
             census.validate_fixture_root(source, bad_env)
 
+    def _bounded_collect(self, source, fixture, env, initializer, text="", leftovers=()):
+        """Keep the actual collect callsite/validation/classifiers/output; stub Go work only."""
+        events = []
+        out = source / "readers.json"
+
+        def phase(name, result):
+            def stub(*args, **kwargs):
+                self.assertFalse((fixture / census.FIXTURE_ROOT_MARKER).exists())
+                self.assertEqual(os.environ["HOME"], str(fixture / "h"))
+                self.assertEqual(os.environ["XDG_RUNTIME_DIR"], str(fixture / "r"))
+                self.assertEqual(os.environ["YOLO_CTX_ROOT"], str(fixture / "c"))
+                self.assertEqual(os.environ["PATH"], str(fixture / "g"))
+                events.append(name)
+                return result
+            return stub
+
+        with mock.patch.dict(os.environ, dict(env, CENSUS_JOBS="1"), clear=True), \
+                mock.patch.object(tempfile, "tempdir", str(fixture)), \
+                mock.patch.object(census, "validate_fixture_root", wraps=census.validate_fixture_root) as validate, \
+                mock.patch.object(census, "go_packages", side_effect=phase("packages", ([("fixture", source / "pkg")], {"pkg"}))), \
+                mock.patch.object(census, "tracked_dirs", return_value={}), \
+                mock.patch.object(census, "GitVisibility", return_value=Everything()), \
+                mock.patch.object(census, "checked_run", side_effect=phase("compile", None)), \
+                mock.patch.object(census, "list_tests", side_effect=phase("list", ["TestFixture"])), \
+                mock.patch.object(census, "run_test", side_effect=phase("run", (text, leftovers))), \
+                mock.patch.object(census, "OUT", out):
+            census.collect(census.load_leak_gate(), initialize_fixture=initializer)
+            validate.assert_called_once_with(source, os.environ)
+        self.assertEqual(events, ["packages", "compile", "list", "run"])
+        self.assertTrue(out.exists())
+
+    def _owned_controls_initializer(self, expected, calls):
+        def initialize(fixture):
+            self.assertEqual(fixture, expected)
+            self.assertEqual(list(fixture.iterdir()), [], "actual validator must consume the marker FIRST")
+            calls.append(fixture)
+            for name in ("h", "r", "c", "g"):
+                (fixture / name).mkdir(mode=0o700)
+            os.environ.update(HOME=str(fixture / "h"), XDG_RUNTIME_DIR=str(fixture / "r"),
+                              YOLO_CTX_ROOT=str(fixture / "c"), PATH=str(fixture / "g"))
+        return initialize
+
+    def test_collect_initializes_owned_controls_after_actual_validation_before_go_work(self):
+        source, fixture, env = self._fixture_namespace()
+        calls = []
+        text = "\n".join("open " + str(fixture / p) for p in ("h/config", "r/socket", "c/metadata", "g/guard"))
+        self._bounded_collect(source, fixture, env, self._owned_controls_initializer(fixture, calls), text)
+        self.assertEqual(calls, [fixture])
+
+    def test_collect_never_initializes_without_a_valid_fresh_owned_marker(self):
+        for bad in ("absent setting", "missing marker", "bad marker", "extra contents", "wrong ownership"):
+            with self.subTest(bad=bad):
+                source, fixture, env = self._fixture_namespace()
+                marker = fixture / census.FIXTURE_ROOT_MARKER
+                if bad == "absent setting":
+                    env = {}
+                elif bad == "missing marker":
+                    marker.unlink()
+                elif bad == "bad marker":
+                    marker.write_text("not the census marker")
+                elif bad == "extra contents":
+                    (fixture / "h").mkdir()
+                uid = os.getuid() + (bad == "wrong ownership")
+                callback = mock.Mock()
+                with mock.patch.dict(os.environ, env, clear=True), \
+                        mock.patch.object(census.os, "getuid", return_value=uid), \
+                        mock.patch.object(census, "go_packages") as packages, \
+                        mock.patch.object(census, "OUT", source / "readers.json"), \
+                        mock.patch.object(census, "validate_fixture_root", wraps=census.validate_fixture_root) as validate:
+                    with self.assertRaises(census.CensusError):
+                        census.collect(object(), initialize_fixture=callback)
+                    validate.assert_called_once_with(source, os.environ)
+                    callback.assert_not_called()
+                    packages.assert_not_called()
+                self.assertFalse((source / "readers.json").exists())
+
+    def test_collect_initializer_exception_stops_before_go_or_output(self):
+        source, fixture, env = self._fixture_namespace()
+        callback = mock.Mock(side_effect=RuntimeError("owned setup failed"))
+        with mock.patch.dict(os.environ, env, clear=True), \
+                mock.patch.object(census, "go_packages") as packages, \
+                mock.patch.object(census, "OUT", source / "readers.json"):
+            with self.assertRaisesRegex(RuntimeError, "owned setup failed"):
+                census.collect(object(), initialize_fixture=callback)
+            callback.assert_called_once_with(fixture)
+            packages.assert_not_called()
+        self.assertFalse((fixture / census.FIXTURE_ROOT_MARKER).exists())
+        self.assertFalse((source / "readers.json").exists())
+
+    def test_collect_owned_initialization_keeps_final_workspace_and_leftover_refusals(self):
+        for bad in ("outside fixture", "session leftover"):
+            with self.subTest(bad=bad):
+                source, fixture, env = self._fixture_namespace()
+                unrelated = fixture.parent / "owned-runner-controls"
+                unrelated.mkdir(mode=0o700)
+                paths = [unrelated / "h/config", Path(census.JAIL_WORKSPACE) / "live/config"]
+                text = "\n".join("open " + str(p) for p in paths) if bad == "outside fixture" else ""
+                leftovers = [str(fixture / "ttleftover")] if bad == "session leftover" else []
+                with self.assertRaises(census.CensusError) as caught:
+                    self._bounded_collect(source, fixture, env,
+                                          self._owned_controls_initializer(fixture, []), text, leftovers)
+                self.assertFalse((source / "readers.json").exists())
+                if bad == "outside fixture":
+                    for path in paths:
+                        self.assertIn(str(path), str(caught.exception))
+                else:
+                    self.assertIn("TestFixture", str(caught.exception))
+
     def test_fixture_target_resolution_errors_are_not_exempt(self):
         source, fixture, env = self._fixture_namespace()
         allowed = census.validate_fixture_root(source, env)
