@@ -8,12 +8,15 @@ package cli
 // did nothing.
 
 import (
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	checkcmd "github.com/mschulkind-oss/yolo-jail/internal/cli/check"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
@@ -31,7 +34,7 @@ func lineAlone(out, want string) bool {
 	return false
 }
 
-func newBrokerAdviceFixture(t *testing.T) namedVerbFixture {
+func newBrokerAdviceFixture(t *testing.T, forceMacOS bool) namedVerbFixture {
 	t.Helper()
 	fx := newNamedVerbFixture(t, skippedGitHubRequestsTOML, "[allow.github]\nalways = [\"read\"]\n")
 	t.Setenv("YOLO_SETUP", "podman-self")
@@ -48,7 +51,10 @@ func newBrokerAdviceFixture(t *testing.T) namedVerbFixture {
 			t.Errorf("owned broker advice query log: %v", err)
 			return
 		}
-		const want = "version\ninfo\n"
+		want := "version\ninfo\n"
+		if runtime.GOOS == "darwin" || forceMacOS {
+			want += "machine-info\n"
+		}
 		if string(b) != want {
 			t.Errorf("owned broker advice queries = %q, want %q", b, want)
 		}
@@ -72,6 +78,11 @@ if [ "$#" = 3 ] && [ "$1" = info ] && [ "$2" = --format ] && [ "$3" = json ]; th
   printf '{}\n'
   exit 0
 fi
+if [ "$#" = 2 ] && [ "$1" = machine ] && [ "$2" = info ]; then
+  printf 'machine-info\n' >> "$log"
+  printf 'machine info fixture: no configured machine\n' >&2
+  exit 125
+fi
 printf 'unexpected\n' >> "$log"
 printf 'permission denied: broker advice fixture refuses unsupported runtime query\n' >&2
 exit 97
@@ -82,7 +93,8 @@ exit 97
 }
 
 func TestBrokerAdviceQueryAdapterRefusesUnownedShapes(t *testing.T) {
-	for _, args := range [][]string{{"--version", "extra"}, {"info"}, {"info", "--format", "yaml"}, {"run", "fixture"}} {
+	for _, args := range [][]string{{"--version", "extra"}, {"info"}, {"info", "--format", "yaml"},
+		{"machine", "info", "--help"}, {"machine", "list"}, {"machine", "rm", "podman-machine-default"}, {"run", "fixture"}} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			bin := t.TempDir()
 			log := filepath.Join(bin, "queries")
@@ -108,7 +120,7 @@ func TestBrokerAdviceFixtureOwnsRuntimeQueries(t *testing.T) {
 	}
 	t.Setenv("PATH", canary+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("YOLO_SETUP", "podman-self")
-	newBrokerAdviceFixture(t)
+	newBrokerAdviceFixture(t, false)
 	_, out, errs := captureStd(t, func() int { return registry["check"]([]string{"check", "--no-build"}) })
 	assertSkippedBrokerRequestAdvice(t, out+errs)
 	if b, err := os.ReadFile(log); !os.IsNotExist(err) {
@@ -117,9 +129,26 @@ func TestBrokerAdviceFixtureOwnsRuntimeQueries(t *testing.T) {
 }
 
 func TestCheckNamesTheAllowCommandForABrokerRequestOutsideTheCeiling(t *testing.T) {
-	newBrokerAdviceFixture(t)
+	newBrokerAdviceFixture(t, false)
 	_, out, errs := captureStd(t, func() int { return registry["check"]([]string{"check", "--no-build"}) })
 	assertSkippedBrokerRequestAdvice(t, out+errs)
+}
+
+func TestBrokerAdviceCheckOnForcedMacOSUsesOwnedMachineInfoQuery(t *testing.T) {
+	fx := newBrokerAdviceFixture(t, true)
+	options := checkcmd.NewDefaultOptions()
+	options.Build = false
+	options.IsMacOS = true
+	options.SkipEnsureStorage = true
+	options.Workspace = fx.workspace
+	var out, errs bytes.Buffer
+	options.Stdout, options.Stderr = &out, &errs
+	checkcmd.Check(options)
+	assertSkippedBrokerRequestAdvice(t, out.String()+errs.String())
+	if got, want := readFile(t, filepath.Join(os.Getenv("HOME"), "bin", "queries")),
+		"version\ninfo\nmachine-info\n"; got != want {
+		t.Fatalf("forced macOS Check query events = %q, want %q", got, want)
+	}
 }
 
 func assertSkippedBrokerRequestAdvice(t *testing.T, all string) {
@@ -142,7 +171,7 @@ func assertSkippedBrokerRequestAdvice(t *testing.T, all string) {
 func TestTheNamedAllowCommandIsAccepted(t *testing.T) {
 	for _, capability := range []string{"runs", "approve_runs"} {
 		t.Run(capability, func(t *testing.T) {
-			fx := newBrokerAdviceFixture(t)
+			fx := newBrokerAdviceFixture(t, false)
 			rec := recordAllowGate(t, false)
 			rc, out, errs := captureStd(t, func() int {
 				return registry["allow"]([]string{"allow", "github", "on_request", capability})

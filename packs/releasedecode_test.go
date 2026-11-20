@@ -454,6 +454,47 @@ func main() {
 
 func TestNativeSignInTablePreservesLastReleaseClaudeProgram(t *testing.T) {
 	root, release := lastRelease(t)
+	commit := releaseReaderCommit(t, root, release)
+	t.Logf("release reader probe: %s %s", release, commit)
+	old := t.TempDir()
+	extractRelease(t, root, release, old)
+	probeDir := filepath.Join(old, "cmd", "yolo-release-decode-probe")
+	if err := os.MkdirAll(probeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(probeDir, "main.go"), []byte(releaseDecodeProbe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := buildReleaseProbe(t, goBin, old, release)
+	shipped := filepath.Join(t.TempDir(), "packs")
+	materialize(t, shipped)
+	claude := runReleaseProbe(t, probe, shipped, release)["claude"]
+	if len(claude["problems"]) != 0 || strings.Join(claude["programs"], ",") != "claude" {
+		t.Fatalf("%s lost the shipped Claude program or contributions: %v", release, claude)
+	}
+	if release == "v0.19.0" && strings.Contains(strings.Join(claude["skipped"], "\n"),
+		`unknown field "native_sign_in" is ignored`) {
+		t.Fatalf("%s reported its recognized native_sign_in table as unknown: %v", release, claude["skipped"])
+	}
+}
+
+func releaseReaderCommit(t *testing.T, root, release string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", root, "rev-parse", release+"^{commit}").Output()
+	if err != nil {
+		t.Fatalf("resolve %s reader commit: %v", release, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestV018NativeSignInMetadataIsHarmlesslyIgnoredWithoutLosingClaude(t *testing.T) {
+	root, _ := lastRelease(t)
+	const release = "v0.18.0"
+	t.Logf("release reader probe: %s %s", release, releaseReaderCommit(t, root, release))
 	old := t.TempDir()
 	extractRelease(t, root, release, old)
 	probeDir := filepath.Join(old, "cmd", "yolo-release-decode-probe")
@@ -476,6 +517,13 @@ func TestNativeSignInTablePreservesLastReleaseClaudeProgram(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(claude["skipped"], "\n"), `unknown field "native_sign_in" is ignored`) {
 		t.Fatalf("%s did not harmlessly ignore the new metadata table: %v", release, claude["skipped"])
+	}
+}
+
+func TestCurrentClaudeNativeSignInFormatIsRecognized(t *testing.T) {
+	manifest := shippedManifest(t, "claude")
+	if got := strings.Join(manifest.MCPSignInFormats, ","); got != "claude-plugin" {
+		t.Fatalf("Claude native_sign_in formats = %q, want recognized claude-plugin metadata", got)
 	}
 }
 
