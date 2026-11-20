@@ -18,7 +18,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
-	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/storage"
@@ -137,21 +136,18 @@ func Check(opts Options) int {
 	merged := mergeScopes(userConfig, workspaceConfig, src, workspace)
 	sectionResourceGroups(r, userConfig, workspace, o.resourceGroupIOPaths, o.readFile)
 	var repoRoot string
-	var repoResolution reporoot.Resolution
-	repoRootOK := false
-	if rr, ok := o.RepoRoot(); ok {
-		repoResolution = rr
-		repoRoot = rr.Root
-		repoRootOK = true
+	repoResolution, repoRootOK := o.RepoRoot()
+	if repoRootOK {
+		repoRoot = repoResolution.Root
 		// Name what SELECTED the root, not just the path: `yolo check` is the
 		// command a confused user runs, and "which flake would a launch build
 		// from, and why that one" is the question the cwd-walk used to answer
 		// silently and differently per directory (internal/reporoot).
-		via := " (via " + rr.Source.Describe() + ")"
-		if o.PathExists(filepath.Join(rr.Root, "flake.nix")) {
-			r.okPath("flake.nix found: ", filepath.Join(rr.Root, "flake.nix"), via)
+		via := " (via " + repoResolution.Source.Describe() + ")"
+		if o.PathExists(filepath.Join(repoRoot, "flake.nix")) {
+			r.okPath("flake.nix found: ", filepath.Join(repoRoot, "flake.nix"), via)
 		} else {
-			r.warn("flake.nix not found at "+filepath.Join(rr.Root, "flake.nix")+via, flakeMissingNote(rr))
+			r.warn("flake.nix not found at "+filepath.Join(repoRoot, "flake.nix")+via, flakeMissingNote(repoResolution))
 		}
 	} else {
 		r.fail("Could not resolve the yolo-jail repo root", repoRootFailureFix(repoResolution))
