@@ -81,7 +81,8 @@ var noColorEntryPoints = []struct {
 		writeUserConfig(t, `{"packs": ["file:///nonexistent-yjtest-pack"]}`)
 	}, run: func() int { return runCheckDeps([]string{"check-deps", "--no-manifest"}) }},
 	{name: "describe", run: func() int { return runDescribe([]string{"describe"}) }},
-	{name: "apply", run: func() int { return runApply([]string{"apply"}) }},
+	{name: "apply", setup: applyColorFixture,
+		run: func() int { return runApply([]string{"apply", "--setup", "podman-self"}) }},
 	// The capture act prints its header before the jail, which the fixture fakes.
 	{name: "capture", setup: func(t *testing.T) {
 		captureFixtureHome(t, captureFixtureInstaller)
@@ -142,6 +143,61 @@ func TestEveryCommandHonorsNoColor(t *testing.T) {
 			}
 		})
 	}
+}
+
+// applyColorFixture owns only the act after apply's real colored readiness description.
+func applyColorFixture(t *testing.T) {
+	t.Helper()
+	previous := applyJailLaunch
+	calls := 0
+	applyJailLaunch = func(setup string) int {
+		calls++
+		if setup != "podman-self" {
+			t.Errorf("apply color readiness setup = %q, want podman-self", setup)
+		}
+		return 0
+	}
+	t.Cleanup(func() {
+		applyJailLaunch = previous
+		if calls != 1 {
+			t.Errorf("apply color fixture ran its owned readiness act %d times, want once", calls)
+		}
+	})
+}
+
+// The color fixture owns the readiness act, not merely the runtime's PATH: a guard
+// refusing podman still makes the real readiness gate retry for its full budget.
+func TestApplyColorFixtureOwnsTheReadinessAct(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Chdir(t.TempDir())
+	t.Setenv("YOLO_SETUP", "podman-self")
+	t.Setenv("NO_COLOR", "1")
+	standInTerminal(t)
+	previous := applyJailLaunch
+	forbidden := 0
+	applyJailLaunch = func(string) int {
+		forbidden++
+		return 73
+	}
+	t.Cleanup(func() { applyJailLaunch = previous })
+	for _, ep := range noColorEntryPoints {
+		if ep.name != "apply" {
+			continue
+		}
+		if ep.setup != nil {
+			ep.setup(t)
+		}
+		var rc int
+		captureStdout(t, func() { rc = ep.run() })
+		if forbidden != 0 {
+			t.Fatalf("apply color fixture escaped its owned readiness adapter (%d calls)", forbidden)
+		}
+		if rc != 0 {
+			t.Fatalf("apply color fixture rc = %d, want owned readiness result 0", rc)
+		}
+		return
+	}
+	t.Fatal("apply color registry entry is missing")
 }
 
 // writeUserConfig writes the user-scope config under the (already temp) HOME.
