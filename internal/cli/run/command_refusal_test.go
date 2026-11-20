@@ -23,13 +23,14 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 	"github.com/mschulkind-oss/yolo-jail/internal/testutil"
 )
 
 // stageFixture is a temp HOME with fake `mise`, a fake bootstrap exiting bootstrapRC that records
 // that it ran, and a fake venv step that records that it ran.
 type stageFixture struct {
-	home, fakeBin, log, venvRan, bootRan string
+	home, fakeBin, log, miseRan, venvRan, bootRan string
 }
 
 func newStageFixture(t *testing.T, bootstrapRC int) stageFixture {
@@ -44,11 +45,29 @@ func newStageFixtureMise(t *testing.T, bootstrapRC, miseInstallRC int) stageFixt
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash on PATH; the composed command is bash")
 	}
-	home := t.TempDir()
+	// The compiled Go fixture must not inherit the live-state prefix from a
+	// durable census TMPDIR. ShortDir is fixture storage, never a guard copy.
+	rawHome, err := os.MkdirTemp(testtmp.ShortDir(), "yolo-stage-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := testtmp.RemoveAll(rawHome); err != nil {
+			t.Errorf("removing owned stage fixture: %v", err)
+		}
+	})
+	home, err := filepath.EvalSymlinks(rawHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(home, "/workspace/.yolo") {
+		t.Fatal("stage fixture must be outside the live-state prefix")
+	}
 	f := stageFixture{
 		home:    home,
 		fakeBin: filepath.Join(home, "fake-bin"),
 		log:     filepath.Join(home, "ws", ".yolo", "logs", "startup.log"),
+		miseRan: filepath.Join(home, "mise-ran"),
 		venvRan: filepath.Join(home, "venv-ran"),
 		bootRan: filepath.Join(home, "bootstrap-ran"),
 	}
@@ -59,7 +78,7 @@ func newStageFixtureMise(t *testing.T, bootstrapRC, miseInstallRC int) stageFixt
 	}
 	for path, body := range map[string]string{
 		// `mise install --quiet` exits miseInstallRC; `mise env -s bash` prints nothing to eval.
-		filepath.Join(f.fakeBin, "mise"): "#!/bin/sh\n[ \"$1\" = install ] && exit " +
+		filepath.Join(f.fakeBin, "mise"): "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + shellQuoteForTest(f.miseRan) + "\n[ \"$1\" = install ] && exit " +
 			strconv.Itoa(miseInstallRC) + "\nexit 0\n",
 		filepath.Join(home, ".yolo-venv-precreate.sh"): "#!/bin/sh\ntouch " +
 			shellQuoteForTest(f.venvRan) + "\n",
@@ -71,6 +90,60 @@ func newStageFixtureMise(t *testing.T, bootstrapRC, miseInstallRC int) stageFixt
 		}
 	}
 	return f
+}
+
+func TestStageFixtureRunsOnlyItsOwnedAdapters(t *testing.T) {
+	f := newStageFixture(t, 0)
+	if info, err := os.Stat(f.home); err != nil || info.Mode().Perm() != 0700 {
+		t.Fatalf("stage fixture is not private: %v %v", info, err)
+	}
+	if canonical, err := filepath.EvalSymlinks(f.home); err != nil || canonical != f.home || strings.Contains(f.home, "/workspace/.yolo") {
+		t.Fatalf("stage fixture retained unsafe ancestry: %s %v", canonical, err)
+	}
+	rc, out, _ := f.run(t, targetCmdForTest, false)
+	if rc != 0 || !strings.Contains(out, targetMarker) {
+		t.Fatalf("owned stage did not reach its target: rc=%d output=%q", rc, out)
+	}
+	for _, marker := range []string{f.miseRan, f.venvRan, f.bootRan} {
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("owned adapter did not run: %s: %v", marker, err)
+		}
+	}
+	body, err := os.ReadFile(f.log)
+	if err != nil || !strings.Contains(string(body), "bootstrap says why") {
+		t.Fatalf("owned log append did not record bootstrap: %q %v", body, err)
+	}
+}
+
+func TestStageFixtureRefusesLiveLogNamesBeforeExecution(t *testing.T) {
+	if marker := os.Getenv("YOLO_TEST_STAGE_LOG_TRIPWIRE"); marker != "" {
+		f := newStageFixture(t, 0)
+		name := os.Getenv("YOLO_TEST_STAGE_LOG_NAME")
+		// Even a broken refusal can only print the name and write the owned
+		// tripwire: the regression never redirects to actual live state.
+		f.runFirstSession(t, func() string {
+			return "printf '%s\\n' " + shellQuoteForTest(name) + "; touch " + shellQuoteForTest(marker)
+		}, targetCmdForTest)
+		t.Fatal("live log name was not refused")
+	}
+	for _, name := range []string{"/workspace/.yolo/startup.log", "/workspace/.yolo/logs/startup.log"} {
+		t.Run(filepath.Base(filepath.Dir(name)), func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "must-not-execute")
+			exe, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command(exe, "-test.short", "-test.run=^TestStageFixtureRefusesLiveLogNamesBeforeExecution$")
+			cmd.Env = testtmp.ChildEnv(append(os.Environ(), "YOLO_TEST_STAGE_LOG_TRIPWIRE="+marker, "YOLO_TEST_STAGE_LOG_NAME="+name))
+			out, err := cmd.CombinedOutput()
+			if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 1 || !strings.Contains(string(out), "refusing to run a command that still names /workspace/.yolo") {
+				t.Fatalf("expected exact live-state refusal: %v\n%s", err, out)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("live-state refusal reached command execution: %v", err)
+			}
+		})
+	}
 }
 
 func shellQuoteForTest(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
