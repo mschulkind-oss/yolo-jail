@@ -151,6 +151,20 @@ func storageTopic(in BriefingInput, v briefingView) []string {
 			"",
 		)
 	}
+	if in.SharedGoCache {
+		cachePath := "~/.cache/go-build"
+		if v.native {
+			cachePath = "~/Library/Caches/go-build"
+		}
+		lines = append(lines,
+			"- **Go cache**: the shared default `GOCACHE` is `"+cachePath+"`.",
+			"  Preserve owner `GOCACHE`, `GOENV`, `GOCACHEPROG`, and project-script overrides; inspect effective `go env` before changing anything.",
+			"  Tell workers to use this shared cache; never create repo/worktree/agent/version caches.",
+			"  If the default is unwritable, report it. Any fallback must be command-scoped to a writable shared cache, never a private worktree cache.",
+			"  Do not routinely run `go env -w` or `go clean -cache`.",
+			"",
+		)
+	}
 	// The storage classes keep their own heading: a launch with neither a map nor a durable dir
 	// has no section, as the body had none.
 	return append(lines, persistenceSection(in.Persistence, in.Durable, v.workspace, in.Workspace, v.home)...)
