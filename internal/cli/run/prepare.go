@@ -245,7 +245,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		// namespace (docs/reference/in-jail-nix-roots.md). A native backend mounts nothing and
 		// shares the host's paths, so its roots are real whatever the predicate says.
 		HostNix:       !slices.Contains(paths.NativeRuntimes, rt) && o.hostNixMounted(rt), // parity: NotApplicable — a native backend shares the host's paths, so its nix roots are real
-		SharedGoCache: !slices.Contains(paths.NativeRuntimes, rt) || hasGoBinary(),
+		SharedGoCache: !slices.Contains(paths.NativeRuntimes, rt) || hasGoBinary(),        // parity: Honored — the same Go cache rule applies on native backends when Go is available
 		// THE PERSISTENCE MAP, from the definitions the mount argv reads and the same
 		// selected packs and config it is assembled from (persistencemap.go). It renders
 		// the storage-classes section and the Home line that points at it
