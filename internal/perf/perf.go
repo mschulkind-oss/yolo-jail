@@ -172,7 +172,9 @@ type Log struct {
 	// New until a trace is explicitly installed.
 	trace       TraceID
 	traceParent SpanID
-	traceRoot   bool
+	// independentLifetime reserves the one trace-only lifetime: a minted root or a joined
+	// process span. Ending it does not release the acquisition or permit reinstallation.
+	independentLifetime bool
 }
 
 // disabled is the shared off log: every method is a no-op on it.
@@ -225,7 +227,7 @@ func (l *Log) InstallIndependentTrace(tr Trace, sinks ...Sink) bool {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if len(l.events) != 0 || l.traceRoot || len(l.traceSinks) != 0 || (!l.trace.IsZero() && (l.trace != tr.ID || l.traceParent != tr.Parent)) {
+	if len(l.events) != 0 || l.independentLifetime || len(l.traceSinks) != 0 || (!l.trace.IsZero() && (l.trace != tr.ID || l.traceParent != tr.Parent)) {
 		return false
 	}
 	l.trace = tr.ID
@@ -238,26 +240,34 @@ func (l *Log) InstallIndependentTrace(tr Trace, sinks ...Sink) bool {
 // go only to independently installed trace sinks, never to legacy sinks, report rows, or notices.
 // Joined collectors have a parent span and must not create another root.
 func (l *Log) IndependentRoot(name string) *Span {
-	return l.independentRoot(name, false)
+	return l.independentSpan(name, false, false)
 }
 
 // IndependentLauncherRoot emits one immutable neutral invocation start with designation.
 func (l *Log) IndependentLauncherRoot() *Span {
-	return l.independentRoot("invocation", true)
+	return l.independentSpan("invocation", false, true)
 }
 
-func (l *Log) independentRoot(name string, launcher bool) *Span {
+// IndependentProcessSpan starts the one trace-only lifetime for an intentionally joined
+// process. It preserves the supplied nonzero parent and emits only to independently installed
+// sinks, never to legacy sinks or reports. Nil means the collector cannot acquire that lifetime.
+func (l *Log) IndependentProcessSpan(name string) *Span {
+	return l.independentSpan(name, true, false)
+}
+
+func (l *Log) independentSpan(name string, joined, launcher bool) *Span {
 	if !l.enabled() {
 		return nil
 	}
 	l.mu.Lock()
-	if l.trace.IsZero() || !l.traceParent.IsZero() || l.traceRoot || len(l.traceSinks) == 0 {
+	hasParent := !l.traceParent.IsZero()
+	if l.trace.IsZero() || hasParent != joined || l.independentLifetime || len(l.traceSinks) == 0 {
 		l.mu.Unlock()
 		return nil
 	}
-	l.traceRoot = true
-	s := &Span{l: l, name: name, at: l.now(), id: newSpanID(), trace: l.trace, traceOnly: true}
-	e := Event{Kind: KindStart, Name: name, At: s.at, Span: s.id, launcherRoot: launcher}
+	l.independentLifetime = true
+	s := &Span{l: l, name: name, at: l.now(), id: newSpanID(), parent: l.traceParent, trace: l.trace, traceOnly: true}
+	e := Event{Kind: KindStart, Name: name, At: s.at, Span: s.id, Parent: s.parent, launcherRoot: launcher}
 	sinks := append([]Sink(nil), l.traceSinks...)
 	l.mu.Unlock()
 	for _, sink := range sinks {
