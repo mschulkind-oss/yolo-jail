@@ -1445,6 +1445,7 @@
 "internal/render/*.go",
 "internal/reporoot/*.go",
 "internal/richtext/richtext.go",
+"internal/runtime/*.go",
 "internal/selfupdate/*.go",
 "internal/sessionhome/sessionhome.go",
 "internal/setup/*.go",
@@ -1452,6 +1453,7 @@
 "internal/skillimports/*.go",
 "internal/svcendpoint/*.go",
 "internal/termsafe/termsafe.go",
+"internal/tracefile/*.go",
 "internal/tty/*.go",
 "internal/updatehint/updatehint.go",
 "internal/version/*.go"
@@ -1500,6 +1502,7 @@
 "internal/render",
 "internal/reporoot",
 "internal/richtext",
+"internal/runtime",
 "internal/selfupdate",
 "internal/sessionhome",
 "internal/setup",
@@ -1507,6 +1510,7 @@
 "internal/skillimports",
 "internal/svcendpoint",
 "internal/termsafe",
+"internal/tracefile",
 "internal/tty",
 "internal/updatehint",
 "internal/version"

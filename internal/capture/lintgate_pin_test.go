@@ -57,6 +57,10 @@ var unanalyzedFiles = map[string]string{
 	"internal/hostcas/probe_other.go": "`!linux && !darwin` since darwin shares the access(2) " +
 		"probe (probe_unix.go) for macos-user's run-as-you mode: the completeness arm of its " +
 		"constraint set, for serialdaemon's reason above.",
+	"internal/perf/rename_noreplace_other.go": "`!linux && !darwin` declines atomic pending " +
+		"publication instead of an unsafe overwrite or copy: only Linux and Darwin are " +
+		"shipped and linted. This is a refusal-only completeness arm, not an implementation " +
+		"for an unsupported target.",
 }
 
 // repoRootDir locates the checkout from this test file's compile-time path.
