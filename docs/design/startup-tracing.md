@@ -2,7 +2,7 @@
 title: "One trace per launch: where startup time goes, and how to see it"
 status: accepted
 stage: DECIDED
-next: "Complete the U6b3 production-caller map against the landed U6b2 API; reuse source-built foundations and retain runtime and overhead proof obligations"
+next: "Land and independently accept the joined-process trace-only lifetime adapter, then remap its actual API before U6b3 implementation"
 tags: [observability, timing, tracing, startup, perf]
 summary: "Turns the existing timing spans into one trace per launch that follows the launch across every process it starts, fills the stretches no span covers today, and reads it back as a text summary and an exported timeline for an off-the-shelf viewer."
 ---
@@ -48,9 +48,8 @@ two existing log formats.
 
 **Needs your ruling:** None.
 
-**Reads with:** [`startup-tracing-plan.md`](startup-tracing-plan.md) (a tree-grounded partial
-implementation plan whose status, completed U3/U4a slices, and remaining handoffs must be
-restamped against the candidate; this design amendment does not rewrite its tasks),
+**Reads with:** [`startup-tracing-plan.md`](startup-tracing-plan.md) (the partial implementation
+plan restamped at the U6b3 source pin; [its joined-lifetime prerequisite](startup-tracing-plan.md#u6b3-prerequisite--joined-process-trace-only-lifetime) remains unbuilt before [caller integration](startup-tracing-plan.md#u6b3--production-invocation-and-keeper-integration)),
 [`perf-logging.md`](../reference/perf-logging.md) (the reference for the timing system this
 extends; its principles P1 to P5 hold unchanged).
 
@@ -391,6 +390,15 @@ An intentional join that is absent, malformed, conflicting, or unavailable disab
 never mints a fallback root. The launcher retains its original claim for its whole invocation;
 existing S/C/V/R frames are not claim acknowledgements. If it releases earlier in a future path,
 that path needs an explicit acquired-claim acknowledgement first, without an intentional wait.
+
+A joined keeper's process lifetime is represented by an actual trace-only child span, not another
+zero-parent or designated launcher root. Its immutable parent is the deliberate actual
+waiting-span context; start and end use real collector clock evidence. Ordinary existing phases
+and legacy recording/report output are unchanged. A joined lifetime needs an independently
+accepted library adapter because existing root APIs reject joined parents; caller integration
+must not erase the parent, fabricate wire events, or substitute an ordinary legacy-visible
+lifetime span. The keeper owner ends an acquired lifetime before closing its writer, claim and
+store; a declined acquisition never justifies omitting End from a successful one.
 
 Context insertion targets the final executed fresh runtime argv and actual image reference after
 service-environment insertion, not a stale plan copy. Missing insertion position disables only
