@@ -206,11 +206,12 @@ func TestAdmittedTraceSinkTreatsShortLineWritesAsFailure(t *testing.T) {
 	w := &shortTraceWriter{short: true}
 	var warnings []string
 	state, err := newAdmittedTraceState(w, "launcher", os.Getpid(), tr, func(s string) { warnings = append(warnings, s) }, MaxTraceEvents)
-	if err == nil || state != nil {
-		t.Fatal("short header was accepted")
+	if err == nil || state != nil || len(warnings) != 1 {
+		t.Fatal("short header was accepted or did not warn once")
 	}
 	w.short = false
-	state, err = newAdmittedTraceState(w, "launcher", os.Getpid(), tr, nil, MaxTraceEvents)
+	warnings = nil
+	state, err = newAdmittedTraceState(w, "launcher", os.Getpid(), tr, func(s string) { warnings = append(warnings, s) }, MaxTraceEvents)
 	if err != nil {
 		t.Fatal("test writer should accept header")
 	}
@@ -223,26 +224,160 @@ func TestAdmittedTraceSinkTreatsShortLineWritesAsFailure(t *testing.T) {
 }
 
 func TestAdmittedTraceSinkEventLimitRequiresAdmittedTruncation(t *testing.T) {
-	tr := MintTrace()
-	var got [][]byte
-	w := &captureTraceWriter{write: func(p []byte) (int, error) { got = append(got, append([]byte(nil), p...)); return len(p), nil }}
-	state, err := newAdmittedTraceState(w, "launcher", os.Getpid(), tr, nil, 2)
+	lineBytes := func(value any) []byte {
+		t.Helper()
+		line, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal("could not encode expected trace line")
+		}
+		return append(line, '\n')
+	}
+	createState := func(claim *TraceClaim, tr Trace, warn func(string)) (*TraceWriter, *admittedTraceState, func()) {
+		t.Helper()
+		writer, err := claim.CreateWriter(TraceFileName("launcher", os.Getpid()))
+		if err != nil {
+			t.Fatal("claim-owned trace writer creation failed")
+		}
+		closed := false
+		t.Cleanup(func() {
+			if !closed {
+				_ = writer.Close()
+			}
+		})
+		state, err := newAdmittedTraceState(writer, "launcher", os.Getpid(), tr, warn, 1)
+		if err != nil {
+			t.Fatal("claim-owned trace header was not admitted")
+		}
+		return writer, state, func() { closed = true }
+	}
+
+	// The state-limit marker is persisted only through the real claim-owned writer.
+	store, root, _ := traceStoreFixture(t)
+	claim := storeMint(t, store, 306, 1)
+	tr := admittedTraceIdentity(t, claim)
+	pid := os.Getpid()
+	header := lineBytes(laneLine{K: "lane", Name: "launcher", PID: pid, Trace: tr.ID.String()})
+	first := Event{Kind: KindMark, Name: "retained", At: time.Unix(1, 0)}
+	firstLine := lineBytes(eventLine(first))
+	trigger := Event{Kind: KindMark, Name: "omitted", At: time.Unix(2, 0)}
+	truncatedLine := lineBytes(traceLine{T: trigger.At.UnixNano(), K: "mark", Name: TruncatedMark})
+	before, err := claim.Usage()
 	if err != nil {
-		t.Fatal("capture writer header failed")
+		t.Fatal("initial trace usage unavailable")
 	}
-	state.write(Event{Kind: KindMark, Name: "one", At: time.Unix(1, 0)})
-	state.write(Event{Kind: KindMark, Name: "two", At: time.Unix(2, 0)})
-	state.write(Event{Kind: KindMark, Name: "omitted", At: time.Unix(3, 0)})
-	state.write(Event{Kind: KindMark, Name: "still-omitted", At: time.Unix(4, 0)})
-	if len(got) != 4 {
-		t.Fatalf("header, two events and one admitted truncation expected, got %d writes", len(got))
+	var warnings []string
+	writer, state, markWriterClosed := createState(claim, tr, func(s string) { warnings = append(warnings, s) })
+	afterHeader, err := claim.Usage()
+	if err != nil || afterHeader.Bytes-before.Bytes != int64(len(header)) {
+		t.Fatal("claim accounting omitted the physical lane header")
 	}
-	var mark traceLine
-	if err := json.Unmarshal(bytes.TrimSpace(got[3]), &mark); err != nil || mark.Name != TruncatedMark || mark.T != time.Unix(3, 0).UnixNano() {
-		t.Fatal("event-limit marker did not use the triggering event and existing encoding")
+	state.write(first)
+	afterFirst, err := claim.Usage()
+	if err != nil || afterFirst.Bytes-afterHeader.Bytes != int64(len(firstLine)) {
+		t.Fatal("claim accounting omitted the retained event")
+	}
+	state.write(trigger)
+	afterMarker, err := claim.Usage()
+	if err != nil || afterMarker.Bytes-afterFirst.Bytes != int64(len(truncatedLine)) {
+		t.Fatal("claim did not admit the bounded truncation marker")
+	}
+	state.write(Event{Kind: KindMark, Name: "after-truncation", At: time.Unix(3, 0)})
+	afterRepeat, err := claim.Usage()
+	if err != nil || afterRepeat.Bytes != afterMarker.Bytes || len(warnings) != 0 || !state.disabled.Load() {
+		t.Fatal("admitted truncation did not disable further writes without warning")
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal("claim-owned trace writer close failed")
+	}
+	markWriterClosed()
+	data, err := os.ReadFile(admittedTraceFile(root, tr, "launcher"))
+	if err != nil || !bytes.Equal(data, bytes.Join([][]byte{header, firstLine, truncatedLine}, nil)) {
+		t.Fatal("physical lane bytes differ from the admitted header, event, and truncation marker")
+	}
+
+	// Fill the trace to exactly the header+event credit using another owned writer. The marker
+	// then has no admission credit and must leave both earlier files byte-for-byte unchanged.
+	store, root, _ = traceStoreFixture(t)
+	claim = storeMint(t, store, 307, 1)
+	tr = admittedTraceIdentity(t, claim)
+	pid = os.Getpid()
+	header = lineBytes(laneLine{K: "lane", Name: "launcher", PID: pid, Trace: tr.ID.String()})
+	first = Event{Kind: KindMark, Name: "retained", At: time.Unix(4, 0)}
+	firstLine = lineBytes(eventLine(first))
+	trigger = Event{Kind: KindMark, Name: "omitted", At: time.Unix(5, 0)}
+	truncatedLine = lineBytes(traceLine{T: trigger.At.UnixNano(), K: "mark", Name: TruncatedMark})
+	initial, err := claim.Usage()
+	if err != nil {
+		t.Fatal("initial trace usage unavailable")
+	}
+	paddingBytes := MaxTraceContentBytes - initial.Bytes - int64(len(header)+len(firstLine))
+	if paddingBytes < 0 || initial.Bytes+paddingBytes+int64(len(header)+len(firstLine)) != MaxTraceContentBytes || len(truncatedLine) == 0 {
+		t.Fatal("could not compute bounded capacity for denial fixture")
+	}
+	padding := bytes.Repeat([]byte{'p'}, int(paddingBytes))
+	paddingWriter, err := claim.CreateWriter("padding.jsonl")
+	if err != nil {
+		t.Fatal("claim-owned padding writer creation failed")
+	}
+	paddingClosed := false
+	t.Cleanup(func() {
+		if !paddingClosed {
+			_ = paddingWriter.Close()
+		}
+	})
+	if n, err := paddingWriter.Write(padding); err != nil || n != len(padding) {
+		t.Fatal("claim-owned capacity fill failed")
+	}
+	if err := paddingWriter.Close(); err != nil {
+		t.Fatal("claim-owned capacity writer close failed")
+	}
+	paddingClosed = true
+	paddingPath := filepath.Join(root, tr.ID.String(), "padding.jsonl")
+	paddingBefore, err := os.ReadFile(paddingPath)
+	if err != nil || !bytes.Equal(paddingBefore, padding) {
+		t.Fatal("admitted capacity-fill bytes differ from the owned writer input")
+	}
+	beforeLane, err := claim.Usage()
+	if err != nil || beforeLane.Bytes != MaxTraceContentBytes-int64(len(header)+len(firstLine)) {
+		t.Fatal("owned capacity fill did not leave exactly header+event credit")
+	}
+	var deniedWarnings []string
+	writer, state, markWriterClosed = createState(claim, tr, func(s string) { deniedWarnings = append(deniedWarnings, s) })
+	afterHeader, err = claim.Usage()
+	if err != nil || afterHeader.Bytes-beforeLane.Bytes != int64(len(header)) {
+		t.Fatal("claim accounting omitted the physical lane header")
+	}
+	state.write(first)
+	afterFirst, err = claim.Usage()
+	if err != nil || afterFirst.Bytes-afterHeader.Bytes != int64(len(firstLine)) || afterFirst.Bytes != MaxTraceContentBytes {
+		t.Fatal("claim accounting omitted the retained event or failed to reach the cap")
+	}
+	if MaxTraceContentBytes-afterFirst.Bytes >= int64(len(truncatedLine)) {
+		t.Fatal("capacity fixture unexpectedly left room for the truncation marker")
+	}
+	state.write(trigger)
+	afterDenied, err := claim.Usage()
+	if err != nil || afterDenied.Bytes != afterFirst.Bytes || !state.disabled.Load() || len(deniedWarnings) != 1 {
+		t.Fatal("denied truncation changed physical usage or failed to warn once and disable")
+	}
+	state.write(Event{Kind: KindMark, Name: "still-omitted", At: time.Unix(6, 0)})
+	afterRepeat, err = claim.Usage()
+	if err != nil || afterRepeat.Bytes != afterDenied.Bytes || len(deniedWarnings) != 1 {
+		t.Fatal("denied truncation retried or warned more than once")
+	}
+	if strings.Contains(deniedWarnings[0], root) || strings.Contains(deniedWarnings[0], "omitted") {
+		t.Fatal("denied truncation warning exposed a locator or event name")
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal("claim-owned trace writer close failed")
+	}
+	markWriterClosed()
+	paddingAfter, err := os.ReadFile(paddingPath)
+	if err != nil || !bytes.Equal(paddingAfter, paddingBefore) {
+		t.Fatal("capacity-denied marker altered earlier claim-owned file bytes")
+	}
+	data, err = os.ReadFile(admittedTraceFile(root, tr, "launcher"))
+	if err != nil || !bytes.Equal(data, bytes.Join([][]byte{header, firstLine}, nil)) {
+		t.Fatal("capacity-denied marker changed earlier admitted lane bytes")
 	}
 }
-
-type captureTraceWriter struct{ write func([]byte) (int, error) }
-
-func (w *captureTraceWriter) Write(p []byte) (int, error) { return w.write(p) }
