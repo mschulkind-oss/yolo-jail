@@ -4,13 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/tracefile"
 )
 
 func TestTraceOfflineRegistered(t *testing.T) {
@@ -544,6 +548,12 @@ func TestTraceOfflineExportAtomicFiles(t *testing.T) {
 	if rc := traceMain([]string{"trace", "export", duplicate, "--format", "otlp", "-o", target}, traceEnv{root: root}, &out, &errs); rc == 0 || out.Len() != 0 {
 		t.Fatalf("expected OTLP publication failure: rc=%d out=%q err=%q", rc, out.String(), errs.String())
 	}
+	if !strings.Contains(errs.String(), "Next:") ||
+		!strings.Contains(errs.String(), "yolo trace show "+duplicate) ||
+		!strings.Contains(errs.String(), "yolo trace export "+duplicate) ||
+		strings.Contains(errs.String(), target) {
+		t.Fatalf("duplicate-span failure has no safe actionable next step: %q", errs.String())
+	}
 	if b, err := os.ReadFile(target); err != nil || string(b) != prior {
 		t.Fatalf("failed export damaged prior target: %q, %v", b, err)
 	}
@@ -558,7 +568,7 @@ func TestTraceOfflineExportRejectsUnsafeTargets(t *testing.T) {
 	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
 	base := t.TempDir()
 	missingParentTarget := filepath.Join(base, "missing", "trace.json")
-	if rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "-o", missingParentTarget}, traceEnv{root: root}); rc == 0 || out != "" || !strings.Contains(errs, "cannot") {
+	if rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "-o", missingParentTarget}, traceEnv{root: root}); rc == 0 || out != "" || !strings.Contains(errs, "cannot") || strings.Contains(errs, missingParentTarget) {
 		t.Fatalf("missing parent: rc=%d out=%q err=%q", rc, out, errs)
 	}
 	if _, err := os.Lstat(filepath.Dir(missingParentTarget)); !os.IsNotExist(err) {
@@ -574,7 +584,7 @@ func TestTraceOfflineExportRejectsUnsafeTargets(t *testing.T) {
 	if err := os.Symlink(victim, link); err != nil {
 		t.Fatal(err)
 	}
-	if rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "-o", link}, traceEnv{root: root}); rc == 0 || out != "" || !strings.Contains(errs, "symlink") {
+	if rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "-o", link}, traceEnv{root: root}); rc == 0 || out != "" || !strings.Contains(errs, "symlink") || strings.Contains(errs, link) {
 		t.Fatalf("symlink target: rc=%d out=%q err=%q", rc, out, errs)
 	}
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
@@ -588,7 +598,7 @@ func TestTraceOfflineExportRejectsUnsafeTargets(t *testing.T) {
 	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "-o", directory}, traceEnv{root: root}); rc == 0 || out != "" || !strings.Contains(errs, "regular") {
+	if rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "-o", directory}, traceEnv{root: root}); rc == 0 || out != "" || !strings.Contains(errs, "regular") || strings.Contains(errs, directory) {
 		t.Fatalf("directory target: rc=%d out=%q err=%q", rc, out, errs)
 	}
 	if entries, err := os.ReadDir(directory); err != nil || len(entries) != 0 {
@@ -612,5 +622,99 @@ func TestTraceOfflineExportPropagatesStdoutWriterError(t *testing.T) {
 	rc := traceMain([]string{"trace", "export", id}, traceEnv{root: root}, traceExportFailWriter{}, &errs)
 	if rc == 0 || !strings.Contains(errs.String(), "write") {
 		t.Fatalf("writer failure was ignored: rc=%d stderr=%q", rc, errs.String())
+	}
+	if !strings.Contains(errs.String(), "Next:") ||
+		!strings.Contains(errs.String(), "yolo trace show "+id) ||
+		!strings.Contains(errs.String(), "yolo trace export "+id+" -o <file>") ||
+		strings.Contains(errs.String(), "fixture output failure") {
+		t.Fatalf("stdout failure has no safe actionable next step: %q", errs.String())
+	}
+}
+
+func TestTraceOfflineExportParentRebindDuringEncoding(t *testing.T) {
+	for _, failEncoding := range []bool{false, true} {
+		name := "publish refusal cleans selected directory"
+		if failEncoding {
+			name = "encoder failure cleans selected directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			const id = "11111111111111111111111111111111"
+			traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+			base := t.TempDir()
+			parent := filepath.Join(base, "selected-parent")
+			moved := filepath.Join(base, "moved-parent")
+			if err := os.Mkdir(parent, 0700); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(parent, "trace.json")
+			const old = "old complete trace\n"
+			const impostor = "new-directory sentinel\n"
+			if err := os.WriteFile(target, []byte(old), 0600); err != nil {
+				t.Fatal(err)
+			}
+			started := make(chan struct{})
+			release := make(chan struct{})
+			var releaseOnce sync.Once
+			releaseEncoder := func() { releaseOnce.Do(func() { close(release) }) }
+			t.Cleanup(releaseEncoder)
+			type result struct {
+				rc  int
+				out string
+				err string
+			}
+			completed := make(chan result, 1)
+			encoder := func(w io.Writer, _ *tracefile.Trace, _ string) error {
+				close(started) // writeTraceExportFile has created the temporary in its selected parent.
+				<-release
+				if failEncoding {
+					return fmt.Errorf("fixture encoder failure")
+				}
+				_, err := io.WriteString(w, "encoded trace\n")
+				return err
+			}
+			go func() {
+				var out, errs bytes.Buffer
+				rc := traceMain([]string{"trace", "export", id, "-o", target}, traceEnv{root: root}, &out, &errs, encoder)
+				completed <- result{rc: rc, out: out.String(), err: errs.String()}
+			}()
+			select {
+			case <-started:
+			case <-time.After(5 * time.Minute):
+				t.Fatal("trace export did not reach the encoder callback")
+			}
+			if err := os.Rename(parent, moved); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(parent, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(parent, "trace.json"), []byte(impostor), 0600); err != nil {
+				t.Fatal(err)
+			}
+			releaseEncoder()
+			var got result
+			select {
+			case got = <-completed:
+			case <-time.After(5 * time.Minute):
+				t.Fatal("trace export did not finish after encoder release")
+			}
+			if got.rc == 0 || got.out != "" || !strings.Contains(got.err, "Next:") ||
+				strings.Contains(got.err, target) || strings.Contains(got.err, parent) || strings.Contains(got.err, moved) {
+				t.Fatalf("rebound parent was not safely refused: rc=%d stdout=%q stderr=%q", got.rc, got.out, got.err)
+			}
+			if b, err := os.ReadFile(filepath.Join(moved, "trace.json")); err != nil || string(b) != old {
+				t.Fatalf("original output changed: %q, %v", b, err)
+			}
+			if b, err := os.ReadFile(filepath.Join(parent, "trace.json")); err != nil || string(b) != impostor {
+				t.Fatalf("rebound directory sentinel changed: %q, %v", b, err)
+			}
+			for dir, want := range map[string]string{moved: "trace.json", parent: "trace.json"} {
+				entries, err := os.ReadDir(dir)
+				if err != nil || len(entries) != 1 || entries[0].Name() != want {
+					t.Fatalf("temporary artifact orphaned in %s: entries=%v err=%v", dir, entries, err)
+				}
+			}
+		})
 	}
 }

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -103,24 +105,24 @@ func parseTraceExportArgs(args []string) (traceExportOptions, error) {
 	return options, nil
 }
 
-func validateTraceExportTarget(path string) error {
-	if path == "" {
-		return fmt.Errorf("output filename is empty")
+func traceExportTargetParts(path string) (string, string, error) {
+	parent, name := filepath.Split(path)
+	if name == "" || name == "." || name == ".." {
+		return "", "", fmt.Errorf("output target is not a regular filename")
 	}
-	parent := filepath.Dir(path)
-	parentInfo, err := os.Stat(parent)
-	if err != nil {
-		return fmt.Errorf("output parent is unavailable: %w", err)
+	if parent == "" {
+		parent = "."
 	}
-	if !parentInfo.IsDir() {
-		return fmt.Errorf("output parent is not a directory")
-	}
-	targetInfo, err := os.Lstat(path)
+	return parent, name, nil
+}
+
+func validateTraceExportTarget(root *os.Root, name string) error {
+	targetInfo, err := root.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("cannot inspect output target: %w", err)
+		return fmt.Errorf("cannot inspect output target")
 	}
 	if targetInfo.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("output target is a symlink")
@@ -130,6 +132,73 @@ func validateTraceExportTarget(path string) error {
 	}
 	return nil
 }
+
+func traceExportParentStillBound(root *os.Root, parent string) error {
+	anchored, err := root.Stat(".")
+	if err != nil {
+		return fmt.Errorf("cannot verify output parent")
+	}
+	current, err := os.Stat(parent)
+	if err != nil {
+		return fmt.Errorf("output parent changed during export")
+	}
+	if !os.SameFile(anchored, current) {
+		return fmt.Errorf("output parent changed during export")
+	}
+	return nil
+}
+
+func createTraceExportTemp(root *os.Root) (string, *os.File, fs.FileInfo, error) {
+	for attempt := 0; attempt < 8; attempt++ {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return "", nil, nil, fmt.Errorf("cannot create output temporary")
+		}
+		name := ".yolo-trace-export-" + hex.EncodeToString(nonce[:])
+		file, err := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("cannot create output temporary")
+		}
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			_ = file.Close()
+			_ = root.Remove(name)
+			return "", nil, nil, fmt.Errorf("cannot identify output temporary")
+		}
+		return name, file, info, nil
+	}
+	return "", nil, nil, fmt.Errorf("cannot reserve output temporary")
+}
+
+func traceExportTempIdentity(root *os.Root, name string, original fs.FileInfo) error {
+	current, err := root.Lstat(name)
+	if err != nil || !os.SameFile(original, current) {
+		return fmt.Errorf("output temporary identity changed")
+	}
+	return nil
+}
+
+func removeTraceExportTemp(root *os.Root, name string, original fs.FileInfo) error {
+	current, err := root.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot inspect unpublished output temporary")
+	}
+	if !os.SameFile(original, current) {
+		return fmt.Errorf("unpublished output temporary identity changed")
+	}
+	if err := root.Remove(name); err != nil {
+		return fmt.Errorf("cannot remove unpublished output temporary")
+	}
+	return nil
+}
+
+type traceExportEncoder func(io.Writer, *tracefile.Trace, string) error
 
 func writeTraceExport(w io.Writer, tr *tracefile.Trace, format string) error {
 	switch format {
@@ -142,33 +211,60 @@ func writeTraceExport(w io.Writer, tr *tracefile.Trace, format string) error {
 	}
 }
 
-func writeTraceExportFile(path string, tr *tracefile.Trace, format string) error {
-	if err := validateTraceExportTarget(path); err != nil {
+func writeTraceExportFile(path string, tr *tracefile.Trace, format string, encode traceExportEncoder) (resultErr error) {
+	parent, target, err := traceExportTargetParts(path)
+	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".yolo-trace-export-*")
+	root, err := os.OpenRoot(parent)
 	if err != nil {
-		return fmt.Errorf("cannot create output temporary file: %w", err)
+		return fmt.Errorf("cannot open output parent")
 	}
-	tmpPath := tmp.Name()
+	defer root.Close()
+	if err := traceExportParentStillBound(root, parent); err != nil {
+		return err
+	}
+	if err := validateTraceExportTarget(root, target); err != nil {
+		return err
+	}
+	tempName, temp, tempInfo, err := createTraceExportTemp(root)
+	if err != nil {
+		return err
+	}
 	published := false
 	defer func() {
 		if !published {
-			_ = tmp.Close()
-			_ = os.Remove(tmpPath)
+			if temp != nil {
+				_ = temp.Close()
+			}
+			if err := removeTraceExportTemp(root, tempName, tempInfo); err != nil {
+				resultErr = errors.Join(resultErr, err)
+			}
 		}
 	}()
-	if err := writeTraceExport(tmp, tr, format); err != nil {
-		return fmt.Errorf("cannot encode trace export: %w", err)
+	if encode == nil {
+		encode = traceExportEncoder(writeTraceExport)
 	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("cannot close trace export temporary file: %w", err)
+	encodeErr := encode(temp, tr, format)
+	closeErr := temp.Close()
+	temp = nil
+	if encodeErr != nil {
+		return fmt.Errorf("cannot encode or write selected trace")
 	}
-	if err := validateTraceExportTarget(path); err != nil {
+	if closeErr != nil {
+		return fmt.Errorf("cannot close output temporary")
+	}
+	if err := traceExportParentStillBound(root, parent); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("cannot publish trace export: %w", err)
+	if err := validateTraceExportTarget(root, target); err != nil {
+		return err
+	}
+	if err := traceExportTempIdentity(root, tempName, tempInfo); err != nil {
+		return err
+	}
+	if err := root.Rename(tempName, target); err != nil {
+		return fmt.Errorf("cannot publish output file")
 	}
 	published = true
 	return nil
@@ -205,7 +301,7 @@ func runTrace(args []string) int {
 	return traceMain(args, env, os.Stdout, os.Stderr)
 }
 
-func traceMain(args []string, env traceEnv, out, errw io.Writer) int {
+func traceMain(args []string, env traceEnv, out, errw io.Writer, testEncoder ...traceExportEncoder) int {
 	if traceAnswerHelp(args, out) {
 		return 0
 	}
@@ -218,6 +314,11 @@ func traceMain(args []string, env traceEnv, out, errw io.Writer) int {
 		sub, rest = rest[0], rest[1:]
 	}
 	id := ""
+	exportEncoder := traceExportEncoder(writeTraceExport)
+	// The callback lets tests pause the actual command at the temporary-file boundary.
+	if len(testEncoder) > 0 && testEncoder[0] != nil {
+		exportEncoder = testEncoder[0]
+	}
 	var exportOptions traceExportOptions
 	switch sub {
 	case "list":
@@ -241,12 +342,6 @@ func traceMain(args []string, env traceEnv, out, errw io.Writer) int {
 			return 2
 		}
 		id = exportOptions.id
-		if exportOptions.outputSet {
-			if err := validateTraceExportTarget(exportOptions.output); err != nil {
-				fmt.Fprintf(errw, "yolo trace export: cannot use output file: %s; choose a regular file in an existing directory.\n", termsafe.Visible(err.Error()))
-				return 1
-			}
-		}
 	default:
 		fmt.Fprintf(errw, "yolo trace: %q is not a trace command; use `yolo trace` to list, `yolo trace show` to summarize, or `yolo trace export` to write offline JSON.\n", termsafe.Visible(sub))
 		return 2
@@ -316,12 +411,13 @@ func traceMain(args []string, env traceEnv, out, errw io.Writer) int {
 	if sub == "export" {
 		var exportErr error
 		if exportOptions.outputSet {
-			exportErr = writeTraceExportFile(exportOptions.output, selected, exportOptions.format)
-		} else {
-			exportErr = writeTraceExport(out, selected, exportOptions.format)
+			exportErr = writeTraceExportFile(exportOptions.output, selected, exportOptions.format, exportEncoder)
+		} else if err := exportEncoder(out, selected, exportOptions.format); err != nil {
+			exportErr = fmt.Errorf("cannot encode or write selected trace")
 		}
 		if exportErr != nil {
 			fmt.Fprintf(errw, "yolo trace: cannot write offline %s export: %s.\n", exportOptions.format, termsafe.Visible(exportErr.Error()))
+			fmt.Fprintf(errw, "Next: inspect the selected trace with `yolo trace show %s`; then retry `yolo trace export %s -o <file>` using a regular file in an existing writable directory. If collected spans are malformed, ask the host operator to repair the trace before retrying.\n", selected.ID, selected.ID)
 			return 1
 		}
 		return 0
