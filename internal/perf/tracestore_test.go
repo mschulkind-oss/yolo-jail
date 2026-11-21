@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,6 +57,97 @@ func storeWrite(t *testing.T, c *TraceClaim, name string, p []byte) *TraceWriter
 		t.Fatalf("write %d/%d: %v", n, len(p), err)
 	}
 	return w
+}
+
+func assertTraceStoreClosePrivacy(t *testing.T, err error, roots ...string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("failed owned descriptor close was reported successful")
+	}
+	for _, root := range roots {
+		if strings.Contains(err.Error(), root) {
+			t.Error("close error exposed an owned fixture locator")
+		}
+	}
+	var pathError *os.PathError
+	if errors.As(err, &pathError) {
+		t.Error("close error retained an extractable PathError")
+	}
+	if errors.Unwrap(err) != nil {
+		t.Error("close error retained an underlying cause")
+	}
+	if _, ok := err.(interface{ Unwrap() []error }); ok {
+		t.Error("close error retained joined underlying causes")
+	}
+	if err.Error() != traceDeclined().Error() {
+		t.Error("close error omitted the bounded store category and actionable next step")
+	}
+}
+
+func TestTraceStoreClosePrivacy(t *testing.T) {
+	t.Run("repeated_writer", func(t *testing.T) {
+		s, root, private := traceStoreFixture(t)
+		c := storeMint(t, s, 1, 1)
+		w := storeWrite(t, c, "sentinel-lane.jsonl", []byte("owned bytes"))
+		if err := w.Close(); err != nil {
+			t.Fatal("first writer close failed")
+		}
+		if err := w.Close(); err != nil {
+			assertTraceStoreClosePrivacy(t, err, root, private, filepath.Dir(root))
+		}
+	})
+	t.Run("failed_writer_still_closes_claim", func(t *testing.T) {
+		s, root, private := traceStoreFixture(t)
+		c := storeMint(t, s, 1, 1)
+		w := storeWrite(t, c, "sentinel-lane.jsonl", []byte("owned bytes"))
+		if err := w.file.Close(); err != nil {
+			t.Fatal("owned fault setup failed")
+		}
+		assertTraceStoreClosePrivacy(t, w.Close(), root, private, filepath.Dir(root))
+		if _, err := w.claim.lock.Stat(); !errors.Is(err, os.ErrClosed) {
+			t.Error("writer close stopped before closing its claim lock")
+		}
+		if _, err := w.claim.dir.Stat("."); !errors.Is(err, os.ErrClosed) {
+			t.Error("writer close stopped before closing its claim directory")
+		}
+	})
+	t.Run("failed_claim_still_closes_directory", func(t *testing.T) {
+		s, root, private := traceStoreFixture(t)
+		c := storeMint(t, s, 1, 1)
+		if err := c.lock.Close(); err != nil {
+			t.Fatal("owned fault setup failed")
+		}
+		assertTraceStoreClosePrivacy(t, c.Close(), root, private, filepath.Dir(root))
+		if _, err := c.dir.Stat("."); !errors.Is(err, os.ErrClosed) {
+			t.Error("claim close stopped before closing its directory")
+		}
+		if err := c.Close(); err != nil {
+			assertTraceStoreClosePrivacy(t, err, root, private, filepath.Dir(root))
+		}
+	})
+	t.Run("root_handles_both_attempted", func(t *testing.T) {
+		for _, first := range []string{"public", "private"} {
+			t.Run(first, func(t *testing.T) {
+				s, root, private := traceStoreFixture(t)
+				fault := s.root
+				if first == "private" {
+					fault = s.private
+				}
+				if err := fault.Close(); err != nil {
+					t.Fatal("owned root fault setup failed")
+				}
+				// os.Root.Close may already be idempotent. Any failure must still be safe.
+				if err := s.Close(); err != nil {
+					assertTraceStoreClosePrivacy(t, err, root, private, filepath.Dir(root))
+				}
+				for _, handle := range []*os.Root{s.root, s.private} {
+					if _, err := handle.Stat("."); !errors.Is(err, os.ErrClosed) {
+						t.Error("store close did not attempt both root handles")
+					}
+				}
+			})
+		}
+	})
 }
 
 func TestTraceStoreFreshMint(t *testing.T) {

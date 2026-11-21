@@ -218,7 +218,12 @@ func OpenTraceStore(root, private string) (*TraceStore, error) {
 }
 
 func (s *TraceStore) Close() error {
-	return errors.Join(s.root.Close(), s.private.Close())
+	rootErr := s.root.Close()
+	privateErr := s.private.Close()
+	if rootErr != nil || privateErr != nil {
+		return traceDeclined()
+	}
+	return nil
 }
 
 func (s *TraceStore) admission() (*os.File, error) {
@@ -623,7 +628,12 @@ func (c *TraceClaim) Close() error {
 		return nil
 	}
 	c.closed = true
-	return errors.Join(c.lock.Close(), c.dir.Close())
+	lockErr := c.lock.Close()
+	dirErr := c.dir.Close()
+	if lockErr != nil || dirErr != nil {
+		return traceDeclined()
+	}
+	return nil
 }
 
 func (c *TraceClaim) admit(n int64) error {
@@ -733,7 +743,12 @@ func (w *TraceWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.disabled = true
-	return errors.Join(w.file.Close(), w.claim.Close())
+	fileErr := w.file.Close()
+	claimErr := w.claim.Close()
+	if fileErr != nil || claimErr != nil {
+		return traceDeclined()
+	}
+	return nil
 }
 
 // Replace and ReplacePrivate admit the full new temporary copy, without discounting the old
