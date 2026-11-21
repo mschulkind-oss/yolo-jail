@@ -1063,7 +1063,7 @@ its part of the reference rewritten.
 ## Decision Ledger
 
 The `OQ-TR` rows are the owner's settled rulings; the `TR-D` rows are engineering decisions.
-TR-D15–22 clarify contracts without reopening OQ-TR1–4. TR-D20–22 are accepted engineering
+TR-D15–22 clarify contracts without reopening [OQ-TR1–4](#decision-ledger). TR-D20–22 are accepted engineering
 contracts, not existing source capabilities.
 Built entries below describe source existence at `eedb4b30194ea23020b4630e35cde2ddc80c1507`,
 not tests run or backend/runtime-containment/endpoint/overhead passes.
