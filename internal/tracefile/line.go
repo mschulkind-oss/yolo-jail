@@ -59,7 +59,7 @@ type rawLine struct {
 	Attrs         map[string]string `json:"attrs"`
 	PID           int               `json:"pid"`
 	Trace         string            `json:"trace"`
-	LauncherRoot  json.RawMessage   `json:"launcher_root"`
+	LauncherRoot  json.RawMessage   `json:"-"` // Only exact-key scanning may supply designation.
 	markerInvalid bool
 }
 
@@ -70,22 +70,21 @@ func parseLine(b []byte) (rawLine, bool) {
 	if err := json.Unmarshal(b, &l); err != nil {
 		return rawLine{}, false
 	}
-	if l.LauncherRoot != nil {
-		d := json.NewDecoder(bytes.NewReader(b))
-		_, _ = d.Token()
-		markers := 0
-		for d.More() {
-			key, _ := d.Token()
-			var value json.RawMessage
-			if d.Decode(&value) != nil {
-				return rawLine{}, false
-			}
-			if key == "launcher_root" {
-				markers++
-			}
+	d := json.NewDecoder(bytes.NewReader(b))
+	_, _ = d.Token()
+	markers := 0
+	for d.More() {
+		key, _ := d.Token()
+		var value json.RawMessage
+		if d.Decode(&value) != nil {
+			return rawLine{}, false
 		}
-		l.markerInvalid = markers != 1
+		if key == "launcher_root" {
+			markers++
+			l.LauncherRoot = value
+		}
 	}
+	l.markerInvalid = markers > 1
 	l.Name = cleanText(l.Name, MaxNameBytes)
 	if l.Parent != "" && !IsSpanID(l.Parent) {
 		return rawLine{}, false

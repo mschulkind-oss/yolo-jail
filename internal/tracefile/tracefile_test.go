@@ -120,6 +120,42 @@ func TestLauncherRootTypesAndAuthority(t *testing.T) {
 			}
 		})
 	}
+	for _, test := range []struct {
+		name       string
+		properties string
+		canonical  bool
+		diagnostic bool
+	}{
+		{"alias_alone", `"LAUNCHER_ROOT":true`, false, false},
+		{"alias_then_exact_true", `"LAUNCHER_ROOT":true,"launcher_root":true`, true, false},
+		{"exact_then_alias_true", `"launcher_root":true,"LAUNCHER_ROOT":true`, true, false},
+		{"false_then_alias_true", `"launcher_root":false,"LAUNCHER_ROOT":true`, false, true},
+		{"alias_true_then_false", `"LAUNCHER_ROOT":true,"launcher_root":false`, false, true},
+		{"null_then_alias_true", `"launcher_root":null,"LAUNCHER_ROOT":true`, false, true},
+		{"alias_true_then_null", `"LAUNCHER_ROOT":true,"launcher_root":null`, false, true},
+		{"true_then_alias_false", `"launcher_root":true,"LAUNCHER_ROOT":false`, true, false},
+		{"alias_false_then_true", `"LAUNCHER_ROOT":false,"launcher_root":true`, true, false},
+		{"duplicate_true", `"launcher_root":true,"launcher_root":true`, false, true},
+		{"duplicate_false", `"launcher_root":false,"launcher_root":false`, false, true},
+		{"duplicate_true_false", `"launcher_root":true,"launcher_root":false`, false, true},
+		{"duplicate_false_true", `"launcher_root":false,"launcher_root":true`, false, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			start := strings.Replace(canonicalStart, `"launcher_root":true`, test.properties, 1)
+			tr := read(t, map[string]string{MetaFile: canonicalMeta, "launcher-100.jsonl": lines(launcherHeader, start, canonicalEnd)})
+			want := "invocation"
+			if test.canonical {
+				want = "launch"
+			}
+			s := span(t, tr, spanL)
+			if len(tr.Spans) != 1 || s.ID != spanL || s.Name != want || s.Start != 1700000000000000000 || s.End != 1700000000000000100 || s.Parent != nil || s.Explicit || lane(t, tr, "launcher-100.jsonl").Dropped != 0 {
+				t.Fatal("exact marker authority changed base evidence", test.name)
+			}
+			if (len(tr.Anomalies) != 0) != test.diagnostic || len(tr.Anomalies) > 2 {
+				t.Fatal("marker diagnostic not bounded or unexpected", test.name)
+			}
+		})
+	}
 	for _, condition := range []string{"wrong_lane", "duplicate_start", "cross_lane", "end_marker", "parent"} {
 		t.Run(condition, func(t *testing.T) {
 			files := map[string]string{MetaFile: canonicalMeta, "launcher-100.jsonl": lines(launcherHeader, canonicalStart, canonicalEnd)}
@@ -178,6 +214,27 @@ func TestCanonicalLauncherRootUsesPublicMetadataOnly(t *testing.T) {
 			}
 			if len(tr.Spans) != 1 || span(t, tr, spanL).Name != want {
 				t.Fatal("canonical authority", names(tr.Spans))
+			}
+		})
+	}
+	for _, property := range []string{
+		`"kind":"launch","kind":"launch"`,
+		`"kind":"launch","kind":"attach"`,
+		`"kind":"attach","kind":"launch"`,
+		`"start":123,"start":123`,
+		`"start":0,"start":123`,
+		`"start":123,"start":0`,
+	} {
+		t.Run(property, func(t *testing.T) {
+			key := `"kind":"launch"`
+			if strings.HasPrefix(property, `"start"`) {
+				key = `"start":123`
+			}
+			meta := strings.Replace(canonicalMeta, key, property, 1)
+			tr := read(t, map[string]string{MetaFile: meta, "launcher-100.jsonl": lines(launcherHeader, canonicalStart, canonicalEnd)})
+			s := span(t, tr, spanL)
+			if len(tr.Spans) != 1 || s.ID != spanL || s.Name != "invocation" || s.Start != 1700000000000000000 || s.End != 1700000000000000100 || s.Parent != nil || lane(t, tr, "launcher-100.jsonl").Dropped != 0 || len(tr.Anomalies) == 0 || len(tr.Anomalies) > 2 {
+				t.Fatal("duplicate metadata granted authority or changed base evidence")
 			}
 		})
 	}

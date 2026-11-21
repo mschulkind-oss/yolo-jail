@@ -279,6 +279,221 @@ func TestTraceStorePendingPublicationOnceAndConflict(t *testing.T) {
 	})
 }
 
+func TestTraceStorePendingReplaceCannotAllocateReservedLauncher(t *testing.T) {
+	for _, actor := range []string{"original", "joined"} {
+		for _, lane := range []string{"absent", "closed"} {
+			for _, state := range []string{"pending", "published"} {
+				t.Run(actor+"/"+lane+"/"+state, func(t *testing.T) {
+					s, root, _ := traceStoreFixture(t)
+					m := storeMeta(1, 123)
+					owner, err := s.MintPending(m.Trace, m.Start)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer owner.Close()
+					joined, err := s.Join(m.Trace)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer joined.Close()
+					name := TraceFileName("launcher", os.Getpid())
+					if lane == "closed" {
+						w, err := owner.CreateLauncherWriter()
+						if err != nil {
+							t.Fatal(err)
+						}
+						if _, err := w.Write([]byte("original lane\n")); err != nil {
+							t.Fatal(err)
+						}
+						if err := w.Close(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if state == "published" {
+						if _, err := owner.PublishPending(m); err != nil {
+							t.Fatal(err)
+						}
+					}
+					snapshot := func() string {
+						entries, err := os.ReadDir(filepath.Join(root, m.Trace))
+						if err != nil {
+							t.Fatal(err)
+						}
+						var out strings.Builder
+						for _, entry := range entries {
+							path := filepath.Join(root, m.Trace, entry.Name())
+							info, err := os.Lstat(path)
+							if err != nil {
+								t.Fatal(err)
+							}
+							p, err := os.ReadFile(path)
+							if err != nil {
+								t.Fatal(err)
+							}
+							fmt.Fprintf(&out, "%s:%v:%x;", entry.Name(), inode(info), p)
+						}
+						return out.String()
+					}
+					before := snapshot()
+					usage, err := s.Usage()
+					if err != nil {
+						t.Fatal(err)
+					}
+					claim := owner
+					if actor == "joined" {
+						claim = joined
+					}
+					if err := claim.Replace(name, []byte("unauthorized replacement\n")); err == nil {
+						t.Error("public Replace granted reserved launcher authority")
+					}
+					afterUsage, err := s.Usage()
+					if err != nil || afterUsage != usage || snapshot() != before {
+						t.Error("refused Replace changed content, inode, allocation or charge", err)
+					}
+					entries, err := os.ReadDir(filepath.Join(root, m.Trace))
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, entry := range entries {
+						if strings.HasPrefix(entry.Name(), ".replace-") {
+							t.Error("refused Replace allocated temporary content")
+						}
+					}
+					if lane == "absent" {
+						w, err := owner.CreateLauncherWriter()
+						if err != nil {
+							t.Fatal("refused Replace consumed owner allocation", err)
+						}
+						if err := w.Close(); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := joined.ReplacePrivate(name, []byte("private snapshot")); err != nil {
+						t.Fatal("private replacement compatibility", err)
+					}
+				})
+			}
+		}
+	}
+	t.Run("immediate_mint", func(t *testing.T) {
+		s, root, _ := traceStoreFixture(t)
+		c := storeMint(t, s, 1, 123)
+		name := TraceFileName("launcher", os.Getpid())
+		for _, body := range []string{"first", "second"} {
+			if err := c.Replace(name, []byte(body)); err != nil {
+				t.Fatal("immediate replacement compatibility", err)
+			}
+			p, err := os.ReadFile(filepath.Join(root, c.ID(), name))
+			if err != nil || string(p) != body {
+				t.Fatal("immediate replacement content", err)
+			}
+		}
+	})
+}
+
+func TestTraceStorePendingPublicationRetainsOriginalRegistration(t *testing.T) {
+	for _, binding := range []string{"seal", "metadata"} {
+		t.Run(binding, func(t *testing.T) {
+			s, root, _ := traceStoreFixture(t)
+			m := storeMeta(1, 123)
+			c, err := s.MintPending(m.Trace, m.Start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			original := *c.pendingControl
+			dir := filepath.Join(root, m.Trace)
+			calls := 0
+			var beforeSwap int64
+			c.publicationObserve = func(stage string, _ *os.File) {
+				if stage != "directory.close" {
+					return
+				}
+				calls++
+				beforeSwap, err = storeTreeBytes(c.dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				name := ".publication-seal"
+				if binding == "metadata" {
+					name = "meta.json"
+				}
+				path := filepath.Join(dir, name)
+				p, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(path, filepath.Join(dir, ".retained-original")); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, p, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Lstat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				control := original
+				if binding == "seal" {
+					control.SealSlot = inode(info)
+					if control.SealSlot == original.SealSlot {
+						t.Fatal("fixture did not substitute seal inode")
+					}
+				} else {
+					control.MetaSlot = inode(info)
+					if control.MetaSlot == original.MetaSlot {
+						t.Fatal("fixture did not substitute metadata inode")
+					}
+				}
+				p, err = json.Marshal(control)
+				if err != nil || os.WriteFile(filepath.Join(dir, ".pending"), p, 0o600) != nil {
+					t.Fatal("fixture registration update", err)
+				}
+			}
+			result, err := c.PublishPending(m)
+			if err == nil || result.State != TracePublicationUnavailable {
+				t.Error("publication adopted substituted original binding", result, err)
+			}
+			public, err := os.ReadFile(filepath.Join(dir, "meta.json"))
+			if err != nil || len(public) != metadataSlotBytes {
+				t.Fatal("uncertain public bytes were removed", err)
+			}
+			publicInfo, err := os.Lstat(filepath.Join(dir, "meta.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			seal, err := os.ReadFile(filepath.Join(dir, ".publication-seal"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			control, err := os.ReadFile(filepath.Join(dir, ".pending"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			physical, err := storeTreeBytes(c.dir)
+			if err != nil || physical <= beforeSwap {
+				t.Fatal("uncertain old/new objects lost physical charge", err)
+			}
+			usage, err := s.Usage()
+			if err != nil || usage.Bytes != physical {
+				t.Fatal("replacement binding bytes not charged", err)
+			}
+			result, err = c.PublishPending(m)
+			if err == nil || result.State != TracePublicationUnavailable || calls != 1 {
+				t.Fatal("substituted registration retried", result, err, calls)
+			}
+			after, err := os.ReadFile(filepath.Join(dir, "meta.json"))
+			afterInfo, statErr := os.Lstat(filepath.Join(dir, "meta.json"))
+			afterSeal, sealErr := os.ReadFile(filepath.Join(dir, ".publication-seal"))
+			afterControl, controlErr := os.ReadFile(filepath.Join(dir, ".pending"))
+			afterPhysical, physicalErr := storeTreeBytes(c.dir)
+			if err != nil || statErr != nil || sealErr != nil || controlErr != nil || physicalErr != nil || !os.SameFile(publicInfo, afterInfo) || !bytes.Equal(public, after) || !bytes.Equal(seal, afterSeal) || !bytes.Equal(control, afterControl) || physical != afterPhysical {
+				t.Fatal("frozen unavailable publication rewrote or cleaned uncertain objects")
+			}
+		})
+	}
+}
+
 func TestTraceStorePendingPublicationFailurePhases(t *testing.T) {
 	for _, phase := range []string{".meta-slot.write", ".meta-slot.close", ".publication-seal.write", ".publication-seal.close", "rename", "directory.close"} {
 		t.Run(phase, func(t *testing.T) {

@@ -423,9 +423,9 @@ func (c *TraceClaim) PublishPending(meta TraceMetadata) (TracePublicationResult,
 	closeErr := dirfd.Close()
 	// Even uncertain syscall/close results cannot retry. Reconcile only the registered inode,
 	// sealed digest, and exact bytes; other content is retained and never adopted.
-	_, _, recognitionErr := recognizePending(c.dir, c.id)
+	finalControl, _, recognitionErr := recognizePending(c.dir, c.id)
 	actual, _, readErr := readStoreBytes(c.dir, "meta.json", metadataSlotBytes)
-	exactSnapshot := recognitionErr == nil && readErr == nil && bytes.Equal(actual, p)
+	exactSnapshot := c.validate() == nil && recognitionErr == nil && *finalControl == *c.pendingControl && readErr == nil && bytes.Equal(actual, p)
 	if renameErr != nil || closeErr != nil {
 		if !exactSnapshot {
 			return unavailable, traceDeclined()
@@ -1197,6 +1197,9 @@ func (c *TraceClaim) replace(name string, p []byte, private bool) error {
 	}
 	defer c.mu.Unlock()
 	if !validStoreName(name) {
+		return traceDeclined()
+	}
+	if !private && c.pendingControl != nil && strings.HasPrefix(name, "launcher-") && strings.HasSuffix(name, ".jsonl") {
 		return traceDeclined()
 	}
 	f, err := c.store.admission()
