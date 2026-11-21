@@ -18,8 +18,6 @@ const (
 	JailSourceMaxRows = 2000
 	// JailSourceMaxOccurrences is the lifetime admission ceiling for one trace.
 	JailSourceMaxOccurrences = 2000
-
-	jailSourceNanosPerSecond = int64(1_000_000_000)
 )
 
 // JailSourceInstance is a caller-minted source key used only by the caller-owned lifetime
@@ -127,6 +125,15 @@ func (b *JailSourceBudget) Admitted() int {
 	}
 	return len(b.admitted)
 }
+
+// String exposes only bounded admission counts. It deliberately never formats the map or keys.
+func (b JailSourceBudget) String() string {
+	admitted := len(b.admitted)
+	return fmt.Sprintf("JailSourceBudget{limit:%d admitted:%d remaining:%d}", b.limit, admitted, b.limit-admitted)
+}
+
+// GoString keeps %#v formatting on the same key-free projection.
+func (b JailSourceBudget) GoString() string { return b.String() }
 
 // JailSourceNamesEqual compares only exact, bounded producer spellings. Display normalization,
 // truncation and ineligible spellings can never establish a match; even an empty eligible name
@@ -274,11 +281,8 @@ func parseJailSourceRow(line []byte) (JailSourceObservation, bool) {
 		if !decodeJailJSONString(rawResolution, &resolution) || resolution != "s" {
 			return observation, false
 		}
+		// Producers already write t as nanoseconds. res is resolution evidence only.
 		coarseSeconds = true
-		timeValue, ok = secondsToNanoseconds(timeValue)
-		if !ok {
-			return observation, false
-		}
 	}
 
 	observation.Time = timeValue
@@ -297,9 +301,10 @@ func decodeJailJSONString(raw json.RawMessage, destination *string) bool {
 }
 
 // parseJailJSONInteger accepts any JSON number whose exact decimal value is integral and fits
-// bitSize. It never passes through float64, so decimal/exponent spellings cannot round or truncate.
+// bitSize. It validates the JSON number grammar and never passes through float64.
 func parseJailJSONInteger(raw json.RawMessage, bitSize int) (int64, bool) {
-	if len(raw) == 0 {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || !json.Valid(raw) {
 		return 0, false
 	}
 	text := string(raw)
@@ -312,57 +317,76 @@ func parseJailJSONInteger(raw json.RawMessage, bitSize int) (int64, bool) {
 		}
 	}
 
-	exponent := 0
+	exponentText := ""
 	if index := strings.IndexAny(text, "eE"); index >= 0 {
-		exponentText := text[index+1:]
+		exponentText = text[index+1:]
 		text = text[:index]
-		parsed, ok := parseBoundedExponent(exponentText, len(raw)+20)
-		if !ok {
+		if !validJSONExponent(exponentText) {
 			return 0, false
 		}
-		exponent = parsed
 	}
 	integerPart, fractionPart, hasFraction := strings.Cut(text, ".")
 	if integerPart == "" || (hasFraction && fractionPart == "") {
 		return 0, false
 	}
+	if integerPart != "0" {
+		if integerPart[0] < '1' || integerPart[0] > '9' {
+			return 0, false
+		}
+		for i := 1; i < len(integerPart); i++ {
+			if integerPart[i] < '0' || integerPart[i] > '9' {
+				return 0, false
+			}
+		}
+	}
+	for i := range fractionPart {
+		if fractionPart[i] < '0' || fractionPart[i] > '9' {
+			return 0, false
+		}
+	}
 	digits := integerPart + fractionPart
+	allZero := true
+	for i := range digits {
+		if digits[i] != '0' {
+			allZero = false
+			break
+		}
+	}
+	// Once the mantissa and exponent syntax are validated, zero is integral for every
+	// exponent. Do not convert a huge exponent or allocate a power of ten for it.
+	if allZero {
+		return 0, true
+	}
+
+	exponent := 0
+	if exponentText != "" {
+		var ok bool
+		exponent, ok = parseBoundedExponent(exponentText, len(raw)+20)
+		if !ok {
+			return 0, false
+		}
+	}
 	fractionDigits := 0
 	if hasFraction {
 		fractionDigits = len(fractionPart)
 	}
-	allZero := true
-	for i := range digits {
-		if digits[i] < '0' || digits[i] > '9' {
+	digits = strings.TrimLeft(digits, "0")
+	scale := exponent - fractionDigits
+	if scale < 0 {
+		remove := -scale
+		trailingZeros := 0
+		for i := len(digits) - 1; i >= 0 && digits[i] == '0'; i-- {
+			trailingZeros++
+		}
+		if trailingZeros < remove {
 			return 0, false
 		}
-		if digits[i] != '0' {
-			allZero = false
+		digits = digits[:len(digits)-remove]
+	} else if scale > 0 {
+		if scale > 19 || len(digits)+scale > 19 {
+			return 0, false
 		}
-	}
-	if !allZero {
-		digits = strings.TrimLeft(digits, "0")
-		scale := exponent - fractionDigits
-		if scale < 0 {
-			remove := -scale
-			trailingZeros := 0
-			for i := len(digits) - 1; i >= 0 && digits[i] == '0'; i-- {
-				trailingZeros++
-			}
-			if trailingZeros < remove {
-				return 0, false
-			}
-			digits = digits[:len(digits)-remove]
-		} else if scale > 0 {
-			if scale > 19 || len(digits)+scale > 19 {
-				return 0, false
-			}
-			digits += strings.Repeat("0", scale)
-		}
-	}
-	digits = strings.TrimLeft(digits, "0")
-	if digits == "" {
-		return 0, true
+		digits += strings.Repeat("0", scale)
 	}
 	if bitSize == 32 && len(digits) > 10 || bitSize == 64 && len(digits) > 19 {
 		return 0, false
@@ -372,6 +396,24 @@ func parseJailJSONInteger(raw json.RawMessage, bitSize int) (int64, bool) {
 	}
 	value, err := strconv.ParseInt(digits, 10, bitSize)
 	return value, err == nil
+}
+
+func validJSONExponent(text string) bool {
+	if text == "" {
+		return false
+	}
+	if text[0] == '+' || text[0] == '-' {
+		text = text[1:]
+		if text == "" {
+			return false
+		}
+	}
+	for i := range text {
+		if text[i] < '0' || text[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func parseBoundedExponent(text string, bound int) (int, bool) {
@@ -402,13 +444,6 @@ func parseBoundedExponent(text string, bound int) (int, bool) {
 		return -value, true
 	}
 	return value, true
-}
-
-func secondsToNanoseconds(seconds int64) (int64, bool) {
-	if seconds > math.MaxInt64/jailSourceNanosPerSecond || seconds < math.MinInt64/jailSourceNanosPerSecond {
-		return 0, false
-	}
-	return seconds * jailSourceNanosPerSecond, true
 }
 
 func sanitizeJailSourceName(name string) (display string, matching jailSourceMatchingName) {

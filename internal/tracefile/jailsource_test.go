@@ -24,7 +24,7 @@ func TestJailSourceParsesGoAndShellProducerRows(t *testing.T) {
 	input := jailSourceTestInput(
 		`{"t":1700000000000000001,"k":"start","name":"Daemon-Ready","pid":41}`+"\n"+
 			`{"t":1700000000123456000,"k":"mark","name":"program.setup-step","pid":42}`+"\n"+
-			`{"t":1700000000,"k":"end","name":"program.Claude-Code","pid":43,"res":"s"}`+"\n", 1)
+			`{"t":1700000000000000000,"k":"end","name":"program.Claude-Code","pid":43,"res":"s"}`+"\n", 1)
 	got := ParseJailSource(input, NewJailSourceBudget())
 	if len(got.Observations) != 3 {
 		t.Fatalf("observations = %d, want 3; malformed=%d", len(got.Observations), got.MalformedRows)
@@ -68,8 +68,8 @@ func TestJailSourceRequiresExactRepresentableIntegralTimeAndPID(t *testing.T) {
 		`{"t":9223372036854775808,"k":"mark","name":"x","pid":1}`,
 		`{"t":1,"k":"mark","name":"x","pid":1.5}`,
 		`{"t":1,"k":"mark","name":"x","pid":9223372036854775808}`,
-		`{"t":9223372037,"k":"mark","name":"x","pid":1,"res":"s"}`,
-		`{"t":-9223372037,"k":"mark","name":"x","pid":1,"res":"s"}`,
+		`{"t":9223372036854775808,"k":"mark","name":"x","pid":1,"res":"s"}`,
+		`{"t":-9223372036854775809,"k":"mark","name":"x","pid":1,"res":"s"}`,
 	}
 	input := jailSourceTestInput(strings.Join(rows, "\n")+"\n", 5)
 	got := ParseJailSource(input, NewJailSourceBudget())
@@ -131,10 +131,12 @@ func TestJailSourceRejectsMalformedCompleteRows(t *testing.T) {
 		`null`, `[]`, `{"t":1,"k":"other","name":"x","pid":1}`,
 		`{"t":1,"k":"mark","name":"x","pid":1,"res":"ms"}`,
 		`{"t":1,"k":"mark","name":"x","pid":1,"t":2}`,
+		`{"t":0e+,"k":"mark","name":"x","pid":1}`,
+		`{"t":00,"k":"mark","name":"x","pid":1}`,
 		`{"t":1,"k":"mark","name":"x"}`,
 	}, "\n")+"\n", 7)
 	got := ParseJailSource(input, NewJailSourceBudget())
-	if len(got.Observations) != 0 || got.MalformedRows != 6 {
+	if len(got.Observations) != 0 || got.MalformedRows != 8 {
 		t.Fatalf("malformed rows = %+v", got)
 	}
 }
@@ -237,6 +239,81 @@ func TestJailSourceDefaultLifetimeBudgetStopsAtTwoThousandDistinctOccurrences(t 
 	got = ParseJailSource(jailSourceTestInput(row+"\n", 18), budget)
 	if len(got.Observations) != 0 || !got.BudgetExhausted || budget.Admitted() != JailSourceMaxOccurrences {
 		t.Fatalf("post-limit admission: %+v admitted=%d", got, budget.Admitted())
+	}
+}
+
+func TestJailSourceBudgetFormattingDoesNotExposeSourceInstance(t *testing.T) {
+	const sentinel = "KEY_SENTINEL_007"
+	var instance JailSourceInstance
+	copy(instance[:], sentinel)
+	input := jailSourceTestInput(`{"t":1,"k":"mark","name":"x","pid":1}`+"\n", 18)
+	input.SourceInstance = instance
+	budget := NewJailSourceBudget()
+	got := ParseJailSource(input, budget)
+	if len(got.Observations) != 1 || budget.Admitted() != 1 {
+		t.Fatal("source sentinel was not admitted")
+	}
+
+	type exportedBudgetPointer struct {
+		Budget *JailSourceBudget
+	}
+	type exportedBudgetValue struct {
+		Budget JailSourceBudget
+	}
+	value := *budget
+	values := []any{
+		budget, value, any(budget), any(value),
+		exportedBudgetPointer{Budget: budget}, exportedBudgetValue{Budget: value},
+		struct{ Budget any }{Budget: budget},
+	}
+	needles := []string{
+		sentinel, fmt.Sprintf("%v", instance), fmt.Sprintf("%#v", instance),
+		fmt.Sprintf("%x", instance), fmt.Sprintf("%X", instance),
+	}
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%q", "%x", "%X"} {
+		for _, formatted := range values {
+			output := fmt.Sprintf(verb, formatted)
+			for _, needle := range needles {
+				if strings.Contains(output, needle) {
+					t.Errorf("fmt %s exposed an admitted source key through %T", verb, formatted)
+					break
+				}
+			}
+		}
+	}
+	for _, value := range values {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, needle := range needles {
+			if strings.Contains(string(encoded), needle) {
+				t.Errorf("JSON exposed an admitted source key through %T", value)
+				break
+			}
+		}
+	}
+}
+
+func TestJailSourceAcceptsExactZeroWithSignedAndLargeExponents(t *testing.T) {
+	largeExponent := strings.Repeat("9", 400_000)
+	rows := []string{
+		`{"t":0e100,"k":"mark","name":"positive","pid":0e-100}`,
+		`{"t":0e-100,"k":"mark","name":"negative","pid":0e100}`,
+		`{"t":0e` + largeExponent + `,"k":"mark","name":"large","pid":0e-` + largeExponent + `}`,
+	}
+	data := strings.Join(rows, "\n") + "\n"
+	if len(data) >= JailSourceMaxBytes {
+		t.Fatalf("large-exponent fixture unexpectedly exceeds parser tail: %d bytes", len(data))
+	}
+	got := ParseJailSource(jailSourceTestInput(data, 19), NewJailSourceBudget())
+	if len(got.Observations) != len(rows) || got.MalformedRows != 0 {
+		t.Fatalf("zero exponents: observations=%d malformed=%d bytes=%d", len(got.Observations), got.MalformedRows, len(data))
+	}
+	for i, observation := range got.Observations {
+		if observation.Time != 0 || observation.PID != 0 {
+			t.Errorf("zero exponent row %d produced time=%d pid=%d", i, observation.Time, observation.PID)
+		}
 	}
 }
 
