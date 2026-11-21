@@ -1,14 +1,21 @@
 package cli
 
 import (
+	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/tracefile"
 )
 
-const traceUsage = `Usage: yolo trace [list|show [id]|export [id] [--format chrome|otlp] [-o <file>]]
+const traceUsage = `Usage: yolo trace [list|show [id]|export [id] [--format chrome|otlp] [-o <file>] [--otlp-endpoint <url>]]
 
 Read already collected startup traces from the machine-wide host log store.
 Bare trace (or list) lists every retained workspace and trace kind, oldest first.
@@ -27,9 +34,10 @@ Show and export default to this workspace's latest launch, not a newer preparati
 trace. An explicit id can select any retained trace.
 
 Show summarizes the startup window, lane shares, top own-time spans, gaps,
-unfinished spans, missing jail half and overlaps. Export writes an offline Chrome
-trace-event or OTLP JSON file; without -o, JSON is written to stdout. No viewer
-or network is opened, and -o names a literal file in an existing parent directory.
+unfinished spans, missing jail half and overlaps. Export writes offline Chrome
+trace-event or OTLP JSON; without -o, offline JSON is written to stdout. An
+explicit --otlp-endpoint sends one OTLP JSON POST to that exact HTTP(S) URL.
+No launch sends traces; -o names a literal file in an existing parent directory.
 
 This command does not refresh a running jail's source. Production startup trace
 collection is not yet wired in this build; list, show and export read only traces
@@ -49,21 +57,24 @@ Examples:
 type traceEnv struct {
 	root, workspaceCode string
 	inJail              bool
+	otlpDialContext     func(context.Context, string, string) (net.Conn, error)
 }
 
 type traceExportOptions struct {
 	id, format, output string
+	endpoint           *url.URL
 	outputSet          bool
+	formatSet          bool
+	endpointSet        bool
 }
 
 func parseTraceExportArgs(args []string) (traceExportOptions, error) {
 	options := traceExportOptions{format: "chrome"}
-	formatSet := false
 	positional := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--format":
-			if formatSet {
+			if options.formatSet {
 				return traceExportOptions{}, fmt.Errorf("--format may be used only once")
 			}
 			if i+1 >= len(args) {
@@ -71,7 +82,21 @@ func parseTraceExportArgs(args []string) (traceExportOptions, error) {
 			}
 			i++
 			options.format = args[i]
-			formatSet = true
+			options.formatSet = true
+		case "--otlp-endpoint":
+			if options.endpointSet {
+				return traceExportOptions{}, fmt.Errorf("--otlp-endpoint may be used only once")
+			}
+			if i+1 >= len(args) || args[i+1] == "" {
+				return traceExportOptions{}, fmt.Errorf("--otlp-endpoint needs an absolute HTTP(S) URL")
+			}
+			i++
+			endpoint, err := parseTraceOTLPEndpoint(args[i])
+			if err != nil {
+				return traceExportOptions{}, fmt.Errorf("--otlp-endpoint must be an absolute HTTP(S) URL with a host, valid port, and no userinfo or fragment")
+			}
+			options.endpoint = endpoint
+			options.endpointSet = true
 		case "-o":
 			if options.outputSet {
 				return traceExportOptions{}, fmt.Errorf("-o may be used only once")
@@ -102,7 +127,293 @@ func parseTraceExportArgs(args []string) (traceExportOptions, error) {
 	if options.format != "chrome" && options.format != "otlp" {
 		return traceExportOptions{}, fmt.Errorf("--format must be chrome or otlp")
 	}
+	if options.endpointSet {
+		if options.formatSet && options.format != "otlp" {
+			return traceExportOptions{}, fmt.Errorf("--otlp-endpoint cannot be combined with --format chrome")
+		}
+		if options.outputSet {
+			return traceExportOptions{}, fmt.Errorf("--otlp-endpoint cannot be combined with -o")
+		}
+		options.format = "otlp"
+	}
 	return options, nil
+}
+
+const (
+	traceOTLPTimeout       = 10 * time.Second
+	traceOTLPResponseLimit = 65536
+)
+
+type traceOTLPPostError struct {
+	category string
+	rejected int64
+}
+
+func (e *traceOTLPPostError) Error() string {
+	if e.category == "rejected spans" {
+		return fmt.Sprintf("collector rejected %d spans", e.rejected)
+	}
+	return e.category
+}
+
+func parseTraceOTLPEndpoint(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u == nil || !u.IsAbs() || u.Opaque != "" || u.Host == "" || u.User != nil ||
+		strings.Contains(raw, "#") || u.Fragment != "" {
+		return nil, fmt.Errorf("invalid endpoint")
+	}
+	if !strings.EqualFold(u.Scheme, "http") && !strings.EqualFold(u.Scheme, "https") {
+		return nil, fmt.Errorf("invalid endpoint")
+	}
+	if u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
+		return nil, fmt.Errorf("invalid endpoint")
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || n > 65535 {
+			return nil, fmt.Errorf("invalid endpoint")
+		}
+	}
+	if _, err := url.PathUnescape(u.EscapedPath()); err != nil {
+		return nil, fmt.Errorf("invalid endpoint")
+	}
+	if _, err := url.QueryUnescape(u.RawQuery); err != nil {
+		return nil, fmt.Errorf("invalid endpoint")
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	return u, nil
+}
+
+func postTraceOTLP(endpoint *url.URL, payload []byte, roundTripper http.RoundTripper) (int64, error) {
+	return postTraceOTLPWithDialContext(endpoint, payload, roundTripper, nil)
+}
+
+func postTraceOTLPWithDialContext(endpoint *url.URL, payload []byte, roundTripper http.RoundTripper,
+	dialContext func(context.Context, string, string) (net.Conn, error)) (int64, error) {
+	if endpoint == nil {
+		return 0, &traceOTLPPostError{category: "endpoint"}
+	}
+	validated, err := parseTraceOTLPEndpoint(endpoint.String())
+	if err != nil {
+		return 0, &traceOTLPPostError{category: "endpoint"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), traceOTLPTimeout)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, validated.String(), bytes.NewReader(payload))
+	if err != nil {
+		return 0, &traceOTLPPostError{category: "endpoint"}
+	}
+	request.Header.Set("Content-Type", "application/json")
+	var ownedTransport *http.Transport
+	if roundTripper == nil {
+		ownedTransport = &http.Transport{
+			Proxy: nil, DisableCompression: true, DisableKeepAlives: true, DialContext: dialContext,
+		}
+		defer ownedTransport.CloseIdleConnections()
+		roundTripper = ownedTransport
+	}
+	client := &http.Client{
+		Transport: roundTripper,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return 0, &traceOTLPPostError{category: "timeout"}
+		}
+		return 0, &traceOTLPPostError{category: "connection"}
+	}
+	if response == nil || response.Body == nil {
+		return 0, &traceOTLPPostError{category: "response"}
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return 0, &traceOTLPPostError{category: fmt.Sprintf("HTTP status %d", response.StatusCode)}
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, traceOTLPResponseLimit+1))
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return 0, &traceOTLPPostError{category: "timeout"}
+		}
+		return 0, &traceOTLPPostError{category: "response"}
+	}
+	if len(body) > traceOTLPResponseLimit {
+		return 0, &traceOTLPPostError{category: "response"}
+	}
+	rejected, err := decodeTraceOTLPResponse(body)
+	if err != nil {
+		return 0, &traceOTLPPostError{category: "response"}
+	}
+	if rejected != 0 {
+		return 0, &traceOTLPPostError{category: "rejected spans", rejected: rejected}
+	}
+	return 0, nil
+}
+
+func decodeTraceOTLPResponse(body []byte) (int64, error) {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	var response map[string]json.RawMessage
+	if err := decoder.Decode(&response); err != nil || response == nil {
+		return 0, fmt.Errorf("invalid response")
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return 0, fmt.Errorf("invalid response")
+	}
+	partialRaw, present := response["partialSuccess"]
+	if !present {
+		return 0, nil
+	}
+	var partial map[string]json.RawMessage
+	if err := json.Unmarshal(partialRaw, &partial); err != nil || partial == nil {
+		return 0, fmt.Errorf("invalid response")
+	}
+	if errorMessageRaw, present := partial["errorMessage"]; present {
+		var errorMessage *string
+		if err := json.Unmarshal(errorMessageRaw, &errorMessage); err != nil {
+			return 0, fmt.Errorf("invalid response")
+		}
+	}
+	rejectedRaw, present := partial["rejectedSpans"]
+	if !present {
+		return 0, nil
+	}
+	return parseTraceOTLPRejectedSpans(rejectedRaw)
+}
+
+func parseTraceOTLPRejectedSpans(raw json.RawMessage) (int64, error) {
+	value := bytes.TrimSpace(raw)
+	if len(value) == 0 {
+		return 0, fmt.Errorf("invalid rejected count")
+	}
+	if value[0] == '"' {
+		var decimal string
+		if err := json.Unmarshal(value, &decimal); err != nil || decimal == "" {
+			return 0, fmt.Errorf("invalid rejected count")
+		}
+		for _, digit := range decimal {
+			if digit < '0' || digit > '9' {
+				return 0, fmt.Errorf("invalid rejected count")
+			}
+		}
+		count, err := strconv.ParseUint(decimal, 10, 63)
+		if err != nil {
+			return 0, fmt.Errorf("invalid rejected count")
+		}
+		return int64(count), nil
+	}
+	if value[0] < '0' || value[0] > '9' {
+		return 0, fmt.Errorf("invalid rejected count")
+	}
+	return parseTraceOTLPIntegralNumber(string(value))
+}
+
+func parseTraceOTLPIntegralNumber(value string) (int64, error) {
+	if !validTraceOTLPJSONNumber(value) {
+		return 0, fmt.Errorf("invalid rejected count")
+	}
+	mantissa, exponentText := value, ""
+	if index := strings.IndexAny(mantissa, "eE"); index >= 0 {
+		exponentText = mantissa[index+1:]
+		mantissa = mantissa[:index]
+	}
+	integer, fraction := mantissa, ""
+	if dot := strings.IndexByte(mantissa, '.'); dot >= 0 {
+		integer, fraction = mantissa[:dot], mantissa[dot+1:]
+	}
+	digits := strings.TrimLeft(integer+fraction, "0")
+	if digits == "" {
+		return 0, nil
+	}
+
+	exponent := 0
+	if exponentText != "" {
+		sign := 1
+		if exponentText[0] == '+' || exponentText[0] == '-' {
+			if exponentText[0] == '-' {
+				sign = -1
+			}
+			exponentText = exponentText[1:]
+		}
+		exponentText = strings.TrimLeft(exponentText, "0")
+		if exponentText == "" {
+			exponentText = "0"
+		}
+		if len(exponentText) > 5 {
+			return 0, fmt.Errorf("invalid rejected count")
+		}
+		parsed, err := strconv.Atoi(exponentText)
+		if err != nil || parsed > traceOTLPResponseLimit {
+			return 0, fmt.Errorf("invalid rejected count")
+		}
+		exponent = sign * parsed
+	}
+
+	shift := exponent - len(fraction)
+	if shift < 0 {
+		remove := -shift
+		if remove > len(digits) || strings.Trim(digits[len(digits)-remove:], "0") != "" {
+			return 0, fmt.Errorf("invalid rejected count")
+		}
+		digits = digits[:len(digits)-remove]
+	} else if shift > 0 {
+		if shift > 19 {
+			return 0, fmt.Errorf("invalid rejected count")
+		}
+		digits += strings.Repeat("0", shift)
+	}
+	if len(digits) > 19 {
+		return 0, fmt.Errorf("invalid rejected count")
+	}
+	count, err := strconv.ParseUint(digits, 10, 63)
+	if err != nil {
+		return 0, fmt.Errorf("invalid rejected count")
+	}
+	return int64(count), nil
+}
+
+func validTraceOTLPJSONNumber(value string) bool {
+	if len(value) == 0 || len(value) > traceOTLPResponseLimit {
+		return false
+	}
+	i := 0
+	if value[i] == '0' {
+		i++
+	} else {
+		if value[i] < '1' || value[i] > '9' {
+			return false
+		}
+		i++
+		for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+			i++
+		}
+	}
+	if i < len(value) && value[i] == '.' {
+		i++
+		start := i
+		for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+			i++
+		}
+		if i == start {
+			return false
+		}
+	}
+	if i < len(value) && (value[i] == 'e' || value[i] == 'E') {
+		i++
+		if i < len(value) && (value[i] == '+' || value[i] == '-') {
+			i++
+		}
+		start := i
+		for i < len(value) && value[i] >= '0' && value[i] <= '9' {
+			i++
+		}
+		if i == start {
+			return false
+		}
+	}
+	return i == len(value)
 }
 
 func traceExportTargetParts(path string) (string, string, error) {
@@ -278,7 +589,7 @@ func traceAnswerHelp(args []string, out io.Writer) bool {
 		case "--help", "-h", "help":
 			fmt.Fprintln(out, traceUsage)
 			return true
-		case "--format", "-o":
+		case "--format", "-o", "--otlp-endpoint":
 			i++ // These options consume the next token, even when it spells a help flag.
 		}
 	}
@@ -338,7 +649,7 @@ func traceMain(args []string, env traceEnv, out, errw io.Writer, testEncoder ...
 		var err error
 		exportOptions, err = parseTraceExportArgs(rest)
 		if err != nil {
-			fmt.Fprintf(errw, "yolo trace export: %s; use `yolo trace --help` for the supported offline formats and flags.\n", termsafe.Visible(err.Error()))
+			fmt.Fprintf(errw, "yolo trace export: %s; use `yolo trace --help`. For collector access that needs a proxy or credentials, export with `yolo trace export <id> --format otlp -o <file>`.\n", termsafe.Visible(err.Error()))
 			return 2
 		}
 		id = exportOptions.id
@@ -408,6 +719,30 @@ func traceMain(args []string, env traceEnv, out, errw io.Writer, testEncoder ...
 		return 1
 	}
 	traceDiagnostics(errw, selected)
+	if sub == "export" && exportOptions.endpointSet {
+		var payload bytes.Buffer
+		if err := writeTraceExport(&payload, selected, "otlp"); err != nil {
+			fmt.Fprintf(errw, "yolo trace: cannot encode selected OTLP trace. Next: inspect it with `yolo trace show %s`; if needed, write offline JSON with `yolo trace export %s --format otlp -o <file>`.\n", selected.ID, selected.ID)
+			return 1
+		}
+		if _, err := postTraceOTLPWithDialContext(exportOptions.endpoint, payload.Bytes(), nil, env.otlpDialContext); err != nil {
+			category := "connection"
+			var postErr *traceOTLPPostError
+			if errors.As(err, &postErr) {
+				category = postErr.Error()
+			}
+			fmt.Fprintf(errw, "yolo trace: OTLP POST failed (%s). Next: verify the collector and retry with the intended endpoint; for collector access that needs a proxy or credentials, write offline JSON with `yolo trace export %s --format otlp -o <file>`.\n", category, selected.ID)
+			return 1
+		}
+		spans := 0
+		for _, lane := range selected.Lanes {
+			spans += len(lane.Spans)
+		}
+		if _, err := fmt.Fprintf(errw, "Accepted OTLP trace at %s://%s; submitted %d spans.\n", exportOptions.endpoint.Scheme, exportOptions.endpoint.Host, spans); err != nil {
+			return 1
+		}
+		return 0
+	}
 	if sub == "export" {
 		var exportErr error
 		if exportOptions.outputSet {
