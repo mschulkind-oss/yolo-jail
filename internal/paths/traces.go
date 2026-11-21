@@ -7,3 +7,9 @@ import "path/filepath"
 func TracesDir() string {
 	return filepath.Join(LogsDir(), "traces")
 }
+
+// TraceSourcesDir names host-private trace source bookkeeping outside logs and retired service state.
+// Naming the root performs no I/O; recording code establishes it only when tracing is enabled.
+func TraceSourcesDir() string {
+	return filepath.Join(GlobalStorage(), "trace-sources")
+}

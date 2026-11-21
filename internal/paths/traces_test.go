@@ -16,7 +16,13 @@ func TestTraceStoreRootUsesGlobalLogsWithoutCreatingState(t *testing.T) {
 	if got := TracesDir(); got != want {
 		t.Fatalf("TracesDir = %q, want %q", got, want)
 	}
-	if _, err := os.Stat(want); !os.IsNotExist(err) {
-		t.Fatalf("path helper created state: %v", err)
+	private := filepath.Join(GlobalStorage(), "trace-sources")
+	if got := TraceSourcesDir(); got != private {
+		t.Fatalf("TraceSourcesDir = %q, want %q", got, private)
+	}
+	for _, path := range []string{want, private} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("path helper created state: %v", err)
+		}
 	}
 }

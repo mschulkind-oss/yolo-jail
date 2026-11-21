@@ -160,15 +160,18 @@ var SlowSpanThreshold = 1 * time.Second
 // goroutine), and the signal arm can be tearing down while the main goroutine
 // is still reporting.
 type Log struct {
-	on     bool
-	now    func() time.Time
-	start  time.Time
-	mu     sync.Mutex
-	events []Event
-	sinks  []Sink
-	// trace is the trace this Log records under (NewTraced); zero for New, whose spans carry no
-	// ids.
-	trace TraceID
+	on         bool
+	now        func() time.Time
+	start      time.Time
+	mu         sync.Mutex
+	events     []Event
+	sinks      []Sink
+	traceSinks []Sink
+	// trace is the trace this Log records under (NewTraced or InstallIndependentTrace); zero for
+	// New until a trace is explicitly installed.
+	trace       TraceID
+	traceParent SpanID
+	traceRoot   bool
 }
 
 // disabled is the shared off log: every method is a no-op on it.
@@ -199,7 +202,58 @@ func New(now func() time.Time, sinks ...Sink) *Log {
 func NewTraced(now func() time.Time, tr Trace, sinks ...Sink) *Log {
 	l := New(now, sinks...)
 	l.trace = tr.ID
+	l.traceParent = tr.Parent
 	return l
+}
+
+// InstallIndependentTrace installs a second trace-only sink set and its identity on a collector
+// that has not emitted events. Existing sinks and reports remain unchanged; late installation is
+// declined rather than assigning an identity retroactively.
+func (l *Log) InstallIndependentTrace(tr Trace, sinks ...Sink) bool {
+	if !l.enabled() || tr.ID.IsZero() {
+		return false
+	}
+	var independent []Sink
+	for _, sink := range sinks {
+		if sink != nil {
+			independent = append(independent, sink)
+		}
+	}
+	if len(independent) == 0 {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.events) != 0 || l.traceRoot || len(l.traceSinks) != 0 || (!l.trace.IsZero() && (l.trace != tr.ID || l.traceParent != tr.Parent)) {
+		return false
+	}
+	l.trace = tr.ID
+	l.traceParent = tr.Parent
+	l.traceSinks = append(l.traceSinks, independent...)
+	return true
+}
+
+// IndependentRoot starts a trace-only root for a trace minted by this process. Its start and end
+// go only to independently installed trace sinks, never to legacy sinks, report rows, or notices.
+// Joined collectors have a parent span and must not create another root.
+func (l *Log) IndependentRoot(name string) *Span {
+	if !l.enabled() {
+		return nil
+	}
+	l.mu.Lock()
+	if l.trace.IsZero() || !l.traceParent.IsZero() || l.traceRoot || len(l.traceSinks) == 0 {
+		l.mu.Unlock()
+		return nil
+	}
+	l.traceRoot = true
+	s := &Span{l: l, name: name, at: l.now(), id: newSpanID(), trace: l.trace, traceOnly: true}
+	e := Event{Kind: KindStart, Name: name, At: s.at, Span: s.id}
+	sinks := append([]Sink(nil), l.traceSinks...)
+	l.mu.Unlock()
+	for _, sink := range sinks {
+		sink(e)
+	}
+	return s
 }
 
 // TraceID returns the trace this Log records under; zero when it records under none (a disabled
@@ -208,10 +262,10 @@ func (l *Log) TraceID() TraceID {
 	if !l.enabled() {
 		return TraceID{}
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	return l.trace
 }
-
-func (l *Log) traced() bool { return l.enabled() && !l.trace.IsZero() }
 
 func (l *Log) enabled() bool { return l != nil && l.on }
 
@@ -237,12 +291,17 @@ func (l *Log) startSpan(name string, parent SpanID, attrs []Attr) *Span {
 	if !l.enabled() {
 		return nil
 	}
-	s := &Span{l: l, name: name}
-	if l.traced() {
-		s.id, s.parent = newSpanID(), parent
+	l.mu.Lock()
+	s := &Span{l: l, name: name, parent: parent, trace: l.trace}
+	if !l.trace.IsZero() {
+		s.id = newSpanID()
 	}
 	s.at = l.now()
-	l.emit(Event{Kind: KindStart, Name: name, At: s.at, Span: s.id, Parent: s.parent, Attrs: boundAttrs(attrs)})
+	e := Event{Kind: KindStart, Name: name, At: s.at, Span: s.id, Parent: s.parent, Attrs: boundAttrs(attrs)}
+	l.events = append(l.events, e)
+	legacy, independent := l.sinks, l.traceSinks
+	l.mu.Unlock()
+	dispatchEvent(e, legacy, independent)
 	return s
 }
 
@@ -286,11 +345,15 @@ func (l *Log) Record(name string, dur time.Duration) {
 	if !l.enabled() {
 		return
 	}
+	l.mu.Lock()
 	e := Event{Kind: KindEnd, Name: name, At: l.now(), Dur: dur, Recorded: true}
-	if l.traced() {
+	if !l.trace.IsZero() {
 		e.Span = newSpanID()
 	}
-	l.emit(e)
+	l.events = append(l.events, e)
+	legacy, independent := l.sinks, l.traceSinks
+	l.mu.Unlock()
+	dispatchEvent(e, legacy, independent)
 }
 
 // emit appends to the in-memory record and fans out to the sinks, in order,
@@ -299,25 +362,46 @@ func (l *Log) Record(name string, dur time.Duration) {
 func (l *Log) emit(e Event) {
 	l.mu.Lock()
 	l.events = append(l.events, e)
-	sinks := l.sinks
+	legacy, independent := l.sinks, l.traceSinks
 	l.mu.Unlock()
-	for _, s := range sinks {
-		if s == nil {
-			continue // a nil sink is a wiring mistake, not a launch-ending event
+	dispatchEvent(e, legacy, independent)
+}
+
+func (l *Log) emitIndependent(e Event) {
+	l.mu.Lock()
+	independent := append([]Sink(nil), l.traceSinks...)
+	l.mu.Unlock()
+	for _, sink := range independent {
+		if sink != nil {
+			sink(e)
 		}
-		s(e)
+	}
+}
+
+func dispatchEvent(e Event, legacy, independent []Sink) {
+	for _, sink := range legacy {
+		if sink != nil {
+			sink(e)
+		}
+	}
+	for _, sink := range independent {
+		if sink != nil {
+			sink(e)
+		}
 	}
 }
 
 // Span is one in-flight timing span. Nil means off; End is idempotent so a
 // manual End plus a deferred End cannot double-record.
 type Span struct {
-	l      *Log
-	name   string
-	at     time.Time
-	once   sync.Once
-	id     SpanID // zero unless the Log records under a trace
-	parent SpanID
+	l         *Log
+	name      string
+	at        time.Time
+	once      sync.Once
+	id        SpanID // zero unless the Log records under a trace
+	parent    SpanID
+	trace     TraceID
+	traceOnly bool
 }
 
 // Child starts a span whose parent is s, explicitly. A caller that runs work concurrently, where
@@ -333,10 +417,10 @@ func (s *Span) Child(name string, attrs ...Attr) *Span {
 // Context is s as the reference another process is handed to become its child (Context.String,
 // Context.Environ); false on a nil Span or one whose Log records under no trace.
 func (s *Span) Context() (Context, bool) {
-	if s == nil || s.id.IsZero() {
+	if s == nil || s.id.IsZero() || s.trace.IsZero() {
 		return Context{}, false
 	}
-	return Context{Trace: s.l.trace, Span: s.id}, true
+	return Context{Trace: s.trace, Span: s.id}, true
 }
 
 // End records the span's duration. No-op on a nil Span.
@@ -346,7 +430,12 @@ func (s *Span) End() {
 	}
 	s.once.Do(func() {
 		at := s.l.now()
-		s.l.emit(Event{Kind: KindEnd, Name: s.name, At: at, Dur: at.Sub(s.at), Span: s.id})
+		e := Event{Kind: KindEnd, Name: s.name, At: at, Dur: at.Sub(s.at), Span: s.id}
+		if s.traceOnly {
+			s.l.emitIndependent(e)
+		} else {
+			s.l.emit(e)
+		}
 	})
 }
 
