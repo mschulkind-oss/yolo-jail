@@ -84,6 +84,410 @@ func assertTraceStoreClosePrivacy(t *testing.T, err error, roots ...string) {
 	}
 }
 
+func TestTraceStorePendingAdmissionAndPhysicalReservation(t *testing.T) {
+	t.Run("global_exact_boundary", func(t *testing.T) {
+		s, root, _ := traceStoreFixture(t)
+		m := storeMeta(1, 123)
+		c, err := s.MintPending(m.Trace, m.Start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		usage, err := s.Usage()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, ".charged-control"), bytes.Repeat([]byte("x"), int(MaxStoreContentBytes-usage.Bytes)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		w, err := c.CreateWriter("keeper-1.jsonl")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer w.Close()
+		if _, err := w.Write([]byte("x")); err == nil {
+			t.Fatal("global cap exceeded")
+		}
+		if _, err := c.PublishPending(m); err != nil {
+			t.Fatal("reserved publication at global cap", err)
+		}
+		usage, err = s.Usage()
+		if err != nil || usage.Bytes != MaxStoreContentBytes {
+			t.Fatal("physical global cap", usage, err)
+		}
+	})
+	s, root, _ := traceStoreFixture(t)
+	meta := storeMeta(1, 123)
+	c, err := s.MintPending(meta.Trace, meta.Start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	dir := filepath.Join(root, meta.Trace)
+	for name, size := range map[string]int64{".meta-slot": 452, ".publication-seal": 33} {
+		i, err := os.Stat(filepath.Join(dir, name))
+		if err != nil || i.Size() != size {
+			t.Fatalf("%s: %v %v", name, i, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "meta.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("pending published metadata")
+	}
+	control, err := pendingControl(c.dir, c.ID())
+	if err != nil || control.Start != meta.Start || control.Trace != meta.Trace || !control.LauncherLane || control.MetaSlotBytes != 452 {
+		t.Fatal("immutable pending registration", control, err)
+	}
+	for name, identity := range map[string][2]uint64{".meta-slot": control.MetaSlot, ".publication-seal": control.SealSlot} {
+		i, err := c.dir.Lstat(name)
+		if err != nil || inode(i) != identity {
+			t.Fatal("registered control inode", name, err)
+		}
+	}
+	usage, err := c.Usage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	physical, err := storeTreeBytes(c.dir)
+	if err != nil || usage.Bytes != physical {
+		t.Fatalf("usage %v physical %d: %v", usage, physical, err)
+	}
+	joined, err := s.Join(meta.Trace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer joined.Close()
+	if _, err := joined.PublishPending(meta); err == nil {
+		t.Fatal("joined publisher")
+	}
+	if _, err := joined.CreateLauncherWriter(); err == nil {
+		t.Fatal("joined launcher")
+	}
+	if _, err := c.CreateWriter(TraceFileName("launcher", os.Getpid())); err == nil {
+		t.Fatal("generic launcher")
+	}
+	w, err := c.CreateWriter("keeper-1.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if _, err := w.Write(bytes.Repeat([]byte("x"), int(MaxTraceContentBytes-usage.Bytes))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("x")); err == nil {
+		t.Fatal("slot consumed at exact boundary")
+	}
+	if _, err := c.PublishPending(meta); err != nil {
+		t.Fatal("reserved publication at cap", err)
+	}
+	usage, err = c.Usage()
+	if err != nil || usage.Bytes != MaxTraceContentBytes {
+		t.Fatalf("published cap: %v %v", usage, err)
+	}
+}
+
+func TestTraceStorePendingPublicationOnceAndConflict(t *testing.T) {
+	for _, kind := range []string{"launch", "attach", "incomplete"} {
+		t.Run(kind, func(t *testing.T) {
+			s, root, _ := traceStoreFixture(t)
+			m := storeMeta(1, 123)
+			m.Kind = kind
+			c, err := s.MintPending(m.Trace, m.Start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			result, err := c.PublishPending(m)
+			if err != nil || result.State != TracePublished {
+				t.Fatalf("publish: %v %v", result, err)
+			}
+			path := filepath.Join(root, m.Trace, "meta.json")
+			before, err := os.ReadFile(path)
+			if err != nil || len(before) != 452 {
+				t.Fatal(err, len(before))
+			}
+			info, _ := os.Stat(path)
+			result, err = c.PublishPending(m)
+			if err != nil || result.State != TraceAlreadyPublished {
+				t.Fatalf("repeat %v %v", result, err)
+			}
+			m.Kind = "attach"
+			if kind == "attach" {
+				m.Kind = "launch"
+			}
+			result, err = c.PublishPending(m)
+			if err == nil || result.State != TracePublicationConflict {
+				t.Fatalf("conflict %v %v", result, err)
+			}
+			after, _ := os.ReadFile(path)
+			now, _ := os.Stat(path)
+			if !bytes.Equal(before, after) || !os.SameFile(info, now) {
+				t.Fatal("metadata changed")
+			}
+		})
+	}
+	t.Run("rename_no_overwrite", func(t *testing.T) {
+		s, root, _ := traceStoreFixture(t)
+		m := storeMeta(1, 123)
+		c, err := s.MintPending(m.Trace, m.Start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		path := filepath.Join(root, m.Trace, "meta.json")
+		calls := 0
+		c.publicationObserve = func(stage string, _ *os.File) {
+			if stage == "rename" {
+				calls++
+				if err := os.WriteFile(path, []byte("sentinel"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		if _, err := c.PublishPending(m); err == nil {
+			t.Fatal("atomic rename overwrote target")
+		}
+		if _, err := c.PublishPending(m); err == nil || calls != 1 {
+			t.Fatal("conflicting rename retried")
+		}
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != "sentinel" {
+			t.Fatal("rename changed existing object")
+		}
+		if _, err := s.Usage(); err == nil {
+			t.Fatal("coexisting slot and public metadata adopted")
+		}
+	})
+	t.Run("no_overwrite", func(t *testing.T) {
+		s, root, _ := traceStoreFixture(t)
+		m := storeMeta(1, 123)
+		c, err := s.MintPending(m.Trace, m.Start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer c.Close()
+		path := filepath.Join(root, m.Trace, "meta.json")
+		if err := os.WriteFile(path, []byte("sentinel"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.PublishPending(m); err == nil {
+			t.Fatal("overwrote conflict")
+		}
+		got, _ := os.ReadFile(path)
+		if string(got) != "sentinel" {
+			t.Fatal("changed conflict")
+		}
+	})
+}
+
+func TestTraceStorePendingPublicationFailurePhases(t *testing.T) {
+	for _, phase := range []string{".meta-slot.write", ".meta-slot.close", ".publication-seal.write", ".publication-seal.close", "rename", "directory.close"} {
+		t.Run(phase, func(t *testing.T) {
+			s, root, _ := traceStoreFixture(t)
+			m := storeMeta(1, 123)
+			c, err := s.MintPending(m.Trace, m.Start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			calls := 0
+			c.publicationObserve = func(stage string, f *os.File) {
+				if stage == phase {
+					calls++
+					_ = f.Close()
+				}
+			}
+			result, err := c.PublishPending(m)
+			if phase == "directory.close" {
+				if err != nil || result.State != TracePublished {
+					t.Fatal("exact snapshot not reconciled", result, err)
+				}
+			} else if err == nil || result.State != TracePublicationUnavailable {
+				t.Fatal("failed phase accepted", result, err)
+			}
+			before, _ := storeTreeBytes(c.dir)
+			result, err = c.PublishPending(m)
+			after, _ := storeTreeBytes(c.dir)
+			if calls != 1 || before != after {
+				t.Fatal("repeated physical attempt", calls, before, after)
+			}
+			if phase != "directory.close" && err == nil {
+				t.Fatal("unavailable retry")
+			}
+			if phase != "directory.close" {
+				if _, err := os.Stat(filepath.Join(root, c.ID(), "meta.json")); !errors.Is(err, os.ErrNotExist) {
+					t.Fatal("failed exposure")
+				}
+			}
+			_, inventoryErr := s.Usage()
+			if phase == ".meta-slot.write" || phase == "directory.close" {
+				if inventoryErr != nil {
+					t.Fatal("valid state declined", inventoryErr)
+				}
+			} else if inventoryErr == nil {
+				t.Fatal("uncertain state adopted")
+			}
+		})
+	}
+}
+
+func TestTraceStorePendingCrashInventoryAndPrune(t *testing.T) {
+	t.Run("independent_live_join", func(t *testing.T) {
+		s, _, _ := traceStoreFixture(t)
+		owner, err := s.MintPending(storeMeta(1, 1).Trace, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined, err := s.Join(owner.ID())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer joined.Close()
+		if err := owner.Close(); err != nil {
+			t.Fatal(err)
+		}
+		for n := 2; n <= MaxRetainedTraces+1; n++ {
+			c, err := s.MintPending(storeMeta(n, int64(n)).Trace, int64(n))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Close(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := joined.Usage(); err != nil {
+			t.Fatal("live joined pending pruned", err)
+		}
+		if _, err := s.Join(storeMeta(2, 2).Trace); err == nil {
+			t.Fatal("inactive ordering ignored")
+		}
+	})
+	s, root, _ := traceStoreFixture(t)
+	for n := 1; n <= MaxRetainedTraces; n++ {
+		c, err := s.MintPending(storeMeta(n, 123).Trace, 123)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c, err := s.MintPending(storeMeta(51, 123).Trace, 123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := s.Join(storeMeta(1, 123).Trace); err == nil {
+		t.Fatal("recreated pruned trace")
+	}
+	if _, err := os.Stat(filepath.Join(root, storeMeta(1, 123).Trace)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("oldest retained")
+	}
+	if err := os.WriteFile(filepath.Join(root, c.ID(), ".publication-seal"), []byte("torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Usage(); err == nil {
+		t.Fatal("torn state adopted")
+	}
+	if _, err := s.MintPending(storeMeta(52, 123).Trace, 123); err == nil {
+		t.Fatal("unknown state pruned")
+	}
+}
+
+func TestTraceStorePendingControlIdentityAndCrashState(t *testing.T) {
+	for _, state := range []string{"unknown_version", "unknown_field", "torn_control", "missing_control", "slot_inode", "seal_inode", "slot_partial", "seal_partial", "slot_mode", "slot_link", "published_seal", "published_inode", "control_array_length", "identity_unknown", "identity_array_length"} {
+		t.Run(state, func(t *testing.T) {
+			s, root, _ := traceStoreFixture(t)
+			m := storeMeta(1, 123)
+			c, err := s.MintPending(m.Trace, m.Start)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			dir := filepath.Join(root, m.Trace)
+			if strings.HasPrefix(state, "published_") {
+				if _, err := c.PublishPending(m); err != nil {
+					t.Fatal(err)
+				}
+			}
+			controlPath := filepath.Join(dir, ".pending")
+			control, err := os.ReadFile(controlPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch state {
+			case "unknown_version":
+				err = os.WriteFile(controlPath, bytes.Replace(control, []byte(`"version":1`), []byte(`"version":2`), 1), 0o600)
+			case "unknown_field":
+				err = os.WriteFile(controlPath, append(control[:len(control)-1], []byte(`,"unknown":true}`)...), 0o600)
+			case "control_array_length", "identity_array_length", "identity_unknown":
+				path := controlPath
+				key := "meta_slot"
+				if strings.HasPrefix(state, "identity_") {
+					path = filepath.Join(dir, ".identity")
+					key = "root"
+				}
+				p, readErr := os.ReadFile(path)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				var fields map[string]json.RawMessage
+				if json.Unmarshal(p, &fields) != nil {
+					t.Fatal("fixture control parse")
+				}
+				if state == "identity_unknown" {
+					fields["unknown"] = json.RawMessage("true")
+				} else {
+					pair := fields[key]
+					fields[key] = append(pair[:len(pair)-1], []byte(",1]")...)
+				}
+				p, err = json.Marshal(fields)
+				if err == nil {
+					err = os.WriteFile(path, p, 0o600)
+				}
+			case "torn_control":
+				err = os.WriteFile(controlPath, control[:len(control)/2], 0o600)
+			case "missing_control":
+				err = os.Remove(controlPath)
+			case "slot_inode", "seal_inode", "published_inode":
+				name := ".meta-slot"
+				if state == "seal_inode" {
+					name = ".publication-seal"
+				}
+				if state == "published_inode" {
+					name = "meta.json"
+				}
+				p, readErr := os.ReadFile(filepath.Join(dir, name))
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if err = os.Rename(filepath.Join(dir, name), filepath.Join(dir, ".old-object")); err == nil {
+					err = os.WriteFile(filepath.Join(dir, name), p, 0o600)
+				}
+			case "slot_partial":
+				err = os.WriteFile(filepath.Join(dir, ".meta-slot"), []byte("torn"), 0o600)
+			case "seal_partial", "published_seal":
+				err = os.WriteFile(filepath.Join(dir, ".publication-seal"), []byte("torn"), 0o600)
+			case "slot_mode":
+				err = os.Chmod(filepath.Join(dir, ".meta-slot"), 0o644)
+			case "slot_link":
+				err = os.Link(filepath.Join(dir, ".meta-slot"), filepath.Join(dir, ".slot-alias"))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.Usage(); err == nil {
+				t.Fatal("uncertain state adopted")
+			}
+			if _, err := s.MintPending(storeMeta(2, 124).Trace, 124); err == nil {
+				t.Fatal("recording admitted around unknown state")
+			}
+			if _, err := os.Stat(dir); err != nil {
+				t.Fatal("unknown state removed")
+			}
+		})
+	}
+}
+
 func TestTraceStoreClosePrivacy(t *testing.T) {
 	t.Run("repeated_writer", func(t *testing.T) {
 		s, root, private := traceStoreFixture(t)

@@ -33,6 +33,7 @@ type Meta struct {
 	Workspace string `json:"workspace"`
 	Version   string `json:"version"`
 	Commit    string `json:"commit"`
+	rootValid bool
 }
 
 // Skipped names a file or directory the reader passed over, and why.
@@ -68,7 +69,11 @@ type Lane struct {
 	Dropped   int
 	Truncated bool
 	// Start and End are the lane's extent: its earliest and latest instant.
-	Start, End int64
+	Start, End      int64
+	traceID         string
+	rootCandidates  int
+	rootConflicts   map[string]bool
+	rootDiagnostics int
 }
 
 // Span is one span after reading and parent placement. Times are nanoseconds since the Unix
@@ -93,8 +98,10 @@ type Span struct {
 	Children       []*Span
 	ChildLanes     []*Lane
 
-	order int // position in the lane's (start asc, end desc, file order) sort
-	seq   int // file order of the line that opened the span
+	order          int // position in the lane's (start asc, end desc, file order) sort
+	seq            int // file order of the line that opened the span
+	launcherRoot   bool
+	observedParent string
 }
 
 // Duration is the span's length.
@@ -218,6 +225,65 @@ func openRegular(path string) (*os.File, string) {
 	return f, ""
 }
 
+// This stricter predicate grants designated-root format authority only. Legacy metadata is
+// still decoded and cleaned by readMeta; no private admission controls are reader inputs.
+func validLauncherMetadata(p []byte, id string) bool {
+	d := json.NewDecoder(bytes.NewReader(p))
+	opening, err := d.Token()
+	if err != nil || opening != json.Delim('{') {
+		return false
+	}
+	fields := map[string]json.RawMessage{}
+	for d.More() {
+		key, err := d.Token()
+		if err != nil {
+			return false
+		}
+		name, ok := key.(string)
+		if !ok {
+			return false
+		}
+		if _, dup := fields[name]; dup {
+			return false
+		}
+		var v json.RawMessage
+		if d.Decode(&v) != nil {
+			return false
+		}
+		fields[name] = v
+	}
+	if _, err := d.Token(); err != nil || d.Decode(new(any)) != io.EOF || len(fields) != 7 {
+		return false
+	}
+	for _, key := range []string{"trace", "kind", "jail", "workspace", "version", "commit"} {
+		v, ok := fields[key]
+		if !ok || len(v) == 0 || v[0] != '"' {
+			return false
+		}
+		var text string
+		if json.Unmarshal(v, &text) != nil {
+			return false
+		}
+		if key == "trace" {
+			if text != id || !IsTraceID(text) {
+				return false
+			}
+			continue
+		}
+		if len(text) > 64 || strings.IndexFunc(text, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._+-", r))
+		}) >= 0 {
+			return false
+		}
+		if key == "kind" && text != "launch" && text != "attach" && text != "incomplete" {
+			return false
+		}
+	}
+	v, ok := fields["start"]
+	var start int64
+	return ok && !bytes.Equal(v, []byte("null")) && json.Unmarshal(v, &start) == nil && start > 0
+}
+
 func readMeta(path, id string) (*Meta, string) {
 	f, reason := openRegular(path)
 	if reason != "" {
@@ -238,6 +304,7 @@ func readMeta(path, id string) (*Meta, string) {
 	if m.Trace != id {
 		return nil, "names another trace"
 	}
+	m.rootValid = validLauncherMetadata(b, id)
 	m.Kind = cleanText(m.Kind, MaxNameBytes)
 	m.Jail = cleanText(m.Jail, MaxNameBytes)
 	m.Workspace = cleanText(m.Workspace, MaxNameBytes)
@@ -338,7 +405,10 @@ func (lr *laneReader) line(b []byte, tooLong, first bool, id string) (reason str
 			if l.Trace != id {
 				return "its first line names another trace"
 			}
-			lr.lane.Name, lr.lane.PID, lr.lane.ParentID = l.Name, l.PID, l.Parent
+			lr.lane.Name, lr.lane.PID, lr.lane.ParentID, lr.lane.traceID = l.Name, l.PID, l.Parent, l.Trace
+			if l.LauncherRoot != nil {
+				lr.lane.rootDiagnostics++
+			}
 			return ""
 		case lr.lane.Jail && ok:
 			lr.lane.Name = JailLane
@@ -350,8 +420,26 @@ func (lr *laneReader) line(b []byte, tooLong, first bool, id string) (reason str
 		lr.lane.Dropped++
 		return ""
 	}
+	if l.LauncherRoot != nil {
+		if l.markerInvalid || string(bytes.TrimSpace(l.LauncherRoot)) != "true" || l.K != KindStart || lr.lane.Name != "launcher" || lr.lane.Jail || lr.lane.ParentID != "" || l.Parent != "" || l.Name != "invocation" {
+			lr.rootConflict(l.Span)
+			lr.lane.rootDiagnostics++
+			l.LauncherRoot = nil
+		} else {
+			lr.lane.rootCandidates++
+		}
+	}
 	lr.add(l)
 	return ""
+}
+
+func (lr *laneReader) rootConflict(id string) {
+	if id != "" {
+		if lr.lane.rootConflicts == nil {
+			lr.lane.rootConflicts = map[string]bool{}
+		}
+		lr.lane.rootConflicts[id] = true
+	}
 }
 
 // add applies one event line.
@@ -364,12 +452,13 @@ func (lr *laneReader) add(l rawLine) {
 	case KindStart:
 		if lr.seen[l.Span] {
 			lane.Dropped++
+			lr.rootConflict(l.Span)
 			return
 		}
 		lr.seen[l.Span] = true
 		lr.open[l.Span] = &Span{
 			ID: l.Span, Name: l.Name, Lane: lane, Start: l.T, Attrs: l.Attrs,
-			ExplicitParent: l.Parent, seq: lr.seq,
+			ExplicitParent: l.Parent, seq: lr.seq, launcherRoot: l.LauncherRoot != nil, observedParent: l.Parent,
 		}
 	case KindEnd, KindRecord:
 		if s, ok := lr.open[l.Span]; ok && l.K == KindEnd {

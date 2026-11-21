@@ -91,7 +91,8 @@ type Event struct {
 	// MaxAttrValueBytes.
 	Attrs []Attr
 	// Recorded marks the KindEnd that Record entered: a completed interval with no start line.
-	Recorded bool
+	Recorded     bool
+	launcherRoot bool
 }
 
 // Attr is one span attribute: a name, a count, an exit status or a key yolo already prints (a pack,
@@ -237,6 +238,15 @@ func (l *Log) InstallIndependentTrace(tr Trace, sinks ...Sink) bool {
 // go only to independently installed trace sinks, never to legacy sinks, report rows, or notices.
 // Joined collectors have a parent span and must not create another root.
 func (l *Log) IndependentRoot(name string) *Span {
+	return l.independentRoot(name, false)
+}
+
+// IndependentLauncherRoot emits one immutable neutral invocation start with designation.
+func (l *Log) IndependentLauncherRoot() *Span {
+	return l.independentRoot("invocation", true)
+}
+
+func (l *Log) independentRoot(name string, launcher bool) *Span {
 	if !l.enabled() {
 		return nil
 	}
@@ -247,7 +257,7 @@ func (l *Log) IndependentRoot(name string) *Span {
 	}
 	l.traceRoot = true
 	s := &Span{l: l, name: name, at: l.now(), id: newSpanID(), trace: l.trace, traceOnly: true}
-	e := Event{Kind: KindStart, Name: name, At: s.at, Span: s.id}
+	e := Event{Kind: KindStart, Name: name, At: s.at, Span: s.id, launcherRoot: launcher}
 	sinks := append([]Sink(nil), l.traceSinks...)
 	l.mu.Unlock()
 	for _, sink := range sinks {

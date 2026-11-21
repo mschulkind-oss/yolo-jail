@@ -11,7 +11,145 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 )
+
+func TestCanonicalRootNameReachesExistingEncoders(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	storeRoot := filepath.Join(base, "store")
+	store, err := perf.OpenTraceStore(storeRoot, filepath.Join(base, "private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	identity := perf.MintTrace()
+	claim, err := store.MintPending(identity.ID.String(), 123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claim.Close()
+	sink, closer, err := perf.AdmittedLauncherTraceSink(claim, identity, func(s string) { t.Error(s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1700000000, 0)
+	log := perf.New(func() time.Time { return now })
+	if !log.InstallIndependentTrace(identity, sink) {
+		t.Fatal("install")
+	}
+	root := log.IndependentLauncherRoot()
+	ctx, ok := root.Context()
+	if !ok {
+		t.Fatal("root context")
+	}
+	now = now.Add(10 * time.Nanosecond)
+	child := root.Child("ordinary")
+	childCtx, ok := child.Context()
+	if !ok {
+		t.Fatal("child context")
+	}
+	now = now.Add(10 * time.Nanosecond)
+	child.End()
+	now = now.Add(80 * time.Nanosecond)
+	root.End()
+	if _, err := claim.PublishPending(perf.TraceMetadata{Trace: identity.ID.String(), Kind: "launch", Start: 123, Jail: "test", Workspace: "ab12", Version: "test", Commit: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Copy only public evidence; the reader/exporter neither reads nor recreates controls.
+	source := filepath.Join(storeRoot, identity.ID.String())
+	entries, err := os.ReadDir(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public := map[string]string{}
+	for _, entry := range entries {
+		if entry.Name() == MetaFile || strings.HasSuffix(entry.Name(), ".jsonl") {
+			p, err := os.ReadFile(filepath.Join(source, entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasSuffix(entry.Name(), ".jsonl") && bytes.Count(p, []byte(`"name":"invocation"`)) != 2 {
+				t.Fatal("publication rewrote the observed root names")
+			}
+			public[entry.Name()] = string(p)
+		}
+	}
+	copyDir := writeTrace(t, filepath.Join(base, "copy"), identity.ID.String(), public)
+	tr, err := ReadDir(copyDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(public) != 2 || len(tr.Spans) != 2 {
+		t.Fatal("public evidence shape")
+	}
+	observedRoot := span(t, tr, ctx.Span.String())
+	observedChild := span(t, tr, childCtx.Span.String())
+	if observedRoot.Name != "launch" || observedRoot.Start != 1700000000000000000 || observedRoot.End != 1700000000000000100 || observedRoot.ExplicitParent != "" || observedChild.ExplicitParent != observedRoot.ID || observedChild.Parent != observedRoot || observedChild.Start != 1700000000000000010 || observedChild.End != 1700000000000000020 {
+		t.Fatal("recorded IDs, times or parents changed")
+	}
+	for name, encode := range map[string]func(io.Writer, *Trace) error{"chrome": WriteChrome, "otlp": WriteOTLP} {
+		t.Run(name, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := encode(&out, tr); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(out.Bytes(), []byte(`"name":"launch"`)) {
+				t.Fatal("resolved name missing", out.String())
+			}
+			if bytes.Contains(out.Bytes(), []byte(".pending")) || bytes.Contains(out.Bytes(), []byte("launcher_root")) {
+				t.Fatal("private/control export")
+			}
+			if !bytes.Contains(out.Bytes(), []byte(ctx.Span.String())) || !bytes.Contains(out.Bytes(), []byte(childCtx.Span.String())) {
+				t.Fatal("encoder lost recorded IDs")
+			}
+			if name == "chrome" {
+				var payload struct {
+					Events []chromeEvent `json:"traceEvents"`
+				}
+				if json.Unmarshal(out.Bytes(), &payload) != nil {
+					t.Fatal("chrome decode")
+				}
+				observed := map[string]chromeEvent{}
+				for _, event := range payload.Events {
+					if id, ok := event.Args["yolo.span_id"].(string); ok {
+						observed[id] = event
+					}
+				}
+				r, c := observed[ctx.Span.String()], observed[childCtx.Span.String()]
+				if len(observed) != 2 || r.Name != "launch" || r.Time.String() != "1700000000000000" || r.Duration.String() != "0.1" || c.Time.String() != "1700000000000000.01" || c.Duration.String() != "0.01" || c.Args["yolo.parent_span_id"] != ctx.Span.String() || r.Args["yolo.trace_id"] != identity.ID.String() {
+					t.Fatal("chrome changed identity/time/parent")
+				}
+			} else {
+				var payload struct {
+					Resources []otlpResourceSpans `json:"resourceSpans"`
+				}
+				if json.Unmarshal(out.Bytes(), &payload) != nil {
+					t.Fatal("otlp decode")
+				}
+				observed := map[string]otlpSpan{}
+				for _, resource := range payload.Resources {
+					for _, scope := range resource.ScopeSpans {
+						for _, s := range scope.Spans {
+							observed[s.SpanID] = s
+						}
+					}
+				}
+				r, c := observed[ctx.Span.String()], observed[childCtx.Span.String()]
+				if len(observed) != 2 || r.Name != "launch" || r.Start != "1700000000000000000" || r.End != "1700000000000000100" || r.TraceID != identity.ID.String() || r.ParentID != "" || c.Start != "1700000000000000010" || c.End != "1700000000000000020" || c.ParentID != ctx.Span.String() {
+					t.Fatal("otlp changed identity/time/parent")
+				}
+			}
+		})
+	}
+}
 
 func TestExportWireFormats(t *testing.T) {
 	const id = "11111111111111111111111111111111"

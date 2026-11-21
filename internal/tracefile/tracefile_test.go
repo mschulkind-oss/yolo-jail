@@ -91,6 +91,108 @@ func lane(t *testing.T, tr *Trace, file string) *Lane {
 const launcherHeader = `{"k":"lane","name":"launcher","pid":100,"trace":"` + tid + `"}`
 
 // TestTheContractsOwnExampleLinesRead pins the two example lines the plan's contract shows.
+const canonicalMeta = `{"trace":"` + tid + `","kind":"launch","start":123,"jail":"test","workspace":"ab12","version":"test","commit":"test"}`
+const canonicalStart = `{"t":1700000000000000000,"k":"start","name":"invocation","span":"` + spanL + `","launcher_root":true}`
+const canonicalEnd = `{"t":1700000000000000100,"k":"end","name":"invocation","span":"` + spanL + `"}`
+
+func TestLauncherRootTypesAndAuthority(t *testing.T) {
+	for _, marker := range []string{"absent", "true", "false", "null", "\"secret-value\"", "1", "[]", "{}"} {
+		t.Run(marker, func(t *testing.T) {
+			start := canonicalStart
+			if marker == "absent" {
+				start = strings.Replace(start, `,"launcher_root":true`, "", 1)
+			} else {
+				start = strings.Replace(start, `"launcher_root":true`, `"launcher_root":`+marker, 1)
+			}
+			tr := read(t, map[string]string{MetaFile: canonicalMeta, "launcher-100.jsonl": lines(launcherHeader, start, canonicalEnd)})
+			want := "invocation"
+			if marker == "true" {
+				want = "launch"
+			}
+			if s := span(t, tr, spanL); s.Name != want || s.Start != 1700000000000000000 || s.End != 1700000000000000100 {
+				t.Fatal(s)
+			}
+			if marker != "true" && marker != "absent" && len(tr.Anomalies) == 0 {
+				t.Fatal("no bounded designation diagnostic")
+			}
+			if strings.Contains(strings.Join(tr.Anomalies, " "), "secret-value") {
+				t.Fatal("private marker value leaked")
+			}
+		})
+	}
+	for _, condition := range []string{"wrong_lane", "duplicate_start", "cross_lane", "end_marker", "parent"} {
+		t.Run(condition, func(t *testing.T) {
+			files := map[string]string{MetaFile: canonicalMeta, "launcher-100.jsonl": lines(launcherHeader, canonicalStart, canonicalEnd)}
+			switch condition {
+			case "wrong_lane":
+				files["launcher-100.jsonl"] = strings.Replace(files["launcher-100.jsonl"], `"name":"launcher"`, `"name":"keeper"`, 1)
+			case "duplicate_start":
+				files["launcher-100.jsonl"] = lines(launcherHeader, canonicalStart, canonicalStart, canonicalEnd)
+			case "cross_lane":
+				files["keeper-200.jsonl"] = lines(strings.Replace(launcherHeader, `"name":"launcher"`, `"name":"keeper"`, 1), strings.Replace(canonicalStart, `,"launcher_root":true`, "", 1), canonicalEnd)
+			case "end_marker":
+				files["launcher-100.jsonl"] = lines(launcherHeader, strings.Replace(canonicalStart, `,"launcher_root":true`, "", 1), strings.Replace(canonicalEnd, `}`, `,"launcher_root":true}`, 1))
+			case "parent":
+				files["launcher-100.jsonl"] = lines(launcherHeader, strings.Replace(canonicalStart, `}`, `,"parent":"`+spanA+`"}`, 1), canonicalEnd)
+			}
+			tr := read(t, files)
+			if span(t, tr, spanL).Name != "invocation" || len(tr.Anomalies) == 0 {
+				t.Fatal("conflict resolved", tr.Anomalies)
+			}
+		})
+	}
+}
+
+func TestLauncherRootInvalidUnrelatedMarkerPreservesValidAuthority(t *testing.T) {
+	tr := read(t, map[string]string{MetaFile: canonicalMeta, "launcher-100.jsonl": lines(launcherHeader, canonicalStart,
+		`{"t":1700000000000000010,"k":"start","name":"ordinary","span":"`+spanA+`","launcher_root":false}`,
+		`{"t":1700000000000000020,"k":"end","name":"ordinary","span":"`+spanA+`"}`, canonicalEnd)})
+	if span(t, tr, spanL).Name != "launch" || span(t, tr, spanA).Name != "ordinary" || len(tr.Anomalies) == 0 {
+		t.Fatal("unrelated marker affected valid root or base event")
+	}
+}
+
+func TestCanonicalLauncherRootUsesPublicMetadataOnly(t *testing.T) {
+	for _, meta := range []string{canonicalMeta, strings.Replace(canonicalMeta, `"launch"`, `"attach"`, 1), strings.Replace(canonicalMeta, `"launch"`, `"incomplete"`, 1), strings.Replace(canonicalMeta, `"launch"`, `"host"`, 1), strings.Replace(canonicalMeta, `"start":123`, `"start":0`, 1), strings.Replace(canonicalMeta, `"start":123`, `"start":null`, 1), strings.Replace(canonicalMeta, `}`, `,"extra":true}`, 1), strings.Replace(canonicalMeta, `"commit":"test"`, `"commit":null`, 1), ""} {
+		t.Run(fmt.Sprintf("meta_%d", len(meta))+meta, func(t *testing.T) {
+			files := map[string]string{"launcher-100.jsonl": lines(launcherHeader, canonicalStart, canonicalEnd)}
+			if meta != "" {
+				files[MetaFile] = meta
+			}
+			dir := writeTrace(t, t.TempDir(), tid, files)
+			before, _ := os.ReadDir(dir)
+			tr, err := ReadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, _ := os.ReadDir(dir)
+			if len(before) != len(after) {
+				t.Fatal("read created controls")
+			}
+			want := "invocation"
+			if meta == canonicalMeta {
+				want = "launch"
+			}
+			if meta == strings.Replace(canonicalMeta, `"launch"`, `"attach"`, 1) {
+				want = "attach"
+			}
+			if len(tr.Spans) != 1 || span(t, tr, spanL).Name != want {
+				t.Fatal("canonical authority", names(tr.Spans))
+			}
+		})
+	}
+}
+
+func TestAttributesRemainEightPerSpanAcrossRecords(t *testing.T) {
+	start := strings.Replace(canonicalStart, `}`, `,"attrs":{"a":"`+strings.Repeat("v", MaxAttrValue+1)+`","b":"2","c":"3","d":"4","e":"5"}}`, 1)
+	end := strings.Replace(canonicalEnd, `}`, `,"attrs":{"f":"6","g":"7","h":"8","i":"9","j":"10"}}`, 1)
+	tr := read(t, map[string]string{MetaFile: canonicalMeta, "launcher-100.jsonl": lines(launcherHeader, start, end)})
+	s := span(t, tr, spanL)
+	if len(s.Attrs) != 8 || s.Name != "launch" || len(s.Attrs["a"]) != MaxAttrValue || s.Attrs["f"] != "6" || s.Attrs["h"] != "8" {
+		t.Fatal("per span attrs across observed start/end")
+	}
+}
+
 func TestTheContractsOwnExampleLinesRead(t *testing.T) {
 	tr := read(t, map[string]string{"keeper-200.jsonl": lines(
 		`{"k":"lane","name":"keeper","pid":200,"trace":"`+tid+`","parent":"03b1c7e2a94d5f60"}`,

@@ -22,13 +22,15 @@ type admittedTraceAppender interface {
 }
 
 type admittedTraceState struct {
-	writer   admittedTraceAppender
-	warn     func(string)
-	mu       sync.Mutex
-	limit    int
-	written  int
-	disabled atomic.Bool
-	warned   atomic.Bool
+	writer     admittedTraceAppender
+	warn       func(string)
+	mu         sync.Mutex
+	limit      int
+	written    int
+	disabled   atomic.Bool
+	warned     atomic.Bool
+	launcher   bool
+	designated bool
 }
 
 // AdmittedTraceSink adapts an already admitted trace claim into one synchronous JSONL sink.
@@ -48,6 +50,26 @@ func AdmittedTraceSink(claim *TraceClaim, lane string, tr Trace, warn func(strin
 		_ = writer.Close()
 		return nil, nil, err
 	}
+	return state.write, writer, nil
+}
+
+// AdmittedLauncherTraceSink grants designation only through the reserved original-owner writer.
+func AdmittedLauncherTraceSink(claim *TraceClaim, tr Trace, warn func(string)) (Sink, io.Closer, error) {
+	if claim == nil || tr.ID.IsZero() || claim.id != tr.ID.String() || !tr.Parent.IsZero() {
+		warnAdmittedTrace(warn)
+		return nil, nil, errAdmittedTraceIdentity
+	}
+	writer, err := claim.CreateLauncherWriter()
+	if err != nil {
+		warnAdmittedTrace(warn)
+		return nil, nil, errAdmittedTraceWriter
+	}
+	state, err := newAdmittedTraceState(writer, "launcher", os.Getpid(), tr, warn, MaxTraceEvents)
+	if err != nil {
+		_ = writer.Close()
+		return nil, nil, err
+	}
+	state.launcher = writer.launcher
 	return state.write, writer, nil
 }
 
@@ -78,6 +100,15 @@ func (s *admittedTraceState) write(e Event) {
 		return
 	}
 	line := eventLine(e)
+	if e.launcherRoot {
+		if !s.launcher || s.designated || s.written != 0 || e.Kind != KindStart || e.Name != "invocation" || e.Span.IsZero() || !e.Parent.IsZero() {
+			line.LauncherRoot = false
+			s.warnOnce()
+		} else {
+			line.LauncherRoot = true
+			s.designated = true
+		}
+	}
 	if s.written == s.limit {
 		line = traceLine{T: e.At.UnixNano(), K: "mark", Name: TruncatedMark}
 		if err := writeAdmittedJSONLine(s.writer, line); err != nil {

@@ -2,10 +2,57 @@ package perf
 
 import (
 	"bytes"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestIndependentLauncherRootPreservesOrdinaryRootSemantics(t *testing.T) {
+	var legacy, traced []Event
+	log := New(nil, func(e Event) { legacy = append(legacy, e) })
+	if !log.InstallIndependentTrace(MintTrace(), func(e Event) { traced = append(traced, e) }) {
+		t.Fatal("install")
+	}
+	r := log.IndependentLauncherRoot()
+	if r == nil {
+		t.Fatal("root")
+	}
+	attrs := make([]Attr, MaxAttrs+2)
+	for i := range attrs {
+		attrs[i] = Attr{Key: string(rune('a' + i)), Value: strings.Repeat("v", MaxAttrValueBytes+1)}
+	}
+	log.SpanWith("ordinary", attrs...).End()
+	r.End()
+	if len(traced[1].Attrs) != MaxAttrs || len(traced[2].Attrs) != 0 {
+		t.Fatal("producer exceeded per-span attributes")
+	}
+	for _, attr := range traced[1].Attrs {
+		if len(attr.Value) != MaxAttrValueBytes {
+			t.Fatal("producer value bound")
+		}
+	}
+	if len(traced) != 4 || len(legacy) != 2 || !traced[0].launcherRoot || traced[0].Name != "invocation" || traced[0].Span.IsZero() || !traced[0].Parent.IsZero() || traced[3].launcherRoot {
+		t.Fatal("root semantics", traced, legacy)
+	}
+	if log.IndependentLauncherRoot() != nil {
+		t.Fatal("second root")
+	}
+	ordinary := New(nil)
+	var got []Event
+	ordinary.InstallIndependentTrace(MintTrace(), func(e Event) { got = append(got, e) })
+	ordinary.IndependentRoot("old").End()
+	if got[0].launcherRoot {
+		t.Fatal("ordinary designated")
+	}
+	joined := MintTrace()
+	joined.Parent = newSpanID()
+	j := New(nil)
+	j.InstallIndependentTrace(joined, func(Event) {})
+	if j.IndependentLauncherRoot() != nil {
+		t.Fatal("joined root")
+	}
+}
 
 func TestIndependentTraceRootAndOrdinarySpansUseSeparateSinks(t *testing.T) {
 	legacy := make([]Event, 0)

@@ -17,6 +17,7 @@
 package tracefile
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -49,15 +50,17 @@ const (
 
 // rawLine is one decoded line. Fields the contract does not name are ignored by encoding/json.
 type rawLine struct {
-	T      int64             `json:"t"`
-	K      string            `json:"k"`
-	Name   string            `json:"name"`
-	Span   string            `json:"span"`
-	Parent string            `json:"parent"`
-	Dur    *int64            `json:"dur"`
-	Attrs  map[string]string `json:"attrs"`
-	PID    int               `json:"pid"`
-	Trace  string            `json:"trace"`
+	T             int64             `json:"t"`
+	K             string            `json:"k"`
+	Name          string            `json:"name"`
+	Span          string            `json:"span"`
+	Parent        string            `json:"parent"`
+	Dur           *int64            `json:"dur"`
+	Attrs         map[string]string `json:"attrs"`
+	PID           int               `json:"pid"`
+	Trace         string            `json:"trace"`
+	LauncherRoot  json.RawMessage   `json:"launcher_root"`
+	markerInvalid bool
 }
 
 // parseLine decodes and validates one line. ok is false for anything the contract does not
@@ -66,6 +69,22 @@ func parseLine(b []byte) (rawLine, bool) {
 	var l rawLine
 	if err := json.Unmarshal(b, &l); err != nil {
 		return rawLine{}, false
+	}
+	if l.LauncherRoot != nil {
+		d := json.NewDecoder(bytes.NewReader(b))
+		_, _ = d.Token()
+		markers := 0
+		for d.More() {
+			key, _ := d.Token()
+			var value json.RawMessage
+			if d.Decode(&value) != nil {
+				return rawLine{}, false
+			}
+			if key == "launcher_root" {
+				markers++
+			}
+		}
+		l.markerInvalid = markers != 1
 	}
 	l.Name = cleanText(l.Name, MaxNameBytes)
 	if l.Parent != "" && !IsSpanID(l.Parent) {

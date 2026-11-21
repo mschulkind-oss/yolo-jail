@@ -5,6 +5,8 @@ package perf
 // launch. The protocol is nonblocking flock on Linux/Darwin; uncertainty declines recording.
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -58,15 +60,21 @@ type TraceStore struct {
 // TraceClaim holds a shared lock on one admitted directory/lock identity. A parent keeps its
 // claim until its child's successful Join is acknowledged, then closes only its own descriptor.
 type TraceClaim struct {
-	store      *TraceStore
-	id         string
-	dir        *os.Root
-	dirInfo    fs.FileInfo
-	lock       *os.File
-	lockInfo   fs.FileInfo
-	mu         sync.Mutex
-	closed     bool
-	diagnostic bool
+	store              *TraceStore
+	id                 string
+	dir                *os.Root
+	dirInfo            fs.FileInfo
+	lock               *os.File
+	lockInfo           fs.FileInfo
+	mu                 sync.Mutex
+	closed             bool
+	diagnostic         bool
+	publisher          bool
+	launcherCreated    bool
+	publication        TracePublicationState
+	publicationMeta    *TraceMetadata
+	pendingControl     *pendingRegistration
+	publicationObserve func(string, *os.File) // Fault tests observe real descriptor boundaries; never substitute I/O.
 }
 
 // TraceWriter is one exclusively created lane, appended synchronously without buffering or
@@ -79,6 +87,7 @@ type TraceWriter struct {
 	info     fs.FileInfo
 	mu       sync.Mutex
 	disabled bool
+	launcher bool
 }
 
 type storeIdentity struct {
@@ -95,11 +104,337 @@ type storeEntry struct {
 	meta     TraceMetadata
 	identity storeIdentity
 	known    bool
+	pending  *pendingRegistration
 }
 
 type storeInventory struct {
 	bytes   int64
 	entries []storeEntry
+}
+
+const (
+	metadataSlotBytes    = 452
+	publicationSealBytes = 33
+)
+
+type pendingRegistration struct {
+	Version       uint8     `json:"version"`
+	Trace         string    `json:"trace"`
+	Start         int64     `json:"start"`
+	LauncherLane  bool      `json:"launcher_lane"`
+	MetaSlotBytes int64     `json:"meta_slot_bytes"`
+	MetaSlot      [2]uint64 `json:"meta_slot"`
+	SealSlot      [2]uint64 `json:"seal_slot"`
+}
+
+// TracePublicationState distinguishes exposure, an identical no-op, and frozen refusal.
+type TracePublicationState uint8
+
+const (
+	TracePublicationUnavailable TracePublicationState = iota
+	TracePublished
+	TraceAlreadyPublished
+	TracePublicationConflict
+)
+
+type TracePublicationResult struct{ State TracePublicationState }
+
+func readStoreBytes(r *os.Root, name string, size int) ([]byte, fs.FileInfo, error) {
+	f, err := safeStoreFile(r, name, os.O_RDONLY)
+	if err != nil {
+		return nil, nil, err
+	}
+	i, se := f.Stat()
+	p, re := io.ReadAll(io.LimitReader(f, int64(size+1)))
+	ce := f.Close()
+	if se != nil || re != nil || ce != nil || len(p) != size || i.Size() != int64(size) {
+		return nil, nil, traceDeclined()
+	}
+	return p, i, nil
+}
+
+func exactStoreJSON(p []byte, target any, keys []string) bool {
+	d := json.NewDecoder(bytes.NewReader(p))
+	token, err := d.Token()
+	if err != nil || token != json.Delim('{') {
+		return false
+	}
+	seen := map[string]bool{}
+	for d.More() {
+		key, err := d.Token()
+		if err != nil {
+			return false
+		}
+		name, ok := key.(string)
+		if !ok || seen[name] {
+			return false
+		}
+		seen[name] = true
+		var value json.RawMessage
+		if d.Decode(&value) != nil || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return false
+		}
+		switch name {
+		case "root", "private", "admission", "directory", "lock", "meta_slot", "seal_slot":
+			var pair []json.RawMessage
+			if json.Unmarshal(value, &pair) != nil || len(pair) != 2 {
+				return false
+			}
+			for _, part := range pair {
+				var number uint64
+				if bytes.Equal(bytes.TrimSpace(part), []byte("null")) || json.Unmarshal(part, &number) != nil {
+					return false
+				}
+			}
+		}
+	}
+	if _, err := d.Token(); err != nil || d.Decode(new(any)) != io.EOF || len(seen) != len(keys) {
+		return false
+	}
+	for _, key := range keys {
+		if !seen[key] {
+			return false
+		}
+	}
+	return json.Unmarshal(p, target) == nil
+}
+
+func pendingControl(r *os.Root, id string) (*pendingRegistration, error) {
+	f, err := safeStoreFile(r, ".pending", os.O_RDONLY)
+	if err != nil {
+		return nil, err
+	}
+	p, re := io.ReadAll(io.LimitReader(f, identityLimit+1))
+	ce := f.Close()
+	var control pendingRegistration
+	if re != nil || ce != nil || len(p) > identityLimit || !exactStoreJSON(p, &control, []string{"version", "trace", "start", "launcher_lane", "meta_slot_bytes", "meta_slot", "seal_slot"}) || control.Version != 1 || control.Trace != id || control.Start <= 0 || !control.LauncherLane || control.MetaSlotBytes != metadataSlotBytes || control.MetaSlot == [2]uint64{} || control.SealSlot == [2]uint64{} {
+		return nil, traceDeclined()
+	}
+	return &control, nil
+}
+
+func validPendingMetadata(p []byte, id string, start int64) (TraceMetadata, error) {
+	var m TraceMetadata
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(p, &fields) != nil || len(fields) != 7 {
+		return m, traceDeclined()
+	}
+	for _, key := range []string{"trace", "kind", "start", "jail", "workspace", "version", "commit"} {
+		v, ok := fields[key]
+		if !ok || bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+			return m, traceDeclined()
+		}
+	}
+	if !exactStoreJSON(p, &m, []string{"trace", "kind", "start", "jail", "workspace", "version", "commit"}) || !validPendingSnapshot(m, id, start) {
+		return m, traceDeclined()
+	}
+	return m, nil
+}
+
+func validPendingSnapshot(m TraceMetadata, id string, start int64) bool {
+	if m.Trace != id || m.Start != start || start <= 0 || (m.Kind != "launch" && m.Kind != "attach" && m.Kind != "incomplete") {
+		return false
+	}
+	for _, v := range []string{m.Kind, m.Jail, m.Workspace, m.Version, m.Commit} {
+		if len(v) > 64 || strings.IndexFunc(v, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._+-", r))
+		}) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// Recognition is private admission evidence, not an offline public-reader requirement.
+func recognizePending(r *os.Root, id string) (*pendingRegistration, TraceMetadata, error) {
+	f, err := safeStoreFile(r, ".identity", os.O_RDONLY)
+	if err != nil {
+		return nil, TraceMetadata{}, err
+	}
+	identityBytes, readErr := io.ReadAll(io.LimitReader(f, identityLimit+1))
+	closeErr := f.Close()
+	var identity storeIdentity
+	if readErr != nil || closeErr != nil || len(identityBytes) > identityLimit || !exactStoreJSON(identityBytes, &identity, []string{"root", "private", "admission", "directory", "lock"}) {
+		return nil, TraceMetadata{}, traceDeclined()
+	}
+	control, err := pendingControl(r, id)
+	if err != nil {
+		return nil, TraceMetadata{}, err
+	}
+	seal, si, err := readStoreBytes(r, ".publication-seal", publicationSealBytes)
+	if err != nil || inode(si) != control.SealSlot {
+		return nil, TraceMetadata{}, traceDeclined()
+	}
+	_, publicErr := r.Lstat("meta.json")
+	_, slotErr := r.Lstat(".meta-slot")
+	name := ".meta-slot"
+	published := publicErr == nil
+	if published {
+		if !errors.Is(slotErr, fs.ErrNotExist) {
+			return nil, TraceMetadata{}, traceDeclined()
+		}
+		name = "meta.json"
+	} else if !errors.Is(publicErr, fs.ErrNotExist) || slotErr != nil {
+		return nil, TraceMetadata{}, traceDeclined()
+	}
+	p, mi, err := readStoreBytes(r, name, metadataSlotBytes)
+	if err != nil || inode(mi) != control.MetaSlot {
+		return nil, TraceMetadata{}, traceDeclined()
+	}
+	m := TraceMetadata{Trace: id, Start: control.Start}
+	if published {
+		digest := sha256.Sum256(p)
+		if seal[0] != 1 || !bytes.Equal(seal[1:], digest[:]) {
+			return nil, m, traceDeclined()
+		}
+		m, err = validPendingMetadata(p, id, control.Start)
+		if err != nil {
+			return nil, m, err
+		}
+	} else if !bytes.Equal(seal, make([]byte, publicationSealBytes)) || !bytes.Equal(p, bytes.Repeat([]byte(" "), metadataSlotBytes)) {
+		return nil, m, traceDeclined()
+	}
+	return control, m, nil
+}
+
+func openClaimDirFD(c *TraceClaim) (*os.File, error) {
+	f, err := c.dir.Open(".")
+	if err != nil {
+		return nil, traceDeclined()
+	}
+	i, err := f.Stat()
+	if err != nil || !owned(i, true) || !os.SameFile(i, c.dirInfo) {
+		f.Close()
+		return nil, traceDeclined()
+	}
+	return f, nil
+}
+
+func (c *TraceClaim) writePendingSlot(name string, p []byte, identity [2]uint64) error {
+	f, err := safeStoreFile(c.dir, name, os.O_RDWR)
+	if err != nil {
+		return err
+	}
+	i, se := f.Stat()
+	if se != nil || inode(i) != identity || i.Size() != int64(len(p)) {
+		f.Close()
+		return traceDeclined()
+	}
+	if c.publicationObserve != nil {
+		c.publicationObserve(name+".write", f)
+	}
+	n, we := f.WriteAt(p, 0)
+	if c.publicationObserve != nil {
+		c.publicationObserve(name+".close", f)
+	}
+	ce := f.Close()
+	if we != nil || n != len(p) || ce != nil {
+		return traceDeclined()
+	}
+	return nil
+}
+
+// PublishPending performs at most one physical attempt. Uncertainty freezes the owner; an
+// identical successful request only revalidates the exact registered snapshot, never rewrites.
+func (c *TraceClaim) PublishPending(meta TraceMetadata) (TracePublicationResult, error) {
+	unavailable := TracePublicationResult{State: TracePublicationUnavailable}
+	if !c.mu.TryLock() {
+		return unavailable, traceDeclined()
+	}
+	defer c.mu.Unlock()
+	if !c.publisher || c.closed {
+		return unavailable, traceDeclined()
+	}
+	repeated := c.publicationMeta != nil
+	if repeated {
+		if *c.publicationMeta != meta {
+			c.publication = TracePublicationConflict
+			return TracePublicationResult{State: c.publication}, traceDeclined()
+		}
+		if c.publication != TracePublished {
+			return TracePublicationResult{State: c.publication}, traceDeclined()
+		}
+	} else {
+		frozen := meta
+		c.publicationMeta = &frozen
+		c.publication = TracePublicationUnavailable
+	}
+	if c.pendingControl == nil || !validPendingSnapshot(meta, c.id, c.pendingControl.Start) {
+		return unavailable, traceDeclined()
+	}
+	p, err := json.Marshal(meta)
+	if err != nil || len(p) > metadataSlotBytes {
+		return unavailable, traceDeclined()
+	}
+	p = append(p, bytes.Repeat([]byte(" "), metadataSlotBytes-len(p))...)
+	f, err := c.store.admission()
+	if err != nil {
+		return unavailable, err
+	}
+	defer f.Close()
+	if repeated {
+		_, _, err := recognizePending(c.dir, c.id)
+		actual, _, re := readStoreBytes(c.dir, "meta.json", metadataSlotBytes)
+		if c.validate() != nil || err != nil || re != nil || !bytes.Equal(actual, p) {
+			c.publication = TracePublicationUnavailable
+			return unavailable, traceDeclined()
+		}
+		return TracePublicationResult{State: TraceAlreadyPublished}, nil
+	}
+	c.publication = TracePublicationUnavailable
+	if c.validate() != nil {
+		return unavailable, traceDeclined()
+	}
+	control, _, err := recognizePending(c.dir, c.id)
+	if err != nil {
+		return unavailable, err
+	}
+	if _, err = validPendingMetadata(p, c.id, control.Start); err != nil {
+		return unavailable, err
+	}
+	if c.admit(0) != nil {
+		return unavailable, traceDeclined()
+	}
+	dirfd, err := openClaimDirFD(c)
+	if err != nil {
+		return unavailable, err
+	}
+	if err = c.writePendingSlot(".meta-slot", p, control.MetaSlot); err != nil {
+		dirfd.Close()
+		return unavailable, err
+	}
+	digest := sha256.Sum256(p)
+	seal := append([]byte{1}, digest[:]...)
+	if err = c.writePendingSlot(".publication-seal", seal, control.SealSlot); err != nil {
+		dirfd.Close()
+		return unavailable, err
+	}
+	if c.validate() != nil {
+		dirfd.Close()
+		return unavailable, traceDeclined()
+	}
+	if c.publicationObserve != nil {
+		c.publicationObserve("rename", dirfd)
+	}
+	renameErr := renameNoReplaceAt(int(dirfd.Fd()), ".meta-slot", "meta.json")
+	if c.publicationObserve != nil {
+		c.publicationObserve("directory.close", dirfd)
+	}
+	closeErr := dirfd.Close()
+	// Even uncertain syscall/close results cannot retry. Reconcile only the registered inode,
+	// sealed digest, and exact bytes; other content is retained and never adopted.
+	_, _, recognitionErr := recognizePending(c.dir, c.id)
+	actual, _, readErr := readStoreBytes(c.dir, "meta.json", metadataSlotBytes)
+	exactSnapshot := recognitionErr == nil && readErr == nil && bytes.Equal(actual, p)
+	if renameErr != nil || closeErr != nil {
+		if !exactSnapshot {
+			return unavailable, traceDeclined()
+		}
+	} else if !exactSnapshot {
+		return unavailable, traceDeclined()
+	}
+	c.publication = TracePublished
+	return TracePublicationResult{State: TracePublished}, nil
 }
 
 var errTraceLive = errors.New("trace has a live claim")
@@ -364,9 +699,17 @@ func (s *TraceStore) inventory() (storeInventory, error) {
 			di, de := r.Stat(".")
 			li, le := r.Lstat("lock")
 			ie := storeJSON(r, ".identity", &e.identity, identityLimit)
-			me := storeJSON(r, "meta.json", &e.meta, MaxTraceContentBytes)
-			if de == nil && le == nil && ie == nil && me == nil && owned(li, false) && li.Size() == 0 && e.identity == s.identity(di, li) && e.meta.Trace == e.id {
-				e.known = true
+			if de == nil && le == nil && ie == nil && owned(li, false) && li.Size() == 0 && e.identity == s.identity(di, li) {
+				if _, pe := r.Lstat(".pending"); pe == nil {
+					registration, meta, pe := recognizePending(r, e.id)
+					if pe == nil {
+						e.pending, e.meta, e.known = registration, meta, true
+					}
+				} else if errors.Is(pe, fs.ErrNotExist) && storeJSON(r, "meta.json", &e.meta, MaxTraceContentBytes) == nil && e.meta.Trace == e.id {
+					_, slotErr := r.Lstat(".meta-slot")
+					_, sealErr := r.Lstat(".publication-seal")
+					e.known = errors.Is(slotErr, fs.ErrNotExist) && errors.Is(sealErr, fs.ErrNotExist)
+				}
 			}
 			if !e.known {
 				r.Close()
@@ -428,6 +771,12 @@ func (c *TraceClaim) validate() error {
 	if storeJSON(c.dir, ".identity", &id, identityLimit) != nil || id != c.store.identity(di, li) {
 		return traceDeclined()
 	}
+	if c.pendingControl != nil {
+		control, err := pendingControl(c.dir, c.id)
+		if err != nil || *control != *c.pendingControl {
+			return traceDeclined()
+		}
+	}
 	return nil
 }
 
@@ -468,6 +817,16 @@ func (s *TraceStore) join(id string) (*TraceClaim, error) {
 		return nil, traceDeclined()
 	}
 	c := &TraceClaim{store: s, id: id, dir: r, dirInfo: di, lock: f, lockInfo: li}
+	if _, pe := r.Lstat(".pending"); pe == nil {
+		c.pendingControl, err = pendingControl(r, id)
+		if err != nil {
+			c.Close()
+			return nil, traceDeclined()
+		}
+	} else if !errors.Is(pe, fs.ErrNotExist) {
+		c.Close()
+		return nil, traceDeclined()
+	}
 	if c.validate() != nil {
 		c.Close()
 		return nil, traceDeclined()
@@ -491,6 +850,18 @@ func storeCreate(r *os.Root, name string, p []byte) error {
 // Mint admits before allocating metadata, identity or diagnostic content. At capacity, only
 // positively identified inactive traces are pruned, oldest start then lexicographically least ID.
 func (s *TraceStore) Mint(meta TraceMetadata) (*TraceClaim, error) {
+	return s.mint(meta, false)
+}
+
+// MintPending protects the original start and physically reserves publication capacity.
+func (s *TraceStore) MintPending(id string, originalStart int64) (*TraceClaim, error) {
+	if originalStart <= 0 {
+		return nil, traceDeclined()
+	}
+	return s.mint(TraceMetadata{Trace: id, Start: originalStart}, true)
+}
+
+func (s *TraceStore) mint(meta TraceMetadata, pending bool) (*TraceClaim, error) {
 	if !validStoreID(meta.Trace) {
 		return nil, traceDeclined()
 	}
@@ -522,6 +893,9 @@ func (s *TraceStore) Mint(meta TraceMetadata) (*TraceClaim, error) {
 		return nil, traceDeclined()
 	}
 	need := int64(len(data) + identityLimit + diagnosticBytes)
+	if pending {
+		need = identityLimit + diagnosticBytes + identityLimit + metadataSlotBytes + publicationSealBytes
+	}
 	sort.Slice(inv.entries, func(i, j int) bool {
 		a, b := inv.entries[i], inv.entries[j]
 		return a.meta.Start < b.meta.Start || (a.meta.Start == b.meta.Start && a.id < b.id)
@@ -578,11 +952,32 @@ func (s *TraceStore) Mint(meta TraceMetadata) (*TraceClaim, error) {
 	if err != nil || len(identity) > identityLimit {
 		return nil, traceDeclined()
 	}
-	if storeCreate(r, ".identity", identity) != nil || storeCreate(r, "meta.json", data) != nil || storeCreate(r, ".diagnostic", []byte(strings.Repeat(" ", diagnosticBytes))) != nil {
+	if storeCreate(r, ".identity", identity) != nil || storeCreate(r, ".diagnostic", []byte(strings.Repeat(" ", diagnosticBytes))) != nil {
+		return nil, traceDeclined()
+	}
+	if pending {
+		if storeCreate(r, ".meta-slot", bytes.Repeat([]byte(" "), metadataSlotBytes)) != nil || storeCreate(r, ".publication-seal", make([]byte, publicationSealBytes)) != nil {
+			return nil, traceDeclined()
+		}
+		mi, me := r.Lstat(".meta-slot")
+		si, se := r.Lstat(".publication-seal")
+		if me != nil || se != nil {
+			return nil, traceDeclined()
+		}
+		registration := pendingRegistration{Version: 1, Trace: meta.Trace, Start: meta.Start, LauncherLane: true, MetaSlotBytes: metadataSlotBytes, MetaSlot: inode(mi), SealSlot: inode(si)}
+		control, err := json.Marshal(registration)
+		if err != nil || len(control) > identityLimit || storeCreate(r, ".pending", control) != nil {
+			return nil, traceDeclined()
+		}
+	} else if storeCreate(r, "meta.json", data) != nil {
 		return nil, traceDeclined()
 	}
 	// Initial claim remains held until the returned independent claim is acquired.
-	return s.join(meta.Trace)
+	claim, err := s.join(meta.Trace)
+	if err == nil {
+		claim.publisher = pending
+	}
+	return claim, err
 }
 
 func (s *TraceStore) prune(e storeEntry) error {
@@ -607,6 +1002,12 @@ func (s *TraceStore) prune(e storeEntry) error {
 	var identity storeIdentity
 	if de != nil || le != nil || storeJSON(r, ".identity", &identity, identityLimit) != nil || identity != e.identity || identity != s.identity(di, li) {
 		return traceDeclined()
+	}
+	if e.pending != nil {
+		registration, _, err := recognizePending(r, e.id)
+		if err != nil || *registration != *e.pending {
+			return traceDeclined()
+		}
 	}
 	// Tree contents have already been conservatively verified under admission. Neither private
 	// source locators nor workspace source cleanup is implemented or authorized by this removal.
@@ -679,6 +1080,15 @@ func validStoreName(name string) bool {
 }
 
 func (c *TraceClaim) CreateWriter(name string) (*TraceWriter, error) {
+	return c.createWriter(name, false)
+}
+
+// CreateLauncherWriter is reserved to the original pending publisher, never a joined claim.
+func (c *TraceClaim) CreateLauncherWriter() (*TraceWriter, error) {
+	return c.createWriter(TraceFileName("launcher", os.Getpid()), true)
+}
+
+func (c *TraceClaim) createWriter(name string, launcher bool) (*TraceWriter, error) {
 	if !c.mu.TryLock() {
 		return nil, traceDeclined()
 	}
@@ -693,6 +1103,26 @@ func (c *TraceClaim) CreateWriter(name string) (*TraceWriter, error) {
 	defer f.Close()
 	if c.admit(0) != nil {
 		return nil, traceDeclined()
+	}
+	_, pe := c.dir.Lstat(".pending")
+	if launcher {
+		if !c.publisher || c.launcherCreated || pe != nil {
+			return nil, traceDeclined()
+		}
+		entries, err := fs.ReadDir(c.dir.FS(), ".")
+		if err != nil {
+			return nil, traceDeclined()
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), "launcher-") && strings.HasSuffix(entry.Name(), ".jsonl") {
+				return nil, traceDeclined()
+			}
+		}
+	} else if pe == nil && strings.HasPrefix(name, "launcher-") && strings.HasSuffix(name, ".jsonl") {
+		return nil, traceDeclined()
+	}
+	if launcher {
+		c.launcherCreated = true
 	}
 	claim, err := c.store.join(c.id)
 	if err != nil {
@@ -709,7 +1139,7 @@ func (c *TraceClaim) CreateWriter(name string) (*TraceWriter, error) {
 		claim.Close()
 		return nil, traceDeclined()
 	}
-	return &TraceWriter{claim: claim, file: file, name: name, info: info}, nil
+	return &TraceWriter{claim: claim, file: file, name: name, info: info, launcher: launcher}, nil
 }
 
 func (w *TraceWriter) Write(p []byte) (int, error) {

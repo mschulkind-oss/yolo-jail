@@ -19,6 +19,7 @@ import (
 // enclosure instead; the refusal is recorded as an anomaly.
 func (t *Trace) assemble() {
 	t.bound()
+	t.resolveLauncherRoot()
 	index := map[string]*Span{}
 	for _, lane := range t.Lanes {
 		for _, s := range lane.Spans {
@@ -72,6 +73,37 @@ func (t *Trace) assemble() {
 		}
 	}
 	sort.SliceStable(t.Spans, func(i, j int) bool { return t.Spans[i].Start < t.Spans[j].Start })
+}
+
+// resolveLauncherRoot changes only the observed designated span's display name. Public-only
+// copies remain readable; metadata start is not the event clock or a retiming instruction.
+func (t *Trace) resolveLauncherRoot() {
+	var root *Span
+	candidates, diagnostics := 0, 0
+	ids := map[string]int{}
+	for _, lane := range t.Lanes {
+		candidates += lane.rootCandidates
+		diagnostics += lane.rootDiagnostics
+		for _, s := range lane.Spans {
+			ids[s.ID]++
+			if s.launcherRoot {
+				root = s
+			}
+		}
+	}
+	if diagnostics > 0 {
+		t.Anomalies = append(t.Anomalies, "launcher root designation invalid; observed events preserved neutrally")
+	}
+	if candidates == 0 {
+		return
+	}
+	if candidates != 1 || root == nil || root.Lane.rootConflicts[root.ID] || root.Recorded || !IsSpanID(root.ID) || root.observedParent != "" || root.ExplicitParent != "" || root.Lane.Name != "launcher" || root.Lane.Jail || root.Lane.ParentID != "" || root.Lane.traceID != t.ID || ids[root.ID] != 1 || t.Meta == nil || !t.Meta.rootValid || t.Meta.Trace != t.ID {
+		t.Anomalies = append(t.Anomalies, "launcher root authority unavailable; observed invocation preserved")
+		return
+	}
+	if t.Meta.Kind == "launch" || t.Meta.Kind == "attach" {
+		root.Name = t.Meta.Kind
+	}
 }
 
 // bound sets the trace's extent, ends every unended span at the trace's last instant, and sets

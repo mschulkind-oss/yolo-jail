@@ -27,6 +27,91 @@ func admittedTraceIdentity(t *testing.T, claim *TraceClaim) Trace {
 	return tr
 }
 
+func TestAdmittedLauncherTraceSinkWritesDesignatedRoot(t *testing.T) {
+	store, root, _ := traceStoreFixture(t)
+	m := storeMeta(300, 123)
+	claim, err := store.MintPending(m.Trace, m.Start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer claim.Close()
+	tr := admittedTraceIdentity(t, claim)
+	sink, closer, err := AdmittedLauncherTraceSink(claim, tr, func(s string) { t.Error(s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := New(nil)
+	if !log.InstallIndependentTrace(tr, sink) {
+		t.Fatal("install")
+	}
+	r := log.IndependentLauncherRoot()
+	if r == nil {
+		t.Fatal("root")
+	}
+	log.Mark("ordinary")
+	r.End()
+	if err := closer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(admittedTraceFile(root, tr, "launcher"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
+	if len(lines) != 4 {
+		t.Fatalf("lines %d", len(lines))
+	}
+	var header, event map[string]json.RawMessage
+	if json.Unmarshal(lines[0], &header) != nil || len(header) != 4 {
+		t.Fatal("header descriptor")
+	}
+	if json.Unmarshal(lines[1], &event) != nil || string(event["launcher_root"]) != "true" || string(event["name"]) != "\"invocation\"" || string(event["k"]) != "\"start\"" {
+		t.Fatal("designated event", string(lines[1]))
+	}
+	if bytes.Contains(lines[2], []byte("launcher_root")) || bytes.Contains(lines[3], []byte("launcher_root")) {
+		t.Fatal("second marker")
+	}
+	if err := os.Remove(admittedTraceFile(root, tr, "launcher")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := claim.CreateLauncherWriter(); err == nil {
+		t.Fatal("reserved writer recreated after its sole allocation")
+	}
+}
+
+func TestAdmittedLauncherDesignationRequiresReservedWriter(t *testing.T) {
+	store, root, _ := traceStoreFixture(t)
+	claim := storeMint(t, store, 302, 1)
+	tr := admittedTraceIdentity(t, claim)
+	legacy := New(nil)
+	legacyRoot := filepath.Join(filepath.Dir(root), "legacy")
+	if !legacy.InstallIndependentTrace(tr, TraceSink(legacyRoot, "legacy", tr, nil)) {
+		t.Fatal("legacy install")
+	}
+	legacy.IndependentLauncherRoot().End()
+	p, err := os.ReadFile(admittedTraceFile(legacyRoot, tr, "legacy"))
+	if err != nil || bytes.Contains(p, []byte("launcher_root")) {
+		t.Fatal("legacy writer granted reserved designation", err)
+	}
+	var warnings []string
+	sink, closer, err := AdmittedTraceSink(claim, "launcher", tr, func(s string) { warnings = append(warnings, s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := New(nil)
+	if !log.InstallIndependentTrace(tr, sink) {
+		t.Fatal("generic install")
+	}
+	log.IndependentLauncherRoot().End()
+	if err := closer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	p, err = os.ReadFile(admittedTraceFile(root, tr, "launcher"))
+	if err != nil || bytes.Contains(p, []byte("launcher_root")) || len(warnings) != 1 {
+		t.Fatal("generic writer granted reserved designation", err, warnings)
+	}
+}
+
 func TestAdmittedTraceSinkWritesEncodedEventsThroughItsClaim(t *testing.T) {
 	store, root, _ := traceStoreFixture(t)
 	claim := storeMint(t, store, 301, 1)

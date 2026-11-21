@@ -43,13 +43,14 @@ const TruncatedMark = "truncated"
 // traceLine is one event line. The field order is the contract's: t, k, name, span, parent, dur,
 // attrs.
 type traceLine struct {
-	T      int64             `json:"t"`
-	K      string            `json:"k"`
-	Name   string            `json:"name"`
-	Span   string            `json:"span,omitempty"`
-	Parent string            `json:"parent,omitempty"`
-	Dur    *int64            `json:"dur,omitempty"` // a pointer, so a zero-length span still has one
-	Attrs  map[string]string `json:"attrs,omitempty"`
+	T            int64             `json:"t"`
+	K            string            `json:"k"`
+	Name         string            `json:"name"`
+	Span         string            `json:"span,omitempty"`
+	Parent       string            `json:"parent,omitempty"`
+	Dur          *int64            `json:"dur,omitempty"` // a pointer, so a zero-length span still has one
+	Attrs        map[string]string `json:"attrs,omitempty"`
+	LauncherRoot bool              `json:"launcher_root,omitempty"`
 }
 
 // laneLine is a file's first line.
