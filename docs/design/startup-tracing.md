@@ -9,18 +9,20 @@ summary: "Turns the existing timing spans into one trace per launch that follows
 
 # One trace per launch: where startup time goes, and how to see it
 
-**Status:** 2026-11-20. [OQ-TR1–4](#decision-ledger) remain settled; **Needs your ruling: None**.
-Source evidence supplied at `979ed329ad5dba45c9f776a54acd1de7246f0a8e`
-(tree `ad948e64dcf84197e4b5ab8c65b0fd29c847aac2`) establishes partial implementation:
-U1 identity/recorder foundations, U2 host-format reader/graph/summary, U5 immediate jail-writing
-foundations, U3 Chrome/OTLP encoders, and U4a offline list/show exist. Production recording still
-uses the legacy collector initialization. Production collection, bounded admission/retention,
-safe live ingestion/refresh, and the export command remain unbuilt.
+**Status:** 2026-11-21. [OQ-TR1–4](#decision-ledger) remain settled; **Needs your ruling: None**.
+Source evidence supplied at `eedb4b30194ea23020b4630e35cde2ddc80c1507`
+(tree `7e972ee3c447828b414e855353177d00e8808ea3`) establishes partial implementation:
+identity/recorder, independent trace installation/root, admitted sink, bounded store/live-claim,
+host reader/graph/summary, immediate jail-writing, Chrome/OTLP encoder, and offline CLI/export
+foundations exist. Production collector initialization remains legacy-only. Production collection
+and lifecycle integration, the late-publication protocol below, safe live ingestion/refresh, and
+backend propagation remain pending. Library or CLI existence is not production feature completion.
 
-This is source evidence, not a test, backend, runtime, or overhead pass. The two measured launches
-in [Appendix A](#appendix-a-two-measured-launches) remain historical timing observations, not
-measurements of this tracing implementation. The 10 ms host and 5 ms boot budgets still require
-the benchmark and recorded on/off evidence specified in [§8](#8-gates-and-the-overhead-budget).
+This amendment is an engineering clarification of the accepted design, not an implemented
+contract. Source evidence is not a test, backend, runtime-containment, endpoint, or overhead pass.
+The two measured launches in [Appendix A](#appendix-a-two-measured-launches) remain historical.
+The 10 ms host and 5 ms boot budgets are measurement budgets, not launch pass/fail guards, and
+remain unmeasured for this integration under [§8](#8-gates-and-the-overhead-budget).
 
 > **In short.** yolo already times most of a launch, but as flat lines in six files with no way to
 > say which process, which launch or which parent a line belongs to. Giving every line a trace
@@ -167,9 +169,234 @@ The pair that names "the span I am a child of" is carried in the
 `00-<trace id>-<span id>-01`. These are the formats OpenTelemetry uses, so exporting needs no id
 translation.
 
-The launcher mints the trace id when it constructs the collector and opens a root span named for
-the kind of launch (`launch`, `attach`, `host`, `host_apply`, `stop`). The scheduler mints one per
-act it runs ([§5.5](#55-work-that-is-not-a-child-of-a-launch)).
+The launcher mints one trace identity when it constructs the invocation's collector. Recording
+begins with one immutable, trace-only root named `invocation`; actual `launch` or `attach` truth
+is committed later without restarting that root. Other acts retain their settled kind semantics
+(`host`, `host_apply`, `stop`). The scheduler mints one trace per act it runs
+([§5.5](#55-work-that-is-not-a-child-of-a-launch)).
+
+### Early recording and late launch truth
+
+**Existing mechanism and insufficiency.** `perf.New`, `InstallIndependentTrace`,
+`IndependentRoot`, and `AdmittedTraceSink` provide reusable collector, identity, root, and
+checked-write foundations. They do not implement this protocol: `Mint` immediately publishes
+metadata, inventory requires it, the sink writes its header before the root exists, and root
+names cannot change. Installation must precede `probes.done`, the first ordinary production
+event; the same collector retains its legacy sinks. An installation refusal disables only new
+tracing. The legacy `TraceSink` is not an admitted substitute.
+
+**Chosen representation.** A *pending admission* is a privately registered trace with its
+original start and live claims, but no public `meta.json`. A *branch commit* is the existing
+decision after which this invocation actually proceeds as fresh launch or attached execution,
+not an attempted attach. A *launcher-root designation* is optional top-level
+`launcher_root: true` on the launcher's root-start event, identifying the existing span eligible
+for canonical display naming. These are accepted engineering protocols, not current APIs.
+
+A header descriptor would require a predetermined root ID or delayed header, neither supported
+by the current ordering. Instead, root creation emits the designation in the same checked append
+as its immutable `invocation` start. It cannot be added retrospectively after `IndependentRoot`
+returns. The header keeps its existing fields; metadata keeps exactly its seven keys. The
+designation is not an attribute, a second start, or a new span.
+
+| State | Allowed transition and single authority | Public evidence and selection |
+|---|---|---|
+| OFF | Frozen existing recording gate is false | No trace-root lookup/creation, admission, carrier adoption, installation, or lifecycle |
+| Pending | Invocation owner admits once, installs once, and starts one root before ordinary events | `list` identifies a recognized pending entry; explicit-ID `show` renders available events neutrally |
+| Branch committed | Invocation owner records actual kind and already-resolved provenance once | Pending remains until checked publication; kind does not imply success or readiness |
+| Published | Sole publisher exposes complete seven-key metadata once | Ordinary metadata-start selection includes the trace; valid designated root receives its canonical display name |
+| Uncommitted finalization | Owner publishes kind `incomplete` if no branch committed | Selectable incomplete invocation; available root remains named `invocation` |
+| Publication unavailable | Owner freezes publication after a checked failure or conflicting existing record | Pending/unavailable diagnostic, no invented public kind; explicit-ID inspection remains possible |
+| Closed or interrupted | Claims are released by their owners, or process termination releases protection | Retained evidence only; no promise of completed root or survival after kill |
+
+**Actual branch truth.** Container attach attempts, including the post-lock race and stale-removal
+wait, remain pending when the attacher can return “restarted.” Fresh launch commits only after
+all attach alternatives are exhausted, before fresh payload preparation. Attach commits at the
+existing attached-outcome boundary after teardown capture and before execution; refresh start
+and session acquisition are not commits. Every actual native sandbox invocation is fresh launch;
+native keeper sharing does not make it attach or retroactively join an older trace.
+
+Storage/configuration/setup refusal, refresh failure, dry run, sealed sublaunch, or interruption
+before either commit is `incomplete`, meaning only “no launch/attach branch committed.” Failure
+after commit preserves its actual kind. Earlier timestamps, IDs, names, and parents never change;
+there is no remint, second root, or end-name renaming.
+
+**Metadata provenance.** The publisher uses the original collector start, workspace short code
+and non-executing baked version/commit stamps. It captures actual setup-qualified jail identity
+from the existing resolution when available, without an extra early config lookup or runtime
+Git invocation. `runtime.FromWorkspace(workspace)` alone is not that identity. An uncommitted
+invocation may publish `jail: "unknown"` when identity was never resolved; it never publishes a
+path. A committed invocation lacking the required actual jail identity stays publication-unavailable
+with a warning rather than substituting a guessed identity. Joined processes cannot publish.
+
+**Pure decisions and effects.** Classification, legal metadata construction, descriptor validation,
+and capacity calculation are pure decisions over captured facts. Admission, checked append,
+publication, propagation, and close are effects owned separately. Missing or conflicting facts
+produce the defined unavailable state, not an implementer's classification guess.
+
+### Pending admission and once-only publication
+
+The existing store is extended, not bypassed. Its private registration recognizes matching
+`.identity` plus a versioned `.pending` control record without public metadata. That immutable
+control records the trace ID, original positive Unix-nanosecond start, reserved launcher-lane
+authority, and bounded metadata-slot size. Existing valid ID/identity/public-metadata records
+remain admitted without this control. An empty public kind or `Replace(meta.json, ...)` is not
+pending admission.
+
+Admission charges a trace-count slot and all peak bytes before creating content. The compact
+seven-key metadata has a fixed maximum encoded length of 452 bytes: a nonzero 32-character
+lowercase-hex trace ID; five other strings, each at most 64 bytes in the existing unescaped
+`[a-zA-Z0-9._+-]` alphabet; a positive signed-int64 Unix-nanosecond start of at most 19 digits;
+and the seven existing keys. A private `.meta-slot` is physically filled to those 452 bytes;
+lane writes cannot consume it. Admission also reserves a fixed 33-byte publication-seal slot.
+Before publication effects, matching `.identity`, private modes/ownership, immutable `.pending`
+registration, metadata-slot identity and seal-slot identity must validate. The seal's one state
+byte distinguishes unsealed from sealed; its other 32 bytes hold a SHA-256 digest, a fixed-length
+fingerprint of the exact padded metadata. The owner validates every metadata field and pads
+shorter encodings with JSON whitespace.
+
+At publication, the sole invocation owner writes the complete JSON plus padding in place through
+its validated slot descriptor, covering all 452 bytes without truncating, extending, recreating,
+or adding an unaccounted temporary file. It then writes the sealed-state byte and digest into the
+fixed seal slot. It checks every write and both closes before exposure. It exposes only that
+registered metadata inode as `meta.json` by atomic no-overwrite rename, changing neither its
+charged size nor its content. If atomic no-overwrite support is unavailable, or any checked step
+fails, publication becomes trace-only unavailable with the shared warning: no overwriting
+fallback, check-then-overwrite, retry, or deletion to manufacture credit.
+
+Retained `.pending`, the seal, identity, locks, diagnostics, padding, and any partial/crash-left
+content remain charged. If both `meta.json` and `.meta-slot` are found, both entries' content is
+charged conservatively without an assumed alias/copy discount. Any different effect
+representation must admit all simultaneous copies before using them; deletion plans earn no
+credit.
+
+A publisher performs at most one publication attempt after choosing its final snapshot. At actual
+branch commit, the sole original invocation owner immediately makes its once-only publication
+attempt from the captured final snapshot when all required metadata provenance is resolved;
+publication does not wait for keeper return, invocation return, the last title event, or
+`root.End`. A committed branch missing required actual jail identity remains charged and
+publication-unavailable, with no later guess, finalizer reclassification, or publication retry.
+Only a valid live original owner's uncommitted finalizer selects and publishes `incomplete`;
+dead/crashed pending entries are not automatically finalized, and a joined keeper's root or
+scope never classifies or publishes the original owner's metadata.
+
+Repeated requests with identical facts before that attempt coalesce; conflicting
+branch/provenance facts freeze publication and warn. After publication, identical requests are
+no-ops and conflicting requests are rejected without changing metadata. A joined claim has no
+publication authority. A pre-rename write/close failure retains the private slot and disables
+publication; a rename failure retains whichever objects actually exist. If publication may have
+occurred, checked identity/content reconciliation may recognize the exact snapshot, never rewrite
+or retry it. Malformed or conflicting public content is retained, diagnosed, and excluded from
+selection.
+
+Pending traces count toward retention and use their immutable original start, then trace ID,
+for prune ordering. A known valid pending entry becomes prune-eligible only when an exclusive
+claim proves no participating live claim remains. An interrupted entry is not automatically
+converted to `incomplete`; missing/malformed identity or control is unknown state and is retained
+with admission declined. Crash recovery does not infer process death from PID, age, or absent
+metadata, and cannot recreate a pruned directory.
+
+### Root resolution and compatibility
+
+Only the original publisher may create the reserved `launcher` lane; its header identifies that
+lane, actual process PID, and the trace. Joined keepers and jail writers cannot create it or emit
+a launcher designation. Exactly one root start may carry the designation, with a nonzero span ID,
+zero parent, matching trace/header, and an actually observed start. No header root ID is inferred.
+
+Before Chrome or OTLP encoding, the reader resolves that existing span's display name from valid
+public metadata: committed kinds use their kind name; `incomplete` retains `invocation`. The
+stored start/end names, IDs, timestamps, and parents remain unchanged. No synthetic root or
+metadata-based renaming of an undesignated span is allowed.
+
+No designation means established name rendering, including old traces and old headers. Old
+readers ignore the new event field and honestly show `invocation`; they do not show a guessed
+canonical kind. An absent `launcher_root` supplies no designation; only the exact JSON boolean
+`true` is a candidate, while a present `false`, `null`, string, number, array, or object is
+invalid designation. Invalid designation or non-launcher authority produces a bounded diagnostic
+and removes only canonical-root authority from an otherwise valid observed event/span; malformed
+base events still follow normal rejection and diagnosis without inventing a span.
+
+Canonical naming of a designated launcher requires matching trace identity between valid public
+seven-key metadata and the launcher-lane header, plus the actually observed designated root start
+with its valid nonzero span ID and zero parent; metadata kind must be exactly `launch`, `attach`,
+or `incomplete`. Public metadata start is validated as positive Unix nanoseconds, never used to
+retime the span. Private registration, slot identity and publication seal are not decoder or
+export inputs: a valid copy of public metadata and lanes remains canonically readable without
+them. This validates recorded format and relationships, not publisher authenticity or store
+admission.
+
+A syntactically valid unknown kind or another act's kind such as `host`, `host_apply`, or `stop`
+is conflicting authority for that designated launcher and leaves its observed name neutral;
+undesignated old traces retain established rendering and metadata-kind behavior. Cross-lane ID
+ambiguity, duplicate designation/start IDs, or a missing matching observed root start likewise
+denies authority; designation on an end record or orphan end never supplies it. Joined lanes have
+no launcher authority, and readers never infer designation from a parentless or longest span or
+create a synthetic span.
+
+For entries created by pending admission, store recognition/admission of publication requires the
+registered slot identity, a valid sealed digest matching the exact public snapshot, matching
+trace and immutable original start, and the declared slot bound; `.pending` remains private.
+Plausible external metadata without that evidence is preserved but never adopted by the store as
+its publisher's snapshot; private inconsistency declines admission and diagnoses source state.
+These predicates govern inventory, claims, writes, crash recovery and prune, not offline metadata
+selection, span resolution or export; store diagnosis never rewrites an independently valid
+public metadata record or graph, and private controls never enter exported data or attributes.
+
+Zero events or missing metadata yields no inferred kind/root. One valid designated start and
+metadata yields one resolved root. Many ordinary zero-parent events remain enclosure-resolved,
+not extra roots. Oversize, malformed, duplicate, and conflicting records follow bounded parsing
+and partial-evidence diagnostics rather than allocation growth or encoder-specific guesswork.
+
+Default offline metadata-start selection uses valid public metadata start only, excluding missing
+or invalid metadata; public traces need no private controls to be selected, read or exported.
+Explicit-ID `show` preserves available neutral evidence and diagnoses metadata unavailability
+when metadata is absent; absence alone does not establish registered pending state or claim
+safety. Host `list`/`show` may additionally report bounded, read-only pending/unavailable
+admission status when private evidence is available, separately from observed public trace
+evidence. That optional status never determines canonical naming, export identity or graph
+construction; generic offline reads without private controls require no admission inspection,
+locks, file creation, adoption or recording effects, and do not dump private registry/control
+contents.
+
+### Caller ownership, propagation, and finalization
+
+An *invocation scope* is a once-owned lifetime handle separate from copied options and `Log`. The
+frontend owns it when it must cover normal `process.title_restore` after `Run`. `Run` borrows an
+explicitly supplied scope; a direct or nested call without one owns and defers its own scope. A
+nested operation in the same invocation explicitly borrows that scope and collector; a distinct
+invocation owns a distinct scope. Ownership is never inferred from copied options or transferred
+implicitly. The current `PerfRef` contains only `Log`; its lifetime extension is accepted design,
+not an implemented API.
+
+Normal finalization records the final ordinary/title-restoration event, publishes `incomplete`
+if still uncommitted, then performs `root.End`, writer close, original claim close, and store close,
+in that order. Every constructed resource is registered immediately with this one owner; partial
+construction closes only acquired resources. Each non-idempotent writer close executes once.
+Other teardown paths request the same once-finalization, not independent copies of its closers.
+Keeper outer invocation ownership covers container/native exits and hold/finish/unwind early
+returns, rather than only one finish path.
+
+Before existing explicit-exit paths, outer termination hooks perform their existing once-only
+terminal restoration and real outcome events, then request this finalization before `os.Exit`.
+They do not fabricate normal `process.title_restore` when that path did not run. Uncatchable
+termination can bypass all cleanup; no fsync, kill-flush, complete-end, or survival guarantee is
+made. Close failure never changes launch status: record bounded partial-accounting diagnostics
+when possible, continue the remaining release order, and issue the shared safe warning once.
+
+Keeper plans carry a private context captured from the actual waiting span after it starts and
+before plan serialization; constructing the plan earlier does not fix its context early. A keeper
+joins with its own independently acquired claim, never by descriptor duplication/inheritance.
+An intentional join that is absent, malformed, conflicting, or unavailable disables tracing,
+never mints a fallback root. The launcher retains its original claim for its whole invocation;
+existing S/C/V/R frames are not claim acknowledgements. If it releases earlier in a future path,
+that path needs an explicit acquired-claim acknowledgement first, without an intentional wait.
+
+Context insertion targets the final executed fresh runtime argv and actual image reference after
+service-environment insertion, not a stale plan copy. Missing insertion position disables only
+propagation with the safe warning. First-session and attach argv receive the authoritative context
+before their container argument; OFF or unavailable tracing supplies an explicit empty carrier
+to clear stale container context. Ambient launcher `YOLO_TRACEPARENT` and user/manifest overrides
+are never parent authority. `YOLO_JAIL_TIMING` remains report-only. No carrier enters public
+metadata, attributes, or general jail configuration.
 
 ### 5.2 Propagation
 
@@ -234,7 +461,7 @@ registering it never changes that metadata. `host-perf.log` stays in its existin
 
 | File or state | Writer / owner | Contents |
 | :--- | :--- | :--- |
-| `meta.json` | the minting process, once | exactly the seven keys above; `start` is Unix nanoseconds |
+| `meta.json` | the original invocation owner, once at publication; never a joined writer | exactly the seven keys above; `start` is the immutable original Unix-nanosecond start; recognized pending admission has no public metadata |
 | `<lane>-<pid>.jsonl` | exactly one host writing process | a lane header and admitted events, appended synchronously |
 | `jail.jsonl` | serialized host refresh | sanitized host-format observations from registered sources |
 | Ingestion bookkeeping | serialized host refresh | occurrence-to-span associations, continuity and calibration state, committed transactionally with the sanitized snapshot |
@@ -244,9 +471,12 @@ registering it never changes that metadata. `host-perf.log` stays in its existin
 **Existing foundations and their limits.** U2 reads host-format lines and resolves their graph;
 it is not an id-less jail-source converter. The legacy jail reader and current jail writer's
 leaf-only no-follow open do not provide the all-component confinement specified below.
-The current `TraceSink` creates missing directories and ignores write counts/errors; neither
-behavior supplies the admission or join guarantees in [§5.7](#57-limits-and-failure).
-These foundations are reused, not treated as a complete ingestion or storage lifecycle.
+The built `AdmittedTraceSink` supplies claim-backed checked append, trace identity checking,
+bounded event truncation, and contention refusal. The built bounded store supplies admission
+and independent live claims, but currently requires immediate public metadata. Neither supplies
+pending admission, late publication, launcher designation, or production lifetime integration.
+The legacy `TraceSink` creates directories and ignores write counts/errors and must not be wired
+as their fallback. These foundations are reused, not treated as a complete lifecycle.
 
 **Host-private multisource registration.** A source instance is one host-registered lifetime of
 one append-only jail source. Its opaque key is minted by the host, never read from jail content.
@@ -465,26 +695,57 @@ for a file that is merely scheduled for deletion. If a non-destructive replaceme
 preserve the old snapshot. Previously admitted observations are not an expendable fallback.
 
 A bounded diagnostic reserve is included in admission, with enough peak credit for every
-simultaneously present diagnostic copy. No unaccounted fixed reserve is assumed. A truncation
-mark is written only from admitted credit; lack of room leaves existing evidence intact and
-uses the out-of-store warning or command diagnostic. Reservations reduce available admission
-credit but are not buffered evidence. A writer may reserve bounded lane credit to avoid
-machine-wide admission work per event; it must still account for actual bytes and outstanding
-credit without oversubscription.
+simultaneously present copy. Public/private/control content, metadata slots, diagnostic reserves,
+temporary or old copies, and crash-left content all count at physical peak, together with
+outstanding credit that could become content. The fixed caps remain 50 traces, 200000 decimal
+content bytes per trace, 10000000 machine-wide, 10000 events per process, eight attributes per
+span, 240 bytes per attribute value, and 2000 admitted jail occurrences. They are not knobs.
+The attribute allowance belongs to the span, not separately to each start/end or other record
+for that span. The top-level boolean `launcher_root` designation is not an attribute and grants
+no additional attribute allowance. Existing wire-line bounds and partial-record handling remain
+unchanged.
 
-**Mint, join, handover, and prune.** A live claim is a host-held claim on the exact admitted trace
-directory and its lock object that prevents pruning while a writer or refresh uses it.
-Minting serializes count/byte admission, directory registration, and its initial live claim.
-A writer or refresh joins only while validating and claiming that same admitted directory/lock
-identity under the admission protocol. It never makes a missing directory, follows a substituted
-directory, or joins an old lock inode after removal.
+A truncation mark uses admitted credit only; no room preserves prior evidence and warns outside
+the store. Short/torn tails remain charged. Metadata-slot credit is unavailable to event writers;
+scheduled deletion, pending publication, or failed cleanup never discounts present bytes.
 
-Pruning selects oldest eligible traces by metadata start, with trace ID as the deterministic
-tie-break, and holds its exclusive claim continuously through removal and accounting release.
-All participating host writers are covered, including launcher, keeper, build child, host
-service, and preparation writers. Parent-to-child handover retains a live claim continuously
-until the child acknowledges its own acquired claim. Sharing or duplicating descriptors must not
-let a parent's unlock release a child's protection.
+Admission, publication, and append serialize ownership without intentional lock or queue waits;
+contention disables the affected tracing effect. Append remains synchronous and checked, with
+no fsync, batching, retries, or delayed replay. A process admits at most one truncation mark when
+its event cap is reached, then stops that lane; a missing root end remains visibly incomplete.
+Effect failures preserve checked partial accounting and continue launch and legacy logging.
+The invocation shares one warning latch, using only:
+`trace lane unavailable; continue with host-perf.log and inspect trace-store admission`.
+No raw path/cause is printed and no success-looking completion is fabricated.
+
+`TracesDir` and `TraceSourcesDir` remain pure path calculations. Admission may create only their
+permitted private leaf roots beneath already-existing validated ancestry. If an early fresh-host
+parent is missing, tracing declines and emits the same actionable warning; provision existing
+storage through the normal initialization path before a later recording attempt. Do not move
+`ensureStorage` earlier, add a root-mkdir shortcut, adopt/chmod existing roots, widen mounts, or
+perform extra early configuration lookup to rescue tracing. OFF performs none of these effects.
+
+**Mint, join, handover, and prune.** A live claim is independently acquired host protection on
+the exact admitted directory and lock object, preventing prune while its owner uses them.
+Immediate public mint remains compatible for acts with already-final metadata; launcher pending
+admission adds the recognized private registration described above. Both serialize count/byte
+admission, identity registration, and initial protection without a protection gap.
+
+A writer or refresh independently joins only while validating and claiming that same registered
+identity, whether public or recognized pending. Join never creates a directory, adopts unknown
+state, follows substitution, or joins an old removed lock inode. Each child/writer owns its own
+claim and release; duplication, inheritance, or a parent's unlock is not independent protection.
+
+Prune uses original start, public or pending, then trace ID as its deterministic tie-break.
+It holds an exclusive claim continuously through removal and releases accounting only for
+verified removal. A failed/partial removal retains the remaining charge and diagnostic state;
+unknown or possibly live state is not pruned. No writer recreates an entry after pruning.
+All participating launcher, keeper, build, service, preparation, and refresh owners are covered.
+
+The launcher retains its claim throughout its invocation, including child acquisition. A child's
+acquired-claim acknowledgement is required before any earlier parent release; ordinary keeper
+liveness/status frames prove no such acquisition. No handover requires intentional waiting.
+Store close follows every claim and writer owned by that store.
 
 Unknown liveness, identity, locking support, or accounting means keep the trace and decline unsafe
 recording. No writer, including a late child, recreates a pruned trace. These rules require changing
@@ -572,8 +833,10 @@ Three ways to draw a timeline were weighed:
 [Chrome trace-event JSON](https://docs.google.com/document/d/1CvAClvFfyA5R-PhYUmn5OOQtYMH4h6I0nSsKchNAySU)
 for [Perfetto's UI](https://ui.perfetto.dev), and
 [OTLP JSON](https://opentelemetry.io/docs/specs/otlp/#json-protobuf-encoding)
-for compatible HTTP collectors. No SDK or custom viewer is added. The command below is not
-built at the inspected pin; it reuses those encoders without redesigning their representations.
+for compatible HTTP collectors. No SDK or custom viewer is added. The CLI source at EEDB
+implements offline export and explicit OTLP POST; production trace collection and live refresh
+remain unbuilt. This is source evidence only, not a native-runtime, real-endpoint, or overhead
+pass. The command reuses those encoders without redesigning their representations.
 
 **Command contract.**
 
@@ -800,35 +1063,40 @@ its part of the reference rewritten.
 ## Decision Ledger
 
 The `OQ-TR` rows are the owner's settled rulings; the `TR-D` rows are engineering decisions.
-TR-D15–19 settle the contract corrections, not new owner questions.
-Built entries below describe source existence at `979ed329ad5dba45c9f776a54acd1de7246f0a8e`,
-not tests run or backend/runtime/overhead passes. A partial entry is not feature completion.
+TR-D15–22 clarify contracts without reopening OQ-TR1–4. TR-D20–22 are accepted engineering
+contracts, not existing source capabilities.
+Built entries below describe source existence at `eedb4b30194ea23020b4630e35cde2ddc80c1507`,
+not tests run or backend/runtime-containment/endpoint/overhead passes.
+A partial entry is not feature completion.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| OQ-TR1 | The timeline is an exported file for an existing viewer: Chrome trace JSON for Perfetto, and OTLP JSON. yolo ships no viewer and links no SDK | 2026-11-19 | [§7](#7-the-viewer-decision) | Partial: U3 encoders exist; export command pending |
+| OQ-TR1 | The timeline is an exported file for an existing viewer: Chrome trace JSON for Perfetto, and OTLP JSON. yolo ships no viewer and links no SDK | 2026-11-19 | [§7](#7-the-viewer-decision) | Partial: offline export CLI exists; no shipped viewer or SDK decision changes |
 | OQ-TR2 | Recording is off by default and turned on by user-scope config (`perf_logging = true`); a workspace or project config cannot turn it on. Traces stay small by TR-D11's caps | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | Existing timing gates; production trace admission pending |
 | OQ-TR3 | Traces are kept machine-wide, under `~/.local/share/yolo-jail/logs/traces/`, naming the workspace by short code | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | Partial: offline reader/CLI understand the store; production lifecycle pending |
-| OQ-TR4 | A trace is sent to a collector only on demand, by `yolo trace export --otlp-endpoint` | 2026-11-19 | [§7](#7-the-viewer-decision) | —; POST command pending |
+| OQ-TR4 | A trace is sent to a collector only on demand, by `yolo trace export --otlp-endpoint` | 2026-11-19 | [§7](#7-the-viewer-decision) | Partial: explicit POST export source exists; no endpoint/runtime pass claimed |
 | TR-D1 | `internal/perf` stays the recorder; no tracing SDK is linked | 2026-11-19 | [§7](#7-the-viewer-decision) | Existing recorder and U1 tracing foundations |
 | TR-D2 | Ids and the parent reference use the W3C trace-context formats | 2026-11-19 | [§5.1](#51-identity) | U1 identity/context APIs exist |
 | TR-D3 | The jail receives the context as `YOLO_TRACEPARENT`; a launcher never adopts one from its environment | 2026-11-19 | [§5.2](#52-propagation) | Partial: U5 consumers/writers exist; complete deliberate host wiring pending |
-| TR-D4 | A trace is a directory with one file per writing process, each admitted line appended synchronously as it happens | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | Partial: U1 lane sink exists; admitted production store pending |
+| TR-D4 | A trace is a directory with one file per writing process, each admitted line appended synchronously as it happens | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | Partial: admitted-sink library exists; production wiring pending |
 | TR-D5 | Jail writers mint no IDs; host conversion persists random span IDs and publishes a non-destructive sanitized snapshot with matching bookkeeping | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | Partial: U5 id-less producers exist; conversion/publication pending |
 | TR-D6 | Establish and persist per-source clock calibration before admission; apply ready-event differences over 50 ms before trace-window filtering | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | — |
 | TR-D7 | A span given no parent is placed by enclosure in time within its lane; existing call sites stay flat | 2026-11-19 | [§5.4](#54-parents) | U2 graph resolves explicit parents before derived enclosure |
-| TR-D8 | `host-perf.log` and `yolo-perf.log` keep their formats; the trace is a second sink | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | Partial: sink foundations exist; production additional-sink wiring pending |
+| TR-D8 | `host-perf.log` and `yolo-perf.log` keep their formats; the trace is a second sink | 2026-11-19 | [§5.3](#53-writers-files-and-trust) | Partial: independent trace/root library exists; production wiring pending |
 | TR-D9 | Scheduler acts are traces of their own, shown to a launch as overlap by time | 2026-11-19 | [§5.5](#55-work-that-is-not-a-child-of-a-launch) | —; production scheduler traces pending |
 | TR-D10 | The startup window ends at the `session.exec` mark | 2026-11-19 | [§4](#4-vocabulary) | Partial: reader/summary foundations; complete collection pending |
-| TR-D11 | Limits: 10,000 trace events per process, 8 attributes per span, 240 bytes per value, 2,000 admitted jail occurrences per trace, 200,000 content bytes per trace, 50 traces and 10,000,000 retained content bytes at physical peak; never prune a live trace | 2026-11-20 | [§5.7](#57-limits-and-failure) | Partial: producer/sink/parser bounds exist; aggregate admission and retention pending |
-| TR-D12 | The reading verb is `yolo trace`, with list/show and explicit export | 2026-11-20 | [§6](#6-reading-a-trace) | U4a offline list/show exist; refresh and export pending |
+| TR-D11 | Limits: 10,000 trace events per process, 8 attributes per span, 240 bytes per value, 2,000 admitted jail occurrences per trace, 200,000 content bytes per trace, 50 traces and 10,000,000 retained content bytes at physical peak; never prune a live trace | 2026-11-20 | [§5.7](#57-limits-and-failure) | Partial: bounded-store library exists; production lifecycle pending |
+| TR-D12 | The reading verb is `yolo trace`, with list/show and explicit export | 2026-11-20 | [§6](#6-reading-a-trace) | Offline list/show/export source exists; refresh pending |
 | TR-D13 | The time budgets are checked by a benchmark and one recorded comparison, never by a test's pass condition | 2026-11-19 | [§8](#8-gates-and-the-overhead-budget) | —; benchmark and recorded on/off evidence pending |
 | TR-D14 | Export preserves recorded identities and diagnostics; unparented OTLP events remain resource metadata, malformed graphs error, and no observed span is invented | 2026-11-19 | [§7](#7-the-viewer-decision) | U3 encoders and source tests/goldens exist; tests not run in this amendment |
 | TR-D15 | Join deliberately through launch options or the validated fork-build hidden argument; each separate process owns one lane, while in-process children reuse collector/sink and an explicit parent | 2026-11-20 | [§5.2](#52-propagation) | —; complete carrier wiring pending |
 | TR-D16 | Host-private multisource registration retains each source's workspace/setup; at most 16 instances and 4,096 registry content bytes per trace at peak. Dynamic exposure uses the existing writable `.local` anchor, without mount widening; unsafe or unavailable exposure degrades collection | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | —; safe locator, producer path change, and backend proof pending |
-| TR-D17 | Occurrence identity is source instance plus absolute byte offset, never content equality. Pair only continuous, unambiguous source-order evidence using bounded exact original producer spelling; normalization is display-only. Matching evidence stays private, transactionally persisted, and charged at physical peak; unavailable equality means unfinished/orphan evidence, never guessed completion. Preserve random span associations, calibration, frozen explicit parents, admitted observations, and completed intervals | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | —; lexical source reader and identity/conversion pending |
-| TR-D18 | Reserve all physical peak content before effects, including private/control and old/temp copies. Mint/join/prune validate one admitted directory/lock with continuous live claims; no join mkdir, delayed batching, intentional contention waits, or destructive fallback. Failed lanes stop and partial bytes remain charged | 2026-11-20 | [§5.7](#57-limits-and-failure) | —; admission, liveness, recovery, and failure accounting pending |
-| TR-D19 | Export uses metadata-start selection, Chrome default, literal `-o` or stdout, and explicit exact-URL OTLP POST with no proxy, ambient credentials, redirects, or retries; enforce bounded/redacted responses and typed rejection counts | 2026-11-20 | [§7](#7-the-viewer-decision) | —; command and endpoint behavior pending |
+| TR-D17 | Occurrence identity is source instance plus absolute byte offset, never content equality. Pair only continuous, unambiguous source-order evidence using bounded exact original producer spelling; normalization is display-only. Matching evidence stays private, transactionally persisted, and charged at physical peak; unavailable equality means unfinished/orphan evidence, never guessed completion. Preserve random span associations, calibration, frozen explicit parents, admitted observations, and completed intervals | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | Partial: U7a bounded lexical parser, private matching projection, occurrence budget and coarse-second marker exist; U7b persisted pairing/association, calibration/parent state, registration/confinement and refresh pending; tests not run in this amendment |
+| TR-D18 | Reserve all physical peak content before effects, including private/control and old/temp copies. Mint/join/prune validate one admitted directory/lock with continuous live claims; no join mkdir, delayed batching, intentional contention waits, or destructive fallback. Failed lanes stop and partial bytes remain charged | 2026-11-20 | [§5.7](#57-limits-and-failure) | Partial: bounded admission/live-claim library exists; pending admission and late publication not built |
+| TR-D19 | Export uses metadata-start selection, Chrome default, literal `-o` or stdout, and explicit exact-URL OTLP POST with no proxy, ambient credentials, redirects, or retries; enforce bounded/redacted responses and typed rejection counts | 2026-11-20 | [§7](#7-the-viewer-decision) | CLI/export source exists at `eedb4b30194ea23020b4630e35cde2ddc80c1507`; no endpoint/runtime pass claimed |
+| TR-D20 | One early neutral root; actual branch commits late; designated start permits canonical reader naming without changing recorded identity, names, time, or parent | 2026-11-21 | [Early recording and late launch truth](#early-recording-and-late-launch-truth) | —; accepted protocol, not built |
+| TR-D21 | Recognized private pending admission protects physical metadata capacity; original owner publishes exactly seven public keys once; pending/incomplete/unavailable selection and crash retention are explicit | 2026-11-21 | [Pending admission and once-only publication](#pending-admission-and-once-only-publication) | —; accepted protocol, not built |
+| TR-D22 | Explicit invocation lifetime ownership covers frontend/keeper final events and once-release; actual waiting-span carrier and independent child claims; no status-frame acknowledgement or kill-flush promise | 2026-11-21 | [Caller ownership, propagation, and finalization](#caller-ownership-propagation-and-finalization) | —; accepted integration contract, not built |
 
 ## Appendix A: two measured launches
 
