@@ -2,18 +2,28 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 	"github.com/mschulkind-oss/yolo-jail/internal/tracefile"
 )
 
@@ -716,5 +726,621 @@ func TestTraceOfflineExportParentRebindDuringEncoding(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestTraceOTLPPostsExactEndpointWithoutAmbientCredentials(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	const start int64 = 1795111105000000000
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", start, traceExportEvents("work", start))
+
+	var requests atomic.Int32
+	type receivedRequest struct{ uri, contentType, authorization, cookie, accept, acceptEncoding, body string }
+	received := make(chan receivedRequest, 1)
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		b, _ := io.ReadAll(r.Body)
+		received <- receivedRequest{r.RequestURI, r.Header.Get("Content-Type"), r.Header.Get("Authorization"), r.Header.Get("Cookie"), r.Header.Get("Accept"), r.Header.Get("Accept-Encoding"), string(b)}
+		_, _ = io.WriteString(w, `{"partialSuccess":{"rejectedSpans":"0"}}`)
+	}))
+	defer collector.Close()
+	var proxyRequests atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyRequests.Add(1)
+		_, _ = io.WriteString(w, `{"partialSuccess":{}}`)
+	}))
+	defer proxy.Close()
+	t.Setenv("HTTP_PROXY", proxy.URL)
+	t.Setenv("HTTPS_PROXY", proxy.URL)
+	t.Setenv("ALL_PROXY", proxy.URL)
+	t.Setenv("http_proxy", proxy.URL)
+	t.Setenv("https_proxy", proxy.URL)
+	t.Setenv("all_proxy", proxy.URL)
+	t.Setenv("HTTP_AUTHORIZATION", "ambient-secret-token")
+	t.Setenv("HTTP_COOKIE", "ambient-secret-cookie")
+
+	endpoint := collector.URL + "/collector%2Ftraces?tenant=a%2Fb&secret=query-sentinel"
+	var out, errs bytes.Buffer
+	if rc := traceMain([]string{"trace", "export", id, "--otlp-endpoint", endpoint}, traceEnv{root: root}, &out, &errs); rc != 0 {
+		t.Fatalf("OTLP POST: rc=%d stdout=%q stderr=%q", rc, out.String(), errs.String())
+	}
+	var expected bytes.Buffer
+	traces, _, err := tracefile.ReadRoot(root)
+	if err != nil || len(traces) != 1 || writeTraceExport(&expected, traces[0], "otlp") != nil {
+		t.Fatalf("prepare expected OTLP request: traces=%d err=%v", len(traces), err)
+	}
+	got := <-received
+	if requests.Load() != 1 || proxyRequests.Load() != 0 || got.uri != "/collector%2Ftraces?tenant=a%2Fb&secret=query-sentinel" ||
+		got.contentType != "application/json" || got.authorization != "" || got.cookie != "" || got.accept != "" ||
+		got.acceptEncoding != "" || got.body != expected.String() {
+		t.Fatalf("POST contract: requests=%d proxy=%d exactTarget=%t contentType=%t noAuth=%t noCookie=%t noNegotiation=%t bodyMatches=%t",
+			requests.Load(), proxyRequests.Load(), got.uri == "/collector%2Ftraces?tenant=a%2Fb&secret=query-sentinel",
+			got.contentType == "application/json", got.authorization == "", got.cookie == "", got.accept == "" && got.acceptEncoding == "", got.body == expected.String())
+	}
+	if out.Len() != 0 || !strings.Contains(strings.ToLower(errs.String()), "accepted") || !strings.Contains(errs.String(), "spans") ||
+		!strings.Contains(errs.String(), collector.URL) || strings.Contains(errs.String(), "/collector") || strings.Contains(errs.String(), "query-sentinel") {
+		t.Fatalf("POST disclosure or stdout contract: stdout=%q stderr=%q", out.String(), errs.String())
+	}
+	if strings.Contains(errs.String(), "ambient-secret") || strings.Contains(errs.String(), "query-sentinel") {
+		t.Fatalf("ambient or query secret escaped: %q", errs.String())
+	}
+}
+
+func TestTraceOTLPArgumentsRejectBeforeRequestOrOutput(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	var requests atomic.Int32
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer collector.Close()
+	parent := t.TempDir()
+	target := filepath.Join(parent, "existing.json")
+	const sentinel = "existing complete output"
+	if err := os.WriteFile(target, []byte(sentinel), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{"explicit chrome", []string{"trace", "export", id, "--format", "chrome", "--otlp-endpoint", collector.URL}},
+		{"output file", []string{"trace", "export", id, "-o", target, "--otlp-endpoint", collector.URL}},
+		{"repeated endpoint", []string{"trace", "export", id, "--otlp-endpoint", collector.URL, "--otlp-endpoint", collector.URL}},
+		{"missing endpoint value", []string{"trace", "export", id, "--otlp-endpoint"}},
+		{"extra positional", []string{"trace", "export", id, "extra", "--otlp-endpoint", collector.URL}},
+		{"bad id", []string{"trace", "export", "BadID", "--otlp-endpoint", collector.URL}},
+		{"relative URL", []string{"trace", "export", id, "--otlp-endpoint", "/collector"}},
+		{"unsupported scheme", []string{"trace", "export", id, "--otlp-endpoint", "ftp://collector.invalid/path"}},
+		{"missing host", []string{"trace", "export", id, "--otlp-endpoint", "http:/path"}},
+		{"userinfo", []string{"trace", "export", id, "--otlp-endpoint", "http://user:password@collector.invalid/path"}},
+		{"fragment", []string{"trace", "export", id, "--otlp-endpoint", "http://collector.invalid/path#fragment-secret"}},
+		{"empty fragment", []string{"trace", "export", id, "--otlp-endpoint", "http://collector.invalid/path#"}},
+		{"invalid port", []string{"trace", "export", id, "--otlp-endpoint", "http://collector.invalid:99999/path"}},
+		{"empty port", []string{"trace", "export", id, "--otlp-endpoint", "http://collector.invalid:/path"}},
+		{"bad escape", []string{"trace", "export", id, "--otlp-endpoint", "http://collector.invalid/%zz"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errs bytes.Buffer
+			if rc := traceMain(tc.args, traceEnv{root: root}, &out, &errs); rc == 0 || out.Len() != 0 {
+				t.Fatalf("invalid args: rc=%d stdout=%q stderr=%q", rc, out.String(), errs.String())
+			}
+			if strings.Contains(errs.String(), "fragment-secret") || strings.Contains(errs.String(), "password") || strings.Contains(errs.String(), "collector.invalid") {
+				t.Fatalf("rejected endpoint leaked: %q", errs.String())
+			}
+		})
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("invalid command sent %d requests", requests.Load())
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != sentinel {
+		t.Fatalf("argument refusal replaced output: %q, %v", got, err)
+	}
+}
+
+func TestTraceOTLPRedirectIsNotFollowed(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	var first, second atomic.Int32
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		second.Add(1)
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer destination.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		first.Add(1)
+		w.Header().Set("Location", destination.URL)
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "--otlp-endpoint", redirect.URL}, traceEnv{root: root})
+	if rc == 0 || out != "" || first.Load() != 1 || second.Load() != 0 || !strings.Contains(errs, "HTTP status") {
+		t.Fatalf("redirect handling: rc=%d out=%q err=%q first=%d second=%d", rc, out, errs, first.Load(), second.Load())
+	}
+}
+
+func TestTraceOTLPResponseValidation(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	cases := []struct {
+		name string
+		body string
+		ok   bool
+		want string
+	}{
+		{"empty object", `{}`, true, ""},
+		{"zero decimal string", `{"partialSuccess":{"rejectedSpans":"0"}}`, true, ""},
+		{"zero number", `{"partialSuccess":{"rejectedSpans":0}}`, true, ""},
+		{"zero with large positive exponent", `{"partialSuccess":{"rejectedSpans":0e999999999999999999999}}`, true, ""},
+		{"fractional zero with large negative exponent", `{"partialSuccess":{"rejectedSpans":0.000e-999999999999999999999}}`, true, ""},
+		{"error message null default", `{"partialSuccess":{"rejectedSpans":"0","errorMessage":null}}`, true, ""},
+		{"error message object invalid", `{"partialSuccess":{"rejectedSpans":"0","errorMessage":{"marker":"synthetic-error-marker"}}}`, false, "response"},
+		{"error message array invalid", `{"partialSuccess":{"rejectedSpans":"0","errorMessage":["synthetic-error-marker"]}}`, false, "response"},
+		{"error message number invalid", `{"partialSuccess":{"rejectedSpans":"0","errorMessage":17}}`, false, "response"},
+		{"error message boolean invalid", `{"partialSuccess":{"rejectedSpans":"0","errorMessage":true}}`, false, "response"},
+		{"integral decimal number", `{"partialSuccess":{"rejectedSpans":1.0}}`, false, "1"},
+		{"integral exponent", `{"partialSuccess":{"rejectedSpans":1e0}}`, false, "1"},
+		{"unknown fields", `{"ignored":"response-secret","partialSuccess":{"unknown":"ignored-secret","rejectedSpans":"0","errorMessage":"free-form-secret"}}`, true, ""},
+		{"positive string", `{"partialSuccess":{"rejectedSpans":"17","errorMessage":"free-form-secret"}}`, false, "17"},
+		{"negative string", `{"partialSuccess":{"rejectedSpans":"-1"}}`, false, "response"},
+		{"fractional number", `{"partialSuccess":{"rejectedSpans":1.5}}`, false, "response"},
+		{"overflow string", `{"partialSuccess":{"rejectedSpans":"9223372036854775808"}}`, false, "response"},
+		{"overflow number", `{"partialSuccess":{"rejectedSpans":9223372036854775808}}`, false, "response"},
+		{"huge exponent", `{"partialSuccess":{"rejectedSpans":1e999999999999999999999}}`, false, "response"},
+		{"malformed", `{"partialSuccess":`, false, "response"},
+		{"multiple documents", `{} {}`, false, "response"},
+		{"array", `[]`, false, "response"},
+		{"null", `null`, false, "response"},
+		{"partial success null", `{"partialSuccess":null}`, false, "response"},
+		{"rejected count object", `{"partialSuccess":{"rejectedSpans":{}}}`, false, "response"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer collector.Close()
+			rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "--otlp-endpoint", collector.URL}, traceEnv{root: root})
+			if (rc == 0) != tc.ok || out != "" {
+				t.Fatalf("response result: rc=%d stdout=%q stderr=%q", rc, out, errs)
+			}
+			if tc.want != "" && !strings.Contains(errs, tc.want) {
+				t.Fatalf("missing bounded result %q: %q", tc.want, errs)
+			}
+			if strings.Contains(errs, "free-form-secret") || strings.Contains(errs, "response-secret") ||
+				strings.Contains(errs, "ignored-secret") || strings.Contains(errs, "synthetic-error-marker") {
+				t.Fatalf("response content leaked: %q", errs)
+			}
+		})
+	}
+}
+
+func TestTraceOTLPResponseBoundsAndHTTPFailures(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	cases := []struct {
+		name string
+		code int
+		body string
+		ok   bool
+	}{
+		{"non-2xx", http.StatusServiceUnavailable, "http-error-secret", false},
+		{"exact body limit", http.StatusOK, `{}` + strings.Repeat(" ", 65534), true},
+		{"oversized", http.StatusOK, strings.Repeat("x", 65537), false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.code)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer collector.Close()
+			rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "--otlp-endpoint", collector.URL + "?query-secret"}, traceEnv{root: root})
+			if (rc == 0) != tc.ok || out != "" {
+				t.Fatalf("response result: rc=%d out=%q err=%q", rc, out, errs)
+			}
+			if !tc.ok && !strings.Contains(errs, "HTTP status") && !strings.Contains(errs, "response") {
+				t.Fatalf("failure lacks bounded category: %q", errs)
+			}
+			if strings.Contains(errs, "http-error-secret") || strings.Contains(errs, "query-secret") || strings.Contains(errs, tc.body) {
+				t.Fatalf("response or endpoint leaked: %q", errs)
+			}
+		})
+	}
+}
+
+func TestTraceOTLPTransportDeadlineAndErrorsAreBounded(t *testing.T) {
+	endpoint, err := url.Parse("https://collector.invalid/path?secret=query")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawDeadline bool
+	attempts := 0
+	rt := traceOTLPRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		deadline, ok := req.Context().Deadline()
+		sawDeadline = ok && deadline.After(time.Now()) && deadline.Before(time.Now().Add(11*time.Second))
+		return nil, context.DeadlineExceeded
+	})
+	_, err = postTraceOTLP(endpoint, []byte(`{}`), rt)
+	if err == nil || err.Error() != "timeout" || !sawDeadline || attempts != 1 || traceOTLPTimeout != 10*time.Second {
+		t.Fatalf("request deadline/error: deadline=%t attempts=%d timeout=%s err=%v", sawDeadline, attempts, traceOTLPTimeout, err)
+	}
+
+	endpoint, _ = url.Parse("http://collector.invalid/path?secret=query")
+	attempts = 0
+	rt = traceOTLPRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		attempts++
+		return nil, &url.Error{Op: "Post", URL: endpoint.String(), Err: errors.New("raw-transport-secret")}
+	})
+	_, err = postTraceOTLP(endpoint, []byte(`{}`), rt)
+	if err == nil || err.Error() != "connection" || attempts != 1 || strings.Contains(err.Error(), "collector.invalid") || strings.Contains(err.Error(), "query") || strings.Contains(err.Error(), "raw-transport-secret") {
+		t.Fatalf("transport error leaked or retried: attempts=%d err=%v", attempts, err)
+	}
+
+	rt = traceOTLPRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: traceOTLPUnreadableBody{}, Request: req}, nil
+	})
+	_, err = postTraceOTLP(endpoint, []byte(`{}`), rt)
+	if err == nil || strings.Contains(err.Error(), "unreadable-body-secret") {
+		t.Fatalf("unreadable response was accepted or leaked: %v", err)
+	}
+}
+
+func TestTraceOTLPRejectsUntrustedTLSCertificate(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	collector := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer collector.Close()
+	rc, out, errs := traceOfflineCall([]string{"trace", "export", id, "--otlp-endpoint", collector.URL + "/path?secret=query"}, traceEnv{root: root})
+	if rc == 0 || out != "" || !strings.Contains(errs, "connection") || strings.Contains(errs, "/path") || strings.Contains(errs, "query") {
+		t.Fatalf("untrusted TLS certificate: rc=%d out=%q errs=%q", rc, out, errs)
+	}
+}
+
+type traceOTLPUnreadableBody struct{}
+
+func (traceOTLPUnreadableBody) Read([]byte) (int, error) {
+	return 0, errors.New("unreadable-body-secret")
+}
+func (traceOTLPUnreadableBody) Close() error { return nil }
+
+type traceOTLPRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f traceOTLPRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+func TestTraceOTLPOneShotTransportClosesWithoutLoggingTrailingBytes(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	const marker = "SYNTHETIC-TRAILING-RESPONSE-MARKER"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+
+	requestMethod := make(chan string, 1)
+	serverConn := make(chan net.Conn, 1)
+	peerClosed := make(chan struct{}, 1)
+	handlerFailed := make(chan struct{}, 1)
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestMethod <- r.Method
+		hijacker, ok := w.(http.Hijacker)
+		if !ok {
+			handlerFailed <- struct{}{}
+			return
+		}
+		conn, rw, err := hijacker.Hijack()
+		if err != nil {
+			handlerFailed <- struct{}{}
+			return
+		}
+		serverConn <- conn
+		if _, err := fmt.Fprintf(rw, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\n{}%s", marker); err != nil {
+			handlerFailed <- struct{}{}
+			return
+		}
+		if err := rw.Flush(); err != nil {
+			handlerFailed <- struct{}{}
+			return
+		}
+		go func() {
+			buf := make([]byte, 1)
+			for {
+				if _, err := conn.Read(buf); err != nil {
+					peerClosed <- struct{}{}
+					return
+				}
+			}
+		}()
+	}))
+	defer collector.Close()
+
+	logger := &traceOTLPMarkerLogWriter{marker: []byte(marker)}
+	previousLogger := log.Writer()
+	log.SetOutput(logger)
+	t.Cleanup(func() { log.SetOutput(previousLogger) })
+
+	var out, errs bytes.Buffer
+	rc := traceMain([]string{"trace", "export", id, "--otlp-endpoint", collector.URL}, traceEnv{root: root}, &out, &errs)
+	if rc != 0 || out.Len() != 0 {
+		t.Fatalf("owned collector result: rc=%d stdoutEmpty=%t", rc, out.Len() == 0)
+	}
+	select {
+	case method := <-requestMethod:
+		if method != http.MethodPost {
+			t.Fatalf("collector method was %q, want POST", method)
+		}
+	case <-handlerFailed:
+		t.Fatal("owned collector failed to hijack and send the bounded response")
+	case <-time.After(30 * time.Second):
+		t.Fatal("owned collector did not receive the request")
+	}
+	var conn net.Conn
+	select {
+	case conn = <-serverConn:
+	case <-handlerFailed:
+		t.Fatal("owned collector failed while writing the bounded response")
+	case <-time.After(30 * time.Second):
+		t.Fatal("owned collector did not expose its connection")
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	select {
+	case <-peerClosed:
+	case <-time.After(30 * time.Second):
+		t.Fatal("one-shot client connection did not close after the response")
+	}
+	if logger.markerSeen.Load() {
+		t.Fatal("synthetic trailing response bytes reached the default HTTP logger")
+	}
+}
+
+type traceOTLPMarkerLogWriter struct {
+	marker     []byte
+	markerSeen atomic.Bool
+}
+
+func (w *traceOTLPMarkerLogWriter) Write(p []byte) (int, error) {
+	if bytes.Contains(p, w.marker) {
+		w.markerSeen.Store(true)
+	}
+	return len(p), nil
+}
+
+func TestTraceOTLPAcceptanceDisclosureWriteFailureDoesNotRetry(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	var requests, methods atomic.Int32
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if r.Method == http.MethodPost {
+			methods.Add(1)
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"partialSuccess":{"rejectedSpans":"0"}}`)
+	}))
+	defer collector.Close()
+
+	writer := &traceOTLPFailingWriter{}
+	var out bytes.Buffer
+	rc := traceMain([]string{"trace", "export", id, "--otlp-endpoint", collector.URL}, traceEnv{root: root}, &out, writer)
+	if rc == 0 || out.Len() != 0 || requests.Load() != 1 || methods.Load() != 1 || writer.calls.Load() != 1 {
+		t.Fatalf("acceptance disclosure write failure: rc=%d stdoutEmpty=%t requests=%d posts=%d writes=%d",
+			rc, out.Len() == 0, requests.Load(), methods.Load(), writer.calls.Load())
+	}
+}
+
+type traceOTLPFailingWriter struct{ calls atomic.Int32 }
+
+func (w *traceOTLPFailingWriter) Write([]byte) (int, error) {
+	w.calls.Add(1)
+	return 0, errors.New("synthetic stderr write failure")
+}
+
+func TestTraceOTLPTransportPolicyThroughTraceMain(t *testing.T) {
+	const childMarker = "YOLO_TEST_TRACE_OTLP_PROXY_CHILD"
+	if os.Getenv(childMarker) == "1" {
+		traceOTLPTransportPolicyChild(t)
+		return
+	}
+
+	const id = "11111111111111111111111111111111"
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	var directRequests, proxyRequests atomic.Int32
+	methods := make(chan string, 1)
+	targets := make(chan string, 1)
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		directRequests.Add(1)
+		methods <- r.Method
+		targets <- r.RequestURI
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"partialSuccess":{"rejectedSpans":"0"}}`)
+	}))
+	defer direct.Close()
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyRequests.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"partialSuccess":{"rejectedSpans":"0"}}`)
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal("owned proxy URL was invalid")
+	}
+	endpoint := "http://collector.invalid/collector?tenant=synthetic"
+	childEnv := traceOTLPProxyChildEnv(map[string]string{
+		childMarker:                        "1",
+		"YOLO_TEST_TRACE_OTLP_ROOT":        root,
+		"YOLO_TEST_TRACE_OTLP_ID":          id,
+		"YOLO_TEST_TRACE_OTLP_ENDPOINT":    endpoint,
+		"YOLO_TEST_TRACE_OTLP_DIRECT_ADDR": direct.Listener.Addr().String(),
+		"YOLO_TEST_TRACE_OTLP_PROXY_ADDR":  proxyURL.Host,
+		"HTTP_PROXY":                       proxy.URL, "HTTPS_PROXY": proxy.URL, "ALL_PROXY": proxy.URL,
+		"http_proxy": proxy.URL, "https_proxy": proxy.URL, "all_proxy": proxy.URL,
+		"NO_PROXY": "", "no_proxy": "",
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestTraceOTLPTransportPolicyThroughTraceMain$", "-test.count=1")
+	cmd.Env = testtmp.ChildEnv(childEnv)
+	childOutput, childErr := cmd.CombinedOutput()
+	if childErr != nil {
+		t.Fatalf("owned test re-exec failed: timedOut=%t outputHasFailure=%t", ctx.Err() != nil, bytes.Contains(childOutput, []byte("FAIL")))
+	}
+	if directRequests.Load() != 1 || proxyRequests.Load() != 0 {
+		t.Fatalf("traceMain routing: direct=%d proxy=%d", directRequests.Load(), proxyRequests.Load())
+	}
+	select {
+	case method := <-methods:
+		if method != http.MethodPost {
+			t.Fatalf("traceMain request method was %q, want POST", method)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("owned collector did not receive a request")
+	}
+	select {
+	case target := <-targets:
+		if target != "/collector?tenant=synthetic" {
+			t.Fatalf("traceMain target did not preserve the endpoint path and query")
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("owned collector did not expose its request target")
+	}
+}
+
+func traceOTLPTransportPolicyChild(t *testing.T) {
+	root := os.Getenv("YOLO_TEST_TRACE_OTLP_ROOT")
+	endpoint := os.Getenv("YOLO_TEST_TRACE_OTLP_ENDPOINT")
+	directAddr := os.Getenv("YOLO_TEST_TRACE_OTLP_DIRECT_ADDR")
+	proxyAddr := os.Getenv("YOLO_TEST_TRACE_OTLP_PROXY_ADDR")
+	if root == "" || endpoint == "" || directAddr == "" || proxyAddr == "" {
+		t.Fatal("owned proxy fixture inputs are incomplete")
+	}
+	dialContext := func(ctx context.Context, network, address string) (net.Conn, error) {
+		switch address {
+		case "collector.invalid:80":
+			address = directAddr
+		case proxyAddr:
+			address = proxyAddr
+		default:
+			return nil, errors.New("unowned dial target")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}
+	var out, errs bytes.Buffer
+	rc := traceMain([]string{"trace", "export", os.Getenv("YOLO_TEST_TRACE_OTLP_ID"), "--otlp-endpoint", endpoint},
+		traceEnv{root: root, otlpDialContext: dialContext}, &out, &errs)
+	if rc != 0 || out.Len() != 0 || !strings.Contains(strings.ToLower(errs.String()), "accepted") {
+		t.Fatalf("traceMain request failed: rc=%d stdoutEmpty=%t acceptedDisclosure=%t", rc, out.Len() == 0,
+			strings.Contains(strings.ToLower(errs.String()), "accepted"))
+	}
+}
+
+func traceOTLPProxyChildEnv(overrides map[string]string) []string {
+	values := map[string]string{
+		"GOCACHE": "/home/agent/.cache/go-build", "GOMODCACHE": "/home/agent/go/pkg/mod",
+		"GOENV": "/home/agent/.config/go/env", "GOPATH": "/home/agent/go",
+		"GOROOT": "/mise/installs/go/1.26.7", "GOFLAGS": "-p=2",
+		"HOME": os.Getenv("HOME"), "PATH": os.Getenv("PATH"), "TMPDIR": os.Getenv("TMPDIR"),
+	}
+	for key, value := range overrides {
+		values[key] = value
+	}
+	env := make([]string, 0, len(values))
+	for key, value := range values {
+		env = append(env, key+"="+value)
+	}
+	return env
+}
+
+func TestTraceOTLPResponseBodyDeadlineThroughTraceMain(t *testing.T) {
+	const id = "11111111111111111111111111111111"
+	const maxRequestBodyBytes = 1 << 20
+	root := t.TempDir()
+	traceOfflineFixture(t, root, id, "launch", "abcd1234", 1795111105000000000, "")
+	headersFlushed := make(chan struct{})
+	requestCancelled := make(chan struct{})
+	handlerFailed := make(chan struct{}, 1)
+	abortHandler := make(chan struct{})
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bodyReadDone := make(chan struct{})
+		var closeBodyOnce sync.Once
+		var closeBodyErr error
+		closeBody := func() {
+			closeBodyOnce.Do(func() { closeBodyErr = r.Body.Close() })
+		}
+		go func() {
+			select {
+			case <-abortHandler:
+				closeBody()
+			case <-bodyReadDone:
+			}
+		}()
+		bodyBytes, readErr := io.Copy(io.Discard, io.LimitReader(r.Body, maxRequestBodyBytes+1))
+		closeBody()
+		close(bodyReadDone)
+		if readErr != nil || closeBodyErr != nil || bodyBytes > maxRequestBodyBytes {
+			handlerFailed <- struct{}{}
+			return
+		}
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			handlerFailed <- struct{}{}
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+		close(headersFlushed)
+		select {
+		case <-r.Context().Done():
+			close(requestCancelled)
+		case <-abortHandler:
+		}
+	}))
+	t.Cleanup(func() {
+		close(abortHandler)
+		collector.Close()
+	})
+	type commandResult struct {
+		rc   int
+		out  string
+		errs string
+	}
+	completed := make(chan commandResult, 1)
+	go func() {
+		var out, errs bytes.Buffer
+		rc := traceMain([]string{"trace", "export", id, "--otlp-endpoint", collector.URL}, traceEnv{root: root}, &out, &errs)
+		completed <- commandResult{rc: rc, out: out.String(), errs: errs.String()}
+	}()
+	select {
+	case <-headersFlushed:
+	case <-handlerFailed:
+		t.Fatal("owned collector could not consume the bounded request or flush response headers")
+	case <-time.After(30 * time.Second):
+		t.Fatal("owned collector did not flush response headers")
+	}
+	var result commandResult
+	select {
+	case result = <-completed:
+	case <-time.After(90 * time.Second):
+		t.Fatal("traceMain did not finish the stalled response under its total deadline")
+	}
+	select {
+	case <-requestCancelled:
+	case <-time.After(30 * time.Second):
+		t.Fatal("owned collector did not observe request cancellation")
+	}
+	if result.rc == 0 || result.out != "" ||
+		(!strings.Contains(result.errs, "timeout") && !strings.Contains(result.errs, "response")) {
+		t.Fatalf("stalled response result: rc=%d stdoutEmpty=%t boundedFailure=%t", result.rc,
+			result.out == "", strings.Contains(result.errs, "timeout") || strings.Contains(result.errs, "response"))
 	}
 }
