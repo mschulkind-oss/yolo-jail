@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -683,14 +684,125 @@ func TestFixtureConcurrentStartsHaveOneOwner(t *testing.T) {
 	}
 }
 
+type fixtureTimeoutPeerResult struct {
+	method, path  string
+	responseBytes int
+	err           error
+}
+
+func fixtureTimeoutPeer(conn net.Conn, method, path, response string) fixtureTimeoutPeerResult {
+	result := fixtureTimeoutPeerResult{}
+	request, err := http.ReadRequest(bufio.NewReader(conn))
+	if err != nil {
+		result.err = err
+		return result
+	}
+	result.method, result.path = request.Method, request.URL.Path
+	// These GET and stop POST fixtures have no request body. Never drain an
+	// unexpected body here: the connection owner closes it during cleanup.
+	if request.ContentLength != 0 || len(request.TransferEncoding) != 0 {
+		result.err = fmt.Errorf("timeout peer received an unexpected request body")
+		return result
+	}
+	if err := request.Body.Close(); err != nil {
+		result.err = err
+		return result
+	}
+	if result.method != method || result.path != path {
+		result.err = fmt.Errorf("timeout peer received %s %s; want %s %s", result.method, result.path, method, path)
+		return result
+	}
+	if response != "" {
+		result.responseBytes, result.err = io.WriteString(conn, response)
+		if result.err == nil && result.responseBytes != len(response) {
+			result.err = io.ErrShortWrite
+		}
+	}
+	return result
+}
+
+type fixtureTimeoutObservedConn struct {
+	net.Conn
+	operations chan string
+}
+
+func (conn fixtureTimeoutObservedConn) Read(p []byte) (int, error) {
+	conn.operations <- "read"
+	return conn.Conn.Read(p)
+}
+
+func (conn fixtureTimeoutObservedConn) Write(p []byte) (int, error) {
+	conn.operations <- "write"
+	return conn.Conn.Write(p)
+}
+
+func TestFixtureTimeoutPeerWaitsForHTTPRequestBeforeResponding(t *testing.T) {
+	peer, client := net.Pipe()
+	operations := make(chan string, 8)
+	result := make(chan fixtureTimeoutPeerResult, 1)
+	finished := make(chan struct{})
+	response := "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nx"
+	go func() {
+		defer close(finished)
+		result <- fixtureTimeoutPeer(fixtureTimeoutObservedConn{peer, operations}, "GET", "/cli/projects", response)
+	}()
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = peer.Close()
+		<-finished
+	})
+	// This deadline is only a hang guard. Read/Write events determine ordering.
+	if err := client.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	guard := time.NewTimer(30 * time.Second)
+	defer guard.Stop()
+	nextOperation := func(want string) {
+		t.Helper()
+		select {
+		case got := <-operations:
+			if got != want {
+				t.Fatalf("timeout peer attempted %s before complete HTTP request headers; want %s", got, want)
+			}
+		case <-guard.C:
+			t.Fatal("timeout peer did not reach the next HTTP operation")
+		}
+	}
+	nextOperation("read")
+	// Withhold the final empty line until the peer asks to read again.
+	if _, err := io.WriteString(client, "GET /cli/projects HTTP/1.1\r\nHost: fixture\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	nextOperation("read")
+	if _, err := io.WriteString(client, "\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	nextOperation("write")
+	got := make([]byte, len(response))
+	if _, err := io.ReadFull(client, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != response {
+		t.Fatalf("timeout peer response = %q; want partial response %q", got, response)
+	}
+	select {
+	case received := <-result:
+		if received.err != nil || received.method != "GET" || received.path != "/cli/projects" || received.responseBytes != len(response) {
+			t.Fatalf("timeout peer did not parse the request and publish the partial response: %+v", received)
+		}
+	case <-guard.C:
+		t.Fatal("timeout peer did not report the parsed request and partial response")
+	}
+}
+
 func TestFixtureHostAndClientRequestsHaveOverallTimeout(t *testing.T) {
 	bin := fixtureBinary(t)
 	cases := []struct {
-		name, command, response string
+		name, command, method, path, response string
 	}{
-		{"client-headers", "client", ""},
-		{"client-body", "client", "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nx"},
-		{"stop-headers", "stop", ""},
+		{"client-headers", "client", "GET", "/cli/projects", ""},
+		{"client-body", "client", "GET", "/cli/projects", "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nx"},
+		{"stop-headers", "stop", "POST", "/_host/stop", ""},
 	}
 	for _, test := range cases {
 		ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -699,9 +811,9 @@ func TestFixtureHostAndClientRequestsHaveOverallTimeout(t *testing.T) {
 		}
 		var mu sync.Mutex
 		var held []net.Conn
-		accepted := make(chan struct{}, 1)
+		closing := false
+		received := make(chan fixtureTimeoutPeerResult, 1)
 		var cleanupOnce sync.Once
-		done := make(chan struct{})
 		serveDone := make(chan struct{})
 		go func() {
 			defer close(serveDone)
@@ -711,36 +823,30 @@ func TestFixtureHostAndClientRequestsHaveOverallTimeout(t *testing.T) {
 					return
 				}
 				mu.Lock()
+				if closing {
+					mu.Unlock()
+					_ = conn.Close()
+					return
+				}
 				held = append(held, conn)
 				mu.Unlock()
+				result := fixtureTimeoutPeer(conn, test.method, test.path, test.response)
 				select {
-				case accepted <- struct{}{}:
-				default:
-				}
-				if test.response != "" {
-					_, _ = conn.Write([]byte(test.response))
-				}
-				select {
-				case <-done:
-					return
+				case received <- result:
 				default:
 				}
 			}
 		}()
 		cleanup := func() {
 			cleanupOnce.Do(func() {
-				close(done)
 				_ = ln.Close()
 				mu.Lock()
+				closing = true
 				for _, conn := range held {
 					_ = conn.Close()
 				}
 				mu.Unlock()
-				select {
-				case <-serveDone:
-				case <-time.After(time.Second):
-					t.Errorf("%s test listener did not stop accepting connections", test.name)
-				}
+				<-serveDone
 			})
 		}
 		t.Cleanup(cleanup)
@@ -766,14 +872,21 @@ func TestFixtureHostAndClientRequestsHaveOverallTimeout(t *testing.T) {
 		elapsed := time.Since(began)
 		cleanup()
 		select {
-		case <-accepted:
+		case result := <-received:
+			if result.err != nil || result.method != test.method || result.path != test.path || result.responseBytes != len(test.response) {
+				t.Errorf("%s did not reach its HTTP deadline phase: peer=%+v elapsed=%s err=%v output=%s", test.name, result, elapsed, err, out)
+				continue
+			}
 		default:
-			t.Errorf("%s request failed without the fixture listener accepting an HTTP connection: elapsed=%s err=%v output=%s", test.name, elapsed, err, out)
+			t.Errorf("%s request failed without the timeout peer reporting its HTTP deadline phase: elapsed=%s err=%v output=%s", test.name, elapsed, err, out)
 			continue
 		}
 		if err == nil || err == context.DeadlineExceeded {
 			t.Errorf("%s request did not return before the process watchdog: elapsed=%s err=%v output=%s", test.name, elapsed, err, out)
 			continue
+		}
+		if test.response != "" && !strings.HasPrefix(out, "x") {
+			t.Errorf("%s did not copy the partial response body before its HTTP deadline: output=%s", test.name, out)
 		}
 		lowerOutput := strings.ToLower(out)
 		if !strings.Contains(lowerOutput, "context deadline exceeded") {
