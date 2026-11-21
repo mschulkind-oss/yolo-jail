@@ -2,16 +2,16 @@
 title: "Implementation plan: startup tracing"
 status: accepted
 stage: DECIDED
-next: "Build U6b2 pending publication and public-root resolution; then complete the U6b3 production-caller map before dispatch"
+next: "Complete the U6b3 production-caller map against the landed U6b2 library API before dispatch"
 depends-on:
   - startup-tracing.md
 tags: [observability, timing, tracing, plan]
-summary: "Tree-grounded handoff for source-built store, admitted writer, lexical parser and export foundations; the remaining work is late publication/root resolution, production wiring, and confined source registration and refresh."
+summary: "Tree-grounded inventory of source-built store, pending publication/root resolution, admitted writer, lexical parser and export foundations; remaining work is production wiring and confined source registration and refresh."
 ---
 
 # Implementation plan: startup tracing
 
-**Status:** 2026-11-21. Completed against `eedb4b30194ea23020b4630e35cde2ddc80c1507` (tree `7e972ee3c447828b414e855353177d00e8808ea3`). The accepted behavior is in [startup tracing](startup-tracing.md). U6b3 remains a source-grounded seed pending the U6b2 API. This is a partial implementation plan, not evidence that production tracing is built or that tests, endpoints, backends, runtime containment, or overhead gates passed.
+**Status:** 2026-11-21. Source inventory restamped against `0d8fef21db9a22f30e63b3376cc9f2e4af23f288` (tree `d0e5a8d57daa679105602577722024ebc8654b48`), including the U6b2 library. The accepted behavior is in [startup tracing](startup-tracing.md). U6b3 remains a seed until its production-caller map is completed against the landed API. This is a partial implementation plan, not evidence that production tracing is built or that tests, endpoints, backends, runtime containment, or overhead gates passed.
 
 Precedence: the design wins on behavior; the tree wins on cosmetic fact; this plan is advice and is the first thing to be wrong. Stop and report without committing if a named symbol is gone, a task fence has unrelated work, a predicted red does not reproduce, a needed change crosses its fence, or a gate fails outside scope. Never twist code to match this plan.
 
@@ -26,13 +26,14 @@ Precedence: the design wins on behavior; the tree wins on cosmetic fact; this pl
 | U3 | [`chrome.go`](../../internal/tracefile/chrome.go), [`otlp.go`](../../internal/tracefile/otlp.go), [`export_test.go`](../../internal/tracefile/export_test.go), and encoder goldens | Encoders and source tests exist; this is not a test run. |
 | U4a | [`internal/cli/trace.go`](../../internal/cli/trace.go), [`trace_test.go`](../../internal/cli/trace_test.go), registry/help wiring | Offline list/show source exists; export and POST are inventoried under U11. No launch collection is wired. |
 | U5 | [`internal/jailtrace/jailtrace.go`](../../internal/jailtrace/jailtrace.go), [`internal/entrypoint/boot.go`](../../internal/entrypoint/boot.go), [`programphaseperf.go`](../../internal/entrypoint/programphaseperf.go), supervisor tests | Id-less Go and shell producers exist. Their current home-root file path is not the accepted dynamic source contract. |
-| U6a | [`internal/paths/traces.go`](../../internal/paths/traces.go), [`internal/perf/tracestore.go`](../../internal/perf/tracestore.go), [`tracestore_test.go`](../../internal/perf/tracestore_test.go): pure trace roots, immediate-metadata bounded store, independent claims, inventory, writer admission and prune | Source-built store core. It recognizes public metadata immediately; it does not recognize pending admission or perform late publication. Existing tests were not run in this amendment. |
+| U6a | [`internal/paths/traces.go`](../../internal/paths/traces.go), [`internal/perf/tracestore.go`](../../internal/perf/tracestore.go), [`tracestore_test.go`](../../internal/perf/tracestore_test.go): pure trace roots, immediate-metadata bounded store, independent claims, inventory, writer admission and prune | Source-built immediate-Mint store core remains compatible; pending admission/publication is inventoried separately under U6b2. |
 | U6b1 | [`internal/perf/admittedtrace.go`](../../internal/perf/admittedtrace.go), [`admittedtrace_test.go`](../../internal/perf/admittedtrace_test.go), [`independenttrace_test.go`](../../internal/perf/independenttrace_test.go): checked admitted sink and independent root/sink adapters | Source-built library adapters only. No production caller installs them; they do not implement the pending/late-kind contract. Existing tests were not run here. |
+| U6b2 | [`internal/perf/tracestore.go`](../../internal/perf/tracestore.go): `MintPending`, `PublishPending`, `CreateLauncherWriter`; [`admittedtrace.go`](../../internal/perf/admittedtrace.go): `AdmittedLauncherTraceSink`; [`perf.go`](../../internal/perf/perf.go): `IndependentLauncherRoot`; [`internal/tracefile/line.go`](../../internal/tracefile/line.go), [`read.go`](../../internal/tracefile/read.go), [`tree.go`](../../internal/tracefile/tree.go): exact designation and public-only root resolution | Source-built library with reserved physical metadata/seal, original-owner publication and designation; existing encoders reuse the resolved graph. No production collector, branch/finalizer, title restoration or keeper wiring. |
 | U7a | [`internal/tracefile/jailsource.go`](../../internal/tracefile/jailsource.go), [`jailsource_test.go`](../../internal/tracefile/jailsource_test.go): bounded pure lexical parser and caller-owned occurrence budget | Lexical parsing only: no filesystem reads, source registration, continuity, pairing, or durable bookkeeping. Existing tests were not run here. |
 | U11 | [`internal/cli/trace.go`](../../internal/cli/trace.go), [`internal/cli/trace_test.go`](../../internal/cli/trace_test.go): offline list/show/export and explicit OTLP POST | Command implementation and test declarations exist. No test or endpoint pass is claimed; these commands do not imply production collection. |
 | Environment classification | [`internal/cli/run/unknownlaunchenv.go`](../../internal/cli/run/unknownlaunchenv.go) recognizes `YOLO_TRACEPARENT` | Recognition is not propagation; do not make a launcher adopt ambient context. |
 
-The production launch sink remains `newTimingLogWith` in [`internal/cli/run/runcmd.go`](../../internal/cli/run/runcmd.go); `initPerf` wires the legacy file and notice sinks. No scoped production caller under `internal/cli` uses `OpenTraceStore`, `AdmittedTraceSink`, `InstallIndependentTrace`, or `IndependentRoot`. U6a, U6b1, U7a and U11 are existing source foundations; they are not production recording. Pending admission/publication and designated-root resolution are the U6b2 delta; invocation/keeper integration is U6b3; confined source registration and refresh remain U7b.
+The production launch sink remains `newTimingLogWith` in [`internal/cli/run/runcmd.go`](../../internal/cli/run/runcmd.go); `initPerf` wires the legacy file and notice sinks. No scoped production caller under `internal/cli` uses `OpenTraceStore`, `AdmittedTraceSink`, `InstallIndependentTrace`, or `IndependentRoot`. U6a, U6b1, U6b2, U7a and U11 are existing source foundations; they are not production recording. Pending admission/publication and designated-root resolution are source-built under U6b2; invocation/keeper integration is U6b3; confined source registration and refresh remain U7b.
 
 ## Map and fences
 
@@ -67,13 +68,15 @@ Every row is a task-owned fence, not permission to edit an entire package. New f
 
 ## Task order
 
-U6b2 is the next implementation task. U6b3 follows U6b2 and remains a seed until its exact source map and tests are completed against the landed library API. U6c follows U6b3. U7a is source-built; U7b follows U6b2, U6b3 and the already-built parser. U8 host-gap work follows U6b3; its `run.go` work serializes with U7b, while service work stays on its separate fence. U9 follows U6b3/U7b. U10 follows U6b2/U6b3. U11a/U11b are source-built, not remaining implementation tasks. U12 follows the observable surfaces it documents; production-collection claims wait for U6b3/U7b.
+U6b2 is source-built and is not a remaining implementation task. U6b3 is the next caller-map task and remains a seed until its exact source map and tests are completed against the landed library API. U6c follows U6b3. U7a is source-built; U7b follows U6b2, U6b3 and the already-built parser. U8 host-gap work follows U6b3; its `run.go` work serializes with U7b, while service work stays on its separate fence. U9 follows U6b3/U7b. U10 follows U6b2/U6b3. U11a/U11b are source-built, not remaining implementation tasks. U12 follows the observable surfaces it documents; production-collection claims wait for U6b3/U7b.
 
 For every task, workers report the exact red and green commands, changed paths, and backend/runtime evidence separately. No test success implies a native backend claim. The implementation is not graduated until the proof obligations at the end of this plan are met.
 
-## Remaining tasks
+## Unit contracts and remaining tasks
 
 ### U6b2 — pending publication, launcher designation and public root resolution
+
+**Source-built:** the library and its source tests exist at the inventory stamp above. The retained contract/map below describes U6b2, not a new builder dispatch or production integration. Proposed API names below are implemented entry points; runtime and overhead proof are separate.
 
 **Settled — do not reopen:** Use the accepted contract in [early recording and late launch truth](startup-tracing.md#early-recording-and-late-launch-truth), [pending admission and once-only publication](startup-tracing.md#pending-admission-and-once-only-publication), and [root resolution and compatibility](startup-tracing.md#root-resolution-and-compatibility). Existing immediate `TraceStore.Mint` remains compatible for known-kind acts; do not turn an empty kind into pending state or use `Replace("meta.json", ...)`. A pending launch has one actual observed `invocation` root. The launcher’s root start carries only the exact top-level JSON boolean `launcher_root: true`; no header root ID, second event, synthetic root, or later root/name/time/parent rewrite. Only the original pending owner may publish `launch`, `attach`, or its live-finalizer-selected `incomplete` metadata. Public metadata remains exactly seven keys.
 
@@ -83,11 +86,11 @@ For every task, workers report the exact red and green commands, changed paths, 
 - `internal/tracefile/line.go`: `rawLine`, `parseLine`, `cleanAttrs`; `read.go`: `readMeta`, `readLane`, `laneReader.line/add`, `mergeAttrs`, `ReadDir`; `tree.go`: `Trace.assemble`. `chrome.go`/`otlp.go` already consume resolved `Span.Name`, IDs and parents.
 - The immediate-metadata store and current reader have different compatibility requirements: keep immediate Mint and ordinary/undesignated reader behavior; apply stricter public-metadata validation only when deciding designated-root authority.
 
-**File map and prospective API shape** (names/signatures are mechanical proposals, not new behavior):
+**File map and implemented API shape** (the retained descriptions constrain U6b2, not future caller behavior):
 
 1. `internal/perf/tracestore.go` — extend private `storeEntry`, `TraceClaim` and `inventory`; add a private versioned `pendingRegistration` binding trace ID, immutable positive original start, reserved launcher-lane authority, fixed metadata-slot size, and the slot/seal inode identities. Proposed fields: `Version uint8`, `Trace string`, `Start int64`, `LauncherLane bool`, `MetaSlotBytes int64`, `MetaSlot [2]uint64`, `SealSlot [2]uint64`. Keep `.identity` bound to its current root/private/admission/directory/lock identities.
    
-   Proposed entry points:
+   Implemented entry points:
 
    ```go
    func (s *TraceStore) MintPending(id string, originalStart int64) (*TraceClaim, error)
@@ -109,7 +112,7 @@ For every task, workers report the exact red and green commands, changed paths, 
 
    Pending metadata validation must require the exact seven public keys, matching trace ID and immutable registered positive start, allowed launch kind, and the existing bounded string alphabet/length. Do not globally tighten `Mint` or alter its current seven-key behavior. The pending slot reserves 452 bytes at physical peak, not a writable allowance: writers’ current `admit`/inventory checks see and retain the actual slot bytes.
 
-3. `internal/perf/tracestore.go` and new platform files `internal/perf/rename_noreplace_linux.go`, `rename_noreplace_darwin.go`, and a non-Linux/non-Darwin decline stub — `PublishPending` takes the store admission lock nonblocking, the original claim’s nonblocking mutex, and revalidates claim, registration, private ownership/mode, slot/seal identities and exact sizes through `safeStoreFile`. Write the complete padded JSON to the existing slot in place, without truncate/extend/recreate; check the full write and close. Write state byte `1` plus SHA-256 of those exact 452 bytes to the existing seal in place; check the full write and close. Then expose that same inode as `meta.json` with no overwrite. Proposed helper signatures:
+3. `internal/perf/tracestore.go` and new platform files `internal/perf/rename_noreplace_linux.go`, `rename_noreplace_darwin.go`, and a non-Linux/non-Darwin decline stub — `PublishPending` takes the store admission lock nonblocking, the original claim’s nonblocking mutex, and revalidates claim, registration, private ownership/mode, slot/seal identities and exact sizes through `safeStoreFile`. Write the complete padded JSON to the existing slot in place, without truncate/extend/recreate; check the full write and close. Write state byte `1` plus SHA-256 of those exact 452 bytes to the existing seal in place; check the full write and close. Then expose that same inode as `meta.json` with no overwrite. Implemented helper signatures:
 
    ```go
    func openClaimDirFD(c *TraceClaim) (*os.File, error)
@@ -163,7 +166,7 @@ The success-path tests must call the production library entry points and inspect
 `go test ./internal/perf -run '^(TestAdmittedLauncherTraceSinkWritesDesignatedRoot|TestIndependentLauncherRootPreservesOrdinaryRootSemantics)$' -count=1`;
 `go test ./internal/tracefile -run '^(TestLauncherRootTypesAndAuthority|TestCanonicalLauncherRootUsesPublicMetadataOnly|TestCanonicalRootNameReachesExistingEncoders|TestAttributesRemainEightPerSpanAcrossRecords)$' -count=1`.
 
-**Gates:** `go test ./internal/perf ./internal/paths`; `go test ./internal/tracefile`; `git diff --check`; compile the Linux and Darwin helper variants under their admitted source-validation profile. These are future gates, not run or authorized by this planning pass. No runtime, endpoint, integration, CLI, or backend test belongs in U6b2.
+**Source gates:** `go test ./internal/perf ./internal/paths`; `go test ./internal/tracefile`; `git diff --check`; compile the Linux and Darwin helper variants under their admitted source-validation profile. This inventory does not claim their results or native Mac execution. No runtime, endpoint, integration, CLI, or backend test belongs in U6b2.
 
 **Fence:** only the listed U6b2 methods/types and named test files. Do not touch `internal/paths` (U6a is built), `internal/cli` production callers (U6b3), `internal/tracefile/jailsource.go` (U7a is built), U7b registration/refresh, CLI private-status inspection, settings, mounts, environment policy, export transport, legacy logs, or no-overhead claims.
 
@@ -228,7 +231,7 @@ The offline `yolo trace list|show|export` and explicit `--otlp-endpoint` POST im
 
 - **Selection and offline read/export:** `internal/cli/trace_test.go` already declares list/show selection and diagnostics tests, `TestTraceOfflineExportSelectionAndFormats`, `TestTraceOfflineExportArgumentsFailBeforeOutput`, `TestTraceOfflineExportAtomicFiles`, `TestTraceOfflineExportRejectsUnsafeTargets`, `TestTraceOfflineExportPropagatesStdoutWriterError`, and explicit-POST tests including `TestTraceOTLPPostsExactEndpointWithoutAmbientCredentials`, `TestTraceOTLPRedirectIsNotFollowed`, and `TestTraceOTLPTransportPolicyThroughTraceMain`. They are source declarations, not test-pass evidence, and do not witness production trace creation or U6b2 pending publication.
 - **Ingestion/privacy:** Existing U7a test declarations cover lexical parser spellings, physical source offsets, occurrence budgets and the privacy projection. U7b still owns persisted continuity/pairing state, calibration/parent freezing, transactional refresh and backend confinement. Raw rows, original matching spelling, workspace paths, credentials and rejected payload must never reach metadata, attributes, exports or diagnostics.
-- **Storage/liveness:** Existing U6a test declarations cover concurrent processes, hard count/byte limits at physical peak, control/private content, safe lock/directory identity, uninterrupted parent-child handover, no pruned-directory recreation, failures and crash-left recovery. These are source declarations, not a test-pass claim; U6b2 pending admission/publication remains unimplemented. Inability to ask or account declines; it never means “unreferenced.”
+- **Storage/liveness:** Existing U6a test declarations cover concurrent processes, hard count/byte limits at physical peak, control/private content, safe lock/directory identity, uninterrupted parent-child handover, no pruned-directory recreation, failures and crash-left recovery. U6b2 adds source declarations for pending reservation/publication, original-owner authority, uncertain inode retention and exact public-root resolution. These are source declarations, not a test-pass claim. Inability to ask or account declines; it never means “unreferenced.”
 - **Runtime integration:** after production wiring, a no-agent integration launch verifies recording off creates no trace; recorded fresh launch joins launcher/keeper/jail sources; attach has its intended trace/source; fork child joins only through explicit handoff; a failed boot remains unfinished. Test the source exposure on Podman and Apple Container, and the native Mac path separately. Do not assert these results until run on those hosts.
 - **EV-TR1:** restamp against this tree and reuse U3/U4a/U6a/U6b1/U7a/U11 source foundations rather than scheduling completed source surfaces as absent. No test or backend pass is implied.
 - **EV-TR2:** verify fresh/attach/sealed source mapping, private-leaf non-exposure and descriptor-relative producer/reader/cleanup safety on supported backends.

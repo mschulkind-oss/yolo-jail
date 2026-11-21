@@ -2,7 +2,7 @@
 title: "One trace per launch: where startup time goes, and how to see it"
 status: accepted
 stage: DECIDED
-next: "Restamp the grounded partial plan, reuse completed foundations and offline readers/encoders, and build the remaining collection, ingestion, retention, and explicit export behavior"
+next: "Complete the U6b3 production-caller map against the landed U6b2 API; reuse source-built foundations and retain runtime and overhead proof obligations"
 tags: [observability, timing, tracing, startup, perf]
 summary: "Turns the existing timing spans into one trace per launch that follows the launch across every process it starts, fills the stretches no span covers today, and reads it back as a text summary and an exported timeline for an off-the-shelf viewer."
 ---
@@ -10,16 +10,18 @@ summary: "Turns the existing timing spans into one trace per launch that follows
 # One trace per launch: where startup time goes, and how to see it
 
 **Status:** 2026-11-21. [OQ-TR1–4](#decision-ledger) remain settled; **Needs your ruling: None**.
-Source evidence supplied at `eedb4b30194ea23020b4630e35cde2ddc80c1507`
-(tree `7e972ee3c447828b414e855353177d00e8808ea3`) establishes partial implementation:
+Source inventory at `0d8fef21db9a22f30e63b3376cc9f2e4af23f288`
+(tree `d0e5a8d57daa679105602577722024ebc8654b48`) establishes partial implementation:
 identity/recorder, independent trace installation/root, admitted sink, bounded store/live-claim,
 host reader/graph/summary, immediate jail-writing, Chrome/OTLP encoder, and offline CLI/export
-foundations exist. Production collector initialization remains legacy-only. Production collection
-and lifecycle integration, the late-publication protocol below, safe live ingestion/refresh, and
-backend propagation remain pending. Library or CLI existence is not production feature completion.
+foundations exist. U6b2 adds private pending admission, original-owner once-only publication,
+reserved launcher designation and public-only canonical root resolution; existing encoders reuse
+the resolved graph. Production collector initialization remains legacy-only. Production collection
+and invocation/keeper lifecycle integration, safe live ingestion/refresh, and backend propagation
+remain pending. Library or CLI existence is not production feature completion.
 
-This amendment is an engineering clarification of the accepted design, not an implemented
-contract. Source evidence is not a test, backend, runtime-containment, endpoint, or overhead pass.
+The engineering contracts below remain accepted; only the inventoried source slices are built.
+Source evidence is not a test, backend, runtime-containment, endpoint, or overhead pass.
 The two measured launches in [Appendix A](#appendix-a-two-measured-launches) remain historical.
 The 10 ms host and 5 ms boot budgets are measurement budgets, not launch pass/fail guards, and
 remain unmeasured for this integration under [§8](#8-gates-and-the-overhead-budget).
@@ -1063,9 +1065,9 @@ its part of the reference rewritten.
 ## Decision Ledger
 
 The `OQ-TR` rows are the owner's settled rulings; the `TR-D` rows are engineering decisions.
-TR-D15–22 clarify contracts without reopening [OQ-TR1–4](#decision-ledger). TR-D20–22 are accepted engineering
-contracts, not existing source capabilities.
-Built entries below describe source existence at `eedb4b30194ea23020b4630e35cde2ddc80c1507`,
+TR-D15–22 clarify contracts without reopening [OQ-TR1–4](#decision-ledger). TR-D20–21 have partial
+U6b2 library implementations; TR-D22 production ownership/finalization remains unbuilt.
+Built entries below describe source existence at `0d8fef21db9a22f30e63b3376cc9f2e4af23f288`,
 not tests run or backend/runtime-containment/endpoint/overhead passes.
 A partial entry is not feature completion.
 
@@ -1092,10 +1094,10 @@ A partial entry is not feature completion.
 | TR-D15 | Join deliberately through launch options or the validated fork-build hidden argument; each separate process owns one lane, while in-process children reuse collector/sink and an explicit parent | 2026-11-20 | [§5.2](#52-propagation) | —; complete carrier wiring pending |
 | TR-D16 | Host-private multisource registration retains each source's workspace/setup; at most 16 instances and 4,096 registry content bytes per trace at peak. Dynamic exposure uses the existing writable `.local` anchor, without mount widening; unsafe or unavailable exposure degrades collection | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | —; safe locator, producer path change, and backend proof pending |
 | TR-D17 | Occurrence identity is source instance plus absolute byte offset, never content equality. Pair only continuous, unambiguous source-order evidence using bounded exact original producer spelling; normalization is display-only. Matching evidence stays private, transactionally persisted, and charged at physical peak; unavailable equality means unfinished/orphan evidence, never guessed completion. Preserve random span associations, calibration, frozen explicit parents, admitted observations, and completed intervals | 2026-11-20 | [§5.3](#53-writers-files-and-trust) | Partial: U7a bounded lexical parser, private matching projection, occurrence budget and coarse-second marker exist; U7b persisted pairing/association, calibration/parent state, registration/confinement and refresh pending; tests not run in this amendment |
-| TR-D18 | Reserve all physical peak content before effects, including private/control and old/temp copies. Mint/join/prune validate one admitted directory/lock with continuous live claims; no join mkdir, delayed batching, intentional contention waits, or destructive fallback. Failed lanes stop and partial bytes remain charged | 2026-11-20 | [§5.7](#57-limits-and-failure) | Partial: bounded admission/live-claim library exists; pending admission and late publication not built |
+| TR-D18 | Reserve all physical peak content before effects, including private/control and old/temp copies. Mint/join/prune validate one admitted directory/lock with continuous live claims; no join mkdir, delayed batching, intentional contention waits, or destructive fallback. Failed lanes stop and partial bytes remain charged | 2026-11-20 | [§5.7](#57-limits-and-failure) | Partial: bounded admission/live claims and U6b2 pending reservation/once-only publication exist; production lifecycle remains pending |
 | TR-D19 | Export uses metadata-start selection, Chrome default, literal `-o` or stdout, and explicit exact-URL OTLP POST with no proxy, ambient credentials, redirects, or retries; enforce bounded/redacted responses and typed rejection counts | 2026-11-20 | [§7](#7-the-viewer-decision) | CLI/export source exists at `eedb4b30194ea23020b4630e35cde2ddc80c1507`; no endpoint/runtime pass claimed |
-| TR-D20 | One early neutral root; actual branch commits late; designated start permits canonical reader naming without changing recorded identity, names, time, or parent | 2026-11-21 | [Early recording and late launch truth](#early-recording-and-late-launch-truth) | —; accepted protocol, not built |
-| TR-D21 | Recognized private pending admission protects physical metadata capacity; original owner publishes exactly seven public keys once; pending/incomplete/unavailable selection and crash retention are explicit | 2026-11-21 | [Pending admission and once-only publication](#pending-admission-and-once-only-publication) | —; accepted protocol, not built |
+| TR-D20 | One early neutral root; actual branch commits late; designated start permits canonical reader naming without changing recorded identity, names, time, or parent | 2026-11-21 | [Early recording and late launch truth](#early-recording-and-late-launch-truth) | Partial: U6b2 neutral-root designation and public-only resolver exist; production branch classification remains unbuilt |
+| TR-D21 | Recognized private pending admission protects physical metadata capacity; original owner publishes exactly seven public keys once; pending/incomplete/unavailable selection and crash retention are explicit | 2026-11-21 | [Pending admission and once-only publication](#pending-admission-and-once-only-publication) | Partial: U6b2 pending store/publication and public metadata authority exist; production selection/finalizer remains unbuilt |
 | TR-D22 | Explicit invocation lifetime ownership covers frontend/keeper final events and once-release; actual waiting-span carrier and independent child claims; no status-frame acknowledgement or kill-flush promise | 2026-11-21 | [Caller ownership, propagation, and finalization](#caller-ownership-propagation-and-finalization) | —; accepted integration contract, not built |
 
 ## Appendix A: two measured launches
