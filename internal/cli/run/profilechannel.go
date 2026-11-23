@@ -561,7 +561,7 @@ func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 // entry the workspace can write) is removed first, since the allowlist and the token are the
 // trust boundary of the snapshot. An empty allowlist writes neither, as on the container path.
 func (c *packChannel) setToolSkillInputs(env *jsonx.OrderedMap) {
-	names := []string{"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN"}
+	names := []string{"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN", toolSkillsDeliveredEnv}
 	for _, k := range names {
 		env.Delete(k)
 	}

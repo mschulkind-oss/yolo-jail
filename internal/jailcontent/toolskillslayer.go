@@ -61,8 +61,9 @@ type ToolSkillsReport struct {
 // ToolSkillShadow is a tool's skill a higher layer already provided.
 type ToolSkillShadow struct{ Name, Tool, By string }
 
-// ToolSkillSkip is a skill the layer did not take, and why.
-type ToolSkillSkip struct{ Name, Tool, Reason string }
+// ToolSkillSkip is a skill the layer did not take, and why. Winner is the tool that holds the
+// name when the reason is that an earlier tool in the allowlist came first, and "" otherwise.
+type ToolSkillSkip struct{ Name, Tool, Reason, Winner string }
 
 type toolSkill struct {
 	name, tool string
@@ -96,6 +97,22 @@ type toolIndex struct {
 	Token   string           `json:"token"`
 	Digest  string           `json:"digest"`
 	Skills  []toolIndexSkill `json:"skills"`
+}
+
+// ToolSkillsDelivered is the content digest of the snapshot a composition with in would read,
+// "" when there is no layer (no allowlist, no token, no snapshot, or an index without the token).
+// It is the value of YOLO_TOOL_SKILLS_DELIVERED (design MS-D7), and the same digest the layer's
+// report carries.
+func ToolSkillsDelivered(in *ToolSkillsInput) string {
+	if in == nil || in.Workspace == "" || in.Token == "" || len(in.Tools) == 0 {
+		return ""
+	}
+	_, digest, _, closeAll, ok := openToolSnapshot(in)
+	if !ok {
+		return ""
+	}
+	closeAll()
+	return digest
 }
 
 // stageToolSkillsLayer reads the snapshot. It returns nil when there is no layer.
@@ -154,6 +171,7 @@ func stageToolSkillsLayer(in *ToolSkillsInput) *toolSkillsLayer {
 		}
 		if first, dup := owner[s.Name]; dup {
 			skip(toolskills.Sanitize(first) + " comes first in your install.mise and wins")
+			l.report.Skipped[len(l.report.Skipped)-1].Winner = toolskills.Sanitize(first)
 			continue
 		}
 		stored := filepath.Join(scratch, strconv.Itoa(len(l.skills)))

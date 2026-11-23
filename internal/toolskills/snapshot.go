@@ -82,9 +82,13 @@ type SkippedSkill struct {
 
 // Snapshot is what Publish published.
 type Snapshot struct {
-	Digest  string
-	Skills  []Skill // delivered, in the order given
-	Skipped []SkippedSkill
+	Digest string
+	// Previous is the digest `current` named when this snapshot replaced it ("" for the first),
+	// read under the publish lock, so of two sessions publishing the same content only the first
+	// sees a Previous that differs from Digest.
+	Previous string
+	Skills   []Skill // delivered, in the order given
+	Skipped  []SkippedSkill
 }
 
 // Test hooks, nil in production: before a file's bytes are opened, and just before `current`
@@ -232,6 +236,7 @@ func Publish(opts Options, skills []Skill) (Snapshot, error) {
 		testHookBeforeCurrent(filepath.Join(opts.Workspace, ".yolo", SnapshotDirName, snap.Digest))
 	}
 	prev := readCurrent(snapFD)
+	snap.Previous = prev
 	if err := writeFileAt(snapFD, "current", []byte(snap.Digest+"\n")); err != nil {
 		return Snapshot{}, fmt.Errorf("cannot replace current: %w", err)
 	}
@@ -843,9 +848,80 @@ func RunStep(ctx context.Context, getenv func(string) string, args []string, r R
 		opts.LockPath = args[1]
 	}
 	rep := Refresh(ctx, opts, allowlist, r)
-	if rep.Err != nil {
+	switch {
+	case rep.Err != nil && rep.List.Outcome == OutcomeUnsupported:
+		fmt.Fprintln(out, "yolo: mise skills: this mise has no `skills` command. Update mise to 2026.9.2 or later.")
+	case rep.Err != nil:
 		fmt.Fprintf(out, "yolo: mise skills: could not refresh (%s); the last snapshot stays. Run `mise skills ls` in the workspace to see why.\n",
 			sanitizeTo(strings.ReplaceAll(rep.Err.Error(), "\n", " "), 200))
+	default:
+		discloseRefresh(out, rep, allowlist, getenv("YOLO_TOOL_SKILLS_DELIVERED"))
 	}
 	return 0
+}
+
+// discloseRefresh says what a successful refresh changed (design section 6.2). A tool of the
+// allowlist that declares a skill mise did not install is named once per tool. A snapshot is said
+// to arrive with the next session only when its digest is neither the one this session's host
+// delivered nor the one a concurrent session already published (Snapshot.Previous), so a change is
+// announced once; a first snapshot with no skills, and a repeat, are silent.
+func discloseRefresh(out io.Writer, rep Report, allowlist []string, delivered string) {
+	allowed := map[string]bool{}
+	for _, t := range allowlist {
+		allowed[Sanitize(t)] = true
+	}
+	said := map[string]bool{}
+	for _, w := range rep.List.Warnings {
+		if !allowed[w.Tool] || said[w.Tool] {
+			continue
+		}
+		said[w.Tool] = true
+		fmt.Fprintf(out, "yolo: mise skills: %s declares skills that are not installed (%s). Run `mise install` in the workspace, then start a new session.\n",
+			w.Tool, w.Line)
+	}
+	snap := rep.Snapshot
+	if snap == nil || snap.Digest == delivered || snap.Digest == snap.Previous {
+		return
+	}
+	var tools []string
+	count := map[string]int{}
+	for _, s := range snap.Skills {
+		if count[s.Tool] == 0 {
+			tools = append(tools, s.Tool)
+		}
+		count[s.Tool]++
+	}
+	switch {
+	case delivered == "" && len(snap.Skills) == 0:
+	case delivered == "":
+		fmt.Fprintf(out, "yolo: mise skills: %d %s from %s %s ready; they reach the agent with the next session: relaunch or attach.\n",
+			len(snap.Skills), plural(len(snap.Skills), "skill", "skills"), strings.Join(tools, ", "),
+			plural(len(snap.Skills), "is", "are"))
+	case len(snap.Skills) == 0:
+		fmt.Fprintln(out, "yolo: mise skills changed (no tool skills remain); they leave the agent with the next session: relaunch or attach.")
+	default:
+		fmt.Fprintf(out, "yolo: mise skills changed (%s); they reach the agent with the next session: relaunch or attach.\n",
+			strings.Join(toolVersions(snap.Skills), ", "))
+	}
+}
+
+// toolVersions is "TOOL VERSION" once per distinct pair, in delivery order.
+func toolVersions(skills []Skill) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range skills {
+		k := s.Tool + " " + s.Version
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }

@@ -277,7 +277,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	// THE TOOL-SKILLS LAYER (docs/design/mise-tool-skills.md slice 4), the lowest skills layer. It
 	// is read FRESH on every call, launch and attach alike, and never from an attach's applied
 	// snapshot: the jail writes the snapshot after the launch's composition ran, and the next
-	// attach is what delivers it. Slice 5 reads its report (wsSkills.ToolSkills) below.
+	// attach is what delivers it. Its report (wsSkills.ToolSkills) is said below (noteToolSkills).
 	toolSkills := o.toolSkillsLayerInput()
 	workspaceSkills := (*jailcontent.WorkspaceSkills)(nil)
 	if !preserveLegacyMechanics {
@@ -417,6 +417,9 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		}
 	}
 	o.noteWorkspaceSkills(wsSkills)
+	if wsSkills != nil {
+		o.noteToolSkills(wsSkills.ToolSkills)
+	}
 	// Attach refreshes content, but never recomposes the running owner's facts.
 	if o.launchInputMCP.Proven && o.launchInputMCP.SignIn == nil {
 		o.freezeDeliveredMCPSignIn(staging, loadedPacks, wsSkills)

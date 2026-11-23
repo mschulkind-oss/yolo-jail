@@ -17,15 +17,26 @@ type sessionInput struct{ name, value string }
 // tables (configure_pack_surfaces, generate_mcp_wrappers).
 var sessionInputNames = []string{
 	"YOLO_BLOCK_CONFIG", "YOLO_MISE_TOOLS", "MISE_DISABLE_TOOLS", "YOLO_LSP_SERVERS", "YOLO_MCP_SERVERS",
-	"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN",
+	"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN", toolSkillsDeliveredEnv,
 }
 
-// toolSkillInputs are the two session inputs of mise tool skills (docs/design/mise-tool-skills.md
-// MS-D1, MS-D9): the allowlist of the user scope's mise tools, and the workspace's snapshot token.
-// The zero value is the sealed, capture and nested answer: an empty list and no token.
+// toolSkillsDeliveredEnv is YOLO_TOOL_SKILLS_DELIVERED (design MS-D7): the content digest of the
+// tool-skills snapshot this entry's host composition delivered, "" when it delivered none. The
+// in-jail refresh step (toolskills.RunStep) reads it after `mise install`, compares it with the
+// digest it just published, and says "arrives with the next session" only when they differ.
+const toolSkillsDeliveredEnv = "YOLO_TOOL_SKILLS_DELIVERED"
+
+// toolSkillInputs are the session inputs of mise tool skills (docs/design/mise-tool-skills.md
+// MS-D1, MS-D7, MS-D9): the allowlist of the user scope's mise tools, the workspace's snapshot
+// token, and the digest of the snapshot this entry delivered. The zero value is the sealed,
+// capture and nested answer: an empty list, no token and no digest.
 type toolSkillInputs struct {
-	tools []string
-	token string
+	tools     []string
+	token     string
+	delivered string
+	// problem is why the allowlist is non-empty and tool skills are off anyway ("" when none), for
+	// the one line that says so (noteToolSkillsOff).
+	problem string
 }
 
 // composeSessionInputs is this entry's session inputs, from the config and the selected packs.
@@ -57,6 +68,7 @@ func composeSessionInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, sealed,
 		// A JSON array, as YOLO_MISE_TOOLS is JSON: the allowlist in declaration order.
 		"YOLO_MISE_SKILL_TOOLS":  jsonDumps(append([]string{}, skills.tools...)),
 		"YOLO_TOOL_SKILLS_TOKEN": skills.token,
+		toolSkillsDeliveredEnv:   skills.delivered,
 	}
 	out := make([]sessionInput, 0, len(sessionInputNames))
 	for _, name := range sessionInputNames {
@@ -85,9 +97,11 @@ func (o *Options) toolSkillInputs() toolSkillInputs {
 	}
 	token, err := config.ToolSkillsToken(o.Workspace)
 	if err != nil {
-		return toolSkillInputs{}
+		return toolSkillInputs{problem: err.Error()}
 	}
-	return toolSkillInputs{tools: tools, token: token}
+	delivered := jailcontent.ToolSkillsDelivered(&jailcontent.ToolSkillsInput{
+		Workspace: o.Workspace, Token: token, Tools: tools})
+	return toolSkillInputs{tools: tools, token: token, delivered: delivered}
 }
 
 // toolSkillsLayerInput is the request the host's skills composition makes for the tool-skills
@@ -96,6 +110,9 @@ func (o *Options) toolSkillInputs() toolSkillInputs {
 // default, and the sealed, capture and nested answer) or no token.
 func (o *Options) toolSkillsLayerInput() *jailcontent.ToolSkillsInput {
 	in := o.toolSkillInputs()
+	if in.problem != "" {
+		o.noteToolSkillsOff(in.problem)
+	}
 	if len(in.tools) == 0 || in.token == "" {
 		return nil
 	}
