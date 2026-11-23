@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -140,8 +141,22 @@ func TestWhyTheJailEndedReadsOnlyThisAttachsRecord(t *testing.T) {
 	}
 
 	writeJailStop("yolo-ws-1", jailStopRecord{At: since.Add(-time.Hour), Reason: "an earlier jail's"})
+	// The record lands only after the runtime has answered that the jail is gone (the event the
+	// attach's wait exists for), never after a delay. The wait is a generous failure guard here: the
+	// late write ends it.
+	stopRecordWait = 30 * time.Second
+	gone := make(chan struct{})
+	var goneOnce sync.Once
+	probe := o.Exec
+	o.Exec = func(argv []string, dir string, env []string, d time.Duration) ExecResult {
+		res := probe(argv, dir, env, d)
+		if len(argv) > 1 && argv[1] == "ps" {
+			goneOnce.Do(func() { close(gone) })
+		}
+		return res
+	}
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		<-gone
 		writeJailStop("yolo-ws-1", jailStopRecord{At: since.Add(2 * time.Second), Reason: "late"})
 	}()
 	if reason, _ := o.whyTheJailEnded("yolo-ws-1", "podman", 137, since); reason != "late" {
