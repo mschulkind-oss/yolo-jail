@@ -1138,6 +1138,70 @@ CHECK_DIR="$HOME/.local/state/yolo/launch-checks"
 CHECK_MARKER=""       # the marker THIS invocation claimed; empty when it claimed none
 CHECK_GARBAGE=604800  # seconds after which another start's marker is garbage (collected, decides nothing)`
 
+// lockShellFns are the exclusive claim every launcher lock is built on: the install-prefix lock
+// (`_take_lock`, both templates) and the pre-launch refresh lock (`_take_refresh_lock`).
+//
+// WHY AN O_EXCL FILE AND NOT mkdir. uutils coreutils' mkdir (ubuntu-26.04 CI, recorded
+// 2026-11-14) succeeds on a racing create, so "mkdir succeeded" is not ownership there, while
+// GNU's hides it. The claim is `( set -o noclobber; printf TOKEN > LOCK )`: the SHELL opens the
+// path with O_CREAT|O_EXCL itself, no coreutils program is involved, so it is exclusive
+// wherever the shell is (GNU, uutils, busybox, bash 3.2 on macOS), and writes the owner token in
+// the same open. The subshell keeps noclobber off every other redirection.
+//
+// STALE RECOVERY IS EXCLUSIVE TOO. A lock older than the stale age (a held one is kept young by
+// its holder's heartbeat) is reaped by the one waiter that wins a second O_EXCL claim, named for
+// the stale instance (LOCK.reap.TOKEN.MTIME), which re-checks that the instance is still the
+// stale one before removing it. So two waiters never both remove-then-create. A reap claim older
+// than the stale age belongs to a reaper that died and is removed.
+//
+// A lock written by an earlier version is a DIRECTORY (holding an owner file, for the refresh
+// lock). It is busy while young and removed when stale (rmdir is atomic and fails on a file),
+// then claimed like any other.
+//
+// _lock_try LOCK TOKEN STALE returns 0 when LOCK is now this caller's, 1 when another holds it,
+// and 2 when it cannot be taken at all (the lock's parent is missing or refuses the write).
+const lockShellFns = `
+_lock_claim() {
+    ( set -o noclobber; printf '%s\n' "$2" > "$1" ) 2>/dev/null
+}
+
+# _lock_owner prints the lock's owner token, or nothing, read by the shell alone (no cat).
+_lock_owner() {
+    local owner="" f="$1"
+    if [ -d "$f" ]; then f="$f/.yolo-lock-owner"; fi
+    { owner=$(<"$f"); } 2>/dev/null || owner=""
+    printf '%s' "$owner"
+}
+
+_lock_try() {
+    local lock="$1" token="$2" stale="$3" mt age seen reap rc=1
+    if _lock_claim "$lock" "$token"; then return 0; fi
+    [ -e "$lock" ] || return 2
+    mt=$(_stamp_mtime "$lock")
+    age=$(( $(date +%s) - mt ))
+    [ "$age" -gt "$stale" ] || return 1
+    if [ -d "$lock" ]; then
+        rm -f "$lock/.yolo-lock-owner" 2>/dev/null || true
+        rmdir "$lock" 2>/dev/null || return 1
+        _lock_claim "$lock" "$token" && return 0
+        return 1
+    fi
+    seen=$(_lock_owner "$lock")
+    reap="$lock.reap.${seen:-none}.$mt"
+    if ! _lock_claim "$reap" "$token"; then
+        if [ -f "$reap" ] && [ "$(( $(date +%s) - $(_stamp_mtime "$reap") ))" -gt "$stale" ]; then rm -f "$reap" 2>/dev/null || true; fi
+        return 1
+    fi
+    if [ "$(_lock_owner "$lock")" = "$seen" ] &&
+        [ "$(( $(date +%s) - $(_stamp_mtime "$lock") ))" -gt "$stale" ]; then
+        rm -f "$lock" 2>/dev/null || true
+        if _lock_claim "$lock" "$token"; then rc=0; fi
+    fi
+    rm -f "$reap" 2>/dev/null || true
+    return "$rc"
+}
+`
+
 // checkClaimShellFns are the claim's helpers both launcher templates share: the garbage rule, the
 // release, and the shield's cleanup that releases on a signal alone.
 const checkClaimShellFns = `# _collect_check_garbage drops this bin's markers of OTHER starts older than CHECK_GARBAGE. It is
@@ -1665,21 +1729,24 @@ _do_install() {
 }
 
 ` + updateBoundShellFn + prelaunchRefreshShellFn + `
-# _take_lock is a NON-BLOCKING mkdir, and both halves of that are §3.5's ruling rather than
+# _take_lock is a NON-BLOCKING claim (_lock_try: an O_EXCL file, never mkdir), and both halves of that are §3.5's ruling rather than
 # an implementation shortcut: there is no flock in the image and none on a stock macOS, and
 # an invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so.
 _take_lock() {
-    if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
-    local age
-    age=$(( $(date +%s) - $(_stamp_mtime "$LOCK_DIR") ))
-    if [ "$age" -gt "$STALE_LOCK" ]; then
-        rmdir "$LOCK_DIR" 2>/dev/null || true
-        if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
-    fi
+    _LOCK_TOKEN="$$.${RANDOM:-0}.$(date +%s)"
+    if _lock_try "$LOCK_DIR" "$_LOCK_TOKEN" "$STALE_LOCK"; then return 0; fi
+    _LOCK_TOKEN=""
     return 1
 }
 
-_drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
+# _drop_lock releases the lock only while it is still THIS launcher's: a lock another launcher
+# broke as stale and re-took must survive the first holder finishing.
+_LOCK_TOKEN=""
+_drop_lock() {
+    [ -n "$_LOCK_TOKEN" ] || return 0
+    if [ "$(_lock_owner "$LOCK_DIR")" = "$_LOCK_TOKEN" ]; then rm -f "$LOCK_DIR" 2>/dev/null || true; fi
+    _LOCK_TOKEN=""
+}
 
 # _update_due decides whether this invocation CHECKS, by CLAIMING the check (LU-D5): it creates
 # CHECK_DIR/<bin>.<id> with noclobber, which opens O_CREAT|O_EXCL, so of any number of invocations
@@ -2134,23 +2201,26 @@ mkdir -p "$STAMP_DIR"
 mkdir -p "$HOME/.local"
 ` + stampMtimeFn + receiptShellFns + misplacedShellFn + `
 ` + updateBoundShellFn + prelaunchRefreshShellFn + `
-# _take_lock is a NON-BLOCKING mkdir, and both halves of that are the ruling rather than an
+# _take_lock is a NON-BLOCKING claim (_lock_try: an O_EXCL file, never mkdir), and both halves of that are the ruling rather than an
 # implementation shortcut. There is no flock in the image and none on a stock macOS; and an
 # invocation that cannot take the lock must PROCEED WITHOUT UPDATING and say so — the user
 # typed the agent's name, so making them wait, or refusing, would be worse than running the
 # version already on disk (§3.5).
 _take_lock() {
-    if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
-    local age
-    age=$(( $(date +%s) - $(_stamp_mtime "$LOCK_DIR") ))
-    if [ "$age" -gt "$STALE_LOCK" ]; then
-        rmdir "$LOCK_DIR" 2>/dev/null || true
-        if mkdir "$LOCK_DIR" 2>/dev/null; then return 0; fi
-    fi
+    _LOCK_TOKEN="$$.${RANDOM:-0}.$(date +%s)"
+    if _lock_try "$LOCK_DIR" "$_LOCK_TOKEN" "$STALE_LOCK"; then return 0; fi
+    _LOCK_TOKEN=""
     return 1
 }
 
-_drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
+# _drop_lock releases the lock only while it is still THIS launcher's: a lock another launcher
+# broke as stale and re-took must survive the first holder finishing.
+_LOCK_TOKEN=""
+_drop_lock() {
+    [ -n "$_LOCK_TOKEN" ] || return 0
+    if [ "$(_lock_owner "$LOCK_DIR")" = "$_LOCK_TOKEN" ]; then rm -f "$LOCK_DIR" 2>/dev/null || true; fi
+    _LOCK_TOKEN=""
+}
 
 # _prune_versions is A7 (agent-cli-copies.md, the V-axis prune): keep-newest-K over the
 # vendor's own version directory, run by the act that created the new version, in this

@@ -73,15 +73,6 @@ restated in [roadmap.md](roadmap.md) instead of linked from it.
 
 ---
 
-## The launchers' mkdir lock is not exclusive on uutils (found 2026-11-23)
-
-The install-prefix lock in both launcher shell templates (`_take_lock`, `internal/entrypoint/shims.go`) and the
-pre-launch refresh lock (`internal/entrypoint/prelaunchrefresh.go`) treat a successful `mkdir` as owning the lock.
-On CI's ubuntu-26.04 runners, uutils coreutils' `mkdir` succeeds on a racing create (recorded 2026-11-14), so two
-launchers sharing a prefix can both install into it; GNU coreutils in the jail hides it. Candidate fix: an
-`O_EXCL` file or an `ln -s` claim, keeping the owner token and the stale rule. Apple Container's shared host
-directories need the owner's Mac to verify. Context: [`launcher-update-per-jail-start.md`](../design/launcher-update-per-jail-start.md#found-out-of-scope).
-
 ## Where the reasoning lives
 
 | Doc | Answers | Read it when |

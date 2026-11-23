@@ -137,14 +137,10 @@ first invocation after the first jail start with the new boot checks every progr
 
 ### The mkdir finding
 
-The launchers' install-prefix lock (`_take_lock`, twice in the shell templates) and the refresh lock
-(`_take_refresh_lock`) use the `mkdir` command as a mutex. A recorded fact (2026-11-14) is that `mkdir` on CI's
-ubuntu-26.04 runners comes from uutils coreutils, where it succeeds on a racing create, so that mutex is not
-exclusive there, and GNU coreutils in the jail hides it. This design does not depend on it: the once-per-start
-decision is the `O_EXCL` claim above (a shell builtin's own `open`, no `mkdir` process), and the server refresh is
-Go, where `os.Mkdir` is the syscall. The locks keep guarding what they guarded, writers into one install prefix
-from different jails. The weakness itself is a separate defect, recorded in
-[Found, out of scope](#found-out-of-scope).
+The launchers' install-prefix lock and the refresh lock once used the `mkdir` command as a mutex, which is not
+exclusive on uutils coreutils (CI's ubuntu-26.04, recorded 2026-11-14). They are now `O_EXCL` file claims like the
+once-per-start decision above, so the weakness is closed (see [Found, out of scope](#found-out-of-scope)). The locks
+keep guarding what they guarded, writers into one install prefix from different jails.
 
 ## Disclosures
 
@@ -169,11 +165,15 @@ rulings ([LU-D10](#decision-ledger), [LU-D11](#decision-ledger)):
 
 ## Found, out of scope
 
-**The `mkdir` mutex is not exclusive on uutils.** Evidence: the 2026-11-14 CI recording above. Reach: the
-install-prefix lock in both shell templates and the refresh lock. Consequence: two launchers from different
-jails sharing a prefix could both install into it. Candidate fix: an `O_EXCL` file or a symlink creation
-(`ln -s`, atomic on every POSIX filesystem) in place of the directory, keeping the owner token and the stale
-rule. File this as its own backlog item; it needs the owner's Mac for Apple Container's shared directories.
+**The `mkdir` mutex was not exclusive on uutils. Fixed.** The 2026-11-14 CI recording showed uutils
+coreutils' `mkdir` succeeding on a racing create, so two launchers from different jails sharing a prefix could
+both install into it. Every launcher lock (the install-prefix lock in both shell templates, the refresh lock,
+and the Go server refresh that takes the same prefix lock) is now an `O_EXCL` file claimed by the shell itself
+(`( set -o noclobber; printf TOKEN > LOCK )`, `lockShellFns` in `shims.go`), which no coreutils program is
+involved in, so it holds on GNU, uutils, busybox and bash 3.2. It keeps the owner token (written in the same
+open, and checked on release) and the stale rule, and a stale lock is reaped by one waiter that wins a second
+`O_EXCL` claim. A directory left by an earlier version is held while young and replaced once stale. Apple
+Container's shared host directories still need the owner's Mac to verify.
 
 ## Slices
 

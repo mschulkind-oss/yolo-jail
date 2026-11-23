@@ -35,12 +35,13 @@ import (
 // AGENTS.md's first rule forbids. So the argv and the lock are the pack's declaration, and this
 // file renders whatever a pack declares, for both launcher templates.
 //
-// THE LOCK IS A NON-BLOCKING mkdir, not a flock, for three reasons. §3.3 ruled it. It is the
-// same primitive both templates' install-prefix `_take_lock` already use, because there is no
+// THE LOCK IS A NON-BLOCKING O_EXCL FILE claim (lockShellFns), not a flock, for three reasons. §3.3 ruled it. It is the
+// same primitive both templates' install-prefix `_take_lock` use, because there is no
 // flock(1) in the image and none on a stock macOS. And it is the one primitive that is atomic
 // on EVERY path this store can be shared over: a flock is per kernel, while Apple Container
 // runs each jail in its own VM over a shared host directory, where only the host filesystem's
-// own mkdir(2) arbitrates.
+// own open(2) with O_EXCL arbitrates. (It is not mkdir: uutils coreutils' mkdir succeeds on a
+// racing create.)
 //
 // WHAT THE flock CONVENTIONS STILL TEACH IT. internal/cli/run/flock.go's error path fails OPEN
 // — a lock it could not take lets the launch proceed unguarded — and the base-home plan's
@@ -156,7 +157,7 @@ REFRESH_SESSION_HOMES=(__YOLO_REFRESH_SESSION_HOMES__)
 // says nothing while the job still runs. Until then every launcher sharing the store reads the
 // dead job's lock as held: it skips its refresh, and one whose watched content is new waits for
 // the lock first, up to UPDATE_TIMEOUT.
-const prelaunchRefreshShellFn = programPhasePerfShellFn + `
+const prelaunchRefreshShellFn = programPhasePerfShellFn + lockShellFns + `
 # --- pre-launch refresh (pi-extensions.md §17.2, §17.3) -------------------------
 # The stamp has the LOCK'S SCOPE (pi-extension-store-builds.md XB-D14): it lives beside the
 # lock, in the store the lock's parent names, so it throttles exactly the launches the lock
@@ -346,25 +347,16 @@ _refresh_touch() {
 }
 
 # _take_refresh_lock returns 0 when this launcher now holds the lock, 1 when another holds it,
-# and 2 when it cannot be taken at all. The STORE is never created here (a plain mkdir, never
-# -p): a missing one is a mount that did not happen, and inventing it in a per-workspace home
+# and 2 when it cannot be taken at all. The STORE is never created here (the claim creates only
+# the lock file): a missing one is a mount that did not happen, and inventing it in a per-workspace home
 # would hide that.
 _take_refresh_lock() {
-    if ! mkdir "$REFRESH_LOCK" 2>/dev/null; then
-        # mkdir failed and there is no lock, so the STORE is the problem: it is missing, or it
-        # refused the write (read-only, EACCES). Either way nobody holds anything.
-        [ -d "$REFRESH_LOCK" ] || return 2
-        local age
-        age=$(( $(date +%s) - $(_stamp_mtime "$REFRESH_LOCK") ))
-        [ "$age" -gt "$STALE_LOCK" ] || return 1
-        # Remove ONLY the token and an EMPTY directory — never rm -r a path a manifest named.
-        rm -f "$REFRESH_LOCK/.yolo-lock-owner" 2>/dev/null || true
-        rmdir "$REFRESH_LOCK" 2>/dev/null || true
-        mkdir "$REFRESH_LOCK" 2>/dev/null || return 1
-    fi
-    # The OWNER TOKEN: $$ alone repeats across jails (each has its own pid namespace).
-    REFRESH_TOKEN="$$.${RANDOM:-0}.$(date +%s)"
-    printf '%s\n' "$REFRESH_TOKEN" > "$REFRESH_LOCK/.yolo-lock-owner" 2>/dev/null || REFRESH_TOKEN=""
+    local tok="$$.${RANDOM:-0}.$(date +%s)" lrc=0
+    _lock_try "$REFRESH_LOCK" "$tok" "$STALE_LOCK" || lrc=$?
+    [ "$lrc" = 0 ] || return "$lrc"
+    # The OWNER TOKEN ($$ alone repeats across jails: each has its own pid namespace) was written
+    # by the claim itself.
+    REFRESH_TOKEN="$tok"
     return 0
 }
 
@@ -372,17 +364,14 @@ _take_refresh_lock() {
 # _refresh_file_holds' reason: through a blocked cat no launcher would ever see its own token, so
 # none would release its lock, and every launch for STALE_LOCK after would find it held.
 _refresh_lock_owner() {
-    local owner=""
-    { owner=$(<"$REFRESH_LOCK/.yolo-lock-owner"); } 2>/dev/null || owner=""
-    printf '%s' "$owner"
+    _lock_owner "$REFRESH_LOCK"
 }
 
 # _drop_refresh_lock releases the lock only while it is still THIS launcher's: a lock another
 # launcher broke as stale and re-took must survive the first holder finishing.
 _drop_refresh_lock() {
     [ "$(_refresh_lock_owner)" = "$REFRESH_TOKEN" ] || return 0
-    rm -f "$REFRESH_LOCK/.yolo-lock-owner" 2>/dev/null || true
-    rmdir "$REFRESH_LOCK" 2>/dev/null || true
+    rm -f "$REFRESH_LOCK" 2>/dev/null || true
 }
 
 # _start_refresh_heartbeat keeps the HELD lock younger than STALE_LOCK for as long as this
@@ -514,7 +503,7 @@ _refresh_report_last() {
         return 0
     fi
     if [ "${first%% *}" = "pending" ]; then
-        if [ -d "$REFRESH_LOCK" ] &&
+        if [ -e "$REFRESH_LOCK" ] &&
             [ "$(_refresh_lock_owner)" = "${first#pending }" ] &&
             [ "$(( $(date +%s) - $(_stamp_mtime "$REFRESH_LOCK") ))" -le "$STALE_LOCK" ]; then
             return 0
@@ -603,7 +592,7 @@ _refresh_in_background() {
     [ -d "$REFRESH_STORE" ] || return 2
     # A LIVE lock is a refresh already running, in this jail or another: a second job would only
     # find it held.
-    if [ -d "$REFRESH_LOCK" ] &&
+    if [ -e "$REFRESH_LOCK" ] &&
         [ "$(( $(date +%s) - $(_stamp_mtime "$REFRESH_LOCK") ))" -le "$STALE_LOCK" ]; then
         echo "  $BIN: another refresh holds $REFRESH_LOCK — running what is installed." >&2
         return 0
@@ -683,7 +672,7 @@ _prelaunch_refresh() {
         if [ ! -d "$REFRESH_STORE" ]; then
             echo "  ⚠ $BIN: cannot take the refresh lock: $REFRESH_STORE is missing, so this jail did not mount it — skipping the pre-launch refresh. To mount it, restart the jail: yolo stop on the host, then launch again." >&2
         else
-            echo "  ⚠ $BIN: cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE refuses writes, or something that is not a directory is at that path) — skipping the pre-launch refresh. See which: ls -ld $(printf '%q %q' "$REFRESH_STORE" "$REFRESH_LOCK")" >&2
+            echo "  ⚠ $BIN: cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE refuses writes, or something unusable, such as a dangling link, is at that path) — skipping the pre-launch refresh. See which: ls -ld $(printf '%q %q' "$REFRESH_STORE" "$REFRESH_LOCK")" >&2
         fi
         # Stamped where the store can hold a stamp, so a lock path something else occupies says
         # so once a jail start rather than every launch, and the content key is recorded for the same

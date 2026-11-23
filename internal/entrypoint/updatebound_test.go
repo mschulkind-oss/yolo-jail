@@ -615,21 +615,21 @@ func TestAnInterruptDuringPackUpdateReleasesTheLock(t *testing.T) {
 
 // A SECOND CTRL-C WHILE THE LAUNCHER RELEASES ITS LOCK LEAVES NO LOCK. Measured 2026-10-01 in a
 // nested jail: a Ctrl-C typed twice, 150 ms apart, at claude's update. The first ended the update;
-// the second landed after the shield came down and before the lock's rmdir had run, killed the
+// the second landed after the shield came down and before the lock's rm had run, killed the
 // launcher (and the rmdir) with the install-prefix lock still held, and the next ten minutes of
-// launches skipped their update. A slow stand-in rmdir holds that window open here.
+// launches skipped their update. A slow stand-in rm holds that window open here.
 func TestASecondCtrlCWhileTheLockIsReleasedLeavesNoLock(t *testing.T) {
-	realRmdir, err := exec.LookPath("rmdir")
+	realRm, err := exec.LookPath("rm")
 	if err != nil {
-		t.Skip("rmdir not found")
+		t.Skip("rm not found")
 	}
 	for _, mode := range boundModes(t) {
 		t.Run(mode.name, func(t *testing.T) {
 			p := newBoundProbe(t, boundProbeOpts{verb: []string{"install"}, behave: sleeps, timeout: 30, grace: 2})
 			releasing := filepath.Join(p.home, "releasing")
 			fake := t.TempDir()
-			body := "#!/bin/sh\n: > " + shellQuoteForTest(releasing) + "\nsleep 1\nexec " + shellQuoteForTest(realRmdir) + " \"$@\"\n"
-			if err := os.WriteFile(filepath.Join(fake, "rmdir"), []byte(body), 0o755); err != nil {
+			body := "#!/bin/sh\nfor a in \"$@\"; do case \"$a\" in *yolo-update.lock) : > " + shellQuoteForTest(releasing) + "; sleep 1 ;; esac; done\nexec " + shellQuoteForTest(realRm) + " \"$@\"\n"
+			if err := os.WriteFile(filepath.Join(fake, "rm"), []byte(body), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			g := startInGroup(t, p, fake+string(os.PathListSeparator)+pathFor(t, mode.detached))
