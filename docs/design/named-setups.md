@@ -385,6 +385,8 @@ belongs to the project, the agent or you.
 
 ## 9. State per setup
 
+> **Proposed to be superseded** by [one home per workspace](unified-workspace-home.md): a shared unified home plus a small slice per setup; this section stands until the owner rules it.
+
 **Each setup in a project has its own home and run state**, under
 `<project>/.yolo/setups/<name>/`. Two setups never share a home:
 
