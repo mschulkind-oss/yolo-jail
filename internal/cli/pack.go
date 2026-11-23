@@ -121,7 +121,10 @@ one file's audience never stops another file from shipping:
                    {provider, only: [id, ...]} — shape the model list of any provider,
                    another pack's included: add entries, or keep only the ids named;
                    every add applies before every only, and your own
-                   providers.<name>.models writes last
+                   providers.<name>.models writes last. An only may also carry
+                   agents: [bin, ...] to narrow just those agents' menus;
+                   without agents, the existing provider-wide list is used.
+                   Shape and example: yolo config-ref
   adapter          {adapts:{from, to}, address} — a protocol conversion and where the
                    converted wire is served, so an agent speaking one wire can be
                    pointed at a provider offering the other; says nothing about who

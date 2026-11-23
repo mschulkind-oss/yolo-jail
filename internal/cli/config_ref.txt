@@ -2447,8 +2447,9 @@
                     error.
       models        {provider, add:[{id, vendor, alias, name, description,
                     context_window, max_tokens, reasoning, input, cost}]} or
-                    {provider, only:[id...]} — SHAPES the model list of the provider
-                    it names, any provider's, another pack's included: `add` appends
+                    {provider, only:[id...], agents:[bin...]} — SHAPES the model list of
+                    the provider it names, any provider's, another pack's included: `add`
+                    appends
                     entries (a duplicate id keeps the first writer's), `only` keeps the
                     ids it names and drops the rest.  One verb per contribution.
                     Every `add` applies, in pack order, before every `only`, and two
@@ -2461,6 +2462,19 @@
                     `enforce_models` is on (the default) claude, opencode and pi also
                     refuse any other model.  `yolo check` names a duplicate, an
                     `only` id nothing added, and a provider nothing declares.
+                    Scope an `only` to some agents with `agents`:
+                      [[models]]
+                      provider = "bedrock"
+                      only = ["example.fable", "example.sonnet"]
+                      agents = ["claude"]
+                    agents is optional and may appear only with only.
+                    Say it plainly: without agents, only keeps the provider-wide list.
+                    Each agents name
+                    matches a program's bin and derive identity exactly, not its pack name.
+                    A name no selected program has is inert.
+                    An agents-scoped only
+                    changes a consumer menu only; it does not change shared provider routes.
+                    only keeps IDs; it never adds them.
       adapter       {adapts:{from, to}, address} — a PROTOCOL CONVERSION: the wire it
                     reads, the wire it speaks, and where the converted wire is served.
                     An agent that speaks `to` can be pointed at a provider that offers
