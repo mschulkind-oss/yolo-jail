@@ -2,7 +2,7 @@
 title: "Implementation plan: scoped operation-broker policy"
 status: accepted
 stage: DECIDED
-next: "Admit an independently materialized broker candidate and run U1 baseline reds"
+next: "Candidate admitted on branch broker-candidate-admit and U1 reds recorded (U2 and the Appendix C holder/selector reds green there, never code-reviewed); next unit is U4 completion (startup placement test, timed-read caps), then U7 and U8"
 depends-on:
   - scoped-broker-policy.md
   - pack-brokers.md
