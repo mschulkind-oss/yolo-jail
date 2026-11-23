@@ -342,7 +342,7 @@ branch is newest, and always say which copy and how it relates to the other.**
   terminal, in `yolo pack install` or `yolo pack update`, ssh may still ask you something (a new host key, a
   passphrase); a launch runs it detached, where nothing can prompt. It is bounded in time: it gets half of
   what the check has left, so a fetch that hangs times out as a failed fetch and the comparison and merge
-  base after it keep their time. It runs at every fresh launch and at `yolo pack update`, as part of the upstream check, which has no throttle (§4.2), at most once per repository and ref per command. A branch that moved is a new build key, and
+  base after it keep their time. It runs at every fresh launch and at `yolo pack update`, as part of the upstream check, which has no throttle ([§4.2](#42-the-check-at-every-fresh-launch)), at most once per repository and ref per command. A branch that moved is a new build key, and
   the normal check and build run.
 - **Which copy builds:**
 
