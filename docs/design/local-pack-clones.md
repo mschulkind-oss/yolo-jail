@@ -310,7 +310,7 @@ setup the launching account can read the owner's clone path. Neither is measured
   never queues behind another's refresh (`TryWithLock`, unchanged). A pinned `rev` still never refreshes.
 - **The background retry delays keep `BranchRefreshInterval`** ([`backgroundadvance.go:557`](../../internal/cli/backgroundadvance.go#L557),
   [`preparationforks.go:252`](../../internal/cli/preparationforks.go#L252)): they are backoff after a failure, not freshness throttles.
-- **A pack's skill payload** ([`skillpayload.go:226`](../../internal/packsrc/skillpayload.go#L226)) follows the new rule too, because it shares `fetchStep`.
+- **A pack's skill payload** ([`skillpayload.go:226`](../../internal/packsrc/skillpayload.go#L226)) follows the new rule too, because it shares `fetchStep`. It probes against its recorded commit, not the mirror's branch, so a fetch whose blob completion failed still retries. One consequence: a complete but invalid candidate is refetched at every fresh launch while the remote tip differs from the record, and the record keeps serving the last good payload meanwhile.
 - **`local_clones` and the clone map** are unchanged except that a `local` path registers a clone.
 - **Reapers and stamps.** The per-ref success stamp remains as the display of "last fetched"; no decision reads it.
 
@@ -319,7 +319,7 @@ setup the launching account can read the owner's clone path. Neither is measured
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
 | LPC-D1 | Owner: drop the hourly throttle for packs. *"I'm thinking we skip the hour. We drop the hourly throttle entirely. There doesn't seem to be a good reason for it."* *"We want the updates when the updates come out as long as the check is not expensive."* Principle P4 and the "at most hourly" ruling are retired | 2026-11-23 | [§4](#4-the-check) | No |
-| LPC-D2 | A fresh launch probes (`ls-remote`) every branch pack and fetches only a moved branch; an explicit act fetches without probing | 2026-11-23 | [§4.1](#41-what-runs-at-every-fresh-launch) | No |
+| LPC-D2 | A fresh launch probes (`ls-remote`) every branch pack and fetches only a moved branch; an explicit act fetches without probing | 2026-11-23 | [§4.1](#41-what-runs-at-every-fresh-launch) | Probe built `f763457b3`; the patched-fork check probes tags too, so a new release tag on an unmoved branch fetches |
 | LPC-D3 | Concurrent across mirrors, one 5 s deadline per phase covering lock wait, probe and fetch; a pack with no held copy keeps the 60 s first fetch | 2026-11-23 | [§4.2](#42-parallelism-and-the-deadline) | No |
 | LPC-D4 | Timeout or failure runs the held copy, never refuses, one warning per pack naming the next step | 2026-11-23 | [§4.3](#43-deadline-failure-and-what-runs) | No |
 | LPC-D5 | An unmoved pack prints nothing, a moved one the `Updated pack` line, a `local` pack always its provenance line | 2026-11-23 | [§4.4](#44-which-lines-a-launch-prints) | No |
