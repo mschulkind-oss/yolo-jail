@@ -6,10 +6,10 @@ next: "Root combined gate and native Apple runtime verification"
 
 # Apple Container image prune: bounded repair plan
 
-**Status:** 2026-10-29. Production repair is built in the reviewed candidate and assembled for the combined gate. **UNMEASURED:** native Apple Container JSON output/deletion remains outstanding; the isolated matched-launcher nested shell smoke does not exercise Apple prune behavior.
+**Status:** 2026-10-29. Production repair is built in the reviewed candidate and assembled for the combined gate. **Measured natively 2026-10-29:** Apple Container 1.1.0's JSON parses through the new reader, and a dry run and `--apply` removed three `yolo-jail` tags and kept `latest`, the running container's image and every non-yolo image ([Mac evidence](macos-native-tls.md#mac-evidence-witness-run)). **Owed:** that a launch after a prune drops the stale image-delivery record and reloads (not observed on Apple Container; re-run at main `6b0e53ed4` or later).
 Written against `8c0bc42f3a72e19b9f27a06f33b1fdf4a63c4679`, 2026-10-29.
 Behavior authority: [image retention](../reference/image-retention.md#principles),
-[reported native defect](../lab-reports/2026-10-29-mac-ci-cleanup-and-native-confirmation.md#why-it-piles-up).
+reported native defect (the old probe listed images with podman's `images` verb, which Apple Container lacks, so the reaper declined on every run; Apple's spelling is `container image list`).
 Accepted tactical execution is an ordinary repair, not a new retention policy.
 Precedence: retention invariants win on behavior; current tree wins on fact; this plan is advice.
 
@@ -102,7 +102,7 @@ Repository equality recognizes `yolo-jail`, `localhost/yolo-jail`, and Apple's n
 ## Review backlog — not fixed
 
 - Add independent production-caller cases where a live container retains the same stored image reference but has a different descriptor digest, for both initial selection and guarded fresh recheck. Existing tests can pass through digest protection without independently exercising the reference veto.
-- Native Apple 1.1.0 emitted list/all-container/inspect/delete behavior remains unmeasured. The external final-check-to-delete race remains: this source-derived repair does not establish an atomic in-use veto.
+- Native Apple 1.1.0 list, container-list and delete behavior was measured 2026-10-29 (see the status line); inspect was not. The external final-check-to-delete race remains: this source-derived repair does not establish an atomic in-use veto.
 
 
 Gates:

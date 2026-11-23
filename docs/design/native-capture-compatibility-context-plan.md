@@ -8,7 +8,7 @@ next: "Root batch gate and unresolved native parse witness"
 
 # Native capture compatibility context
 
-**Status:** 2026-10-29. Capture-context repair is built in the reviewed candidate and assembled for the combined gate. **UNMEASURED:** native Mac capture/Seatbelt behavior and the separate self-mode version-parse report remain unverified; the original emitter/output witness is still owed.
+**Status:** 2026-10-29. Capture-context repair is built in the reviewed candidate and assembled for the combined gate. **Measured natively 2026-10-29** ([Mac evidence](macos-native-tls.md#mac-evidence-witness-run), [OQ-MT8](macos-native-tls.md#OQ-MT8)): a native `yolo capture copilot` gets a valid context. The separate self-mode parse report was Copilot's version ending a sentence (`1.0.103.`), fixed by `f44d66d64`.
 
 Written against `8c0bc42f3a72e19b9f27a06f33b1fdf4a63c4679`.
 Behavior authority: [program delivery](program-delivery.md); scope and constraints are the accepted

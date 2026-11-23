@@ -47,7 +47,7 @@ any secret.
   Safehouse-style profile, which reaches the keychain Mach services and the keychain files, can
   get the secret with no dialog. It can do so by running the program, a downloaded copy of the
   program, or `security`. The
-  [2026-10-29 Mac run](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md) measured that
+  [2026-10-29 Mac run](../design/macos-native-tls.md#mac-evidence-witness-run) measured that
   the access list is still enforced under that profile. So "readable" here always means "the
   access list already trusts something the jail can run".
 
@@ -152,7 +152,7 @@ typical developer Mac
 [anthropics/claude-code#103019](https://github.com/anthropics/claude-code/issues/103019)).
 Route 2 covers git, Docker and Python-keyring credentials (table rows above). Neither route needs
 an access-list bypass, which matches the
-[2026-10-29 Mac run](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md): the access list
+[2026-10-29 Mac run](../design/macos-native-tls.md#mac-evidence-witness-run): the access list
 held, and the exposure comes from what the access list trusts.
 
 ## Not confirmed

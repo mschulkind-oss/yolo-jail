@@ -10,7 +10,7 @@ summary: "Inside the macos-user Seatbelt profile, yolo's nixpkgs mise fails ever
 
 # mise cannot reach HTTPS inside macos-user, and the keychain deny is why
 
-**Status:** 2026-10-29. The mise fix, the certificate/keychain boundary and the Safehouse comparison are measured on a Mac ([the native audit](#mac-side-follow-up--audit-the-securityserver-boundary), [the witness run](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md)); two witnesses remain, [OQ-MT6](#OQ-MT6) (untested) and [OQ-MT11](#OQ-MT11) (unreachable on a shipped launch).
+**Status:** 2026-10-29. The mise fix, the certificate/keychain boundary and the Safehouse comparison are measured on a Mac ([the native audit](#mac-side-follow-up--audit-the-securityserver-boundary), [the witness run](#mac-evidence-witness-run)); two witnesses remain, [OQ-MT6](#OQ-MT6) (untested) and [OQ-MT11](#OQ-MT11) (unreachable on a shipped launch).
 
 > **In short.** Keep securityd denied and change mise, the same way the Go fix changed Go: ship
 > a mise build whose TLS verifies through the trust daemon the profile already allows, so
@@ -24,7 +24,7 @@ the cause in [§2](#2-the-cause) predicts every Mac.
 
 **Start at [§2](#2-the-cause).**
 
-**Mac-side follow-up:** The yolo [SecurityServer boundary audit](../lab-reports/2026-10-29-mac-securityserver-audit.md) is measured; the Copilot request path remains open before graduation ([OQ-MT11](#OQ-MT11)).
+**Mac-side follow-up:** The yolo [SecurityServer boundary audit](#mac-evidence-boundary) is measured; the Copilot request path remains open before graduation ([OQ-MT11](#OQ-MT11)).
 
 **Owed by the Mac agent:** the native witnesses [OQ-MT6](#OQ-MT6) and [OQ-MT11](#OQ-MT11) only, with their commands in the [comparison runbook](../plans/macos-native-comparison-runbook.md#native-witnesses-one-per-open-question).
 
@@ -175,13 +175,147 @@ tools installed, with no profile change.
 
 ## Mac-side follow-up — audit the SecurityServer boundary
 
-**Yolo baseline measured; the Safehouse comparison was measured 2026-10-29 ([OQ-MT3](#OQ-MT3), [OQ-MT4](#OQ-MT4)); Copilot runtime still pending.** The [October 29 native report](../lab-reports/2026-10-29-mac-securityserver-audit.md) (pinned report blob `2b308915f3bbfb60cd683c0560fd57b10fe42acb`; [served revision](https://github.com/mschulkind-oss/yolo-jail/blob/f2a317c4b4515cb160d47dfbd6ea14d9bea86314/docs/lab-reports/2026-10-29-mac-securityserver-audit.md)) ran against deployed yolo `d159a57f0` (`0.15.1+705`) on macOS 26.5. The shipped real `yolo -- bash` self-mode launch and its generated unchanged `p0` deny both blocked the **tested** secret/attribute read, fixture enumeration, add, delete, lock and unlock operations on a disposable unlocked file-based keychain *readable in the workspace*. With **only** `com.apple.SecurityServer` allowed in a throwaway `p2` profile, the same `/usr/bin/security`-trusted no-prompt fixture admitted those operations. For a second disposable file-based keychain *outside* readable roots, path-based operations failed under both `p0` and `p2`. Here, securityd denial is the sole barrier for the readable permissive specimen, and the file deny independently stops these **path-based** operations for the inaccessible specimen. That does not prove access to every real login item, ACL bypass, pathless session operations, or data-protection (`secd`) behavior. No owner credential was read/printed or login keychain modified; default/search-list metadata matched before/after, and fixtures were deleted. [MT-D1, MT-D3 and MT-D4](#decision-ledger) stand; **do not turn on SecurityServer**.
+**Yolo baseline measured; the Safehouse comparison was measured 2026-10-29 ([OQ-MT3](#OQ-MT3), [OQ-MT4](#OQ-MT4)); Copilot's own runtime was measured 2026-10-30 ([results](../research/copilot-keychain-boundary.md#mac-results-2026-10-30)); the guard still keeps it from running under the unchanged deny ([OQ-MT11](#OQ-MT11)).** The [October 29 native audit](#mac-evidence-boundary) ran against deployed yolo `d159a57f0` (`0.15.1+705`) on macOS 26.5. The shipped real `yolo -- bash` self-mode launch and its generated unchanged `p0` deny both blocked the **tested** secret/attribute read, fixture enumeration, add, delete, lock and unlock operations on a disposable unlocked file-based keychain *readable in the workspace*. With **only** `com.apple.SecurityServer` allowed in a throwaway `p2` profile, the same `/usr/bin/security`-trusted no-prompt fixture admitted those operations. For a second disposable file-based keychain *outside* readable roots, path-based operations failed under both `p0` and `p2`. Here, securityd denial is the sole barrier for the readable permissive specimen, and the file deny independently stops these **path-based** operations for the inaccessible specimen. That does not prove access to every real login item, ACL bypass, pathless session operations, or data-protection (`secd`) behavior. No owner credential was read/printed or login keychain modified; default/search-list metadata matched before/after, and fixtures were deleted. [MT-D1, MT-D3 and MT-D4](#decision-ledger) stand; **do not turn on SecurityServer**.
 
-**TLS is not password access.** The [same Mac harness](../lab-reports/2026-10-29-mac-securityserver-audit.md#3-certificate-only-mechanisms-compared-in-the-harness) evaluated a public certificate chain with `SecTrustCreateWithCertificates` + `SecTrustEvaluateWithError` under unchanged `p0` and rejected a self-signed chain (`-67843`). URLSession fetched public HTTPS under `p0`; curl and Node with their own CA inputs also worked (Node's system-keychain certificate listing remained unavailable under the file deny). Only a legacy SecureTransport `SSLHandshake` probe returned `-9808` under `p0` and succeeded under `p2`. That is an API/implementation coupling: legacy peer-key/CDSA setup needs the coarse `SecurityServer` lookup despite *server-cert validation* not requesting user passwords. Rust's crate named `native-tls` uses this failing path; **native OS trust** (`SecTrust` via trustd) is a different working path. URLSession's negative-cert control and `SecTrust`'s hostname-mismatch/SSL-policy check were not recorded, and an MDM-only TLS interception CA was not exercised; do not declare every validation case proved. Client mTLS/private-key operations are outside these server-certificate controls. No Copilot TLS request was run. The separate [research](../research/copilot-native-networking.md#two-public-10105-mac-distributions-and-the-callsite-limit) now distinguishes the opaque npm Mach-O from the release JS/Rust addon, which links *both* TLS paths without establishing which GitHub HTTP caller uses which.
+**TLS is not password access.** The [same Mac harness](#mac-evidence-certificates) evaluated a public certificate chain with `SecTrustCreateWithCertificates` + `SecTrustEvaluateWithError` under unchanged `p0` and rejected a self-signed chain (`-67843`). URLSession fetched public HTTPS under `p0`; curl and Node with their own CA inputs also worked (Node's system-keychain certificate listing remained unavailable under the file deny). Only a legacy SecureTransport `SSLHandshake` probe returned `-9808` under `p0` and succeeded under `p2`. That is an API/implementation coupling: legacy peer-key/CDSA setup needs the coarse `SecurityServer` lookup despite *server-cert validation* not requesting user passwords. Rust's crate named `native-tls` uses this failing path; **native OS trust** (`SecTrust` via trustd) is a different working path. URLSession's negative-cert control and `SecTrust`'s hostname-mismatch/SSL-policy check were not recorded, and an MDM-only TLS interception CA was not exercised; do not declare every validation case proved. Client mTLS/private-key operations are outside these server-certificate controls. No Copilot TLS request was run. The separate [research](../research/copilot-native-networking.md#two-public-10105-mac-distributions-and-the-callsite-limit) now distinguishes the opaque npm Mach-O from the release JS/Rust addon, which links *both* TLS paths without establishing which GitHub HTTP caller uses which.
 
 **Remaining bounded handoff — no repeat of the yolo baseline.** The owner has authorized the synthetic-only security-envelope goal; the blocker is a Mac executor, not another owner policy decision. Use an available disposable account/workspace and *only* newly created synthetic keychain fixtures, no real login/default keychain item, owner credential, global search-list change, live Copilot login/prompt/API request or production-policy edit. The first comparison is an unsandboxed no-prompt read plus add/read-back positive control on one explicitly named fixture, then the **same UID, real HOME and exact fixture** under rendered Safehouse Copilot-selected policy, its no-keychain-profile baseline, and unchanged yolo `p0`. Pin effective policy hashes, selection, file/service grants and child inheritance. Run only a small harmless Security.framework probe and child, **not Copilot**: the outer profile's process capability is not proof of Copilot's optional inner shell-tool permissions or actual auth storage. Every query must explicitly bind the sole fixture keychain and fixed class/service/account using applicable documented API selectors; if an add/update cannot be scoped, mark untested. A fresh HOME without a new UID/search list is not isolation. Separately contrast a preexisting dedicated guest UID with its own *synthetic* keychain only if this can be done without owner-account changes. Verify restricted item/ACL behavior after the permissive control, then conditionally expand to attributes, fixture-only enumeration, update/delete, certificate and key operations as independently scoped. Identify file-byte reads separately from daemon item calls, and record prompts, sandbox denies, item ACL denies and missing items separately. No printing secrets. If a restrictive item can only be installed with an unexpected prompt, stop and mark it untested.
 
-**Never run the native report's proposed `security lock-keychain -a` on the owner's session/login keychain.** It is pathless and would touch real state. If a pathless operation must be tested, use a *separate* disposable UID whose sole default keychain is synthetic, without changing any owner search list; otherwise leave that class untested. Native TLS follow-up checks a valid peer **and hostname**, plus both invalid chain and hostname mismatch with verification enabled, while keeping the service deny. A miniature client does not prove Copilot's native caller. The next Copilot test requires a credential-free request via its actual native HTTP path or vendor callsite confirmation; an actual agent login/API request needs a separately human-chosen run. Keep the outcome private and distinguish intended Safehouse broadened access from a demonstrated policy/ACL violation. Only after the actual Copilot path is understood should this design graduate into [`docs/reference/`](../reference/). The remaining witnesses, [OQ-MT6](#OQ-MT6) and [OQ-MT11](#OQ-MT11), are open questions in [§7](#7-open-questions).
+**Never run the audit's proposed `security lock-keychain -a` on the owner's session/login keychain.** It is pathless and would touch real state. If a pathless operation must be tested, use a *separate* disposable UID whose sole default keychain is synthetic, without changing any owner search list; otherwise leave that class untested. Native TLS follow-up checks a valid peer **and hostname**, plus both invalid chain and hostname mismatch with verification enabled, while keeping the service deny. A miniature client does not prove Copilot's native caller. The next Copilot test requires a credential-free request via its actual native HTTP path or vendor callsite confirmation; an actual agent login/API request needs a separately human-chosen run. Keep the outcome private and distinguish intended Safehouse broadened access from a demonstrated policy/ACL violation. Only after the actual Copilot path is understood should this design graduate into [`docs/reference/`](../reference/). The remaining witnesses, [OQ-MT6](#OQ-MT6) and [OQ-MT11](#OQ-MT11), are open questions in [§7](#7-open-questions).
+
+## Mac evidence, 2026-10-29
+
+Measured on the maintainer's Mac (macOS 26.5, arm64, Command Line Tools only, Apple Container
+1.1.0). The two runs were a SecurityServer audit of yolo `d159a57f0` (`0.15.1+705`), and a
+comparison-runbook run of `6f651f8c4` (`0.15.1+773`) in a disposable account. Their lab reports are
+retired into this section; `git log --follow` on `docs/lab-reports/2026-10-29-mac-securityserver-audit.md`
+and `…-mac-native-witnesses-runbook.md` recovers them. **Terms.** *p0* is the shipped self-mode
+profile (`yolo internal macos-user-profile --mode self`). *p2* is p0 plus one appended
+`(allow mach-lookup (global-name "com.apple.SecurityServer"))`; re-allowing all three securityd
+names (p1) gave the same results. A *file-based keychain* is a `.keychain-db` file read through the
+old CDSA API, which `/usr/bin/security` uses; the login keychain is one. The data-protection
+keychain (`secd`) is separate and was not covered.
+
+<a id="mac-evidence-boundary"></a>
+
+### The boundary as shipped
+
+- The self-mode launch and its capture use `DenyDefaultProfile`: `(deny default)`, securityd never
+  in the `mach-lookup` allowlist, and denied again by name last. `com.apple.trustd.agent` is
+  allowed. Account mode and its capture use `(allow default)` and deny no Mach service, because
+  that process runs as `_yolojail`, which cannot read the owner's keychain files.
+- Checks b4 and b5 of the [prototype runbook](../plans/runbooks/macos-user-model-prototype/run-checks.sh)
+  only show that a no-prompt login-keychain secret read through `security`, and a byte read of the
+  login keychain file, are both denied. They cannot say which layer did it.
+
+A disposable keychain made outside the sandbox with `security create-keychain` (never auto-locks,
+unlocked, one item trusting `/usr/bin/security`, plus a victim item) was probed four ways. Creating
+it left the search list and default keychain unchanged, as Apple's source says.
+
+**A keychain whose file the sandbox can read (in the workspace):**
+
+| Operation | control | real launch | p0 | p2 |
+| :--- | :--- | :--- | :--- | :--- |
+| read the file's bytes | ok | ok | ok | ok |
+| secret read (`find-generic-password -w`) | **printed** | 44 | 44 | **printed** |
+| attribute query | attributes | 44 | 44 | attributes |
+| enumeration (`dump-keychain`) | items | nothing | nothing | items |
+| write (`add-generic-password`) | ok | 152 | 152 | **item added** |
+| delete the victim item | ok | 44, still there | 44 | **deleted** |
+| `lock-keychain` | ok | 206 | 206 | **locked** |
+
+**A keychain whose file the sandbox cannot read:** under both p0 and p2 the file read is EPERM and
+every path-based operation fails (44, 152, or 206 under p0 and the client's own EPERM, 161, under
+p2).
+
+Reading: for a readable keychain file, the securityd deny is the **only** barrier, and for one it
+cannot read the file deny is a second, independent layer. Each layer alone defeated every path-based operation tried. This
+does not show the login keychain behaves the same (it is the default, known to securityd by
+session, with special cases in Apple's source). The pathless `lock-keychain -a` was not run against
+the owner's session; the [10-30 run](../research/copilot-keychain-boundary.md#mac-results-2026-10-30)
+measured it on a disposable account (p2 locks every keychain in the session). MT-D1 and MT-D7
+stand.
+
+<a id="mac-evidence-certificates"></a>
+
+### Certificate-only mechanisms under p0
+
+| Mechanism | no sandbox | p0 | p2 | negative control under p0 |
+| :--- | :--- | :--- | :--- | :--- |
+| `/usr/bin/curl` (LibreSSL, CA file) | 200 | 200 | 200 | self-signed: `curl: (60)` |
+| URLSession (trust by trustd) | 200 | 200 | 200 | -1202 for self-signed and wrong host |
+| `SecTrustEvaluateWithError` (what rustls-platform-verifier calls) | ok | **ok** | ok | self-signed -67843, wrong host -67602 |
+| SecureTransport `SSLHandshake` (Rust `native-tls`) | 0 | **-9808 `errSSLBadCert`** | 0 | expired: -9808 |
+| Node 24.19 `fetch` (bundled roots + `NODE_EXTRA_CA_CERTS`) | 200 | 200 | 200 | `DEPTH_ZERO_SELF_SIGNED_CERT` |
+
+- SecureTransport is the only mechanism that needs securityd. A 40-line client reproduces mise's
+  "bad certificate format" exactly, so the failure is a property of the API, not of mise.
+- `SecTrustEvaluateWithError` verifies under the unchanged profile and still rejects an untrusted
+  certificate: the evidence [§3](#3-the-proposal) needed for the rustls path. It shows the verifier
+  API works, not that a rustls build of mise does.
+- Node's system store (`tls.getCACertificates("system")`) is 2 outside and **0 under p0, p1 and p2**:
+  the file deny on `/Library/Keychains` closes it, not securityd. Node still works because a
+  self-mode launch sets `NODE_EXTRA_CA_CERTS` to a one-certificate file.
+- Chains captured with `openssl s_client` verified identically unsandboxed and under p0 (example.com
+  trusted, HTTP 200). Not tested: a server signed only by the MDM CA ([OQ-MT6](#OQ-MT6)).
+
+<a id="mac-evidence-copilot-static"></a>
+
+### Copilot 1.0.105, by static inspection
+
+The release addon `prebuilds/darwin-arm64/runtime.node` links `native-tls` 0.2.18 and 0.3.1,
+`security-framework` 3.7.0, `hyper-rustls` 0.27.10, `rustls` 0.23.46 and
+`rustls-platform-verifier` 0.7.1, and imports both `SSLHandshake` and `SecTrustEvaluateWithError`.
+No `COPILOT_*` name in the addon or `cli-main.js` selects a TLS backend, and `COPILOT_ENABLE_HTTP2`
+does not appear. The addon reads `NODE_EXTRA_CA_CERTS` and `CURL_CA_BUNDLE`, an extra-CA input and
+not a backend choice. Which client uses which stack cannot be read from the strings. The runtime
+result is in the [10-30 results](../research/copilot-keychain-boundary.md#mac-results-2026-10-30).
+
+<a id="mac-evidence-witness-run"></a>
+
+### The comparison-runbook run
+
+**Setup.** `yolo-witness` (uid 504) was a standard hidden account reached over SSH with a throwaway
+key, because each SSH login is a new security session and `sudo -u` is not. At first login it had
+only the System keychain in its search list and no default keychain. Keychain and Safehouse rows
+ran there against a fixture keychain at an explicit path; the other rows ran in the maintainer's
+account, which is the one account-mode user.
+
+**Runbook corrections that this run found,** all since applied to the
+[runbook](../plans/macos-native-comparison-runbook.md): the pinned Safehouse has no `policy`
+subcommand (policy mode is `--stdout`); `"macos_user_mode": "self"` goes in the user scope, not
+`yolo-jail.jsonc`; a TOML-representable inherited scope arrives as `config.toml`; and a denied
+service surfaces as `errSecItemNotFound` (-25300) or `errSecInteractionNotAllowed` (-25308), never
+as a sandbox error. The kernel's sandbox log had no entry for the probe, so the category rests on
+the readable file, the successful unsandboxed control and the profile's service deny.
+
+| Row | Result |
+| :--- | :--- |
+| `safehouse-copilot`, read / add and read back | match, status 0: Safehouse's broadened access |
+| `safehouse-no-keychain` overlay, read / add | -25300 / add -25308 |
+| restricted item, unsandboxed / `safehouse-copilot` | -25293 both: no ACL bypass |
+| restricted item, p0 | -25300: the deny stops the call before the ACL |
+| p0, `shasum` of the fixture file | readable: the refusal is the service, not the file |
+
+**Maintainer-account rows.**
+
+- *Inherited relaunch.* Both account-mode launches found the delivered config read-only, refused
+  an append and exited 0 with no `refusing` line, the second-launch refusal
+  repaired by `1c8be03c9`. The integration test that probed `config.jsonc` was stale (a copy
+  probing `config.toml` passed); `14c00e994` fixed it and it passed natively at `3cad08c6a`.
+- *Capture context and Copilot.* A native `yolo capture copilot` got a valid context and stopped
+  on the intended 1.0.93+ refusal. The earlier "cannot parse … version probe" was Copilot's version
+  ending a sentence (`1.0.103.`); `f44d66d64` accepts it
+  (pinned by `TestShippedCopilotVersionProbeAcceptsVendorLabelAndNumericComparison`).
+- *Claude view On then Off.* Off retired the workspace's registration (2 views to 1). The false
+  `not a recognized launch setting` warning for `YOLO_CLAUDE_CREDENTIAL_VIEW` was fixed by
+  `d366fd0df` and holds natively at `3cad08c6a`.
+- *Apple Container prune.* Listing and deletion work on Apple Container 1.1.0's JSON (`662d9103b`); the dry run and
+  `--apply` printed no `FAILED`. The three tags removed were the three in
+  `build/last-load-container`, which image retention rules is never liveness. **Owed:** a launch
+  after the prune should delete the stale `image-delivery/<id>.delivered.json` and load the image
+  (`6b0e53ed4` pins this on Linux; no Apple Container launch has observed it). Re-run at main
+  `6b0e53ed4` or later.
 
 ## 7. Open questions
 
@@ -221,13 +355,13 @@ tools installed, with no profile change.
    > CAs not work in some subset of the guest separate account mode. That's totally fine, and we'll
    > just document that."
 
-**Open questions.** [OQ-MT12](#OQ-MT12) is research. Two witnesses of the 2026-10-29 [Mac run](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md) stay open; the other seven are in the [Decision Ledger](#decision-ledger).
+**Open questions.** [OQ-MT12](#OQ-MT12) is research. Two witnesses of the 2026-10-29 [Mac run](#mac-evidence-witness-run) stay open; the other seven are in the [Decision Ledger](#decision-ledger).
 
 <a id="OQ-MT6"></a>**🔒 OQ-MT6: Does trustd under P0 trust a CA that only the MDM installed?**
 
 <!-- vantage: question id=OQ-MT6 -->
 
-**Untested.** The 2026-10-29 run's network does not intercept TLS ([report](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#1-results)), so no row could run. [§3](#3-the-proposal) claims it does; the witness needs a managed Mac on a network that intercepts TLS with a CA only the MDM installed.
+**Untested.** The 2026-10-29 run's network does not intercept TLS ([Mac evidence](#mac-evidence-witness-run)), so no row could run. [§3](#3-the-proposal) claims it does; the witness needs a managed Mac on a network that intercepts TLS with a CA only the MDM installed.
 
 **Witness:** [MDM-installed CA under P0](../plans/macos-native-comparison-runbook.md#mdm-installed-ca-under-p0).
 
@@ -235,7 +369,7 @@ tools installed, with no profile change.
 
 <!-- vantage: question id=OQ-MT11 -->
 
-**Unreachable on a shipped launch.** The compatibility guard refuses Copilot 1.0.93 and newer before Copilot makes any request, so the `bad certificate format` line the runbook expects cannot appear; the rendered profile still contains `com.apple.SecurityServer` ([report §4.2](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#42-capture-context-and-copilot)). The question stays open until a way past the guard exists. Tracked as [yolo-jail #65](https://github.com/mschulkind-oss/yolo-jail/issues/65), which is open. The deny stays whatever the answer.
+**Unreachable on a shipped launch.** The compatibility guard refuses Copilot 1.0.93 and newer before Copilot makes any request, so the `bad certificate format` line the runbook expects cannot appear; the rendered profile still contains `com.apple.SecurityServer` ([Mac evidence](#mac-evidence-witness-run)). The question stays open until a way past the guard exists. Tracked as [yolo-jail #65](https://github.com/mschulkind-oss/yolo-jail/issues/65), which is open. The deny stays whatever the answer.
 
 **Witness:** [Copilot native TLS under the keychain deny](../plans/macos-native-comparison-runbook.md#copilot-native-tls-under-the-keychain-deny).
 
@@ -258,10 +392,10 @@ Questions 6 and 11 are witnesses and 12 is research, not rulings; and a row that
 | MT-D5 | Bridge: on darwin, the macos-user tool profile takes nixpkgs mise with its cargo features switched from `native-tls` to `rustls-native-roots` (a build setting, not a patch). Fallback if the per-Mac compile proves too slow: option A. Witness C passed 2026-10-23 | 2026-10-23 | [§4](#4-alternatives) | ✅ 2026-10-23, `noncontainerFloorSubstitutes` in `flake.nix`, with the `rustls` feature: at mise v2026.10.3 it and `rustls-native-roots` map every crate to the same `reqwest/rustls`. |
 | MT-D6 | The nixpkgs change (option F) is not pursued; the `flake.nix` substitute stays the fix. The maintainer: "I will not pursue this upstream" | 2026-10-23 | [§3](#3-the-proposal) | — |
 | MT-D7 | Safehouse-style keychain access (allowing `com.apple.SecurityServer`, `com.apple.securityd.xpc`, `com.apple.secd` and the keychain files) stays off in every mode, account mode included, until [OQ-MT12](#OQ-MT12) is answered. The reason: a keychain item's access list names a *program* by its code signature, or by its contents if it is unsigned, and never the containment that runs it. A jail that can reach the service and read the keychain file therefore gets every item a program it can run, or download a copy of, is trusted for. The vendor that signed that program assumed the keychain was separating users, not jails. The maintainer's example: a cloud CLI that kept its credentials in the login keychain would hand them to the agent | 2026-10-29 | [§4](#4-alternatives) | — |
-| <a id="OQ-MT3"></a>[OQ-MT3](#OQ-MT3) | Safehouse's effective Copilot policy admits the synthetic keychain read that yolo's deny blocks: `safehouse-copilot` read the permissive item (status 0, `match=true`), while the no-keychain overlay returned -25300 (`errSecItemNotFound`, `match=false`). This is Safehouse's documented broadened access, not a violation | 2026-10-29 | [report §3.2](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#32-safehouse) | — |
-| <a id="OQ-MT4"></a>[OQ-MT4](#OQ-MT4) | No ACL bypass: an item whose access list trusts no application read -25293 unsandboxed and inside `safehouse-copilot`; under the yolo P0 harness it read -25300, because the service deny stops the call before the ACL is consulted | 2026-10-29 | [report §3.3](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#33-restrictive-acl) | — |
-| <a id="OQ-MT5"></a>[OQ-MT5](#OQ-MT5) | The current tree's P0 blocks the keychain (read permissive and restricted -25300, add -25308) and holds all four mandatory service denies. Identical unsandboxed and under P0: example.com trusted (HTTP 200), self-signed.badssl.com -67843 and wrong.host.badssl.com -67602 not trusted (URLSession -1202) | 2026-10-29 | [report §3.4](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#34-current-p0-and-tls-controls) | — |
-| <a id="OQ-MT7"></a>[OQ-MT7](#OQ-MT7) | The second account-mode launch reuses the inherited user config: both launches ran as `_yolojail`, found it delivered read-only, refused an append and exited 0 with no `refusing` line. `TestMacosUserInheritedUserScopeArrivesReadOnly` fails natively because it probes `config.jsonc` while a TOML-representable scope arrives as `config.toml`; the test is stale (a copy probing `config.toml` passed) | 2026-10-29 | [report §4.1](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#41-inherited-account-relaunch) | — |
-| <a id="OQ-MT8"></a>[OQ-MT8](#OQ-MT8) | A native `yolo capture copilot` carries a valid launch context: no `invalid macos-user launch context` line, and the version probe now gives the intended 1.0.93+ refusal instead of a parse error | 2026-10-29 | [report §4.2](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#42-capture-context-and-copilot) | — |
-| <a id="OQ-MT9"></a>[OQ-MT9](#OQ-MT9) | Turning the Claude credential view Off retires the workspace's registration: status went from 2 views to 1 (the host store's, unchanged), and the workspace credentials file became a symlink to the shared path. Both launches printed a false `not a recognized launch setting` warning for `YOLO_CLAUDE_CREDENTIAL_VIEW`, which the launches nonetheless obeyed | 2026-10-29 | [report §4.3](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#43-claude-view-on-then-off) | — |
-| <a id="OQ-MT10"></a>[OQ-MT10](#OQ-MT10) | Apple Container 1.1.0 emits the JSON the prune reads (every image row had a name and a `sha256:` digest) and the prune works: the dry run and `--apply` printed no `FAILED` line, `--apply` removed three `yolo-jail` tags, and `yolo-jail:latest`, the builder image and every non-yolo image were kept | 2026-10-29 | [report §4.4](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#44-apple-container-prune) | — |
+| <a id="OQ-MT3"></a>[OQ-MT3](#OQ-MT3) | Safehouse's effective Copilot policy admits the synthetic keychain read that yolo's deny blocks: `safehouse-copilot` read the permissive item (status 0, `match=true`), while the no-keychain overlay returned -25300 (`errSecItemNotFound`, `match=false`). This is Safehouse's documented broadened access, not a violation | 2026-10-29 | [Mac evidence](#mac-evidence-witness-run) | — |
+| <a id="OQ-MT4"></a>[OQ-MT4](#OQ-MT4) | No ACL bypass: an item whose access list trusts no application read -25293 unsandboxed and inside `safehouse-copilot`; under the yolo P0 harness it read -25300, because the service deny stops the call before the ACL is consulted | 2026-10-29 | [Mac evidence](#mac-evidence-witness-run) | — |
+| <a id="OQ-MT5"></a>[OQ-MT5](#OQ-MT5) | The current tree's P0 blocks the keychain (read permissive and restricted -25300, add -25308) and holds all four mandatory service denies. Identical unsandboxed and under P0: example.com trusted (HTTP 200), self-signed.badssl.com -67843 and wrong.host.badssl.com -67602 not trusted (URLSession -1202) | 2026-10-29 | [Mac evidence](#mac-evidence-witness-run) | — |
+| <a id="OQ-MT7"></a>[OQ-MT7](#OQ-MT7) | The second account-mode launch reuses the inherited user config: both launches ran as `_yolojail`, found it delivered read-only, refused an append and exited 0 with no `refusing` line. `TestMacosUserInheritedUserScopeArrivesReadOnly` fails natively because it probes `config.jsonc` while a TOML-representable scope arrives as `config.toml`; the test was stale (a copy probing `config.toml` passed) | 2026-10-29 | [Mac evidence](#mac-evidence-witness-run) | ✅ 2026-10-29, `14c00e994` probes the delivered path; passes natively at `3cad08c6a` |
+| <a id="OQ-MT8"></a>[OQ-MT8](#OQ-MT8) | A native `yolo capture copilot` carries a valid launch context: no `invalid macos-user launch context` line, and the version probe now gives the intended 1.0.93+ refusal instead of a parse error (the parse error was Copilot's version ending a sentence, `f44d66d64`) | 2026-10-29 | [Mac evidence](#mac-evidence-witness-run) | ✅ 2026-10-29, `662d9103b` and `f44d66d64` |
+| <a id="OQ-MT9"></a>[OQ-MT9](#OQ-MT9) | Turning the Claude credential view Off retires the workspace's registration: status went from 2 views to 1 (the host store's, unchanged), and the workspace credentials file became a symlink to the shared path. Both launches printed a false `not a recognized launch setting` warning for `YOLO_CLAUDE_CREDENTIAL_VIEW`, which the launches nonetheless obeyed | 2026-10-29 | [Mac evidence](#mac-evidence-witness-run) | ✅ 2026-10-29, `d366fd0df` stops the false warning; holds natively at `3cad08c6a` |
+| <a id="OQ-MT10"></a>[OQ-MT10](#OQ-MT10) | Apple Container 1.1.0 emits the JSON the prune reads (every image row had a name and a `sha256:` digest) and the prune works: the dry run and `--apply` printed no `FAILED` line, `--apply` removed three `yolo-jail` tags, and `yolo-jail:latest`, the builder image and every non-yolo image were kept | 2026-10-29 | [Mac evidence](#mac-evidence-witness-run) | — |
