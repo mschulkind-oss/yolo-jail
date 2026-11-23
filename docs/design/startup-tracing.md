@@ -2,23 +2,23 @@
 title: "One trace per launch: where startup time goes, and how to see it"
 status: accepted
 stage: DECIDED
-next: "Land and independently accept the joined-process trace-only lifetime adapter, then remap its actual API before U6b3 implementation"
+next: "Implement the caller slices in order: launcher ownership, keeper join, then final argv propagation"
 tags: [observability, timing, tracing, startup, perf]
 summary: "Turns the existing timing spans into one trace per launch that follows the launch across every process it starts, fills the stretches no span covers today, and reads it back as a text summary and an exported timeline for an off-the-shelf viewer."
 ---
 
 # One trace per launch: where startup time goes, and how to see it
 
-**Status:** 2026-11-21. [OQ-TR1–4](#decision-ledger) remain settled; **Needs your ruling: None**.
-Source inventory at `0d8fef21db9a22f30e63b3376cc9f2e4af23f288`
-(tree `d0e5a8d57daa679105602577722024ebc8654b48`) establishes partial implementation:
-identity/recorder, independent trace installation/root, admitted sink, bounded store/live-claim,
-host reader/graph/summary, immediate jail-writing, Chrome/OTLP encoder, and offline CLI/export
-foundations exist. U6b2 adds private pending admission, original-owner once-only publication,
-reserved launcher designation and public-only canonical root resolution; existing encoders reuse
-the resolved graph. Production collector initialization remains legacy-only. Production collection
-and invocation/keeper lifecycle integration, safe live ingestion/refresh, and backend propagation
-remain pending. Library or CLI existence is not production feature completion.
+**Status:** 2026-11-23. [OQ-TR1–4](#decision-ledger) remain settled; **Needs your ruling: None**.
+At source pin `0d91fbda84c1f3ef99422badca118d13400e2a7c`
+(tree `c346b22a08bfdd94366b1ae04c9b1e1c2da1b57c`), the joined-process trace-only lifetime
+adapter landed at ancestor `7f1be8842e819f301ef1f5822952f83394f5fd3f`. The source-built
+identity/recorder, independent trace installation/root and process-lifetime adapters, admitted
+sink, bounded store/live-claim, host reader/graph/summary, immediate jail-writing, Chrome/OTLP
+encoder, and offline CLI/export are partial foundations. Production collector initialization is
+still legacy-only: all U6b3 production launcher/keeper callers, lifecycle owners and deliberate
+carriers remain unbuilt. Safe live ingestion/refresh and backend propagation remain pending.
+These source observations are not test, backend, runtime-containment or overhead evidence.
 
 The engineering contracts below remain accepted; only the inventoried source slices are built.
 Source evidence is not a test, backend, runtime-containment, endpoint, or overhead pass.
@@ -49,7 +49,7 @@ two existing log formats.
 **Needs your ruling:** None.
 
 **Reads with:** [`startup-tracing-plan.md`](startup-tracing-plan.md) (the partial implementation
-plan restamped at the U6b3 source pin; [its joined-lifetime prerequisite](startup-tracing-plan.md#u6b3-prerequisite--joined-process-trace-only-lifetime) remains unbuilt before [caller integration](startup-tracing-plan.md#u6b3--production-invocation-and-keeper-integration)),
+plan at the current source pin; its launcher, keeper and final-argv slices all remain unbuilt),
 [`perf-logging.md`](../reference/perf-logging.md) (the reference for the timing system this
 extends; its principles P1 to P5 hold unchanged).
 
@@ -180,9 +180,10 @@ is committed later without restarting that root. Other acts retain their settled
 
 **Existing mechanism and insufficiency.** `perf.New`, `InstallIndependentTrace`,
 `IndependentRoot`, and `AdmittedTraceSink` provide reusable collector, identity, root, and
-checked-write foundations. They do not implement this protocol: `Mint` immediately publishes
-metadata, inventory requires it, the sink writes its header before the root exists, and root
-names cannot change. Installation must precede `probes.done`, the first ordinary production
+checked-write foundations. The pending-admission and designated-root APIs now exist in source,
+but production callers do not use them. `IndependentProcessSpan(name)` is also source-built for
+a joined process's trace-only lifetime; it does not install a sink, acquire a store claim, publish
+metadata, or wire a caller. Installation must precede `probes.done`, the first ordinary production
 event; the same collector retains its legacy sinks. An installation refusal disables only new
 tracing. The legacy `TraceSink` is not an admitted substitute.
 
@@ -191,7 +192,8 @@ original start and live claims, but no public `meta.json`. A *branch commit* is 
 decision after which this invocation actually proceeds as fresh launch or attached execution,
 not an attempted attach. A *launcher-root designation* is optional top-level
 `launcher_root: true` on the launcher's root-start event, identifying the existing span eligible
-for canonical display naming. These are accepted engineering protocols, not current APIs.
+for canonical display naming. These are accepted engineering protocols; their library APIs are
+source-built, but production callers remain unbuilt.
 
 A header descriptor would require a predetermined root ID or delayed header, neither supported
 by the current ordering. Instead, root creation emits the designation in the same checked append
@@ -383,9 +385,12 @@ termination can bypass all cleanup; no fsync, kill-flush, complete-end, or survi
 made. Close failure never changes launch status: record bounded partial-accounting diagnostics
 when possible, continue the remaining release order, and issue the shared safe warning once.
 
-Keeper plans carry a private context captured from the actual waiting span after it starts and
-before plan serialization; constructing the plan earlier does not fix its context early. A keeper
-joins with its own independently acquired claim, never by descriptor duplication/inheritance.
+The launcher freezes its existing recording decision with its collector and carries that boolean
+in the private keeper plan. The keeper uses that one decision for both legacy recording and trace
+acquisition; ambient timing opt-ins at keeper startup cannot turn either on independently.
+Keeper plans also carry a private context captured from the actual waiting span after it starts
+and before plan serialization; constructing the plan earlier does not fix its context early. A
+keeper joins with its own independently acquired claim, never by descriptor duplication/inheritance.
 An intentional join that is absent, malformed, conflicting, or unavailable disables tracing,
 never mints a fallback root. The launcher retains its original claim for its whole invocation;
 existing S/C/V/R frames are not claim acknowledgements. If it releases earlier in a future path,
@@ -394,11 +399,13 @@ that path needs an explicit acquired-claim acknowledgement first, without an int
 A joined keeper's process lifetime is represented by an actual trace-only child span, not another
 zero-parent or designated launcher root. Its immutable parent is the deliberate actual
 waiting-span context; start and end use real collector clock evidence. Ordinary existing phases
-and legacy recording/report output are unchanged. A joined lifetime needs an independently
-accepted library adapter because existing root APIs reject joined parents; caller integration
-must not erase the parent, fabricate wire events, or substitute an ordinary legacy-visible
-lifetime span. The keeper owner ends an acquired lifetime before closing its writer, claim and
-store; a declined acquisition never justifies omitting End from a successful one.
+and legacy recording/report output are unchanged. The source-built `IndependentProcessSpan(name)`
+adapter accepts an installed joined trace and nonzero parent, then permits one trace-only lifetime
+acquisition; production keeper integration remains unbuilt. Callers must not erase the parent,
+fabricate wire events, or substitute an ordinary legacy-visible lifetime span. The keeper owner
+ends an acquired lifetime before closing its writer, claim and store; a declined acquisition never
+justifies omitting End from a successful one. `Span.Context()` returns `(Context, bool)`: callers
+serialize its context only when both an acquired span and a valid context are available.
 
 Context insertion targets the final executed fresh runtime argv and actual image reference after
 service-environment insertion, not a stale plan copy. Missing insertion position disables only
@@ -1074,10 +1081,12 @@ its part of the reference rewritten.
 
 The `OQ-TR` rows are the owner's settled rulings; the `TR-D` rows are engineering decisions.
 TR-D15–22 clarify contracts without reopening [OQ-TR1–4](#decision-ledger). TR-D20–21 have partial
-U6b2 library implementations; TR-D22 production ownership/finalization remains unbuilt.
-Built entries below describe source existence at `0d8fef21db9a22f30e63b3376cc9f2e4af23f288`,
-not tests run or backend/runtime-containment/endpoint/overhead passes.
-A partial entry is not feature completion.
+U6b2 library implementations; TR-D22's joined-lifetime adapter is source-built, while its
+production ownership/finalization and caller integration remain unbuilt. The source inventory is
+restamped at `0d91fbda84c1f3ef99422badca118d13400e2a7c`; the adapter landed at ancestor
+`7f1be8842e819f301ef1f5822952f83394f5fd3f`. Built entries describe source existence, not tests
+run or backend/runtime-containment/endpoint/overhead passes. A partial entry is not feature
+completion.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
@@ -1106,7 +1115,7 @@ A partial entry is not feature completion.
 | TR-D19 | Export uses metadata-start selection, Chrome default, literal `-o` or stdout, and explicit exact-URL OTLP POST with no proxy, ambient credentials, redirects, or retries; enforce bounded/redacted responses and typed rejection counts | 2026-11-20 | [§7](#7-the-viewer-decision) | CLI/export source exists at `eedb4b30194ea23020b4630e35cde2ddc80c1507`; no endpoint/runtime pass claimed |
 | TR-D20 | One early neutral root; actual branch commits late; designated start permits canonical reader naming without changing recorded identity, names, time, or parent | 2026-11-21 | [Early recording and late launch truth](#early-recording-and-late-launch-truth) | Partial: U6b2 neutral-root designation and public-only resolver exist; production branch classification remains unbuilt |
 | TR-D21 | Recognized private pending admission protects physical metadata capacity; original owner publishes exactly seven public keys once; pending/incomplete/unavailable selection and crash retention are explicit | 2026-11-21 | [Pending admission and once-only publication](#pending-admission-and-once-only-publication) | Partial: U6b2 pending store/publication and public metadata authority exist; production selection/finalizer remains unbuilt |
-| TR-D22 | Explicit invocation lifetime ownership covers frontend/keeper final events and once-release; actual waiting-span carrier and independent child claims; no status-frame acknowledgement or kill-flush promise | 2026-11-21 | [Caller ownership, propagation, and finalization](#caller-ownership-propagation-and-finalization) | —; accepted integration contract, not built |
+| TR-D22 | Explicit invocation lifetime ownership covers frontend/keeper final events and once-release; actual waiting-span carrier and independent child claims; no status-frame acknowledgement or kill-flush promise | 2026-11-21 | [Caller ownership, propagation, and finalization](#caller-ownership-propagation-and-finalization) | Partial: joined-process trace-only adapter is source-built; production launcher/keeper ownership and carrier wiring remain unbuilt |
 
 ## Appendix A: two measured launches
 
