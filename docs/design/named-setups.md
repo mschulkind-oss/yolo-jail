@@ -406,7 +406,10 @@ belongs to the project, the agent or you.
   **automatically and without asking**, the first time a launch finds it **and no jail of that
   project is running** ([SU-D6](#SU-D6), ruled in [OQ-SU5](#OQ-SU5)). While one runs, the launch
   leaves the old home where it is and moves it at a later launch once all have stopped, the way
-  other changes wait for `yolo stop`. The move prints one informational line naming both paths;
+  other changes wait for `yolo stop`. The move happens only once the launch is committed (after
+  the config approval and the image build), so a launch you decline or that fails moves nothing.
+  An Apple Container setup does not take a home Podman laid, and a Podman setup does not take one
+  Apple Container laid; each leaves it and says which setup to launch. The move prints one informational line naming both paths;
   it is never a prompt. The source must be a real directory owned by the invoking user, never a
   symbolic link or other file type; anything else is left in place and the line says so with
   the `mv` to run. A home that cannot be attributed to one setup is left in place, never

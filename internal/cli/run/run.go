@@ -364,10 +364,13 @@ func Run(opts Options) (rc int) {
 	//
 	// THE HOME FIRST (legacyhome.go, named-setups-plan.md SUP-D9/SUP-D21): every setup has its own
 	// home under .yolo/setups/<name>, and a legacy .yolo/home moves there once no jail of the
-	// project runs. Here, after every gate that can refuse the launch and before anything reads
-	// or prepares a home, so a refused launch moves nothing. A dry run moves nothing either: it
-	// names the home a launch would bind now. Pinned by
-	// TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome.
+	// project runs. Here the move is only PLANNED (selectHome mutates nothing, and binds the path
+	// the move will produce); each arm performs it (commitHome) once the launch is committed,
+	// after the config approval, the image build and the pack, patch and provider refusals, and
+	// before the first write into the home, so a declined or failed launch moves nothing. A dry
+	// run moves nothing either: it names the home a launch would bind now. Pinned by
+	// TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome, TestADeclinedLaunchLeavesTheLegacyHomeInPlace
+	// and TestEveryArmCommitsTheHomeBeforeItWritesIt.
 	//
 	// selectHome may take the project lock (holdHomeLock), and selectFreshHome this jail's launch
 	// lock, so their releases are deferred first, for every return from here on. Idempotent.
@@ -579,6 +582,9 @@ func Run(opts Options) (rc int) {
 		// A SEALED LAUNCH IS A FORK'S BUILD (FP-D24; seal.go's runSealedMacosUser), and it crosses
 		// nothing this arm hands a session: it returns here, before the first crossing site below.
 		if o.Sealed {
+			if !o.commitHome() { // the build's sidecar home is written; legacyhome.go commitHome
+				return 1
+			}
 			return o.runSealedMacosUser(cfg, rt, repoRoot, staged, injectedArgs, channel)
 		}
 		// THE CONTEXT MOUNTS, first on this arm (docs/reference/context-mounts.md#tests-and-mac-probes):
@@ -748,6 +754,11 @@ func Run(opts Options) (rc int) {
 		// Installed below the config-change prompt, where a Ctrl-C still ends the launch at once,
 		// and above the first host service. Its disarm is deferred FIRST of this arm's, so it
 		// outlasts every teardown and the timing report.
+		// THE LEGACY HOME MOVES HERE (legacyhome.go commitHome): every refusal above has passed, and
+		// the first host service, the credential view and the session's env files write in the home.
+		if !o.DryRun && !o.commitHome() {
+			return 1
+		}
 		arm, disarm := o.armMacosUser()
 		defer disarm()
 		// THIS ARM'S TIMING REPORT (docs/reference/perf-logging.md): once the backend has
@@ -2103,6 +2114,13 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// reap's own `podman ps` guard sees it directly. What changes is that a
 	// first pass over a backlog stops holding the launch: fourteen multi-GB
 	// `rmi` in front of a jail start, on the one machine that had never run it.
+
+	// THE LEGACY HOME MOVES HERE (legacyhome.go commitHome): the config approval, the image build
+	// and every refusal before them have passed, so the launch is committed, and prepareWsState is
+	// the first write into the home.
+	if !o.commitHome() {
+		return 1
+	}
 
 	// ws_state overlay prep.
 	sp = o.Perf.Span("launch.prepare_ws_state")

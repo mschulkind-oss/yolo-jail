@@ -95,6 +95,9 @@ type Options struct {
 	// <ws>/.yolo/home while it is still the setup's (named-setups-plan.md SUP-D21). Read through
 	// homeDir(), never directly, so a caller outside Run still gets the setup's answer.
 	homeState string
+	// homeMovePending is true between selectHome, which planned the legacy home's move and set
+	// homeState to the setup's home it will produce, and commitHome, which performs it.
+	homeMovePending bool
 	// SetupRef carries the resolved setup back across the by-value Options seam to the front
 	// door's macos-user handler (cli.runRun), which reads who the sandbox runs as from it. nil
 	// outside the front door.
