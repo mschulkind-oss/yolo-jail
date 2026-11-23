@@ -278,11 +278,11 @@ func TestStageAndAgentShareOneEnvironment(t *testing.T) {
 	}
 }
 
-// The four steps this backend takes, and the two it does not. Both omissions are
+// The five steps this backend takes, and the two it does not. Both omissions are
 // decisions with stated reasons (an inert grant it cannot compute; a Linux-absolute
 // script), so both are pinned — an omission nothing asserts is indistinguishable from a
 // step someone forgot.
-func TestStageTakesFourOfTheSixSteps(t *testing.T) {
+func TestStageTakesFiveOfTheSevenSteps(t *testing.T) {
 	body := ProvisionSetup("/ws/.yolo/home/yolo-bootstrap.sh")
 	for _, want := range []string{provision.StepMiseInstall, provision.StepAnnounceBootstrap} {
 		if !strings.Contains(body, want) {

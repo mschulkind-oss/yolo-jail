@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -34,6 +35,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
+	"github.com/mschulkind-oss/yolo-jail/internal/toolskills"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 	"github.com/mschulkind-oss/yolo-jail/internal/version"
 )
@@ -45,7 +47,7 @@ import (
 // rewrite semantics.
 func runInternal(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: yolo internal <approval-notify|background-advance|preparation-scheduler|capture-materialize|capture-run|config-dump|ctx-attach|daemon|darwin-bootstrap|dev-bundle-reap|discard-rm|fork-build-jail|footer|image-copy|installer-check|log-append|macos-user-profile|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|pack-tree-reap|probe-services|refresh-programs|refresh-servers|bundle-dir|scratch-rm|update-check|validate-sandbox-tmpdir> [args...]")
+		fmt.Fprintln(os.Stderr, "usage: yolo internal <approval-notify|background-advance|preparation-scheduler|capture-materialize|capture-run|config-dump|ctx-attach|daemon|darwin-bootstrap|dev-bundle-reap|discard-rm|fork-build-jail|footer|image-copy|installer-check|log-append|macos-user-profile|migrate-host|model-menu|no-terminal|node-floor-launchers|node-floor-satisfied|openai-auth|openai-auth-client|pack-tree-reap|probe-services|refresh-programs|refresh-servers|bundle-dir|scratch-rm|tool-skills|update-check|validate-sandbox-tmpdir> [args...]")
 		return 2
 	}
 	switch args[0] {
@@ -130,6 +132,10 @@ func runInternal(args []string) int {
 		return runConfigDump(args[1:])
 	case "log-append":
 		return runInternalLogAppend(args[1:], os.Stdin)
+	case "tool-skills":
+		// The provisioning stage's mise tool-skills refresh (toolskills.RunStep): it always
+		// exits 0, so the stage that calls it is never stopped by it.
+		return toolskills.RunStep(context.Background(), os.Getenv, args[1:], toolskills.Runner{}, os.Stderr)
 	case run.ScratchRemoverVerb:
 		// The detached remover a podman launch starts after its jail exits, to delete the
 		// scratch volumes --rm no longer deletes in the client that held the terminal

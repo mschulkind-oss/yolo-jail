@@ -44,7 +44,9 @@ import (
 // and the tty is the launch's own. Confinement bounds what the stage can reach OUTSIDE
 // the sandbox; it is not a promise about the sandbox home.
 
-// ProvisionSetup returns the stage body for this backend: FOUR of provision's six steps.
+// ProvisionSetup returns the stage body for this backend: FIVE of provision's seven steps (the
+// mise tool-skills refresh, StepToolSkills, is one of them: design §7, the confined stage and never
+// the privileged bootstrap).
 //
 // What is dropped, and why each is a decision rather than an omission:
 //
@@ -67,6 +69,7 @@ func ProvisionSetup(bootstrapScript string) string {
 		[]string{
 			provision.StepAnnounceMiseInstall,
 			provision.StepMiseInstall,
+			provision.StepToolSkills(`"$PWD"`, ""),
 		},
 		[]string{
 			provision.StepAnnounceBootstrap,
