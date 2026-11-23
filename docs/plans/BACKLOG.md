@@ -1002,13 +1002,16 @@ command again. The sharing precondition checks only the workspace's own entry, n
 parents. Found natively on 2026-10-29
 ([lab report §4](../lab-reports/2026-10-29-mac-native-fix-checks-and-unshared-ancestor.md#4-new-defect-a-workspace-under-a-private-parent-loops)).
 
-### <a id="it-dangling-layout-links"></a>🔧 **macos-user integration runs leave dangling layout links in the real account home**
+### <a id="it-dangling-layout-links"></a>🔧 **Dangling layout links left in the real account home by earlier integration runs**
 
-Each macos-user test that selects a pack with a state folder lays a link such as `~/.oh-omp` from
-`/Users/_yolojail` into its temporary `yolo-it-*` workspace, and nothing removes it when the workspace
-is deleted. On 2026-10-30 a dangling `~/.gemini` left by an Oct 18 run refused a real launch whose
-pack delivers files under `.gemini`, until the maintainer ran `sudo rm` on it
-([lab report §2](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#2-dangling-layout-links-from-integration-runs)).
+Before account mode kept its home per workspace (slice 12a,
+[MMP-D25](../design/macos-user-model-plan.md#MMP-D25)), each macos-user test that selected a pack with a
+state folder laid a link such as `~/.oh-omp` from `/Users/_yolojail` into its temporary `yolo-it-*`
+workspace, and nothing removed it when the workspace was deleted. On 2026-10-30 a dangling `~/.gemini`
+left by an Oct 18 run refused a real launch until the maintainer ran `sudo rm` on it. New launches no
+longer lay these links, so what remains is the old ones: `yolo check` and `yolo prune` housekeeping is
+[OQ-FS5](../design/pack-files-for-agent-state.md#OQ-FS5), and the evidence is the
+[Mac run appendix](../design/pack-files-for-agent-state.md#appendix-the-2026-10-30-mac-run).
 
 ### <a id="files-into-foreign-state-dir"></a>🔧 **A pack's files under another pack's state folder lock that pack out of the account home**
 
@@ -1016,16 +1019,10 @@ A `files` contribution into `.gemini/config/agents` (the maintainer's `matt-agen
 without `agy`, creates a real `/Users/_yolojail/.gemini`. Every later launch selecting `agy`, whose
 state folder that is, is then refused by `darwin_home_layout`, with the next step
 `sudo rm -rf /Users/_yolojail` rather than the one folder. The refused launch still writes agy's
-generated config into the real folder, and nothing warns ahead of time
-([lab report §3](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#3-a-files-delivery-into-another-packs-state-folder); designed in [`pack-files-for-agent-state.md`](../design/pack-files-for-agent-state.md)).
-
-### <a id="check-nudge-false-warnings"></a>🔧 **Two `yolo check` warnings name fixes that do not apply**
-
-The aws-auth login nudge reads only `allow.aws-auth.profile`, so it warns on a JSONC config that
-sets the legacy `loopholes.aws-auth.settings.profile`, which the loophole honours. The `stages 0
-files` warning tells the user to fix `only`/`exclude` filters in a `packs` entry for the empty
-conventional local pack, which has neither
-([lab report §4](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#4-false-check-warnings)).
+generated config into the real folder, and nothing warns ahead of time. The addressing amendment
+(FS-D6) is built; the refusal wording, the stop-the-boot step and the warning are designed and unbuilt
+in [`pack-files-for-agent-state.md`](../design/pack-files-for-agent-state.md)
+([evidence](../design/pack-files-for-agent-state.md#appendix-the-2026-10-30-mac-run)).
 
 ### Settled, kept for the record
 
