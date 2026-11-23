@@ -2,6 +2,7 @@ package toolskills
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -97,37 +98,38 @@ func TestListStdoutExactlyAtTheCapIsAccepted(t *testing.T) {
 	}
 }
 
-// alive reports whether pid is a live process (a zombie is not alive).
-func alive(pid int) bool {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return syscall.Kill(pid, 0) == nil
-	}
-	s := string(b)
-	i := strings.LastIndexByte(s, ')')
-	return i < 0 || len(s) < i+3 || s[i+2] != 'Z'
-}
-
 func TestListHangIsKilledOnTheInjectedDeadlineWithItsGrandchild(t *testing.T) {
-	fifo := filepath.Join(t.TempDir(), "ready")
-	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
-		t.Skipf("no fifo: %v", err)
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "ready")
+	held := filepath.Join(dir, "held")
+	for _, f := range []string{fifo, held} {
+		if err := syscall.Mkfifo(f, 0o600); err != nil {
+			t.Skipf("no fifo: %v", err)
+		}
 	}
-	// The script starts a grandchild, tells the test its pid through the fifo (which blocks
-	// until the test reads), then hangs.
-	m := fakeMise(t, "sleep 1000 &\necho $! > "+fifo+"\nwait")
+	// The script starts a grandchild that holds the write end of the "held" fifo (fd 9, which
+	// survives its exec of sleep), tells the test its pid through the "ready" fifo (which blocks
+	// until the test reads), then hangs. The kernel closes fd 9 only when the grandchild has
+	// actually exited, so EOF on "held" is the event "the grandchild is dead".
+	m := fakeMise(t, "sleep 1000 9>"+held+" &\necho $! > "+fifo+"\nwait")
 	fire := make(chan time.Time)
 	released := make(chan struct{})
+	heldCh := make(chan *os.File, 1)
 	pidCh := make(chan int, 1)
 	go func() {
 		defer close(released)
+		defer close(fire)       // the event: the script is up and hanging; now the deadline "passes"
+		f, err := os.Open(held) // returns once the grandchild has opened its end
+		if err != nil {
+			return
+		}
+		heldCh <- f
 		b, err := os.ReadFile(fifo)
 		if err == nil {
 			if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
 				pidCh <- pid
 			}
 		}
-		close(fire) // the event: the script is up and hanging; now the deadline "passes"
 	}()
 	var gotDeadline time.Duration
 	r := Runner{Mise: m, Deadline: 7 * time.Second, After: func(d time.Duration) <-chan time.Time {
@@ -139,16 +141,29 @@ func TestListHangIsKilledOnTheInjectedDeadlineWithItsGrandchild(t *testing.T) {
 	if res.Outcome != OutcomeTimedOut || gotDeadline != 7*time.Second {
 		t.Fatalf("%+v deadline %v", res, gotDeadline)
 	}
+	var f *os.File
+	var pid int
 	select {
-	case pid := <-pidCh:
-		// SIGKILL to the group is delivered before List returns; the zombie check covers a
-		// grandchild its parent never reaped.
-		if alive(pid) {
-			syscall.Kill(pid, syscall.SIGKILL)
-			t.Fatalf("grandchild %d outlived the deadline", pid)
-		}
+	case f = <-heldCh:
+		defer f.Close()
+	default:
+		t.Fatal("grandchild never opened its held fifo")
+	}
+	select {
+	case pid = <-pidCh:
 	default:
 		t.Fatal("no grandchild pid reported")
+	}
+	// SIGKILL to the group is queued before List returns, but a process dies only when the
+	// scheduler runs it, which on a loaded machine can be after List returned. So wait for the
+	// event itself: EOF on the held fifo. The timer is only a failure guard against a hang.
+	eof := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, f); close(eof) }()
+	select {
+	case <-eof:
+	case <-time.After(60 * time.Second):
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Fatalf("grandchild %d outlived the deadline", pid)
 	}
 }
 
