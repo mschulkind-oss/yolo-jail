@@ -128,12 +128,14 @@ func (h *probeHarness) write(t *testing.T) {
 	receipts := filepath.Join(h.home, "ws", ".yolo", "receipts.jsonl")
 	servers := launcherServers{npm: "some-mcp-server"}
 	var body string
-	switch h.template {
-	case "npm":
-		// The npm launcher's check is once per jail start: the boot's record makes it due.
+	if h.template == "npm" || h.template == "native" {
+		// The launcher's check is once per jail start: the boot's record makes it due.
 		if err := writeJailStart(h.home); err != nil {
 			t.Fatal(err)
 		}
+	}
+	switch h.template {
+	case "npm":
 		body = npmAgentLauncher("probe", &h.inst, stamps, receipts, true, servers, nil)
 	case "native":
 		body = nativeAgentLauncher("probe", &h.inst, stamps, receipts, "", true, servers, nil)

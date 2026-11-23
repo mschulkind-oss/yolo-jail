@@ -437,6 +437,10 @@ func newCopilotCompatibilityProbe(t *testing.T, context string, native bool, upd
 		vars["YOLO_DARWIN_WORKSPACE"] = filepath.Join(home, "ws")
 		vars["YOLO_MACOS_USER_TMPDIR_CONTEXT"] = context
 	}
+	// The update check is once per jail start: the boot's record makes the launcher's check due.
+	if err := writeJailStart(home); err != nil {
+		t.Fatal(err)
+	}
 	e := NewEnv(vars)
 	e.Stderr = &strings.Builder{}
 	if err := GenerateAgentLaunchers(e); err != nil {
