@@ -168,6 +168,8 @@ func matchLocalClone(repo string, clones []LocalClone) *CloneMatch {
 type cloneChoice struct {
 	match *CloneMatch
 	skip  string
+	// why is skip's reason alone, as the launch line of a `local` pack says it (localcopy.go).
+	why string
 	// fetchURL is the matched remote's address as git fetches it (`git remote get-url`: its first url value,
 	// after insteadOf), which chooseClone checked names the patch branch's repository.
 	fetchURL string
@@ -183,18 +185,24 @@ func (s *Store) chooseClone(c Addr) (cloneChoice, error) {
 	if err != nil {
 		return cloneChoice{}, err
 	}
+	return s.chooseCloneFrom(c, clones), nil
+}
+
+// chooseCloneFrom is chooseClone over a list of clones the caller supplies: the map's, or the one clone a
+// pack's `local` key names (localcopy.go).
+func (s *Store) chooseCloneFrom(c Addr, clones []LocalClone) cloneChoice {
 	m := matchLocalClone(c.Repo, clones)
 	if m == nil {
-		return cloneChoice{}, nil
+		return cloneChoice{}
 	}
 	notUsed := func(why string) cloneChoice {
-		return cloneChoice{skip: "local clone " + m.Clone.Dir + " (" + m.Clone.Via() + ") not used for ?ref=" + c.Ref +
+		return cloneChoice{why: why, skip: "local clone " + m.Clone.Dir + " (" + m.Clone.Via() + ") not used for ?ref=" + c.Ref +
 			": " + why + "; built from " + c.Repo + " as if there were no clone"}
 	}
 	name, ok := branchName(c.Ref)
 	if !ok || strings.HasPrefix(c.Ref, "refs/") {
 		return notUsed("a clone answers only for a branch name its remote " + m.Remote.Name + " has, and this is " +
-			"no branch name"), nil
+			"no branch name")
 	}
 	// THE ADDRESS GIT FETCHES must name the same repository: a remote can carry several url values, matched on
 	// any, while git fetches the first, rewritten by any insteadOf. A fork listed first, or a rewrite elsewhere,
@@ -203,25 +211,25 @@ func (s *Store) chooseClone(c Addr) (cloneChoice, error) {
 	fetchURL := strings.TrimSpace(out)
 	switch {
 	case err != nil || fetchURL == "":
-		return notUsed("the address of its remote " + m.Remote.Name + " could not be read (" + oneLine(err) + ")"), nil
+		return notUsed("the address of its remote " + m.Remote.Name + " could not be read (" + oneLine(err) + ")")
 	case RepoIdentity(fetchURL) != RepoIdentity(c.Repo):
 		return notUsed("its remote " + m.Remote.Name + " fetches " + fetchURL + " (its first url value, after any " +
 			"insteadOf), which is not that repository, so the clone's copy may not be the published one — make " +
-			"the published URL the remote's only url, or remove the rewrite"), nil
+			"the published URL the remote's only url, or remove the rewrite")
 	}
 	tracking := "refs/remotes/" + m.Remote.Name + "/" + name
 	sha, err := s.run("", "-C", m.Clone.Dir, "rev-parse", "--verify", "--quiet", tracking+"^{commit}")
 	var exit *exec.ExitError
 	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
-		return notUsed("its " + tracking + " could not be read (" + oneLine(err) + ")"), nil
+		return notUsed("its " + tracking + " could not be read (" + oneLine(err) + ")")
 	}
 	if strings.TrimSpace(sha) == "" {
 		return notUsed("the clone has no " + tracking + ", so the branch is not one the published repository " +
 			"has as far as the clone knows (a local-only branch, or another remote's, never stands in for the " +
 			"URL) — if it is pushed, `git -C " + m.Clone.Dir + " fetch " + m.Remote.Name + "` and the next launch uses " +
-			"the clone"), nil
+			"the clone")
 	}
-	return cloneChoice{match: m, fetchURL: fetchURL}, nil
+	return cloneChoice{match: m, fetchURL: fetchURL}
 }
 
 // patchBranchPlan is the address a check fetches and resolves a patch branch at, and its checkout plan: a

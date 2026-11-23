@@ -196,5 +196,6 @@ func (entry PackEntry) RefreshSpec(updateDefaultRef bool) packsrc.RefreshPack {
 	return packsrc.RefreshPack{
 		Name: entry.Name, Source: entry.Source, AllowDefaultRef: entry.AllowDefaultRef,
 		PreserveDefaultPin: !updateDefaultRef && entry.AllowDefaultRef,
+		Local:              entry.Local,
 	}
 }

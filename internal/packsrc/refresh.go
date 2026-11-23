@@ -124,6 +124,8 @@ type RefreshPack struct {
 	// previously resolved remote-default lock. Ordinary Force callers keep the
 	// existing explicit-update behavior; launch refreshes do not force.
 	PreserveDefaultPin bool
+	// Local is the pack's `local` key: the user's clone, absolute. Empty for none.
+	Local string
 }
 
 // RefreshOptions tunes one Refresh call.
@@ -177,6 +179,8 @@ type Outcome struct {
 	// Checked is true when this outcome is a launch's pack check (RefreshOptions.Check), whose failure
 	// reads as the design's §4.3 warning rather than an explicit act's.
 	Checked bool
+	// Local is the launch's copy decision for a pack with a `local` clone; nil for any other.
+	Local *LocalCopyDecision
 }
 
 // Disclosure is the line a launch prints for this outcome, or "" when nothing moved.
@@ -202,6 +206,9 @@ func (o Outcome) Disclosure() string {
 func (o Outcome) Warning() string {
 	if o.FetchErr == nil || o.Commit == "" {
 		return ""
+	}
+	if o.Local != nil && o.Local.Copy == CopyWorkingTree {
+		return "" // the local line says the check failed and that the clone runs; "running the held" would not be true
 	}
 	if o.Checked {
 		return fmt.Sprintf("pack %s: could not check origin %s (%s) — running the held %s. "+
@@ -295,9 +302,20 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 			outcomes[i].Err = fmt.Errorf("pack %s is local (%s): there is nothing to fetch", p.Name, a.Path)
 			continue
 		}
-		items = append(items, refreshItem{idx: i, addr: a})
+		item := refreshItem{idx: i, addr: a}
+		if a.Kind == KindGit && p.Local != "" {
+			item.name, item.local = p.Name, p.Local
+		}
+		items = append(items, item)
 	}
 	s.refreshGrouped(items, outcomes, opts.Force, now(), opts.Waiting, opts.Check)
+	for i := range outcomes {
+		if outcomes[i].Local != nil {
+			// A record that cannot be written leaves the previous one: nothing reads it before the working-tree
+			// staging does, and that falls back to origin's held copy when it is missing or stale.
+			_ = s.SaveLocalCopyRecord(*outcomes[i].Local)
+		}
+	}
 	if opts.Check != nil {
 		for i := range outcomes {
 			outcomes[i].Checked = true
@@ -351,6 +369,9 @@ func sameContent(lockedSource string, a Addr) bool {
 type refreshItem struct {
 	idx  int
 	addr Addr
+	// name and local are the pack's handle and its `local` clone (RefreshPack.Local): set only for a git pack
+	// that names one, which the launch check then decides a copy for (localcopy.go).
+	name, local string
 }
 
 // refreshGrouped runs refreshMirror for items GROUPED BY MIRROR, in first-appearance order:
@@ -427,6 +448,9 @@ func (s *Store) runHeld(repo string, items []refreshItem, outcomes []Outcome, er
 		}
 		o.Prev, o.Commit, o.FetchErr = local, local, err
 		s.recordDecided(it.addr, local)
+		if it.local != "" {
+			o.Local = s.localCopyFor(it, local, err, time.Now())
+		}
 	}
 }
 
@@ -572,6 +596,10 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 			// The fetch is the truth now, for every ref including one it removed.
 			c, rerr := s.resolveCommit(mirror, it.addr)
 			if rerr != nil {
+				if _, _, held, cerr := s.classifyRef(mirror, it.addr.Ref); it.local != "" && cerr == nil && held == "" {
+					// The fetch showed origin no longer has the branch: the clone's work is all there is.
+					o.Local = s.localCopyFor(it, "", nil, now)
+				}
 				o.Err = rerr
 				continue
 			}
@@ -593,6 +621,15 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 				continue
 			}
 			commit = c
+		}
+		if it.local != "" {
+			// THE COPY DECISION (localcopy.go, LPC-D8..LPC-D11), taken after the probe and fetch from what the
+			// mirror holds now. It stages nothing; the record it leaves is what the working-tree staging reads.
+			origin := commit
+			if step.absent[before[i].name] && o.FetchErr == nil {
+				origin = "" // the probe reached origin and it no longer lists the branch: the mirror's copy is stale
+			}
+			o.Local = s.localCopyFor(it, origin, o.FetchErr, now)
 		}
 		if _, err := s.materialize(b, it.addr, commit); err != nil {
 			o.Err = err
@@ -642,6 +679,8 @@ type fetchStepResult struct {
 	// probeErr is why the launch's probe of the remote gave no answer (probeMoved). No fetch ran on its
 	// account: the held copy answers, and the caller reports it as the refresh failure.
 	probeErr error
+	// absent is the full names of the held branches the probe's remote did not list (probeBranches).
+	absent map[string]bool
 }
 
 // fetchStep is THE PER-MIRROR STEP'S FETCH (the design's term, forked-programs-as-packs.md
@@ -678,8 +717,8 @@ func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, n
 	if !r.needFetch && len(branches) > 0 {
 		// A BRANCH IS ASKED OF ITS REMOTE AT EVERY LAUNCH, not at its stamp's age (LPC-D2): one
 		// ls-remote downloads no object and writes nothing, and only a moved branch is fetched.
-		moved, err := s.probeMoved(b, repo, r.before, branches, mode.probeTags)
-		r.probeErr = err
+		moved, absent, err := s.probeBranches(b, repo, r.before, branches, mode.probeTags)
+		r.probeErr, r.absent = err, absent
 		r.needFetch = moved
 	}
 	if !r.needFetch {
@@ -741,6 +780,13 @@ func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, n
 // With tags, refs/tags/* is asked too and a tag NAME the mirror lacks counts as moved; a tag the mirror
 // holds at another object does not (a patched fork never follows a re-pointed tag).
 func (s *Store) probeMoved(b budget, repo string, before []refPre, idx []int, tags bool) (bool, error) {
+	moved, _, err := s.probeBranches(b, repo, before, idx, tags)
+	return moved, err
+}
+
+// probeBranches is probeMoved that also says which watched branches the remote did not list at all (by full
+// ref name): not a move, but what a `local` pack's decision reads as "origin deleted the branch" (localcopy.go).
+func (s *Store) probeBranches(b budget, repo string, before []refPre, idx []int, tags bool) (bool, map[string]bool, error) {
 	args := []string{"ls-remote", "--", repo}
 	held := map[string]string{}
 	for _, i := range idx {
@@ -755,23 +801,30 @@ func (s *Store) probeMoved(b budget, repo string, before []refPre, idx []int, ta
 	}
 	out, err := s.runIn(b, "", args...)
 	if err != nil {
-		return false, fmt.Errorf("could not check %s: %w", repo, err)
+		return false, nil, fmt.Errorf("could not check %s: %w", repo, err)
 	}
 	moved := false
+	absent := map[string]bool{}
+	for name := range held {
+		absent[name] = true
+	}
 	for _, line := range strings.Split(out, "\n") {
 		sha, name, ok := strings.Cut(strings.TrimSpace(line), "\t")
 		if !ok {
 			continue
 		}
-		if want, watched := held[name]; watched && sha != want {
-			moved = true
+		if want, watched := held[name]; watched {
+			delete(absent, name)
+			if sha != want {
+				moved = true
+			}
 		}
 		if _, isHeld := heldTags[name]; tags && strings.HasPrefix(name, "refs/tags/") &&
 			!strings.HasSuffix(name, "^{}") && !isHeld {
 			moved = true
 		}
 	}
-	return moved, nil
+	return moved, absent, nil
 }
 
 // tagSnapshot is every tag in the mirror and the object it names (a tag object for an

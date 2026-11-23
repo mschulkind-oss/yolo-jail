@@ -87,6 +87,16 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 	})
 	cancelCheck()
 	end()
+	sayOutcomes(outcomes, say, warn)
+	if err != nil {
+		warn("packs: could not record the refreshed packs in the lockfile: " + err.Error())
+	}
+}
+
+// sayOutcomes prints what a launch's refresh did: each pack's disclosure and warning, and, for a pack with a
+// `local` clone, the line that says which copy runs, always, since its bytes may be uncommitted work, which is a
+// disclosure (docs/design/local-pack-clones.md §4.4). A line that is a warning goes to warn.
+func sayOutcomes(outcomes []packsrc.Outcome, say, warn func(string)) {
 	for _, o := range outcomes {
 		if line := o.Disclosure(); line != "" {
 			say(line)
@@ -94,9 +104,13 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 		if line := o.Warning(); line != "" {
 			warn(line)
 		}
-	}
-	if err != nil {
-		warn("packs: could not record the refreshed packs in the lockfile: " + err.Error())
+		if line, loud := o.LocalLine(); line != "" {
+			if loud {
+				warn(line)
+			} else {
+				say(line)
+			}
+		}
 	}
 }
 

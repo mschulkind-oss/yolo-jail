@@ -340,3 +340,21 @@ func TestRefreshPacksReportsNoPhaseForSkippedWork(t *testing.T) {
 		})
 	}
 }
+
+// A pack with a `local` clone ALWAYS says which copy runs (docs/design/local-pack-clones.md §4.4): its bytes may
+// be uncommitted work, which is a disclosure. A line that is a warning goes to warn, the rest to say; a pack with
+// no decision prints nothing of this kind. The decision itself is pinned in internal/packsrc/localcopy_test.go.
+func TestRefreshOutcomesSayWhichCopyOfALocalPackRuns(t *testing.T) {
+	var said, warned []string
+	sayOutcomes([]packsrc.Outcome{
+		{Name: "plain"},
+		{Name: "tillr", Local: &packsrc.LocalCopyDecision{Line: "local ~/src/tillr (working tree, equal to origin)"}},
+		{Name: "loud", Local: &packsrc.LocalCopyDecision{Line: "local ~/src/loud (working tree) is behind origin by 3 and has uncommitted changes", Warn: true}},
+	}, func(s string) { said = append(said, s) }, func(s string) { warned = append(warned, s) })
+	if len(said) != 1 || said[0] != "tillr  local ~/src/tillr (working tree, equal to origin)" {
+		t.Errorf("said = %q, want the one disclosure line for tillr", said)
+	}
+	if len(warned) != 1 || !strings.HasPrefix(warned[0], "loud  local ~/src/loud") {
+		t.Errorf("warned = %q, want the one warning line for loud", warned)
+	}
+}

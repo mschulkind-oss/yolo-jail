@@ -98,3 +98,23 @@ func TestLocalKeyScope(t *testing.T) {
 		}
 	})
 }
+
+// THE HOP TO THE STORE (docs/design/local-pack-clones.md slice 5): the launch hands the store its packs through
+// RefreshSpec, and the store decides a copy only for a pack whose spec carries the clone. A spec that drops
+// `local` leaves every clone unconsulted with no other test failing.
+func TestRefreshSpecCarriesTheLocalClone(t *testing.T) {
+	home := readablePackTestHome(t)
+	write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName),
+		"packs = [{ "+localTestRepo+", ref = \"main\", local = \"~/src/tillr\" }, { git = \"https://github.com/owner/other\", ref = \"main\" }]\n")
+	entries, problems, err := LoadPackEntries()
+	entries = withoutDefaultSelected(entries)
+	if err != nil || len(problems) != 0 || len(entries) != 2 {
+		t.Fatalf("want two entries, got %d %v %v", len(entries), problems, err)
+	}
+	if got, want := entries[0].RefreshSpec(false).Local, filepath.Join(home, "src", "tillr"); got != want {
+		t.Errorf("RefreshSpec().Local = %q, want %q", got, want)
+	}
+	if got := entries[1].RefreshSpec(false).Local; got != "" {
+		t.Errorf("a pack with no local has RefreshSpec().Local = %q", got)
+	}
+}
