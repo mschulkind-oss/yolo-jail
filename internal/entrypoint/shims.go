@@ -1156,6 +1156,17 @@ _release_check() {
     if [ -n "$CHECK_MARKER" ]; then rm -f "$CHECK_MARKER" 2>/dev/null || true; fi
 }
 
+# _record_cold_install_check: a cold install that left the program installed installed the LATEST,
+# so it records this start's marker (when the boot wrote the record and agent_updates lets the pack
+# move) and the next invocation of the start does not check. It never mints a record.
+_record_cold_install_check() {
+    [ -x "$REAL_BIN" ] && [ "$UPDATES_ENABLED" = "1" ] && [ -f "$JAIL_START_FILE" ] || return 0
+    local id=""
+    id=$(<"$JAIL_START_FILE") || id=""
+    if [ -n "$id" ] && mkdir -p "$CHECK_DIR" 2>/dev/null; then : >> "$CHECK_DIR/$BIN.$id" 2>/dev/null || true; fi
+    return 0
+}
+
 # _drop_lock_signalled is _shielded's cleanup for the act: the lock always, the claim only when a
 # SIGTERM or SIGHUP ended the launcher (_YOLO_SIGNALLED), since the same cleanup runs on a normal end.
 _drop_lock_signalled() {
@@ -1859,10 +1870,7 @@ if [ ! -x "$REAL_BIN" ]; then
     _do_install || true
     # A cold install is not a check, but a success installed the LATEST, so it records this
     # start's marker (when the boot wrote the record) and the next invocation does not check.
-    if [ -x "$REAL_BIN" ] && [ "$PINNED" != "1" ] && [ "$UPDATES_ENABLED" = "1" ] && [ -f "$JAIL_START_FILE" ]; then
-        _yolo_id=$(<"$JAIL_START_FILE") || _yolo_id=""
-        if [ -n "$_yolo_id" ] && mkdir -p "$CHECK_DIR" 2>/dev/null; then : >> "$CHECK_DIR/$BIN.$_yolo_id" 2>/dev/null || true; fi
-    fi
+    if [ "$PINNED" != "1" ]; then _record_cold_install_check; fi
 elif [ "$_YOLO_PROBE" = "1" ]; then
     # A VERSION PROBE (probeargs.go) answers with what is installed: no update, and no reinstall
     # for a moved pin, which the next launch that is not a probe makes.
@@ -2640,6 +2648,8 @@ if [ ! -x "$REAL_BIN" ]; then
     # bottom is, because it answers the question this path actually has (is there something
     # to exec?). A version probe installs too: without it nothing answers.
     _do_install || true
+    # A success installed the LATEST: it records this start's marker (_record_cold_install_check).
+    _record_cold_install_check
 elif [ "$_YOLO_PROBE" = "1" ]; then
     # A VERSION PROBE (probeargs.go) answers with what is installed: no update.
     :

@@ -196,7 +196,9 @@ touches the network, and never starts an agent.
    `TestAFreshStampDoesNoWork`. Pins `serverRefreshDue`.
 4. **The pre-launch refresh.** Due on a new id and on changed content, never otherwise; the failed marker per id.
    Replaces the throttle tests in `prelaunchrefresh_test.go`, `prelaunchrefreshdue_test.go` and
-   `prelaunchrefreshtiming_test.go`.
+   `prelaunchrefreshtiming_test.go`. Also: `_yolo_failed_act`'s "upstream could not be reached" line
+   (shared with the launchers' update verb) lacks the next step the other unreachable lines carry
+   ("asks again the next time this jail starts, or now with: yolo pack update").
 5. **The pnpm launcher.** Replaces `pnpmthrottle_test.go`'s hour.
 6. **The sweep.** Delete the source launcher's constant; correct the comments and docs that say "hourly" (the
    user guide's agent-updates section, the program-delivery rows this supersedes); run the integration tests that

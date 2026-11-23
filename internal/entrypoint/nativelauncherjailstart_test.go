@@ -420,3 +420,33 @@ func openRelease(t *testing.T, release string) {
 	_, _ = f.WriteString("go\n")
 	f.Close()
 }
+
+// A successful COLD install installed the latest, so it records this start's marker: the second
+// invocation of the same start runs no updater, and a new start updates.
+func TestNativeLauncherColdInstallRecordsTheStartsMarker(t *testing.T) {
+	url := installerURL(t, "#!/bin/bash\nmkdir -p \"$HOME/.local/bin\"\nprintf '#!/bin/bash\\necho \"RAN:$*\" >> "+"\"$HOME/argv.log\"\\n' > \"$HOME/.local/bin/probetool\"\nchmod +x \"$HOME/.local/bin/probetool\"\n")
+	p := newUpdateProbeAt(t, []string{"update"}, true, false, url)
+	id := p.newJailStart(t)
+	p.log = filepath.Join(p.home, "argv.log")
+
+	out, rc := p.run(t)
+	if rc != 0 {
+		t.Fatalf("cold launch rc=%d:\n%s", rc, out)
+	}
+	if m := p.markers(t); len(m) != 1 || m[0] != "probetool."+id {
+		t.Errorf("a cold install records the start's marker, got %v\n%s", m, out)
+	}
+	p.truncateLog(t)
+	if _, rc := p.run(t); rc != 0 {
+		t.Fatalf("second run rc=%d", rc)
+	}
+	if got := p.argvLog(t); len(got) != 1 || got[0] != "RAN:" {
+		t.Errorf("the second invocation of the start launches and does not update, got %v", got)
+	}
+	p.newJailStart(t)
+	p.truncateLog(t)
+	p.run(t)
+	if countLines(p.argvLog(t), nativeUpdateLine) != 1 {
+		t.Errorf("a new start updates, got %v", p.argvLog(t))
+	}
+}

@@ -292,3 +292,26 @@ func TestNpmLauncherSecondInvocationDoesNotCheckWhileTheFirstIsInFlight(t *testi
 		t.Errorf("the first launcher finishes its check:\n%s", firstOut.String())
 	}
 }
+
+// A successful COLD install installed the latest, so it records this start's marker: the second
+// invocation of the same start makes no registry call, and a new start checks again.
+func TestNpmLauncherColdInstallRecordsTheStartsMarker(t *testing.T) {
+	p := newNpmProbe(t, "tool")
+	id := p.newJailStart(t)
+	log := p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
+	if !hasArgv(log, installNewer) {
+		t.Fatalf("the cold launch installs:\n%s", strings.Join(log, "\n"))
+	}
+	if m := p.markers(t, "tool"); len(m) != 1 || m[0] != "tool."+id {
+		t.Errorf("a cold install records the start's marker, got %v", m)
+	}
+	p.truncateLog(t)
+	if log := p.run(t, "tool", "tool", "FAKE_LATEST=9.9.9"); len(log) != 0 {
+		t.Errorf("the second invocation of the start must not touch npm, got:\n%s", strings.Join(log, "\n"))
+	}
+	p.newJailStart(t)
+	p.truncateLog(t)
+	if log := p.run(t, "tool", "tool", "FAKE_LATEST=9.9.9"); !hasArgv(log, viewTool) {
+		t.Errorf("a new start checks again:\n%s", strings.Join(log, "\n"))
+	}
+}
