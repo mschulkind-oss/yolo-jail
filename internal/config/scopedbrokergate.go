@@ -82,6 +82,12 @@ func (out *scopeOutcome) publishPolicyApproval(check *ScopeCheck) {
 		if source.Dormant || !source.concrete() || len(source.Disclosure) == 0 {
 			continue
 		}
+		if !source.NativeDeclaration && len(source.policyWriteLines) == 0 {
+			// The marker releases the writes the gate listed. A call-broker source has no
+			// listing yet (design 3.7 row 3), so a y for any other change must not release
+			// its held write asks unseen.
+			continue
+		}
 		out.next[policyModelRecordKey(source.Source)] = []string{scopedBrokerPolicyModel}
 		if len(source.Disclosure) > 0 {
 			out.next[selectedDeclarationRecordKey(source)] = slices.Clone(source.Disclosure)

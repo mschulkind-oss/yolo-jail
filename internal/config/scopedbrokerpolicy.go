@@ -187,7 +187,7 @@ func ScopedBrokerCeilingValue(allow *jsonx.OrderedMap, table, cell string) strin
 	if table == "read" && cell == "" {
 		own = "read"
 	}
-	value := CallBrokerCurrentCeiling(scopedAllowOnly("policy", allow), "policy", table, cell)
+	value := callBrokerLegacyCeiling(scopedAllowOnly("policy", allow), "policy", table, cell)
 	if value == "off" {
 		value = "absent"
 	}

@@ -71,6 +71,43 @@ func scopedCeilingAdmitting(ceilings []ReadableScopedCeiling, source string, tar
 	return ReadableScopedCeiling{}, "", false
 }
 
+// narrowerNeverRefuses reports whether the most specific user repository line naming capability
+// for source and target holds it in `never` (design 3.2 and 3.3: a narrower line governs, and at
+// equal specificity the stricter one wins). Lines are the `[repos.<name>.allow.<source>]` tables
+// and the direct `[repos.<name>.allow]` native-read lists. A narrower `always` or `on_request`
+// governs over a less specific `never`, so the answer is false there. An unqualified source line
+// is not narrower than itself and never reaches here.
+func narrowerNeverRefuses(plan *ReadableAllowancePlan, source string, target ReadableRepository, capability, readWord string) bool {
+	best, refused := -1, false
+	consider := func(c ReadableScopedCeiling, never, grants bool) {
+		if (!never && !grants) || !scopedCeilingAdmits(c, target) {
+			return
+		}
+		wild := strings.Count(c.Repository, "*")
+		if best < 0 || wild < best {
+			best, refused = wild, false
+		}
+		if wild == best && never {
+			refused = true
+		}
+	}
+	for _, c := range plan.NativeCeilings {
+		if c.Source == source {
+			consider(c, slices.Contains(c.Never, capability), slices.Contains(c.Always, capability) || slices.Contains(c.OnRequest, capability))
+		}
+	}
+	if capability == readWord {
+		for _, r := range plan.NativeReads {
+			if r.Source != source || r.Name == "" || r.Layer != "ceiling" {
+				continue
+			}
+			host := namedRepoHost(r.Repository)
+			consider(ReadableScopedCeiling{Host: host, Repository: strings.TrimPrefix(r.Repository, host+"/")}, r.Never, r.Always || r.OnRequest)
+		}
+	}
+	return best >= 0 && refused
+}
+
 // scopedCeilingHolds reports whether any user `[repos.<name>.allow.<source>]` table lists capability,
 // on any identity. The plan keeps such a request alive for the gate, which decides per identity; an
 // unreadable table holds nothing here, and its own error is reported where it is resolved.

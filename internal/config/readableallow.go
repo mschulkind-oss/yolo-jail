@@ -820,6 +820,9 @@ func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, inde
 			}
 		}
 		for _, target := range readTargets {
+			if narrowerNeverRefuses(&plan, policy.Source, target, policy.ReadCapability, policy.ReadCapability) {
+				continue // a narrower never on this repository refuses its read (design 3.2)
+			}
 			files := append(cloneOrigins(readFiles), target.Files...)
 			origins := readOrigins
 			if strings.HasPrefix(target.Origin, "repos.") {
@@ -838,6 +841,9 @@ func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, inde
 				continue
 			}
 			for _, target := range targets {
+				if narrowerNeverRefuses(&plan, policy.Source, target, capability, policy.ReadCapability) {
+					continue
+				}
 				decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository}, "allow."+policy.Source+".always."+capability, append(cloneOrigins(policy.AlwaysOrigins), target.Files...))
 			}
 		}
@@ -856,7 +862,7 @@ func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, inde
 					continue
 				}
 				for _, target := range targets {
-					if scopedCeilingAdmits(c, target) {
+					if scopedCeilingAdmits(c, target) && !narrowerNeverRefuses(&plan, policy.Source, target, capability, policy.ReadCapability) {
 						decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository, RepoPattern: target.Pattern},
 							"repos."+c.Name+".allow."+policy.Source+".always", cloneOrigins(target.Files))
 					}
@@ -882,8 +888,12 @@ func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, inde
 			if kind == "" {
 				continue
 			}
-			admitted := false
+			admitted, neverRefused := false, false
 			for _, placed := range readableRequestGrants(kind, request.Value, placeOn) {
+				if narrowerNeverRefuses(&plan, policy.Source, placed.Target, request.Capability, policy.ReadCapability) {
+					neverRefused = true
+					continue
+				}
 				origin, files := ceilingOrigin, cloneOrigins(ceilingFiles)
 				if !broad {
 					// The broad ceiling does not hold the token: only a user table that admits this
@@ -900,7 +910,10 @@ func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, inde
 				decisions = appendReadableGrant(decisions, placed.Grant, origin, files)
 				decisions = appendReadableGrant(decisions, placed.Grant, request.Path, files)
 			}
-			if !broad && !admitted {
+			if neverRefused && !admitted {
+				input.Requests[i].Status = ReadableRequestSkipped
+				input.Requests[i].Reason = "a narrower never refuses " + request.Capability + " on this repository; remove that line with yolo config unset repos.<name>.allow." + policy.Source + ".never, or drop the request"
+			} else if !broad && !admitted {
 				// Skipped and reported, never fatal: no ceiling admits any identity this request lands on.
 				input.Requests[i].Status = ReadableRequestSkipped
 				input.Requests[i].Reason = outsideCeilingReason(policy.Source)
