@@ -999,8 +999,43 @@ access-control entry, with text saying it was "MOVED or copied into /Users/Share
 `yolo macos-fix-permissions <workspace>` succeeds, but the sandbox account still cannot get past the
 parent, so the next launch fails six boot steps with `permission denied` and names the same
 command again. The sharing precondition checks only the workspace's own entry, never its
-parents. Found natively on 2026-10-29
-([lab report §4](../lab-reports/2026-10-29-mac-native-fix-checks-and-unshared-ancestor.md#4-new-defect-a-workspace-under-a-private-parent-loops)).
+parents. Found natively on 2026-10-29 at `3cad08c6a`, in a scratch directory under `/private/tmp/claude-501`
+and in a plain `mktemp -d` under `$TMPDIR` (both `drwx------`); the second launch failed six boot steps with
+`mkdir …/T/tmp.XXXX: permission denied`.
+
+**Code pointer:** `PreconditionWorkspaceShared` in `internal/macosuser/preconditions.go` runs one
+`WorkspaceGrantedScript` check on the workspace directory itself, and its refusal text assumes the project was
+moved into the shared root. `yolo yolo-account share <path>` applies the entry to that tree only.
+**Next step (a design choice, so no test yet):** either refuse a workspace outside the shared root with a plain
+message that it must live under `/Users/Shared/yolo`, or check that every parent can be entered and name the one
+that blocks the sandbox account. Self mode skips this precondition by design.
+
+### <a id="claude-auth-status-signed-out-view"></a>🔧 **`yolo claude-auth status` cannot tell a signed-out view from one never written**
+
+After a `/logout` in one workspace, the broker records `logged_out` only on its next refresh (the background tick
+rewrites views near expiry), so until then `status` lists the view as `no view file yet` with `logged_out: false`
+(`internal/oauthbroker/hostverbs.go`). Seen natively on 2026-10-29 at `d159a57f0`. **Next step:** have `status`
+check the view file's absence against the registration's `written` flag and say "signed out in its jail"; a
+Linux test can drive the broker store.
+
+### <a id="apple-container-start-in-macos-user-workspace"></a>🔧 **Apple Container cannot start in a workspace macos-user already used**
+
+Launching Apple Container (the default runtime on that Mac) in a workspace whose `.yolo/home` holds the
+macos-user layout failed at container start with `mount failed with errno 17: failed to create directory
+'.claude-shared-credentials'` (`EEXIST`), and the error names no next step. Seen 2026-10-29 at `d159a57f0`;
+not investigated and not reproduced since. **Next step:** reproduce by launching macos-user then Apple
+Container in one workspace, find which layout entry (probably the `.claude-shared-credentials` link) blocks the
+mount, and either repair it or refuse naming `yolo --setup` for the one backend that workspace used.
+
+### <a id="host-launch-invalid-context-recheck"></a>🔧 **Re-check `yolo host` on a Mac for the "invalid macos-user launch context" refusal**
+
+On 2026-10-29 at `d159a57f0`, `yolo host -- claude` printed `invalid macos-user launch context` and its Copilot
+capture failed (`YOLO_USE_INSTALLED=copilot` was the way around it). The capture path was repaired by
+`662d9103b` and a native `yolo capture copilot` then passed, but the unconfined `yolo host` launch was not
+re-run. The entrypoint treats `YOLO_DARWIN_WORKSPACE` as native
+(`internal/entrypoint/shims.go`), and a host launch that sets it without
+`YOLO_MACOS_USER_TMPDIR_CONTEXT` would hit the refusal. **Next step:** a Mac check, `yolo host -- true` with
+the Copilot pack selected, at main `662d9103b` or later; if it refuses, write the Linux test first.
 
 ### <a id="it-dangling-layout-links"></a>🔧 **macos-user integration runs leave dangling layout links in the real account home**
 

@@ -23,8 +23,8 @@ import (
 // warn about, with the reason it is not one a launch reads or inherits. A name the module
 // spells is either recognized by knownLaunchYOLOEnvNames or listed here; the census below
 // fails on any other, so a new setting cannot be honored by a launch and warned about by the
-// same launch (YOLO_CLAUDE_CREDENTIAL_VIEW was, docs/lab-reports/
-// 2026-10-29-mac-native-witnesses-runbook.md §4.3).
+// same launch (YOLO_CLAUDE_CREDENTIAL_VIEW was, in a 2026-10-29 Mac run
+// recorded in docs/design/macos-native-tls.md#mac-evidence-witness-run).
 //
 // A name belongs HERE only when a launch neither reads it nor inherits it from a jail it was
 // started in. Anything a launch writes into a container's environment is inherited by a

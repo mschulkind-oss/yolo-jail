@@ -74,3 +74,12 @@ The temp writer's broader scoped race command also failed at this same macos-use
 5. Human `/logout` in one native workspace: confirm maintenance/refresh do not recreate its view, another registered view remains signed in, and the next explicit launch reports re-sign-in. Machine logout is not requested.
 
 Record only status, fingerprints and non-secret paths. Subscription metadata/onboarding remain backlog; Apple Container networking remains a separate host diagnostic. Historical reports are not rewritten into successful results.
+
+**Native result, 2026-10-29 at `d159a57f0`** (`0.15.1+705`, Claude Code 2.1.310, macOS 26.5). Steps 2 to 5 passed:
+
+- *Step 2, self mode.* `yolo -- claude -p` answered with no workaround. From plain `yolo -- bash`, bash had `CLAUDE_CODE_TMPDIR` unset while the Claude it started had it equal to `TMPDIR`, so scratch went to `…/yolo-<session>/claude-501` and the host's `/tmp/claude-501` did not change. Only the `claude` launcher mentions the variable.
+- *Step 3, account `/login`.* The Claude adapter was on Claude's PATH, `/login` completed with no "Couldn't save your login", the broker adopted it as the machine's login, and the view afterwards held no refresh token.
+- *Step 4, host with the view on.* `/login` enrolled through the managed store, and the maintainer's own bare `Claude Code-credentials` Keychain entry kept its modification date.
+- *Step 5, `/logout`.* Claude removed the view, the broker marked the registration `logged_out`, wrote nothing more, kept the sibling views signed in, and the next explicit launch printed the re-sign-in notice and restored the view.
+- *Observation.* `yolo claude-auth status` cannot tell a signed-out view from one never written until the next refresh records the logout ([BACKLOG](../plans/BACKLOG.md#claude-auth-status-signed-out-view)).
+- *Defect found on the way:* the second launch of an account-mode workspace was refused over yolo's own delivered `config.jsonc`, repaired by `1c8be03c9` and verified natively on 2026-10-29.

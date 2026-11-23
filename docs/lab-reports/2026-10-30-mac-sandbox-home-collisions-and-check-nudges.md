@@ -9,7 +9,7 @@ summary: "Dangling layout links left by integration runs, and a pack's files del
 
 **Run 2026-10-30 on the maintainer's Mac** (macOS 26.5, arm64). The source is `main` at
 `a8a96bd66`, deployed with `just deploy` as `yolo-jail 0.15.1+889.ga8a96bd665a2`. The run follows the
-[2026-10-29 fix checks](2026-10-29-mac-native-fix-checks-and-unshared-ancestor.md).
+2026-10-29 fix checks (retired; the open finding is in [BACKLOG](../plans/BACKLOG.md#macos-unshared-parent-loop)).
 
 **Terms.**
 
@@ -142,7 +142,7 @@ fixes are to put content in the folder or remove it.
   `YOLO_USE_CACHED_GOOD=matt/pi-archimedes,matt/pi-session-search`.
 - **The integration warmup hits the unshared-parent loop.** The suite's warmup workspace is under
   `$TMPDIR`, so on macos-user it gets the false "MOVED or copied into /Users/Shared/yolo" refusal from
-  [the 2026-10-29 report](2026-10-29-mac-native-fix-checks-and-unshared-ancestor.md#4-new-defect-a-workspace-under-a-private-parent-loops),
+  [the BACKLOG entry for the 2026-10-29 finding](../plans/BACKLOG.md#macos-unshared-parent-loop),
   and the suite logs `DEGRADED: warmup jail failed`.
 - **Expired sign-ins in `yolo check`.** The Claude shared credentials and the AWS SSO session for
   `hssandbox-BedrockInference` had expired. Both need the maintainer's own sign-in.

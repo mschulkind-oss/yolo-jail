@@ -8,11 +8,11 @@ summary: "The owner's understanding is close but too broad. Copilot 1.0.93 and l
 
 # Copilot in a run-as-you jail: what allowing securityd would really expose
 
-**Status:** draft, 2026-10-30. Research only, done from a Linux jail: no Mac command ran, no
-keychain was touched, Copilot was not executed. It answers the owner's question on
+**Status:** draft, 2026-10-30. The analysis was done from a Linux jail; the Mac witnesses W0 to W8
+then ran the same day ([results](#mac-results-2026-10-30)). It answers the owner's question on
 [yolo-jail #65](https://github.com/mschulkind-oss/yolo-jail/issues/65) before the ruling
 [MT-D7](../design/macos-native-tls.md#decision-ledger) is made final. It builds on, and does not
-repeat, the [SecurityServer audit](../lab-reports/2026-10-29-mac-securityserver-audit.md), the
+repeat, the [SecurityServer audit](../design/macos-native-tls.md#mac-evidence-boundary), the
 [Copilot TLS research](copilot-native-networking.md), the
 [exposure-by-program table](macos-keychain-exposure-by-program.md) and the
 [token-storage measurement](copilot-token-storage.md).
@@ -40,7 +40,7 @@ repeat, the [SecurityServer audit](../lab-reports/2026-10-29-mac-securityserver-
   audit session id ([`session.cpp`](https://github.com/apple-oss-distributions/Security/blob/main/securityd/src/session.cpp)) **[S]**.
 - **p0** is yolo's unchanged run-as-you profile; **p2** is p0 plus one allow of
   `com.apple.SecurityServer`. Both terms come from the
-  [audit](../lab-reports/2026-10-29-mac-securityserver-audit.md#2-disposable-keychain-measurements).
+  [audit](../design/macos-native-tls.md#mac-evidence-boundary).
 - **Option (a)** is coined here: p2 used as a real launch profile, with every other keychain deny
   kept.
 
@@ -61,7 +61,7 @@ inside the jail and store things in the user's keychain."
 | `com.apple.trustd.agent` | trustd ([plist](https://github.com/apple-oss-distributions/Security/blob/main/trust/trustd/macOS/com.apple.trustd.agent.plist)) **[S]** | Certificate evaluation | Already allowed ([`seatbeltdeny.go`](../../internal/macosuser/seatbeltdeny.go#L685)) |
 
 Evidence: a 40-line SecureTransport client fails with `-9808` under p0 and succeeds under p2
-**[M]** ([audit §3](../lab-reports/2026-10-29-mac-securityserver-audit.md#3-certificate-only-mechanisms-compared-in-the-harness)).
+**[M]** ([Mac evidence, certificates](../design/macos-native-tls.md#mac-evidence-certificates)).
 Copilot 1.0.103 and 1.0.105 fail under p0 and work outside Seatbelt
 **[R]** ([#65](https://github.com/mschulkind-oss/yolo-jail/issues/65)). The upstream reporter denied
 one service at a time: only `com.apple.SecurityServer` broke `native-tls`, and denying `securityd`,
@@ -80,7 +80,7 @@ four things, and the service is only one of them:
    the database blob *from the client*
    ([`transition.cpp`](https://github.com/apple-oss-distributions/Security/blob/main/securityd/src/transition.cpp)) **[S]**.
    With the file denied and SecurityServer allowed, every path-based operation still failed,
-   with the client's own `EPERM` **[M]** ([audit, table 2b](../lab-reports/2026-10-29-mac-securityserver-audit.md#2b-a-keychain-whose-file-the-sandbox-cannot-read)).
+   with the client's own `EPERM` **[M]** ([Mac evidence, unreadable keychain](../design/macos-native-tls.md#mac-evidence-boundary)).
    yolo denies `~/Library/Keychains`, `/Library/Keychains` and `/System/Library/Keychains`
    ([`seatbeltdeny.go`](../../internal/macosuser/seatbeltdeny.go#L841-L855)).
 3. **An unlocked database in the caller's security session.** securityd reuses an unlocked
@@ -104,7 +104,7 @@ so `security find-generic-password` with no keychain named searches the jail's o
 
 | Routine | What it does | Gate found in public source |
 | :--- | :--- | :--- |
-| `lockAll` | Locks every keychain unlocked in the caller's session | none **[S]**. In run-as-you that is the owner's login keychain: denial of service, not disclosure ([audit, not tested](../lab-reports/2026-10-29-mac-securityserver-audit.md#what-this-does-and-does-not-say-about-the-login-keychain)) |
+| `lockAll` | Locks every keychain unlocked in the caller's session | none **[S]**. In run-as-you that is the owner's login keychain: denial of service, not disclosure ([audit, not tested](../design/macos-native-tls.md#mac-evidence-boundary)) |
 | `verifyKeyStorePassphrase`, `changeKeyStorePassphrase` | Make securityd show a keychain-password dialog to the user | none **[S]**. A prompt, so a phishing surface **[I]** |
 | `resetKeyStorePassphrase` | Calls `kb_reset` on the session's keybag with a passphrase the caller supplies | none in securityd **[S]**. The keybag service that receives it is not in the public tree, so its own check is **unknown [U: W5]**. If unchecked, this is destructive |
 | `postNotification` | Posts keychain events to other listeners | none **[S]**. Spoofing only |
@@ -151,11 +151,11 @@ the real file are the open escape class, because the file deny becomes the only 
 keychain ([keychain design §4.1](../design/keychain-from-a-jail.md#41-macos-user-no-seam-and-no-keychain-provisioning)).
 The owner's keychain files are unreadable to that UID by POSIX permissions. The account profile is
 `(allow default)` and does **not** deny securityd
-([audit §1](../lab-reports/2026-10-29-mac-securityserver-audit.md#1-the-boundary-as-shipped-and-what-b4b5-established)) **[M, source]**.
+([Mac evidence, the boundary](../design/macos-native-tls.md#mac-evidence-boundary)) **[M, source]**.
 So Copilot's TLS should already work there **[I, U: W2]**.
 
 **What account mode does not separate is the session.** `sudo -u` keeps the owner's security
-session **[M]** ([witness report §2](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md#2-the-disposable-account)),
+session **[M]** ([Mac evidence, the witness run](../design/macos-native-tls.md#mac-evidence-witness-run)),
 and securityd keys `lockAll` and the keybag routines by that session, with the session's
 originator UID in the keybag context (`get_current_service_context`, [`session.cpp`](https://github.com/apple-oss-distributions/Security/blob/main/securityd/src/session.cpp)) **[S]**.
 Account mode therefore *already* exposes the [§1.2 session table](#12-what-allowing-that-one-service-exposes)
@@ -220,7 +220,7 @@ shipped boundary, independent of Copilot.
 ### (c) Make Copilot speak no SecureTransport
 
 - **No TLS-backend selector exists** in 1.0.105: every `COPILOT_*` name was listed **[B]**,
-  confirming the [audit §4](../lab-reports/2026-10-29-mac-securityserver-audit.md#4-the-current-copilot-cli-by-static-inspection).
+  confirming the [Mac evidence, Copilot static](../design/macos-native-tls.md#mac-evidence-copilot-static).
 - **An HTTP proxy does not help.** `HTTPS_PROXY` opens a CONNECT tunnel, so the client still runs
   TLS ([networking research](copilot-native-networking.md#answer-and-boundary)) **[I]**.
 - **Plain-HTTP endpoints exist and are documented:**
@@ -428,6 +428,115 @@ request line. A logged request and no TLS error confirm (c1).
 **W8, message filtering.** Under p2, add an `apply-message-filter` that denies only the `lockAll`
 message number and rerun W2 and W5. If `sandbox-exec` rejects the profile, (e) is closed.
 
+<a id="mac-results-2026-10-30"></a>
+
+## Mac results, 2026-10-30
+
+W0 to W8 ran on the maintainer's Mac (macOS 26.5 build 25F71, arm64) with the launcher at
+`0.15.1+950.gfa808c2f8ef5`. They answer every **[U: Wn]** marker above. The lab report is retired
+into this section and
+[`macos-keychain-session.md`](macos-keychain-session.md); `git log --follow` on
+`docs/lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md` recovers it.
+
+**Terms.** *p0* and *p2* are as in [§3](#3-mac-witnesses). *vd* is **coined here**: p2 plus
+`file-read*` on exactly two files, `/System/Library/Keychains/SystemRootCertificates.keychain` and
+`/System/Library/Keychains/SystemTrustSettings.plist`, the smallest profile found that lets
+Copilot's HTTPS work. `yolo-witness` (uid 504) and `yolo-witness2` (uid 505) are disposable hidden
+accounts reached over SSH, with one sudo rule letting the first run `/usr/bin/security` as the
+second. *rc 44* is `errSecItemNotFound` and *rc 36* `errSecInteractionNotAllowed`. Every call that
+touched a keychain ran in `yolo-witness` against synthetic keychains; W2 and W7 ran Copilot with a
+fresh empty `COPILOT_HOME` and no login, and W5's `SecKeychainResetLogin` call was authorized.
+
+| Witness | Result |
+| :--- | :--- |
+| W0 signature | `TeamIdentifier=VEKTX9H2N7` (GitHub), hardened runtime; entitlements `allow-jit`, `allow-unsigned-executable-memory`, `disable-library-validation`, **no** `allow-dyld-environment-variables`: as expected for (d) |
+| W1 session sharing | **Yes**: `sudo -u _yolojail` reports the owner's session id and attributes, over SSH and at the desktop. An account-mode jail runs in the owner's security session |
+| W2 Copilot TLS | **p2 is not enough.** Copilot needs SecurityServer **and** the two root files (vd) |
+| W3 pathless queries | refused under p0, p2 and vd |
+| W4 path aliases | refused from inside the sandbox; a hard link made **outside** it exposes the raw file |
+| W5 session routines | lock-all works from another UID in the session, and under p2 and vd; not under p0; reset-login refused everywhere |
+| W6 `SessionCreate` | a user's own LaunchAgent gets a separate session without root, and a lock-all there leaves the desktop session unlocked |
+| W7 BYOK over loopback | fails under p0 before connecting; works under vd only |
+| W8 message filtering | **closed**: `sandbox-exec` refuses any message filter |
+
+**W2.** The binary was Copilot 1.0.105's (SHA-256 `5fd7d15f…3ad70`). Each run was `copilot update`,
+with `HOME` and `COPILOT_HOME` in a fresh workspace directory (with the real `HOME`, every sandboxed
+run failed on `mkdir ~/Library/Caches/copilot`; a real launch sets `HOME` to the sidecar) and the
+binary copied into the workspace (outside it, every run exited 139, likely because the binary reads
+itself at start).
+
+| Profile | `copilot update` |
+| :--- | :--- |
+| unsandboxed | `No update needed, current version is 1.0.105` |
+| p0, p2 | `Failed to fetch latest release: invalid extra CA certificate: no trust roots available for proxy TLS` |
+| p2 + `/System/Library/Keychains` subpath | works |
+| p2 + `SystemRootCertificates.keychain` alone, or + the directory + `X509Anchors` | the p0 error |
+| **vd** | works |
+| p0 + the directory + both files, no SecurityServer | the p0 error |
+
+The expected `bad certificate format` under p0 did not appear: 1.0.105 reports the missing root
+store instead. The two vd files are root-owned, mode 0644, on the sealed system volume, and hold
+Apple's root certificates and trust settings. The account-mode half of W2 was not run, because the
+compatibility guard refuses Copilot 1.0.93+ first
+([OQ-MT11](../design/macos-native-tls.md#OQ-MT11)).
+
+**W3 and W4** (a synthetic default keychain in `yolo-witness`). Under p2 and vd a pathless read is
+rc 44; an add to the default keychain is rc 152; creating a new keychain in the workspace works.
+`ln` of the keychain file into the workspace, reading through `/System/Volumes/Data`, a workspace
+symlink, and a direct read all fail from inside the sandbox. **A hard link made unsandboxed gets
+past the file deny:** `cat` reads the raw encrypted bytes under every profile, and
+`find-generic-password` on it is rc 44 under p0 but **rc 36 under p2 and vd**, so the lookup reached
+the item and wanted user interaction (a desktop session would probably show a dialog; not
+observed, the SSH session has no GUI).
+
+**W5.** `lock-keychain -a` locked the synthetic keychain from `sudo -n -u yolo-witness2 …`, under
+p2 and under vd (rc 0); under p0 it is rc 206 and nothing changes; `lock-keychain <path>` under p2
+fails with `Operation not permitted`. With W1, any process `_yolojail` runs **outside** Seatbelt can
+lock the owner's keychains (not tried on the owner's session). `SecKeychainResetLogin` (private,
+declared by hand) returned -50 under p0 and 100001 under p2, changing nothing, and succeeded only
+unsandboxed.
+
+**W6.** The agent that ran with `SessionCreate` true got its own session id and attributes 0, and
+`lock-keychain -a` there left the item readable from the plain agent's session (control: the same
+call in that session locked it). Not measured: whether yolo's launch path (a `sudo -u _yolojail`
+hop in account mode, a direct child in run-as-you) can start the jail through such an agent, and
+what else a separate session takes away (dialogs, pasteboard, session-keyed services). The
+first `yolo-witness` account could not log in at the desktop; it was recreated with admin
+authorization, which is what the desktop login needs.
+
+**W7.** A Python stub on `127.0.0.1:18787` answered 400. Under p0, with `COPILOT_OFFLINE=true`,
+`COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:18787/v1` and `COPILOT_MODEL=stub-model`, Copilot
+failed with `Invalid native model HTTP root certificate: no trust roots available for proxy TLS`
+and the stub saw nothing; under vd it sent `POST /v1/chat/completions`. A plain `http://` provider
+still needs the root store, so (c1) needs the same allowances as vd.
+
+**W8.** `lockAll` is message 1023 in securityd's MIG subsystem, counted from Apple's `ucsp.defs` on
+`main` (the shipped securityd's numbering is not verified). `/usr/bin/sandbox-exec -f`, the way
+yolo applies its profile (`internal/macosuser/capture.go`), fails with `sandbox_apply: Operation not
+permitted` (rc 71) for any profile with an `apply-message-filter`, even an allow-only one on
+`(allow default)` or on `cfprefsd`. The parser knows the form; applying is refused. Option (e) is
+closed for yolo.
+
+**What the results decide.**
+
+- **(a) does not make Copilot work**; the working profile also opens two public root-certificate
+  files. Under it, secrets stay unreadable, but a jail can lock every keychain unlocked in its
+  security session (the owner's, in run-as-you) and probably raise a keychain dialog through any
+  path it can reach.
+- **(c1) does not avoid native TLS**: the client loads its trust roots before any request.
+- **(e) is not available** to `sandbox-exec`.
+- **(b) is buildable without root** (W6), so it is the route that closes the lock-all hazard for
+  run-as-you and account mode alike.
+- **Account mode shares the owner's session** (W1), the premise of [§1.5](#15-run-as-you-versus-the-dedicated-account).
+
+**Issue #66** (empty mode-0700 podman placeholder files at `.yolo/home/config/yolo-jail/config.jsonc`
+and `inherited-launch.jsonc` made a macos-user launch refuse) was fixed by `b02778989`, which moves
+an empty placeholder aside to `<file>.podman-placeholder` with a notice. Natively at `+950`: account
+mode rc 0 with the notice, a relaunch rc 0 silently, a 9-byte file still refused with the file
+untouched and `mv …/config.jsonc …/config.jsonc.moved-aside` named; run-as-you moved the file aside
+the same way (and then met the separate Copilot 1.0.93+ guard). At `+889` the same fixture was
+refused. The first `+950` launch took 2045.8 s because the new build compiled mise from source.
+
 ## 4. Recommendation
 
 **The owner's ruling, 2026-11-03:** *"yes I want to build 1 now of the keychain thing
@@ -447,7 +556,7 @@ research's terms:
   [`programcompatibility.go`](../../internal/entrypoint/programcompatibility.go).
 - **Never: a Copilot 1.0.92 pin**, option (f) here and #65's temporary pin. No refusal, finding
   or guide offers one.
-- **Waiting on the owner: (a) and (h1).** Neither is built, and both still need W2–W5.
+- **Waiting on the owner: (a) and (h1).** Neither is built. W2 to W5 have run ([results](#mac-results-2026-10-30)): (a) needs the two root files too and leaves lock-all.
 
 **Mac witness for the built refusal (W9).** On the owner's Mac, in run-as-you mode with Copilot
 1.0.93 or later installed, run `yolo -- copilot`, and again with `YOLO_USE_INSTALLED=copilot`.
@@ -459,9 +568,9 @@ Then each of the three commands it names leads to a running Copilot.
 1. **Keep p0 as shipped, and make the refusal useful.** Replace "Start anyway"
    (`YOLO_USE_INSTALLED`) with the routes that work: account mode, a container backend, or a
    1.0.92 pin. Post yolo's measurements to #5085 from the host.
-2. **Run W0–W5 next.** They decide (h1) and (a), and W1 and W5 matter even if Copilot is dropped:
-   they test the account-mode boundary that ships today.
-3. **Offer (a) only if W2–W5 all come back clean**, and only for launches that select Copilot.
+2. **W0 to W5 have run** ([results](#mac-results-2026-10-30)). They decide (h1) and (a), and W1 and
+   W5 matter even if Copilot is dropped: they test the account-mode boundary that ships today.
+3. **Offer (a) only if W2–W5 all come back clean** (they did not: W2 needs two more files and W5 locks), and only for launches that select Copilot.
    Disclose it at launch, as "this jail can lock your keychains and raise keychain dialogs; it
    cannot read them". Remove it when #5085 ships.
 4. **Do not adopt (d) or (e)**; MT-D3 already rules them out. Offer (c1) as a documented recipe,
@@ -502,7 +611,7 @@ Then each of the three commands it names leads to a running Copilot.
   for message-filter syntax.
 - Apple: [TN3137](https://developer.apple.com/documentation/technotes/tn3137-on-mac-keychains) and
   the [hardened-runtime entitlements](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.allow-dyld-environment-variables).
-- yolo's own records: the [SecurityServer audit](../lab-reports/2026-10-29-mac-securityserver-audit.md),
-  the [witness run](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md),
+- yolo's own records: the [SecurityServer audit](../design/macos-native-tls.md#mac-evidence-boundary),
+  the [witness run](../design/macos-native-tls.md#mac-evidence-witness-run),
   [`macos-native-tls.md`](../design/macos-native-tls.md) and
   [`seatbeltdeny.go`](../../internal/macosuser/seatbeltdeny.go).

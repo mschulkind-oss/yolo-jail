@@ -2,7 +2,7 @@
 title: "Inherited account relaunch implementation plan"
 status: accepted
 stage: BUILT
-next: "Run the inherited-scope macos-user integration witnesses natively on macOS before claiming runtime verification"
+next: "None open: the inherited-scope witnesses passed natively 2026-10-29 (see Native result)"
 ---
 
 # Inherited account relaunch
@@ -129,6 +129,8 @@ python3 scripts/completion-census.py
 The [native integration witnesses](../../integration/macosusercontent_test.go) and
 [overlay-state witness](../../integration/macosuseroverlaystate_test.go) were run on Linux and each skipped because
 macos-user requires Darwin; this is not native success. The original Linux candidate short-package gate passed.
+
+**Native result, 2026-10-29** ([Mac evidence](macos-native-tls.md#mac-evidence-witness-run), [OQ-MT7](macos-native-tls.md#OQ-MT7)). At `6f651f8c4` both account-mode launches found the delivered config read-only, refused an append and exited 0 with no `refusing` line. The inherited-scope integration test then failed because it probed `config.jsonc` while a TOML-representable scope arrives as `config.toml`; `14c00e994` fixed the test, and it and the overlay-state test passed natively at `3cad08c6a`.
 The historical baseline RED command and output above remain labeled as the baseline artifact. After the regression
 went green, `python3 scripts/completion-census.py` updated `scripts/completion-readers.json`; Root regenerated it on
 the final combined tree. Shared Go caches were unchanged.
