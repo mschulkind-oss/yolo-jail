@@ -18,8 +18,6 @@ import (
 // launch's host composition delivers it to the agent's skills directory and names the one skill a
 // built-in already provides.
 //
-// THESE DID NOT RUN where they were written: the author's jail cannot start a nested jail, so the
-// cells compile (`go vet ./integration/`, `go test -short ./integration/`) and nothing more.
 
 const toolSkillsFakeTool = "jq"
 
@@ -51,7 +49,9 @@ func TestToolSkillsReachTheAgentSkillsDirectoryOnTheNextSession(t *testing.T) {
 		`PATH="$d:$PATH" yolo internal tool-skills /workspace 2>&1`,
 		`echo "=== END ==="`,
 	}, "\n")
-	r := runYolo(t, dir, first, withoutFixtureProgramInstall())
+	// withHostSemantics: a launch from inside a jail gets an EMPTY allowlist (design §7, MS-D1), and the
+	// suite itself runs in one, so each launch here takes itself for a host launch.
+	r := runYolo(t, dir, first, withoutFixtureProgramInstall(), withHostSemantics())
 	if r.rc != 0 {
 		t.Fatalf("first launch: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}
@@ -75,7 +75,7 @@ func TestToolSkillsReachTheAgentSkillsDirectoryOnTheNextSession(t *testing.T) {
 		`grep -c '` + nonce + `' "$HOME/.claude/skills/configuring-the-jail/SKILL.md" || true`,
 		`echo "=== END ==="`,
 	}, "\n")
-	r = runYolo(t, dir, second, withoutFixtureProgramInstall())
+	r = runYolo(t, dir, second, withoutFixtureProgramInstall(), withHostSemantics())
 	if r.rc != 0 {
 		t.Fatalf("second launch: rc %d\nstdout: %s\nstderr: %s", r.rc, r.stdout, r.stderr)
 	}
