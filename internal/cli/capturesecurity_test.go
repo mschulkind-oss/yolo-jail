@@ -89,14 +89,24 @@ func init() {
 			os.Exit(1)
 		}
 		home := os.Getenv("HOME")
-		_ = os.WriteFile(filepath.Join(home, "survivor"), []byte(strconv.Itoa(os.Getpid())), 0644)
+		writePidAtomically(filepath.Join(home, "survivor"), os.Getpid())
 		child := exec.Command("/bin/sleep", "30")
 		if err := child.Start(); err != nil {
 			os.Exit(1)
 		}
-		_ = os.WriteFile(filepath.Join(home, "grandchild"), []byte(strconv.Itoa(child.Process.Pid)), 0644)
+		writePidAtomically(filepath.Join(home, "grandchild"), child.Process.Pid)
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
+	}
+}
+
+// writePidAtomically publishes a pid file by rename, so a poller that sees the name sees the
+// whole pid. os.WriteFile creates the name empty and then writes it; a test that waits for the
+// name and reads at once (or cancels in between) could read "".
+func writePidAtomically(path string, pid int) {
+	tmp := path + ".tmp"
+	if os.WriteFile(tmp, []byte(strconv.Itoa(pid)), 0644) != nil || os.Rename(tmp, path) != nil {
+		os.Exit(1)
 	}
 }
 
