@@ -1,8 +1,8 @@
 ---
-title: "Mac run at fe37424b3: Darwin trace publication passes; 11-13's config-edit and stores items are fixed; test-fast fails 18 tests, 16 from a `yolo host` caller's env and 1 a near-certain mcpauth race"
+title: "Mac run at fe37424b3: Darwin trace publication passes; 11-13's config-edit and stores items are fixed; test-fast fails 18 tests, 16 from a `yolo host` caller's env; an mcpauth test fails under -count"
 date: 2026-11-23
 tags: [lab-report, macos, testing, perf, config-edit, mcp-auth]
-summary: "At main fe37424b3, on the owner's Mac with the installed yolo at the same commit: the Darwin RENAME_EXCL trace publication passes natively; `yolo config unset` of macos_user_shared_tmp and of env.secrets now leaves a clean file; TestMacosUserStoresListsTheSandboxAccount passes. New: the config-edit diff prints a +/- marker on only the first line of a multi-line hunk, and `yolo config unset env.set.X` refuses and says to hand-edit. `just test-fast` fails 18 tests: 16 are deterministic when the caller's env carries a `yolo host` session's YOLO_* variables, TestOutcomeTwoBrokersAdoptOneSingleUseToken fails 39 of 40 runs with or without them, and 2 are load flakes. The account-mode provisioning re-check did not run."
+summary: "At main fe37424b3, on the owner's Mac with the installed yolo at the same commit: the Darwin RENAME_EXCL trace publication passes natively; `yolo config unset` of macos_user_shared_tmp and of env.secrets now leaves a clean file; TestMacosUserStoresListsTheSandboxAccount passes. New: the config-edit diff prints a +/- marker on only the first line of a multi-line hunk, and `yolo config unset env.set.X` refuses and says to hand-edit. `just test-fast` fails 18 tests: 16 are deterministic when the caller's env carries a `yolo host` session's YOLO_* variables, TestOutcomeTwoBrokersAdoptOneSingleUseToken fails 39 of 40 repetitions under -count=20 but passed in the second full run, and 2 are load flakes. `just done`'s full gate adds a callbroker failure, a matched-bundle Exec format error and a pre-existing vantage link error. The account-mode provisioning re-check did not run."
 ---
 
 # Mac run at `fe37424b3`
@@ -125,14 +125,17 @@ CI and a fresh jail do not set these variables, so neither sees this. Any agent 
 gate from a `yolo host` session does. Whether that is a test defect (the tests should clear the
 `YOLO_*` dials they read) or an unsupported caller has not been decided.
 
-**1 is a near-certain race, not env.** `TestOutcomeTwoBrokersAdoptOneSingleUseToken`
+**1 fails under repetition, not because of env.** `TestOutcomeTwoBrokersAdoptOneSingleUseToken`
 (`internal/mcpauth/outcome_concurrency_test.go:28`) fails with
-`slack: openat records.lock: no such file or directory`. With `-count=20` it failed 20 of 20 runs
-with the env and 19 of 20 without it. The single passes seen first were luck. The lock is opened
+`slack: openat records.lock: no such file or directory`. With `-count=20` in one process, it
+failed 20 of 20 repetitions with the env and 19 of 20 without it. Single runs were mixed: it
+failed in the first full run, passed alone twice, and passed in `just done`'s full run
+([§6](#6-just-dones-full-gate)). So the trigger may be state shared across `-count` repetitions
+in one process rather than, or as well as, a race between the two brokers. The lock is opened
 by `paths.OpenLockFileBeneath`, which passes `O_RDWR|O_CREATE`, through `openNoFollowLeaf`
 (`internal/paths/statefile_open_unix.go:38`). An `openat` with `O_CREAT` returns ENOENT when the
-directory it is anchored on is gone, so the hypothesis is that one broker's pass removes or
-replaces the canonical directory while the other opens its lock. This was not confirmed. Whether
+directory it is anchored on is gone. So one hypothesis is that something removes or replaces the
+canonical directory while a broker opens its lock. This was not confirmed. Whether
 Linux CI also fails was not checked.
 
 **2 are load flakes.** Each failed once during the full run and passed alone, with the env and
@@ -145,14 +148,32 @@ without it:
   `status=-1 out=""`, meaning the CLI was killed instead of interrupted. The test waits on events;
   whatever grace period `Decision` allows between interrupt and kill was not examined.
 
+### 6. `just done`'s full gate
+
+After the report was committed, `just done` found no verified ancestor and ran the full
+`just check-ci` with `vantage-check` over 225 changed documents. It **failed**, and nothing was
+recorded. All 16 env tests from [§5](#5-just-test-fast-on-darwin) failed again, and mcpauth
+and both load flakes passed. It also showed three things the first run did not:
+
+- `TestSelectedHTTPWriteRevokedReadOrChangedNativeParentCannotSpend/pack_deselected`
+  (`internal/callbroker`, `http_host_test.go:1284`): `rc=64` and *"HTTP broker refused: This is a
+  bug in the selected pack's HTTP classifier"*. It was not rerun, so whether it is env, load or
+  real is unknown.
+- `scripts/matched-bundle.py` (`_run_fresh_executable`, line 297) raised
+  `OSError: [Errno 8] Exec format error` running a staged `bundle/bin/yolo`. This looks like a
+  non-darwin binary executed on darwin. Not investigated.
+- `lint-ci` failed on one vantage error, which this report did not cause:
+  `docs/research/toml-scoped-pack-imports.md:69` links `#L695-L738` of
+  `internal/hostskills/deliver.go`, which has 719 lines. The new report raised no finding.
+
 ## Fixed and committed
 
 Nothing in yolo. This report is the only commit.
 
 ## Open
 
-1. [§5](#5-just-test-fast-on-darwin), the race: `TestOutcomeTwoBrokersAdoptOneSingleUseToken`
-   fails nearly every run on this Mac. Find the cause, and check Linux CI.
+1. [§5](#5-just-test-fast-on-darwin), mcpauth: `TestOutcomeTwoBrokersAdoptOneSingleUseToken`
+   fails nearly every repetition under `-count=20` on this Mac. Find the cause, and check Linux CI.
 2. [§5](#5-just-test-fast-on-darwin), the env: decide whether tests must clear inherited `YOLO_*`
    dials, which makes 16 tests a defect, or whether the landing gate must not run from a `yolo
    host` session, which makes it a documented precondition.
@@ -162,7 +183,10 @@ Nothing in yolo. This report is the only commit.
    exception.
 5. [§5](#5-just-test-fast-on-darwin), the flakes: make `TestGitPreflightEOFWaitsForOrdinaryExitStatus`
    event-driven, and look at `Decision`'s interrupt-to-kill grace.
-6. [§4](#4-account-mode-provisioning-not-re-checked): 11-13 item 1 still needs a run, by the owner
+6. [§6](#6-just-dones-full-gate): rerun the callbroker test alone, find what
+   `matched-bundle.py` executes on darwin, and fix the out-of-range line anchor in
+   `docs/research/toml-scoped-pack-imports.md`.
+7. [§4](#4-account-mode-provisioning-not-re-checked): 11-13 item 1 still needs a run, by the owner
    or with the owner's permission.
 
 ## Evidence
@@ -170,5 +194,5 @@ Nothing in yolo. This report is the only commit.
 In `/Users/Shared/yolo/evidence/2026-11-23/`: `perf-tracestore.log`, `config-unset.log`,
 `secrets-unset-raw.log`, `public-env-diff.log`, `public-env-unset.log`, `su14-test.log`,
 `test-fast.log`, `failed-by-pkg.txt`, `rerun-clean-env.log`, `rerun-dirty-env.log`,
-`rerun-dirty-env-2.log`, `mcpauth-x20-dirty.log` and `mcpauth-x20-clean.log`. Everything ran
+`rerun-dirty-env-2.log`, `mcpauth-x20-dirty.log`, `mcpauth-x20-clean.log` and `just-done.log`. Everything ran
 against `fe37424b3`.
