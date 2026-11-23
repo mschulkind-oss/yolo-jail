@@ -65,6 +65,11 @@ func TestEveryKeyAdviceNamesForUnsetIsRemovable(t *testing.T) {
 		if path[0].Key == "repos" {
 			continue // namedRepoUnset plans these; TestNamedRepoUnset* covers them
 		}
+		if path[0].Key == "packs" && len(path) == 3 && path[2].Key == "local" {
+			// An inline-table key inside an element of the `packs` array: no fixture can be written
+			// through PlanEdit (a TOML table path cannot hold an array index).
+			continue
+		}
 		format, empty := configdoc.TOML, []byte(nil)
 		if path[0].Key == "loopholes" {
 			// A legacy file's switch; TOML has no loopholes table.
