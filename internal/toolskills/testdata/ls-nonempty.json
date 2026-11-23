@@ -1,0 +1,14 @@
+[
+  {
+    "name": "hk-configure",
+    "tool": "packslip:github.com/jdx/hk",
+    "version": "2.13.0",
+    "path": "/home/agent/.local/share/mise/installs/packslip-github-com-jdx-hk/2.13.0/skills/hk-configure"
+  },
+  {
+    "name": "hk-debug",
+    "tool": "packslip:github.com/jdx/hk",
+    "version": "2.13.0",
+    "path": "/home/agent/.local/share/mise/installs/packslip-github-com-jdx-hk/2.13.0/skills/hk-debug"
+  }
+]
