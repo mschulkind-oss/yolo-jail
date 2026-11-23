@@ -89,6 +89,31 @@ class TmpLeakGateTest(unittest.TestCase):
         self.assertEqual(r.returncode, 7)
         self.assertFalse(os.path.exists(private_dir(r)))
 
+    def _survivor_case(self, spawn):
+        r = run_gate(f'{spawn} echo "child=$!"; exit 0')
+        child = int(re.search(r"^child=(\d+)$", r.stdout, re.M).group(1))
+        self.assertNotEqual(r.returncode, 0, "a process that outlives the command must fail the run")
+        self.assertIn("TMPDIR LEAK", r.stderr)
+        self.assertIn(str(child), r.stderr, "the survivor's pid must be named")
+        try:
+            os.kill(child, 0)
+            alive = open(f"/proc/{child}/stat").read().rsplit(")", 1)[1].split()[0] != "Z" \
+                if os.path.exists(f"/proc/{child}/stat") else True
+        except OSError:
+            alive = False
+        self.assertFalse(alive, "the gate must kill what the command left running")
+        self.assertFalse(os.path.exists(private_dir(r)), "the private dir must be removed without a crash")
+        self.assertNotIn("Traceback", r.stderr)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the subreaper is Linux-only")
+    def test_a_process_left_running_in_the_commands_group_fails_the_run_and_is_killed(self):
+        self._survivor_case("sleep 300 &")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the subreaper is Linux-only")
+    def test_a_process_that_left_the_commands_group_is_found_and_killed_too(self):
+        self._survivor_case(
+            f"{sys.executable} -c 'import os; os.setsid(); os.execvp(\"sleep\", [\"sleep\", \"300\"])' &")
+
     def test_test_fast_runs_under_the_gate(self):
         text = JUSTFILE.read_text()
         m = re.search(r"^test-fast:\n((?:    .*\n)+)", text, re.M)

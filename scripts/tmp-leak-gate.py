@@ -34,6 +34,8 @@ import sys
 import tempfile
 import time
 
+PR_SET_CHILD_SUBREAPER = 36
+
 # How a leftover's name points at its maker. A t.TempDir is named after its test
 # (<TestName><digits>), and an os.MkdirTemp after the prefix its caller passed.
 HOW_TO_FIX = """\
@@ -70,6 +72,67 @@ def remove_tree(path):
         shutil.rmtree(path, onexc=on_error)
     else:
         shutil.rmtree(path, onerror=lambda f, p, e: on_error(f, p, e))
+
+
+def become_subreaper():
+    """Make every orphaned descendant of the command reparent to this process (Linux), so the
+    gate can see and reap what outlives the command. Returns whether it took effect."""
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        return libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0
+    except (OSError, AttributeError):
+        return False
+
+
+def adopted_children():
+    """Pids of this process's live children, read from /proc (Linux)."""
+    me = os.getpid()
+    found = []
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return found
+    for name in names:
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/stat") as f:
+                stat_line = f.read()
+        except OSError:
+            continue
+        # "pid (comm) state ppid ...": comm may hold spaces and parens, so split after the last ")".
+        fields = stat_line.rsplit(")", 1)[1].split()
+        if len(fields) > 1 and int(fields[1]) == me and fields[0] != "Z":
+            found.append(int(name))
+    return found
+
+
+def reap_survivors(command_pid):
+    """Kill and reap every process the command left running after it exited. A test that leaves a
+    grandchild behind keeps writing into the private TMPDIR while the gate scans and removes it,
+    so the gate waits on each one's death (waitpid, not a sleep) before it looks at the directory.
+    Returns the pids it had to kill."""
+    killed = adopted_children()  # read BEFORE any kill: a killed child turns into a zombie
+    try:
+        os.killpg(command_pid, signal.SIGKILL)  # the command's own group, orphans included
+    except OSError:
+        pass
+    for pid in killed:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    while True:  # blocks on each death; ECHILD means none is left
+        try:
+            os.waitpid(-1, 0)
+        except ChildProcessError:
+            break
+        except InterruptedError:
+            continue
+    return killed
 
 
 def describe(private, name):
@@ -157,11 +220,21 @@ def main(argv):
         signal.signal(sig, forward)
     try:
         start = time.time()
+        reaper = become_subreaper()
         proc = subprocess.Popen(argv, env=env, start_new_session=True)
         rc = proc.wait()
         if rc < 0:  # killed by a signal: the shell's spelling of it
             rc = 128 - rc
         leaked = False
+        survivors = reap_survivors(proc.pid) if reaper else []
+        if survivors:
+            print(f"\nTMPDIR LEAK: the command exited but left {len(survivors)} process(es) of its own "
+                  f"running (pids {', '.join(map(str, survivors))}), killed now. A process that outlives "
+                  "go test (a self-exec'd daemon, a helper re-exec, or a test binary orphaned when go "
+                  "test was killed) keeps writing into TMPDIR, so what is left there is not a verdict "
+                  "on the tests. Find the test that starts it and make it wait for the child's exit "
+                  "before it returns.", file=sys.stderr)
+            leaked = True
         found = session_leftovers(proc.pid, start)
         if found:
             report_session_leftovers(found, "the run")
@@ -176,7 +249,16 @@ def main(argv):
             leaked = True
         return (rc or 1) if leaked else rc
     finally:
-        remove_tree(private)
+        removal_error = None
+        try:
+            remove_tree(private)
+        except OSError as err:
+            removal_error = err
+        if removal_error is not None:
+            # Never a traceback that hides the report above: say what stopped it, and fail.
+            print(f"TMPDIR LEAK: the gate could not remove its private TMPDIR {private}: {removal_error}",
+                  file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":
