@@ -5,12 +5,12 @@ status: in-review
 tags: [launchers, updates, program-delivery, macos-user, evergreen]
 summary: "Every in-jail launcher drops its hourly throttle. An unpinned program is checked once per jail start, at its first invocation; relaunching the jail is how a user picks up a new version."
 stage: DESIGN
-next: "Build slice 0 (the jail-start record) and slice 1 (the npm launcher)"
+next: "Slice 7: the Mac witnesses (the owner's Mac); the host floor's poll is a roadmap follow-up"
 ---
 
 # Programs update at the first invocation of a jail start, not once an hour
 
-**Status:** 2026-11-23. Nothing built. Code read at `d2a831cd8`; the macOS rows are UNMEASURED.
+**Status:** 2026-11-23. Slices 0-6 built (the Built column of the [ledger](#decision-ledger) and the [slices](#slices) carry the commits); slice 7, the Mac witnesses, is open and the macOS rows are UNMEASURED. Appendix A's line numbers were read at `d2a831cd8`, before the build.
 
 > **In short.** The launchers' `UPDATE_INTERVAL` bought nothing a per-jail-start rule does not buy better:
 > an update check costs a network round trip, so it must not run on every subagent start, and "once since
@@ -183,26 +183,26 @@ touches the network, and never starts an agent.
 
 0. **The record.** Test: run the container boot table twice, and once as a session pass, and read the file:
    ids differ across boots, equal across the session pass; the macos-user target writes it too. Pins the table
-   entry (delete it and the test fails); `TestEveryBootStepRunsOrSaysWhy` already forces its exclusions.
+   entry (delete it and the test fails); `TestEveryBootStepRunsOrSaysWhy` already forces its exclusions. **Built:** `4218ebc13`.
 1. **The npm launcher.** Replace `TestUnpinnedNpmLauncherUpdatesPastItsStamp` with: one `npm view` per id across
    two invocations; a new id checks again; unreachable keeps the marker; a refusal releases it; a held lock
    releases it; a pinned program, a held `agent_updates`, a probe and install-only claim nothing; no record
    checks nothing and says its line; two launchers, the first blocked in `npm view` on the pipe, the second
-   returns without calling npm. Pins `_update_due`'s call site.
+   returns without calling npm. Pins `_update_due`'s call site. **Built:** `4218ebc13`, `2556d8869` (the cold install records the marker).
 2. **The native launcher.** The same table over its update verb and installer, replacing
-   `TestNativeLauncherThrottlesOnTheStamp`.
+   `TestNativeLauncherThrottlesOnTheStamp`. **Built:** `b916d8cf0`, `2556d8869`.
 3. **The server refresh.** Go test over the existing `View` and `run` seams: a package marker per id, a
    refusal leaving none, the constant gone. Replaces `TestServerRefreshSharesTheLaunchersThrottle` and
-   `TestAFreshStampDoesNoWork`. Pins `serverRefreshDue`.
+   `TestAFreshStampDoesNoWork`. Pins `serverRefreshDue`. **Built:** `b43983383`.
 4. **The pre-launch refresh.** Due on a new id and on changed content, never otherwise; the failed marker per id.
    Replaces the throttle tests in `prelaunchrefresh_test.go`, `prelaunchrefreshdue_test.go` and
    `prelaunchrefreshtiming_test.go`. Also: `_yolo_failed_act`'s "upstream could not be reached" line
    (shared with the launchers' update verb) lacks the next step the other unreachable lines carry
-   ("asks again the next time this jail starts, or now with: yolo pack update").
-5. **The pnpm launcher.** Replaces `pnpmthrottle_test.go`'s hour.
+   ("asks again the next time this jail starts, or now with: yolo pack update"). **Built:** `01c300fec`; the `_yolo_failed_act` line carries its next step in `4218ebc13`.
+5. **The pnpm launcher.** Replaces `pnpmthrottle_test.go`'s hour. **Built:** `4900112ec`.
 6. **The sweep.** Delete the source launcher's constant; correct the comments and docs that say "hourly" (the
    user guide's agent-updates section, the program-delivery rows this supersedes); run the integration tests that
-   read the interval (`integration/macosusernpm_test.go`, `installmechanism_test.go`).
+   read the interval (`integration/macosusernpm_test.go`, `installmechanism_test.go`). **Built:** `01c300fec` (the fork launcher constant), `5456b74c7` (the integration tests), `1e22c71ed` (the docs).
 7. **Mac witnesses** (UNMEASURED until run, per `mac-handoff`): two macos-user sessions in one home share the
    later id and one extra check; `set -o noclobber` is exclusive under `/bin/bash` 3.2.
 
@@ -210,16 +210,16 @@ touches the network, and never starts an agent.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| LU-D1 | **Owner ruling.** The hourly throttle is dropped entirely; an unpinned program is checked once per jail start, at its first invocation, and relaunching is how a user picks up changes (quotes above). Supersedes the "at most once per `UPDATE_INTERVAL`" clause of [OQ-PD12](program-delivery.md#decision-ledger), the hourly stamp of [XB-D14](pi-extension-store-builds.md#XB-D14)'s scope sentence, and [XB-D26](pi-extension-store-builds.md#XB-D26)'s "older than `UPDATE_INTERVAL`" | 2026-11-23 | [The ruling](#the-ruling) | no |
-| LU-D2 | **Owner ruling.** A failed or timed-out check runs the installed version and does not retry until the next start | 2026-11-23 | [The check](#the-check-as-a-claim) | no |
-| LU-D3 | *Implementation decision, reversible.* A jail start is one run of the jail's own boot, never an attach; its observable is a record the boot step writes whole | 2026-11-23 | [The record](#the-jail-start-record) | no |
-| LU-D4 | *Implementation decision, reversible.* The record is a file read with `$(<file)`, not an environment variable, so it survives `env -i` | 2026-11-23 | [The record](#the-jail-start-record) | no |
-| LU-D5 | *Implementation decision, reversible.* The marker is created by an `O_EXCL` claim (`noclobber`) before the check; no new `mkdir` mutex | 2026-11-23 | [The mkdir finding](#the-mkdir-finding) | no |
-| LU-D6 | *Implementation decision, reversible.* Absent record: check nothing and say so; the boot is the only writer | 2026-11-23 | [The record](#the-jail-start-record) | no |
-| LU-D7 | *Implementation decision, reversible.* The pnpm failed-install retry follows the same per-start rule | 2026-11-23 | [Consumers](#where-each-consumer-lands) | no |
-| LU-D8 | *Implementation decision, reversible.* The refresh keeps its lock and end-of-act marker; its markers are per id | 2026-11-23 | [Consumers](#where-each-consumer-lands) | no |
-| LU-D9 | *Implementation decision, reversible.* Old stamps are ignored, never deleted | 2026-11-23 | [Consumers](#where-each-consumer-lands) | no |
-| LU-D10 | *Coordinator decision.* A refused install (exit 75) releases the marker, so the next invocation retries | 2026-11-23 | [Open questions](#open-questions) | no |
+| LU-D1 | **Owner ruling.** The hourly throttle is dropped entirely; an unpinned program is checked once per jail start, at its first invocation, and relaunching is how a user picks up changes (quotes above). Supersedes the "at most once per `UPDATE_INTERVAL`" clause of [OQ-PD12](program-delivery.md#decision-ledger), the hourly stamp of [XB-D14](pi-extension-store-builds.md#XB-D14)'s scope sentence, and [XB-D26](pi-extension-store-builds.md#XB-D26)'s "older than `UPDATE_INTERVAL`" | 2026-11-23 | [The ruling](#the-ruling) | yes: npm `4218ebc13`, native `b916d8cf0`, servers `b43983383`, refresh `01c300fec`, pnpm `4900112ec` |
+| LU-D2 | **Owner ruling.** A failed or timed-out check runs the installed version and does not retry until the next start | 2026-11-23 | [The check](#the-check-as-a-claim) | yes, `4218ebc13`, `b916d8cf0` |
+| LU-D3 | *Implementation decision, reversible.* A jail start is one run of the jail's own boot, never an attach; its observable is a record the boot step writes whole | 2026-11-23 | [The record](#the-jail-start-record) | yes, `4218ebc13` |
+| LU-D4 | *Implementation decision, reversible.* The record is a file read with `$(<file)`, not an environment variable, so it survives `env -i` | 2026-11-23 | [The record](#the-jail-start-record) | yes, `4218ebc13` |
+| LU-D5 | *Implementation decision, reversible.* The marker is created by an `O_EXCL` claim (`noclobber`) before the check; no new `mkdir` mutex | 2026-11-23 | [The mkdir finding](#the-mkdir-finding) | yes, `4218ebc13`, `b916d8cf0` |
+| LU-D6 | *Implementation decision, reversible.* Absent record: check nothing and say so; the boot is the only writer | 2026-11-23 | [The record](#the-jail-start-record) | yes, `4218ebc13` |
+| LU-D7 | *Implementation decision, reversible.* The pnpm failed-install retry follows the same per-start rule | 2026-11-23 | [Consumers](#where-each-consumer-lands) | yes, `4900112ec` |
+| LU-D8 | *Implementation decision, reversible.* The refresh keeps its lock and end-of-act marker; its markers are per id | 2026-11-23 | [Consumers](#where-each-consumer-lands) | yes, `01c300fec` |
+| LU-D9 | *Implementation decision, reversible.* Old stamps are ignored, never deleted | 2026-11-23 | [Consumers](#where-each-consumer-lands) | yes (the new markers live at new paths; an old stamp is never read) |
+| LU-D10 | *Coordinator decision.* A refused install (exit 75) releases the marker, so the next invocation retries | 2026-11-23 | [Open questions](#open-questions) | yes, `4218ebc13`, `b916d8cf0` |
 | LU-D11 | *Coordinator decision.* This change covers the in-jail launchers only; pack refresh and the patch check are [`local-pack-clones.md`](./local-pack-clones.md)'s, and the host floor's poll is a roadmap follow-up under the same ruling | 2026-11-23 | [Open questions](#open-questions) | no |
 
 ## Appendix A: Evidence

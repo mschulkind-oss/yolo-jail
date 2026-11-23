@@ -40,8 +40,11 @@ needs a ruling or a Mac sits in the others.
 
 3. [Launcher updates once per jail start](../design/launcher-update-per-jail-start.md) — the owner's ruling
    (2026-11-23) drops the in-jail launchers' hourly throttle: an unpinned program updates at its first invocation
-   after a jail start. Build its slices in order. Follow-up under the same ruling, not yet designed: the host
-   floor's evergreen poll (`hostfloor.DefaultUpdateInterval`).
+   after a jail start. Built, slices 0-6: the jail-start record, the npm, native and pnpm launchers, the server
+   and pre-launch refreshes, and the docs. Remaining: slice 7, the Mac witnesses (two macos-user sessions of one
+   home share the later id; `set -o noclobber` is exclusive under `/bin/bash` 3.2), which need the owner's Mac. Follow-up
+   under the same ruling, not yet designed: the host floor's evergreen poll (`hostfloor.DefaultUpdateInterval`,
+   `internal/hostfloor/floor.go:205`), since `yolo host` has no jail start.
 
 4. [Direct user-level scoped TOML pack imports](../design/toml-scoped-pack-imports-plan.md) —
    next by the owner's explicit priority: selected upstream skills must reach every project
