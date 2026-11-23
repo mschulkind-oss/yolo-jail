@@ -7,7 +7,7 @@ package macosuser
 // (runReal says why). A build jail's log keeps what the act writes to Out, not what a child
 // writes to the inherited descriptors, so a capture bootstrap that failed on a Mac left one line
 // in the build log, "the staging home has no generated launcher", and nothing of the bootstrap's
-// own reason (docs/lab-reports/2026-10-23-native-mac-verification.md §2). The bootstrap is
+// own reason (the 2026-10-23 Mac suite run). The bootstrap is
 // non-interactive (its crossing is `sudo -n`, or `/usr/bin/env` as you), so a pipe changes no
 // prompt; its output is copied to Out, bounded, and its refusal carries its exit status and the
 // tail of its stderr.

@@ -228,8 +228,8 @@ yet rerun.
 
 **Both modes after the rulings (2026-10-23, later the same day).** With loopback open and the shared
 `/tmp` closed as built, `--profile-from-yolo` passed with no FAIL in self mode (43 PASS) and in account
-mode (42 PASS), the account crossing through yolo's own run-as rule with no password. Details and the
-skips are in [the lab report](../lab-reports/2026-10-23-native-mac-verification.md#1-the-prototype-both-modes-against-the-generated-profile).
+mode (42 PASS), the account crossing through yolo's own run-as rule with no password. Skipped: b7 (clipboard
+empty), g8 (no colima or Docker socket) and f1 (opt-in) in both modes, and e1 in account mode (self mode only).
 
 ## 7. The ruled model: two modes, one profile
 
