@@ -81,7 +81,7 @@ func TestTheCopyDecisionOverRealClones(t *testing.T) {
 		lines []string
 	}{
 		{name: "equal and clean", copy: CopyWorkingTree, rel: "equal",
-			lines: []string{"local %C (working tree, equal to origin)"}},
+			lines: []string{"local %C (working tree, equal to origin; 1 file)"}},
 		{name: "equal and dirty", copy: CopyWorkingTree, rel: "equal",
 			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
 				write(t, filepath.Join(f.clone, "pack.json"), `{"name":"edited"}`)

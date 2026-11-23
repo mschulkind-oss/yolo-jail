@@ -93,8 +93,15 @@ type ResolvedPack struct {
 	// StagedFrom is packsrc.Resolved.StagedFrom: the delivered tree a nested resolution fell back
 	// to, "" otherwise.
 	StagedFrom string
-	// Commit is the existing fetched commit read by the resolver, never a branch label.
+	// Commit is the existing fetched commit read by the resolver, never a branch label. Empty when a `local`
+	// clone's working tree was staged: it is no commit, and the lockfile does not pin it.
 	Commit string
+	// WorkingTree is set when the pack was staged from its `local` clone's working tree
+	// (docs/design/local-pack-clones.md §6.4); nil for origin's copy.
+	WorkingTree *packsrc.WorkingTree
+	// WorkingTreeFallback is why a clone that was to run was not staged and origin's held copy runs instead
+	// (§6.5); "" when nothing fell back. A launch prints it as a warning.
+	WorkingTreeFallback string
 }
 
 // PackResolveError is a resolution the resolver could not complete: the address, the store, the
@@ -194,7 +201,24 @@ func resolvePack(entry PackEntry, spec ResolvePackSpec, inspection bool) (Resolv
 			return fail(err)
 		}
 		pureWholeInspection := inspection
-		if (entry.Skills != nil || pureWholeInspection) && !addr.IsLocal() {
+		storeDir := spec.StoreDir
+		if storeDir == "" {
+			storeDir = paths.PacksDir()
+		}
+		store := &packsrc.Store{Dir: storeDir, Git: spec.Git, Getenv: spec.Getenv, Ctx: spec.Ctx,
+			NoWait: spec.NoWait, Detached: spec.Detached}
+		var wt *packsrc.WorkingTree
+		if entry.Local != "" && addr.Kind == packsrc.KindGit && entry.Skills == nil {
+			// THE CLONE'S WORKING TREE RUNS when the launch's record says so (LPC-D14): the one reader of the
+			// record, so every notch and verb agrees. The snapshot lives in this process's pack tree.
+			wtAddr := addr
+			wt, out.WorkingTreeFallback = store.ResolveWorkingTree(packsrc.WorkingTreeSpec{
+				Name: entry.Name, Clone: entry.Local, Addr: wtAddr, Subdir: entry.Subdir,
+				Dir: func() (string, error) { return packload.ProcessPackDir(entry.Slug()) },
+			})
+		}
+		var res *packsrc.Resolved
+		if (entry.Skills != nil || pureWholeInspection) && !addr.IsLocal() && wt == nil {
 			// A scoped or pure whole read binds to the launch's recorded pin, not a branch tip
 			// that an unrelated mirror refresh may have advanced.
 			lock, err := packsrc.LoadLock(packsrc.LockPath(paths.UserConfigPath()))
@@ -207,20 +231,19 @@ func resolvePack(entry PackEntry, spec ResolvePackSpec, inspection bool) (Resolv
 				return fail(fmt.Errorf("%w: selection has no matching recorded pin; the next host launch resolves it", packsrc.ErrDefaultRefUnavailable))
 			}
 		}
-		storeDir := spec.StoreDir
-		if storeDir == "" {
-			storeDir = paths.PacksDir()
-		}
-		store := &packsrc.Store{Dir: storeDir, Git: spec.Git, Getenv: spec.Getenv, Ctx: spec.Ctx,
-			NoWait: spec.NoWait, Detached: spec.Detached}
-		var res *packsrc.Resolved
-		if entry.AllowDefaultRef && addr.Ref == "" {
+		if wt != nil {
+			res = &packsrc.Resolved{Root: wt.Root}
+			out.WorkingTree = wt
+		} else if entry.AllowDefaultRef && addr.Ref == "" {
 			res, err = store.ResolvePackDefault(addr, entry.Name, entry.Slug(), entry.Source,
 				packsrc.LockPath(paths.UserConfigPath()), spec.ReadOnlyStore)
 		} else if spec.ReadOnlyStore {
 			res, err = store.ResolveExisting(addr, entry.Slug())
 		} else {
 			res, err = store.Resolve(addr, entry.Slug())
+		}
+		if err != nil && out.WorkingTreeFallback != "" {
+			err = fmt.Errorf("%s; and origin's copy is not held: %w", out.WorkingTreeFallback, err)
 		}
 		if err != nil {
 			if inspection && addr.IsLocal() {

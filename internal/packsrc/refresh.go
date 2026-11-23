@@ -126,6 +126,9 @@ type RefreshPack struct {
 	PreserveDefaultPin bool
 	// Local is the pack's `local` key: the user's clone, absolute. Empty for none.
 	Local string
+	// Subdir is the entry's `subdir`: the pack's directory below the address's, which a `local` clone's dirty
+	// count and file set are limited to.
+	Subdir string
 }
 
 // RefreshOptions tunes one Refresh call.
@@ -189,6 +192,9 @@ type Outcome struct {
 func (o Outcome) Disclosure() string {
 	if o.Commit == "" || o.Err != nil {
 		return ""
+	}
+	if o.Local != nil && o.Local.Copy == CopyWorkingTree {
+		return "" // the clone runs, not the commit: the local line is the disclosure, and the pin did not move
 	}
 	if o.First {
 		return fmt.Sprintf("Fetched pack %s: %s → %s", o.Name, o.Ref, shortCommit(o.Commit))
@@ -304,16 +310,14 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 		}
 		item := refreshItem{idx: i, addr: a}
 		if a.Kind == KindGit && p.Local != "" {
-			item.name, item.local = p.Name, p.Local
+			item.name, item.local, item.subdir = p.Name, p.Local, p.Subdir
 		}
 		items = append(items, item)
 	}
 	s.refreshGrouped(items, outcomes, opts.Force, now(), opts.Waiting, opts.Check)
 	for i := range outcomes {
 		if outcomes[i].Local != nil {
-			// A record that cannot be written leaves the previous one: nothing reads it before the working-tree
-			// staging does, and that falls back to origin's held copy when it is missing or stale.
-			_ = s.SaveLocalCopyRecord(*outcomes[i].Local)
+			s.recordLocalCopy(&outcomes[i])
 		}
 	}
 	if opts.Check != nil {
@@ -337,6 +341,11 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 				o.Prev, o.Locked = prev.Commit, true
 			}
 			if o.Commit == "" || o.Err != nil {
+				continue
+			}
+			if o.Local != nil && o.Local.Copy == CopyWorkingTree {
+				// THE LOCKFILE PINS ONLY ORIGIN'S COPY (LPC-D14): the clone's bytes are no commit, so the pin
+				// stays where it was and the launch record says what ran.
 				continue
 			}
 			if !same {
@@ -372,6 +381,8 @@ type refreshItem struct {
 	// name and local are the pack's handle and its `local` clone (RefreshPack.Local): set only for a git pack
 	// that names one, which the launch check then decides a copy for (localcopy.go).
 	name, local string
+	// subdir is RefreshPack.Subdir.
+	subdir string
 }
 
 // refreshGrouped runs refreshMirror for items GROUPED BY MIRROR, in first-appearance order:

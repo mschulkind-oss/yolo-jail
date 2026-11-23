@@ -954,6 +954,10 @@ func (o *Options) stagePackEntry(entry config.PackEntry, dest string) (*packload
 	if err != nil {
 		return nil, err
 	}
+	if res.WorkingTreeFallback != "" {
+		// A DISCLOSURE (§6.5): the clone was to run and could not be staged, so another copy runs.
+		o.pr(o.Stderr).print("[yellow]Warning: " + res.WorkingTreeFallback + "[/yellow]")
+	}
 	if res.Staged != nil && len(res.Staged.Staged) == 0 {
 		o.pr(o.Stderr).print(fmt.Sprintf(
 			"[yellow]Warning: pack %s staged 0 files (%d excluded by only/exclude) — "+

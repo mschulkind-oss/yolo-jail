@@ -73,9 +73,12 @@ type LocalCopyDecision struct {
 	Relation                  string
 	// Ahead is the clone's commits origin lacks, Behind origin's the clone lacks.
 	Ahead, Behind int
-	// Dirty is any tracked change or untracked-not-ignored file; Changed counts the first, Untracked the second.
+	// Dirty is any tracked change or untracked-not-ignored file UNDER THE PACK'S DIRECTORY (a change elsewhere in
+	// the repository is not the pack's); Changed counts the first, Untracked the second. Files is the pack's file
+	// set, the count the line shows.
 	Dirty              bool
 	Changed, Untracked int
+	Files              int
 	// Verified is whether this launch's check reached origin.
 	Verified bool
 	// Warn is whether the line is printed as a warning.
@@ -100,6 +103,11 @@ type localFacts struct {
 	OriginCommit, CloneCommit string
 	Ahead, Behind             int
 	Changed, Untracked        int
+	// Files is the working tree's file set (workingtree.go) and Scope the in-repo directory the pack, and so the
+	// dirty count and the file set, is limited to ("" for the whole repository).
+	Files  int
+	Scope  string
+	Subdir string
 	// Verified is a check that reached origin; FetchCause says why not, LastFetched when it last did.
 	Verified    bool
 	FetchCause  string
@@ -111,7 +119,7 @@ type localFacts struct {
 func decideLocalCopy(f localFacts) LocalCopyDecision {
 	d := LocalCopyDecision{
 		Name: f.Name, Ref: f.Ref, Clone: f.Path, OriginCommit: f.OriginCommit, CloneCommit: f.CloneCommit,
-		Ahead: f.Ahead, Behind: f.Behind, Changed: f.Changed, Untracked: f.Untracked,
+		Ahead: f.Ahead, Behind: f.Behind, Changed: f.Changed, Untracked: f.Untracked, Files: f.Files,
 		Dirty: f.Changed+f.Untracked > 0, Verified: f.Verified, At: f.Now.Unix(),
 	}
 	remote := f.Remote
@@ -144,7 +152,11 @@ func decideLocalCopy(f localFacts) LocalCopyDecision {
 				out = append(out, p)
 			}
 		}
-		return "local " + f.Path + " (" + strings.Join(out, ", ") + ")"
+		counted := strings.Join(out, ", ")
+		if f.Files > 0 {
+			counted += fmt.Sprintf("; %d %s", f.Files, plural(f.Files, "file", "files"))
+		}
+		return "local " + f.Path + " (" + counted + ")"
 	}
 	push := func(args ...string) string {
 		return git(append([]string{"push"}, append(args, "--", remote, f.Ref)...)...)
@@ -212,6 +224,7 @@ func (s *Store) localCopyFor(it refreshItem, originCommit string, fetchErr error
 	f := localFacts{
 		Name: it.name, Ref: strings.TrimPrefix(it.addr.Ref, "refs/heads/"), Repo: it.addr.Repo, Path: it.local,
 		OriginCommit: originCommit, Verified: fetchErr == nil, Now: now,
+		Scope: scopeOf(it.addr.Path, it.subdir), Subdir: it.subdir,
 	}
 	if fetchErr != nil {
 		f.FetchCause = checkCause(fetchErr)
@@ -299,12 +312,21 @@ func (s *Store) readLocalClone(b budget, a Addr, f *localFacts) {
 			return
 		}
 	}
-	status, err := read("status", "--porcelain=v1", "-z", "--untracked-files=normal")
+	// Dirty is the PACK's: limited to its directory, as the staged file set is.
+	statusArgs := []string{"status", "--porcelain=v1", "-z", "--untracked-files=normal"}
+	if f.Scope != "" {
+		statusArgs = append(statusArgs, "--", ":(literal)"+f.Scope)
+	}
+	status, err := read(statusArgs...)
 	if err != nil {
 		f.NotUsed = "its status could not be read (" + oneLine(err) + ")"
 		return
 	}
 	f.Changed, f.Untracked = countStatus(status)
+	// The file count is the staged file set's; a count that cannot be read leaves the line without one.
+	if plan, perr := s.planWorkingTree(b, f.Path, a.Path, f.Subdir); perr == nil {
+		f.Files = len(plan.files)
+	}
 }
 
 // countStatus counts a `status --porcelain=v1 -z` answer's tracked changes and untracked files. A rename or
