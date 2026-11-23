@@ -407,11 +407,10 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, patchBran
 	defer cancel()
 	mirror := s.mirrorPath(a.Repo)
 
-	step := s.fetchStep(b, a.Repo, []Addr{a}, fetchMode{always: force, keepTags: true}, now,
-		BranchRefreshInterval)
+	step := s.fetchStep(b, a.Repo, []Addr{a}, fetchMode{always: force, keepTags: true, probeTags: true}, now)
 	found.Fetched = step.fetched
-	if step.fetchErr != nil {
-		found.FetchErr = oneLine(step.fetchErr)
+	if err := errors.Join(step.fetchErr, step.probeErr); err != nil {
+		found.FetchErr = oneLine(err)
 	}
 	if !mirrorExists(mirror) {
 		found.Problem = "this machine has never fetched " + a.Repo + ", and " + fetchFailed(found.FetchErr)

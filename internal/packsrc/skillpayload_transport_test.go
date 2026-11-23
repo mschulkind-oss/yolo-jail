@@ -79,7 +79,8 @@ func TestSkillPayloadPromisorCompletionFailureKeepsPairDueAndRetries(t *testing.
 	if string(stamped) != strconv.FormatInt(now.Unix(), 10)+"\n" {
 		t.Fatalf("completion success stamp: %q", stamped)
 	}
-	// A complete but invalid candidate is validation, not failed transport: pace it.
+	// A complete but invalid candidate keeps the recorded payload. It is no longer PACED by a stamp
+	// (LPC-D1): the probe sees the remote tip differ from the record at every launch.
 	if err := os.Remove(filepath.Join(repo, "skills/chosen/SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
@@ -94,8 +95,8 @@ func TestSkillPayloadPromisorCompletionFailureKeepsPairDueAndRetries(t *testing.
 		t.Fatalf("invalid fallback: %+v", invalid)
 	}
 	again := s.ResolveSkillPayloads([]SkillRequest{{Label: "pack/skills[0]", Source: source}}, opts)[0]
-	if again.State != SkillReady || again.Commit != candidate || again.Fetched {
-		t.Fatalf("invalid candidate not paced: %+v", again)
+	if again.State != SkillReady || again.Commit != candidate {
+		t.Fatalf("invalid candidate lost the recorded payload: %+v", again)
 	}
 }
 

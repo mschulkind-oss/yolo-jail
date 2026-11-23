@@ -29,7 +29,7 @@ func unreachableGit(t *testing.T) (git, offline string) {
 	dir := t.TempDir()
 	offline = filepath.Join(dir, "offline")
 	git = filepath.Join(dir, "git")
-	script := "#!/bin/sh\nif [ -e " + shquote.Quote(offline) + " ]; then for a in \"$@\"; do if [ \"$a\" = fetch ]; then " +
+	script := "#!/bin/sh\nif [ -e " + shquote.Quote(offline) + " ]; then for a in \"$@\"; do if [ \"$a\" = fetch ] || [ \"$a\" = ls-remote ]; then " +
 		"echo \"fatal: unable to access 'https://github.com/example/tool/': Could not resolve host: github.com\" >&2; " +
 		"exit 128; fi; done; fi\nexec " + shquote.Quote(real) + " \"$@\"\n"
 	if err := os.WriteFile(git, []byte(script), 0o755); err != nil {

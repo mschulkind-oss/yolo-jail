@@ -253,6 +253,6 @@ func (s *Store) refreshItems(items []refreshItem, waiting func(string), force bo
 	for _, it := range items {
 		outcomes[it.idx].Ref = it.addr.Ref
 	}
-	s.refreshGrouped(items, outcomes, force, time.Now(), BranchRefreshInterval, waiting)
+	s.refreshGrouped(items, outcomes, force, time.Now(), waiting)
 	return outcomes
 }

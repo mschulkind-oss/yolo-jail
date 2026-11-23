@@ -140,7 +140,7 @@ func (s *Store) patchBranchFetch(b budget, a Addr, mode fetchMode, now time.Time
 		}
 	}
 	mode.always = true
-	step := s.fetchStep(b, a.Repo, []Addr{a}, mode, now, BranchRefreshInterval)
+	step := s.fetchStep(b, a.Repo, []Addr{a}, mode, now)
 	if once != nil {
 		once[key] = step.fetchErr
 	}

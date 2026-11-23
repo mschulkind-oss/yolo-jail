@@ -882,7 +882,7 @@ func TestPatchActorReapedCopyAfterFreshSuccessfulRemovalSurvivesSecondReap(t *te
 func TestPatchActorTreeFailureSurvivesTwiceReapedCopyAfterFailedFetch(t *testing.T) {
 	fx, failed := treeFailureWithAdmittedGood(t)
 	fx.setNow(fx.now.Add(2 * time.Hour))
-	fetchLog := patchedGitWrapper(t, "is_fetch=0; for a in \"$@\"; do [ \"$a\" = fetch ] && is_fetch=1; done; "+
+	fetchLog := patchedGitWrapper(t, "is_fetch=0; for a in \"$@\"; do [ \"$a\" = fetch -o \"$a\" = ls-remote ] && is_fetch=1; done; "+
 		"if [ \"$is_fetch\" -eq 1 ]; then printf 'fixture fetch unavailable\\n' >&2; exit 2; fi")
 	previousAdvance, previousCopy := treeAdvance, treeCopied
 	advances, reaped := 0, false
@@ -916,7 +916,7 @@ func TestPatchActorTreeFailureSurvivesTwiceReapedCopyAfterFailedFetch(t *testing
 		t.Fatalf("second reaped copy after failed fresh check hid its failure: delivery=%+v advances=%d record=%+v builds=%d/%d err=%v\n%s",
 			delivered, advances, current, len(fx.builds), beforeBuilds, err, output.String())
 	}
-	if log, err := os.ReadFile(fetchLog); err != nil || !strings.Contains(string(log), "fetch") {
+	if log, err := os.ReadFile(fetchLog); err != nil || !strings.Contains(string(log), "ls-remote") {
 		t.Fatalf("failed-fetch control did not run its local Git tripwire: err=%v log=%s", err, log)
 	}
 }

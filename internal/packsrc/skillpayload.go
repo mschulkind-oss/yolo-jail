@@ -219,11 +219,21 @@ func (s *Store) resolveSkillGroup(g skillGroup, opts SkillResolveOptions) SkillP
 	eligible := !recorded || opts.Force
 	mirror := s.mirrorPath(r.Repo)
 	if recorded && !opts.Force && !isFullSHA(r.Ref) {
-		kind, _, _, e := s.classifyRef(mirror, r.Ref)
+		kind, name, _, e := s.classifyRef(mirror, r.Ref)
 		if e != nil {
 			r.Warning = "could not classify ref: " + e.Error()
-		} else if kind == refBranch || kind == refUnresolved && record.Kind == "branch" {
-			eligible = !s.stampFresh(g.addr, now, BranchRefreshInterval)
+		} else if kind == refUnresolved && record.Kind == "branch" {
+			eligible = true
+		} else if kind == refBranch {
+			// The same probe the pack refresh takes (LPC-D16): fetch only a branch the remote moved.
+			// An unanswered probe keeps the recorded payload and says why.
+			pb, cancelProbe := s.newBudget()
+			moved, perr := s.probeMoved(pb, r.Repo, []refPre{{kind: kind, name: name, local: record.Commit}}, []int{0}, false)
+			cancelProbe()
+			if perr != nil {
+				r.Warning = oneLine(perr)
+			}
+			eligible = moved
 		}
 	}
 	var candidate string
@@ -233,7 +243,7 @@ func (s *Store) resolveSkillGroup(g skillGroup, opts SkillResolveOptions) SkillP
 		defer cancel()
 		// Eligibility is already settled. fetchStep's always arm supplies transport,
 		// fsck, pair stamps and tag restoration, not its extra missing-local-ref trigger.
-		step := s.fetchStep(b, r.Repo, []Addr{g.addr}, fetchMode{always: true, keepTags: !opts.Force, sourced: true}, now, BranchRefreshInterval)
+		step := s.fetchStep(b, r.Repo, []Addr{g.addr}, fetchMode{always: true, keepTags: !opts.Force, sourced: true}, now)
 		r.Fetched = step.fetched
 		candidateErr = step.fetchErr
 		if candidateErr == nil {
