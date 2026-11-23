@@ -67,7 +67,8 @@ func TestEveryKeyAdviceNamesForUnsetIsRemovable(t *testing.T) {
 		}
 		if path[0].Key == "packs" && len(path) == 3 && path[2].Key == "local" {
 			// An inline-table key inside an element of the `packs` array: no fixture can be written
-			// through PlanEdit (a TOML table path cannot hold an array index).
+			// through PlanEdit (a TOML table path cannot hold an array index). The real edit path runs on an
+			// inline-table entry in TestPackLocalKeyAdviceEditsAnInlineTableEntry (configpacklocaladvice_test.go).
 			continue
 		}
 		format, empty := configdoc.TOML, []byte(nil)
