@@ -155,7 +155,7 @@ loaded, and in a terminal session a dim line there names the mods, such as `1 mo
 ## Good to know
 
 - **Mods need Claude Code 2.1.287 or later.** A jail installs the latest Claude Code and checks for
-  a newer one at most once an hour, unless you froze agent updates; then run `yolo pack update` in
+  a newer one the first time you start it after each jail start, unless you froze agent updates; then run `yolo pack update` in
   the jail ([Keep agents and packs up to date](packs-and-skills.md#keep-agents-and-packs-up-to-date)).
   `claude --version` shows which you have.
 - **A mod's saved data is kept per project.** Claude Code describes a mod's store as shared by every

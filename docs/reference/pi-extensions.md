@@ -654,19 +654,22 @@ entries.
 
 The refresh runs inside the generated launcher, strictly before the exec:
 
-1. **The throttle.** A stamp per program, with the lock's scope (the workspace's `.pi`), checked
-   against the launchers' `UPDATE_INTERVAL`. The refresh's stamp is separate from the program's own
-   update stamp. A changed package list is due at once: the refresh declares `due_on_change` on
-   `.pi/agent/settings.json`, keyed on content.
+1. **Once per jail start.** The refresh is due when no `<bin>.stamp.<id>` marker exists for this jail
+   start, `<id>` being the one id the boot wrote to `~/.local/state/yolo/jail-start`. The marker lives
+   with the lock's scope (the workspace's `.pi/.yolo-refresh/`) and is separate from the program's own
+   update-check marker. A relaunch of the jail writes a new id, so the next first pi invocation
+   refreshes again; no decision reads a clock. A changed package list is due at once: the refresh
+   declares `due_on_change` on `.pi/agent/settings.json`, keyed on content. With no jail-start record
+   (an older boot, a failed write) only changed content refreshes. Why: [the per-jail-start design](../design/launcher-update-per-jail-start.md).
 2. **The policy gate.** `agent_updates` off for `pi` skips it unconditionally (PE8). Under
-   `"agent_updates": { "pi": "next-launch" }` the hourly refresh runs as a detached job behind pi, so
+   `"agent_updates": { "pi": "next-launch" }` the once-per-start refresh runs as a detached job behind pi, so
    pi does not wait and the next launch runs what it installed; a launch whose settings content is
    new still refreshes first ([OQ-PD30](../design/program-delivery.md#decision-ledger)). With the
    refresh behind the TUI, pi may show its update box for that session.
 3. **When it is worth running.** Only while pi's user or project settings name a package pi installs
    itself (`refresh.only_if`, [XB-D23](../design/pi-extension-store-builds.md#XB-D23)); `pi --version`
    and `pi -v` run no refresh ([XB-D24](../design/pi-extension-store-builds.md#XB-D24)); a refresh that
-   fails on new settings content is retried once its failure is an hour old, not at every launch
+   fails on new settings content is retried at the next jail start, not at every launch
    ([XB-D26](../design/pi-extension-store-builds.md#XB-D26)); a launcher a patched extension stops
    pays for none of it first ([XB-D25](../design/pi-extension-store-builds.md#XB-D25)).
 4. **Execution.** Under the resolved Node, since `pi` declares a `node_floor`; stdin from
@@ -675,7 +678,7 @@ The refresh runs inside the generated launcher, strictly before the exec:
    `UPDATE_TIMEOUT`, SIGKILL shortly after, through `yolo internal no-terminal`, which bounds it on
    macos-user too). A launcher with neither that verb nor `timeout(1)` runs it unbounded.
 5. **Failure is reported and the launch goes ahead.** A timeout, an interruption and any other
-   non-zero status are each reported; all are stamped, and pi still launches. `yolo pack update`
+   non-zero status are each reported; all are marked for this start, and pi still launches. `yolo pack update`
    (`YOLO_PACK_UPDATE=1`) and the launcher's re-entry path exit before reaching it.
 
 **Offline**, read statically from pi 0.87.1 and not measured: a failed `npm view` makes pi go on to
@@ -703,7 +706,7 @@ A non-blocking directory lock serializes the refresh's writers, its path declare
   launcher never creates the store. The launch fails open and the refresh fails closed.
 - **A non-blocking fallback.** A held lock older than `STALE_LOCK` is broken and retried; otherwise
   the launch prints a notice naming the lock and runs what is installed. A jail never blocks waiting
-  on the lock. The contended launch writes no stamp; the holder writes one when it finishes.
+  on the lock. The contended launch writes no marker; the holder writes one when it finishes.
 - **An owner token.** The lock holds a token (pid, random and time, since pids repeat across jails'
   namespaces); release checks it, so a holder whose lock was broken as stale never deletes the new
   holder's lock. A stale break removes only the token file and an empty directory, never `rm -r` on a
@@ -747,10 +750,10 @@ which composes with that missing half.
 
 | Failure | System response | What the user sees |
 | :--- | :--- | :--- |
-| Offline, or the registry is down | the bound or pi's non-zero exit is caught; the stamp is touched; pi starts | pi runs with what is installed; no retry until the stamp is due |
+| Offline, or the registry is down | the bound or pi's non-zero exit is caught; the start's marker is written; pi starts | pi runs with what is installed; no retry until the next jail start |
 | Concurrent launch | the lock is held; the launch skips the refresh | pi starts at once; a package still missing is installed by that pi itself ([§17.4](#174-pis-own-installs)) |
 | Stale lock (a crashed launcher) | the lock is broken past `STALE_LOCK` and the refresh proceeds | nothing to do |
-| The lock's directory is missing or read-only | reported as *cannot take the refresh lock*, never as contention; the stamp is touched | the notice repeats when the stamp is due, not every launch |
+| The lock's directory is missing or read-only | reported as *cannot take the refresh lock*, never as contention; the start's marker is written where the store can hold one | the notice repeats at the next jail start, not every launch |
 | A malformed package spec | pi skips the bad entry | pi's error on stderr |
 
 ## Open questions
@@ -777,8 +780,8 @@ back-off) are in [`patched-forks.md`](patched-forks.md#current-values).
 | Skip an extension | `YOLO_SKIP_EXTENSIONS=<1 or names>` | `patchrecovery.SkipExtensionsEnv` |
 | The wire's mark for a skipped extension | `"skipped": true` in its `YOLO_PATCHED_TREES` entry | `entrypoint.TreeDelivery.Skipped` |
 | pi's refresh | `"refresh": {"argv": ["update", "--extensions"], "due_on_change": [".pi/agent/settings.json"], "lock": ".pi/.yolo-update.lock", "only_if": …}` | `packs/pi/pack.json` |
-| The refresh's stamp and seen markers | `.pi/.yolo-refresh/`, beside the lock | `entrypoint.RefreshStateDirName` |
-| Refresh throttle | `UPDATE_INTERVAL`, 3600 s | the launcher templates |
+| The refresh's per-start markers (`<bin>.stamp.<id>`) and seen markers | `.pi/.yolo-refresh/`, beside the lock | `entrypoint.RefreshStateDirName` |
+| The jail-start record the markers are keyed by | `~/.local/state/yolo/jail-start`, written by the boot step `write_jail_start` | `entrypoint.JailStartRel` |
 | Refresh bound | `UPDATE_TIMEOUT`, 60 s, then SIGKILL 5 s later | the launcher templates (`_bounded`) |
 | Stale lock | `STALE_LOCK`, 600 s | the launcher templates |
 | Lock heartbeat | `REFRESH_HEARTBEAT`, 60 s | `internal/entrypoint/prelaunchrefresh.go` |

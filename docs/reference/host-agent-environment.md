@@ -323,8 +323,8 @@ refused for naming no command, the host verb having no default one.
    apply --assert` removes it. Before any of this, the launch installs every other program a
    selected pack declares and stops when one cannot install
    ([HNR-D1](#HNR-D1)). A program whose pack declares a pre-launch `refresh` (pi's extension
-   update) then runs it against the copy that resolved, under the hourly rule a jail's launcher
-   keeps; a failure whose npm registry answers stops the launch, and one whose registry cannot be
+   update) then runs it against the copy that resolved, under the floor's own hourly rule (a jail's
+   launcher runs its refresh once per jail start instead, [LU-D1](../design/launcher-update-per-jail-start.md#decision-ledger)); a failure whose npm registry answers stops the launch, and one whose registry cannot be
    reached runs what is installed with a could-not-check line
    ([HP-D19](#HP-D19)).
 2. **Resolve the pack configuration** — the active profile for the launched command, and its

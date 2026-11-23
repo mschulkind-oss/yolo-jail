@@ -226,7 +226,7 @@ different dependencies:
 | Assertion | What it proves | Needs a vendor install? |
 | :--- | :--- | :--- |
 | `<bin> --version` exits 0 | the launcher exists, is on PATH, installs, and execs | **yes** — this is the install path |
-| `~/.cache/yolo-agent-stamps/<bin>.stamp` exists | the install ran to completion | yes, as a side effect of the above |
+| `~/.cache/yolo-agent-stamps/<bin>.spec` holds the declared spec | the install ran against the declaration (the launcher keeps no install stamp since the per-jail-start rule) | yes, as a side effect of the above |
 | the generated config contains the pack's marker | the pack's `surfaces` rendered: layers, codec, path | **no** |
 
 The third assertion is the one that is genuinely per-pack. Packs have different config codecs,
@@ -357,7 +357,7 @@ macos-user backend on GitHub's hosted Apple Silicon runner.
 - **Each job runs one subtest of `TestMacosUserPackInstallsVersionsAndConfigures`.** The subtest
   selects its pack in an isolated user config, launches a macos-user sandbox in a fresh workspace
   under the shared root, and runs `packInstallProbe`, the same probe as the Linux cell: the
-  `--version` that installs the program, the stamp, the config marker and the project skills
+  `--version` that installs the program, its recorded spec, the config marker and the project skills
   dirs. It skips by the manifest's `platforms`, not `vendorSkipArch`, which records a Linux gap.
 - **Two variables, both on the step.** `YOLO_TEST_REAL_PACK_INSTALLS` un-skips the install, and
   `YOLO_TEST_MACOS_USER` declares the job a macos-user one. The second turns a subtest that
@@ -380,7 +380,7 @@ Read from the job logs of two `macos-user.yml` runs on GitHub-hosted Apple Silic
 2026-11-11 at `2ba463f93`. In each, every pack's job ran its one subtest of
 `TestMacosUserPackInstallsVersionsAndConfigures`, the gate's report said
 `macos-user: executed=1 skipped=0`, and the subtest passed. A pass means `packInstallProbe` held
-on darwin: the vendor's install ran from the `--version` call, and the stamp, the config marker and
+on darwin: the vendor's install ran from the `--version` call, and the recorded spec, the config marker and
 the project skills dirs were there. The logs record no version, as the job records none.
 
 | Pack | 2026-10-18 | 2026-11-11 |

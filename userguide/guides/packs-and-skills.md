@@ -284,9 +284,10 @@ receives what.
 
 ## Keep agents and packs up to date
 
-**Agents keep themselves current.** When you type an agent's name, its launcher checks for a newer
-release at most once an hour, installs it if there is one, and then starts the agent. A jail that
-never starts an agent never downloads one. To freeze agents at what is installed, set this in your
+**Agents keep themselves current.** When you first type an agent's name after a jail starts, its
+launcher checks for a newer release, installs it if there is one, and then starts the agent. It
+checks once per jail start, so relaunching the jail is how you pick up a release that came out
+since. A jail that never starts an agent never downloads one. To freeze agents at what is installed, set this in your
 user config:
 
 ```jsonc
@@ -309,7 +310,7 @@ them, and yolo cannot tell you which version of any of them ran. To freeze Copil
 `{"COPILOT_AUTO_UPDATE": "false"}` to `env_sources`; for Claude Code, add
 `{"DISABLE_AUTOUPDATER": "1"}`.
 
-**Pi's extensions update when you start pi**, before it opens, at most once an hour. To have pi
+**Pi's extensions update the first time you start pi in a jail**, before it opens, and again after each jail relaunch. To have pi
 start at once instead, set `"agent_updates": { "pi": "next-launch" }`: the update then runs in the
 background while you work, and your next launch of pi uses it. yolo names the update's log as pi
 starts, and tries a failed update again in front of pi at the next launch, stopping if it fails again. New extensions in

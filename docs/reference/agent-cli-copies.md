@@ -220,7 +220,8 @@ it, so the two cannot drift — a change to newest-wins moves the reap set in th
 > unlinking an entry mid-materialize — is not fixed by it and needs no fix, because a failed
 > materialize is a *miss* and a miss falls through to the installer. A rollback target in the store
 > has nowhere to be used: the store is not a version history, and a materialized older version is
-> updated by evergreen within the launcher's update interval anyway.
+> updated by evergreen at the next jail start anyway (the launcher checks once per jail start,
+> [LU-D1](../design/launcher-update-per-jail-start.md#decision-ledger)).
 
 Each reaped entry's capture manifest is kept — it sits beside the tree, not in it — so drift
 comparison survives a reap for kilobytes.
@@ -296,7 +297,8 @@ place the values themselves are stated.
 | Version-prune retention | `KEEP_VERSIONS=2` — the live build plus one rollback target, per workspace | `internal/entrypoint` launcher template (`_prune_versions`) |
 | Store reap retention | 1, newest-by-receipt per `(bin, platform)` | `internal/capture` (`PruneSupersededCaptures`, `select.go`) |
 | Vendor version dir | `~/.local/share/<bin>/versions`, with `~/.local/bin/<bin>` the one referrer | `internal/entrypoint` launcher template |
-| Launcher update interval / timeout / stale lock | `UPDATE_INTERVAL`, `UPDATE_TIMEOUT`, `STALE_LOCK` | `internal/entrypoint` launcher template |
+| Launcher update check | once per jail start: a claim on `~/.local/state/yolo/launch-checks/<bin>.<id>`, `<id>` from `~/.local/state/yolo/jail-start` | `internal/entrypoint` launcher template (`_update_due`), `entrypoint.JailStartRel` |
+| Launcher update timeout / stale lock | `UPDATE_TIMEOUT`, `STALE_LOCK` | `internal/entrypoint` launcher template |
 | Auto-capture opt-out | `YOLO_NO_AUTO_CAPTURE=1` | `internal/cli/autocapture.go` |
 | Dedupable / capturable home surfaces | the three program surfaces, from one list with both consumers named | `paths.HomeSurfaces` |
 | Dedup opt-outs at `yolo prune` | `--no-hardlink`, `--dedup-global` | `internal/prune/prunecmd.go` |

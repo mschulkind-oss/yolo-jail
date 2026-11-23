@@ -57,7 +57,7 @@ This is the distinction the whole system rests on.
 | | Question | Answered | Ruled by |
 | :--- | :--- | :--- | :--- |
 | **Readiness** | Is the program installed at all? | Before the command, by the launch's readiness act | [OQ-JR1](#OQ-JR1), [OQ-JR2](#OQ-JR2), [JR-D2](#JR-D2) |
-| **Currency** | Is the installed program up to date? | At invocation, by the launcher, at most once per update interval | [`OQ-PD12a`](../design/program-delivery.md#decision-ledger) |
+| **Currency** | Is the installed program up to date? | At the program's first invocation of a jail start, by the launcher ([LU-D1](../design/launcher-update-per-jail-start.md#decision-ledger)) | [`OQ-PD12a`](../design/program-delivery.md#decision-ledger) |
 
 [`OQ-PD12a`](../design/program-delivery.md#decision-ledger) is about **currency**: what it deleted was a network round-trip per selected pack on
 every launch. Nothing in it decides when a program is first installed. Readiness came along with it

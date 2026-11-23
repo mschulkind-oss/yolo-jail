@@ -625,10 +625,10 @@ declines to exist.
 > boots where the project is new.
 
 Version selectors decide whether the launcher polls. **No selector means `@latest`**, which
-the launcher re-checks against the registry once an hour — so an unversioned declaration
-changes what runs with nobody present. **A selector turns that poll off**: the registry's
+the launcher re-checks against the registry once per jail start, at the program's first
+invocation ([why](../design/launcher-update-per-jail-start.md)) — so an unversioned declaration changes what runs with nobody present. **A selector turns that poll off**: the registry's
 `latest` is not an answer to a declaration that named its own version, and for a tag or a
-range it would never compare equal, so polling would reinstall hourly forever. A pinned
+range it would never compare equal, so polling would reinstall at every jail start forever. A pinned
 launcher compares the recorded spec against the declared one, offline, so moving a pack from
 one version to another still takes effect. The recorded spec is what npm **installed**,
 never merely what was asked for — an upgrade leaves the previous binary in place, so
@@ -668,7 +668,8 @@ value holding a NUL byte.
 It is an object: `argv`, the program's own argv with the bin omitted, and `lock`, a
 home-relative lock directory whose parent is the store the refresh writes. Pi declares
 `{"argv": ["update", "--extensions"], "lock": ".pi/.yolo-update.lock"}`, its workspace's own
-state. The launcher runs it right before the exec, at most once an hour, and only when
+state. The launcher runs it right before the exec, once per jail start at the first invocation
+([why](../design/launcher-update-per-jail-start.md)), and only when
 `agent_updates` lets the pack move. When `agent_updates` gives the pack `"next-launch"`, the
 launcher instead starts the same refresh as a detached job and execs at once, so what it installs
 is the next launch's; a launch whose `due_on_change` content is new still refreshes first
@@ -681,13 +682,14 @@ launch reports the outcome ([XB-D19](../design/pi-extension-store-builds.md#XB-D
 [XB-D20](../design/pi-extension-store-builds.md#XB-D20)). The owning agent pack's entry decides
 first, then the contributing pack's, then `"*"` ([XB-D58](../design/pi-extension-store-builds.md#XB-D58)).
 Apple Container and `yolo host` still update at launch; macos-user builds no tree and uses its
-fallback. The hourly stamp lives beside the lock, in
-`<store>/.yolo-refresh/<bin>.stamp`, so it throttles exactly the launches the lock excludes,
-which for pi are one workspace's
+fallback. The refresh's marker for a jail start, `<store>/.yolo-refresh/<bin>.stamp.<id>` (`<id>` is the
+boot's jail-start record), lives beside the lock, so it covers exactly the launches the lock
+excludes, which for pi are one workspace's
 ([XB-D14](../design/pi-extension-store-builds.md#XB-D14); the stamp was machine-wide, in
-`~/.cache`, before 2026-10-05).
+`~/.cache`, before 2026-10-05). A relaunch writes a new id and so makes the refresh due again.
 `yolo host -- <bin>` runs it too, before its own exec, against whichever copy it starts (the
-floor's, one on the launch PATH, or a path given), under the same hourly rule, `due_on_change` and
+floor's, one on the launch PATH, or a path given), under the host floor's own hourly rule
+(a host has no jail start; [LU-D11](../design/launcher-update-per-jail-start.md#decision-ledger)), `due_on_change` and
 `agent_updates`. Its stamp and its lock there are the host floor's own, a `flock` under the floor
 prefix, never `lock`: that names the jails' store, which a host program does not write
 ([HP-D19](host-agent-environment.md#HP-D19)). A `yolo host` inside a jail leaves it to
@@ -695,7 +697,7 @@ the jail's launcher. It is bounded by the same timeout as an update, reads
 nothing from the terminal, writes its stdout to stderr, and runs only while it holds `lock`.
 `lock` is a non-blocking `mkdir`: a lock another jail holds skips the refresh, and so does a
 store that is missing or read-only, which the launch then says every time, the store being where
-the stamp would go. The holder touches the lock while it runs, so only a lock
+the marker would go. The holder touches the lock while it runs, so only a lock
 whose launcher died goes stale. Every outcome still launches the program. The lock serializes
 the refresh only, not writes the program makes to the store on its own. A refresh is not
 `update`: it leaves the binary alone, ignores the binary's pin, and `yolo pack update` does not
@@ -708,9 +710,9 @@ whether the store is empty.
 is the design.
 
 `due_on_change`, optional, lists home-relative **files** whose content makes the refresh due
-regardless of the hourly stamp: pi declares `[".pi/agent/settings.json"]`. The launcher keys the
+regardless of the per-start marker: pi declares `[".pi/agent/settings.json"]`. The launcher keys the
 content of every listed file (an absent file counts as its own content) and keeps one marker per
-key beside the refresh stamp, in `<store>/.yolo-refresh/<bin>.seen/`, so with the lock's scope too.
+key beside the refresh marker, in `<store>/.yolo-refresh/<bin>.seen/`, so with the lock's scope too.
 A key no refresh has succeeded for is due. It is keyed on content, not mtime, because yolo
 rewrites a composed file on every boot; and markers are per key, so two workspaces with different
 settings that share one store each refresh once and then stop. A refresh
@@ -737,7 +739,7 @@ a tree yolo built refreshes nothing. `packdecl` refuses an `only_if` with no fil
 [XB-D24](../design/pi-extension-store-builds.md#XB-D24) coined for an invocation the program
 answers before it does any work of its own. Pi declares `["--version", "-v"]`, and every other
 shipped agent declares `["--version"]`. When the first argument is one of them, the launcher runs
-none of its steps before the exec: no hourly update, no reinstall for a moved pin, no MCP server
+none of its steps before the exec: no update check, no reinstall for a moved pin, no MCP server
 refresh, no pre-launch refresh (so no wait for its lock), no authentication step, no model menu and
 no tree gate. A cold install still runs, because without it there is nothing to answer, and so does
 a fork's materialize. The probe is the pack's declaration and never a flag core guesses: pi answers
@@ -5112,7 +5114,7 @@ only place the values themselves are stated.
 | Launcher dir (second on PATH) | `~/.yolo/bin/launch` | `entrypoint.BootPath` |
 | PATH order | `block : launch : $NPM_CONFIG_PREFIX/bin : <mise-shims> : $GOPATH/bin : $HOME/.local/bin : /run/yolo/packages/bin : /bin : /usr/bin` | `entrypoint.BootPath` (and one independently-written copy, the `.bashrc` export; `macosuser.SandboxPath` takes its head from `entrypoint.HomePathDirs`) |
 | Shim bypass | `YOLO_BYPASS_SHIMS=1` | `internal/entrypoint` |
-| Unversioned npm launcher poll | hourly | `entrypoint` launcher generation |
+| Unversioned npm launcher poll | once per jail start (a claim on `~/.local/state/yolo/launch-checks/<bin>.<id>`) | `entrypoint` launcher generation (`_update_due`) |
 | `install_hints` managers | `brew`, `brew-cask`, `apt`, `dnf`, `pacman`, `nix` | `packdecl` install-hints validation |
 | Mounted pack root | `YOLO_PACK_ROOT` | `internal/cli/run/packs.go`, `packsrc.Store` |
 | Host staging root | `<global storage>/agents/<container>/packs/<slug>` | `paths.AgentsDir`, `PackEntry.Slug` |

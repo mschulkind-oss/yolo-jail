@@ -525,8 +525,9 @@ being writable its only inputs were legacy bytes, empty mountpoint files and `cl
 which the seed sync already handles. Surface keys declared as seed-if-absent fill only when
 missing.
 
-**Runtime state, written by use rather than by boot.** Launcher stamps and install
-receipts under `~/.cache`, the perf log (appended, trimmed to a bounded number of runs), the
+**Runtime state, written by use rather than by boot.** Launcher spec records and install
+receipts under `~/.cache`, the launchers' per-jail-start check markers under
+`~/.local/state/yolo/launch-checks/` (the jail-start record they are keyed by, `~/.local/state/yolo/jail-start`, is the boot's own), the perf log (appended, trimmed to a bounded number of runs), the
 socat log, bash history, and each agent's own session and history state inside its overlay.
 The in-jail copy of yolo's embedded packs is the same kind: the first in-jail process that
 reads a pack (an in-jail `yolo` command; the boot itself reads none) writes it at
