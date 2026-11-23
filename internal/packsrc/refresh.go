@@ -59,6 +59,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,6 +91,26 @@ func LaunchStore(dir string) *Store {
 	return &Store{Dir: dir, Timeout: LaunchFetchTimeout, Detached: true}
 }
 
+// PackCheckDeadline is the ONE deadline of a launch's pack-check phase (docs/design/local-pack-clones.md
+// LPC-D3): it covers every mirror's lock wait, probe and fetch together, because the mirrors are checked
+// at the same time. A pack with no held copy is exempt (LaunchFetchTimeout), since nothing can stand in
+// for it.
+const PackCheckDeadline = 5 * time.Second
+
+// PackCheck is the deadline a launch gives its pack-check phase. Ctx ends the phase (a test cancels it);
+// Limit is the duration the warning names.
+type PackCheck struct {
+	Ctx   context.Context
+	Limit time.Duration
+}
+
+// NewPackCheck starts the launch's phase: PackCheckDeadline from now. The caller calls cancel when the
+// phase is over.
+func NewPackCheck() (*PackCheck, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), PackCheckDeadline)
+	return &PackCheck{Ctx: ctx, Limit: PackCheckDeadline}, cancel
+}
+
 // RefreshPack is one configured git pack to refresh: its config NAME (the lockfile key)
 // and its address as written.
 type RefreshPack struct {
@@ -118,8 +139,14 @@ type RefreshOptions struct {
 	// Now is the clock for stamps. Nil means time.Now.
 	Now func() time.Time
 	// Waiting, when non-nil, is told when this call is about to block on a lock another
-	// process holds, so a pause reads as serialisation rather than as a hang.
+	// process holds, so a pause reads as serialisation rather than as a hang. It may be called from
+	// several goroutines, one per mirror, but never at the same time.
 	Waiting func(string)
+	// Check, when non-nil, is a LAUNCH's pack-check phase: a mirror whose every pack has a held copy
+	// is checked under Check's one deadline (its lock wait, probe and fetch), and a check that does
+	// not finish runs the held copy with a warning (Outcome.Warning). A mirror with a pack that has
+	// no held copy keeps the store's own budget. Nil is every explicit act, which has no deadline.
+	Check *PackCheck
 }
 
 // Outcome is what Refresh did for one pack.
@@ -147,6 +174,9 @@ type Outcome struct {
 	FetchErr error
 	// Err is why the pack is unusable (bad address, unresolvable ref, failed checkout).
 	Err error
+	// Checked is true when this outcome is a launch's pack check (RefreshOptions.Check), whose failure
+	// reads as the design's §4.3 warning rather than an explicit act's.
+	Checked bool
 }
 
 // Disclosure is the line a launch prints for this outcome, or "" when nothing moved.
@@ -173,8 +203,24 @@ func (o Outcome) Warning() string {
 	if o.FetchErr == nil || o.Commit == "" {
 		return ""
 	}
+	if o.Checked {
+		return fmt.Sprintf("pack %s: could not check origin %s (%s) — running the held %s. "+
+			"Nothing to do until the network is back; `yolo pack update` checks on demand.",
+			o.Name, o.Ref, checkCause(o.FetchErr), shortCommit(o.Commit))
+	}
 	return fmt.Sprintf("pack %s: could not refresh %s (%s) — using the cached %s",
 		o.Name, o.Ref, oneLine(o.FetchErr), shortCommit(o.Commit))
+}
+
+var gitTimedOut = regexp.MustCompile(`git (\S+) timed out after ([0-9.a-zµ]+)`)
+
+// checkCause is why a check gave no answer, in the warning's words: "ls-remote timed out after 5s"
+// for a run the deadline killed, else the error's first line.
+func checkCause(err error) string {
+	if m := gitTimedOut.FindStringSubmatch(err.Error()); m != nil {
+		return m[1] + " timed out after " + m[2]
+	}
+	return oneLine(err)
 }
 
 // Refresh brings every git pack in packs up to the ref rule above, checks each resolved
@@ -248,7 +294,12 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 		}
 		items = append(items, refreshItem{idx: i, addr: a})
 	}
-	s.refreshGrouped(items, outcomes, opts.Force, now(), opts.Waiting)
+	s.refreshGrouped(items, outcomes, opts.Force, now(), opts.Waiting, opts.Check)
+	if opts.Check != nil {
+		for i := range outcomes {
+			outcomes[i].Checked = true
+		}
+	}
 	if opts.LockPath == "" {
 		return outcomes, nil
 	}
@@ -304,8 +355,12 @@ type refreshItem struct {
 // from a monorepo cost at most one fetch, and a fetch one pack needs cannot move another
 // pack's frozen ref behind its back (refreshMirror). Each item's idx indexes outcomes. A
 // fork's pin (forkpin.go) runs the same rule through it.
+//
+// THE MIRRORS RUN AT THE SAME TIME (LPC-D3), one goroutine each with no cap. Each writes only its own
+// items' outcomes, and waiting is serialized so a progress line is never torn. A nil check is no
+// deadline: the store's own budget per mirror, as an explicit act has.
 func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bool, now time.Time,
-	waiting func(string)) {
+	waiting func(string), check *PackCheck) {
 	var order []string
 	groups := map[string][]refreshItem{}
 	for _, it := range items {
@@ -314,8 +369,61 @@ func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bo
 		}
 		groups[it.addr.Repo] = append(groups[it.addr.Repo], it)
 	}
+	if waiting != nil {
+		var mu sync.Mutex
+		inner := waiting
+		waiting = func(msg string) {
+			mu.Lock()
+			defer mu.Unlock()
+			inner(msg)
+		}
+	}
+	var wg sync.WaitGroup
 	for _, repo := range order {
-		s.refreshMirror(repo, groups[repo], outcomes, force, now, waiting)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.refreshMirror(repo, groups[repo], outcomes, force, now, waiting, check)
+		}()
+	}
+	wg.Wait()
+}
+
+// heldCopy reports whether every item's ref already resolves in repo's mirror: a copy that can run when
+// a check does not finish. Read with no network and no lock; a ref git cannot be asked about is not held.
+func (s *Store) heldCopy(repo string, items []refreshItem) bool {
+	mirror := s.mirrorPath(repo)
+	if !mirrorExists(mirror) {
+		return false
+	}
+	for _, it := range items {
+		if it.addr.Ref == "" {
+			return false
+		}
+		if _, _, local, err := s.classifyRef(mirror, it.addr.Ref); err != nil || local == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// runHeld answers a mirror whose check never got its lock with its held copies, for each item whose
+// tree is already complete (so no git runs under no lock), and err for any other.
+func (s *Store) runHeld(repo string, items []refreshItem, outcomes []Outcome, err error) {
+	mirror := s.mirrorPath(repo)
+	for _, it := range items {
+		o := &outcomes[it.idx]
+		_, _, local, cerr := s.classifyRef(mirror, it.addr.Ref)
+		if cerr != nil || local == "" {
+			o.Err = err
+			continue
+		}
+		if _, serr := os.Stat(filepath.Join(s.treeDir(it.addr, local), treeCompleteMarker)); serr != nil {
+			o.Err = err
+			continue
+		}
+		o.Prev, o.Commit, o.FetchErr = local, local, err
+		s.recordDecided(it.addr, local)
 	}
 }
 
@@ -368,8 +476,24 @@ func (s *Store) remoteDefaultBranch(b budget, repo string) (string, error) {
 // same ref rule and fetch and NO CHECKOUT: everything below the fetch step is resolution and
 // the materialize, which a check must not run (each would leave a tree no reaper reads).
 func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outcome, force bool,
-	now time.Time, waiting func(string)) {
-	unlock, err := s.lockMirror(repo, waiting)
+	now time.Time, waiting func(string), check *PackCheck) {
+	// A mirror the launch can answer from what it holds is checked under the phase's deadline; one that
+	// cannot (a first fetch) keeps its own budget, since nothing can stand in for it.
+	held := check != nil && !force && s.heldCopy(repo, items)
+	lockStore := s
+	if held {
+		c := *s
+		c.Ctx = check.Ctx
+		lockStore = &c
+	}
+	unlock, err := lockStore.lockMirror(repo, waiting)
+	if err != nil && held {
+		if check.Ctx.Err() != nil {
+			err = fmt.Errorf("waiting for the mirror lock timed out after %s", check.Limit)
+		}
+		s.runHeld(repo, items, outcomes, err)
+		return
+	}
 	if err != nil {
 		for _, it := range items {
 			outcomes[it.idx].Err = err
@@ -406,7 +530,13 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 	for i, it := range items {
 		addrs[i] = it.addr
 	}
-	step := s.fetchStep(b, repo, addrs, fetchMode{always: force}, now)
+	// The deadline bounds the probe and the fetch only: what follows a fetch that finished, and the
+	// checkout of the copy that runs, are under the store's own budget b.
+	fb := b
+	if held {
+		fb = budget{ctx: check.Ctx, d: check.Limit}
+	}
+	step := s.fetchStep(fb, repo, addrs, fetchMode{always: force}, now)
 	before := step.before
 	for i, it := range items {
 		o := &outcomes[it.idx]

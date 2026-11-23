@@ -16,8 +16,9 @@ import (
 )
 
 // RefreshConfiguredPacks runs the launch-time refresh for every configured git pack:
-// fetch one that was never fetched, re-fetch a branch at most hourly, never re-fetch a tag
-// or a full commit SHA, check each resolved commit out, and record it in the lockfile.
+// fetch one that was never fetched, probe a branch at every launch and fetch it only when it moved
+// (all mirrors at once, under one deadline: a check that does not finish runs the held copy and
+// warns), never re-fetch a tag or a full commit SHA, check each resolved commit out, and record it in the lockfile.
 //
 // say gets each DISCLOSURE ("Fetched pack …", "Updated pack …") and warn each non-fatal
 // problem (a failed fetch with a cached copy in use, a lockfile that could not be
@@ -78,10 +79,13 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 	if during != nil {
 		waiting, end = during()
 	}
+	check, cancelCheck := packCheckStart()
 	outcomes, err := launchStore().Refresh(git, packsrc.RefreshOptions{
 		LockPath: packsrc.LockPath(paths.UserConfigPath()),
 		Waiting:  waiting,
+		Check:    check,
 	})
+	cancelCheck()
 	end()
 	for _, o := range outcomes {
 		if line := o.Disclosure(); line != "" {
@@ -95,6 +99,11 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 		warn("packs: could not record the refreshed packs in the lockfile: " + err.Error())
 	}
 }
+
+// packCheckStart opens the launch's pack-check phase: one packsrc.PackCheckDeadline for every held
+// mirror's lock wait, probe and fetch, checked at the same time (docs/design/local-pack-clones.md
+// LPC-D3). A var only so a test can hand the phase a context it controls; nothing in production assigns it.
+var packCheckStart = packsrc.NewPackCheck
 
 // launchStore is the pack store a launch-time refresh fetches through: the launch's
 // budget per fetch (LaunchFetchTimeout rather than the store's 2-minute default), and
