@@ -182,8 +182,9 @@ func TestAnNpmExtensionIsBuiltWithNpmsInstallOfTheVersionItsSpecNames(t *testing
 		t.Errorf("the start line does not disclose the version's own install:\n%s", out)
 	}
 	hits := atomic.LoadInt64(&nf.hits)
-	if again, _ := nf.deliver(t, true); again.Entry != d.Entry || atomic.LoadInt64(&nf.hits) != hits || len(nf.seen) != 1 {
-		t.Errorf("a second launch inside the hour asked the registry or built: %d hits, %d builds", nf.hits, len(nf.seen))
+	// A SECOND LAUNCH asks the registry again (the hourly throttle is gone, LPC-D6) and, the version unmoved, builds nothing.
+	if again, _ := nf.deliver(t, true); again.Entry != d.Entry || atomic.LoadInt64(&nf.hits) != hits+1 || len(nf.seen) != 1 {
+		t.Errorf("a second launch did not ask the registry once and reuse the build: %d hits (was %d), %d builds", nf.hits, hits, len(nf.seen))
 	}
 	nf.latest.Store("1.3.0")
 	nf.setNow(nf.now.Add(2 * time.Hour))

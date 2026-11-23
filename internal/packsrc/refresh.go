@@ -68,8 +68,8 @@ import (
 )
 
 // BranchRefreshInterval is the backoff the background retry delays wait after a failed refresh
-// (backgroundadvance.go, preparationforks.go), the interval of an npm source's check and of CheckDue's
-// status lines, and the skill_imports resolver's refreshDue (until its slice). It no longer throttles a
+// (backgroundadvance.go, preparationforks.go), the schedule CheckDue gives the background advance and
+// the status lines, and the skill_imports resolver's refreshDue (until its slice). It no longer throttles a
 // branch pack's or a patched fork's launch-time check: every launch probes the remote instead (fetchStep,
 // probeMoved; docs/design/local-pack-clones.md LPC-D1, LPC-D6).
 const BranchRefreshInterval = 3600 * time.Second

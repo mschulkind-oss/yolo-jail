@@ -9,7 +9,7 @@ package packsrc
 // Every fresh launch checks: one ls-remote asks the followed refs, and only a moved upstream fetches
 // (fetchStep, probeTags). The record's stamp is the LAST ATTEMPT, written before the probe for display and
 // for a check killed in it; it throttles nothing. A SETTLED record (a fixed tag, commit or exact npm version)
-// still skips the check, and an npm source, which has no probe, keeps CheckDue's interval. A failed fetch is
+// still skips the check, and an npm source is due at every launch too (its registry read is as cheap). A failed fetch is
 // retried by the next launch like any other, so the former RetryFailedFetch and the in-throttle patch-branch
 // refresh are the ordinary path. The launch's own deadline (CheckOptions.Check) bounds the lock wait, the
 // probe and the fetch of a mirror that holds a copy.
@@ -119,9 +119,8 @@ type CheckOptions struct {
 	// Force is an EXPLICIT ACT's check (`yolo pack update`, `yolo pack install`, `yolo capture`):
 	// it ignores the throttle and the mirror's own stamp and fetches, still putting tags back.
 	Force bool
-	// Now is the clock; nil means time.Now. Interval is the npm throttle's (a registry has no probe), tests'.
-	Now      func() time.Time
-	Interval time.Duration
+	// Now is the clock; nil means time.Now.
+	Now func() time.Time
 	// Begin, when non-nil, is called once, before the first lock wait or git run, and returns the
 	// lock-wait notice and the function that ends what Begin started (a progress line). A check
 	// the throttle skips never calls it.
@@ -182,7 +181,7 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 	once := fetchOnce{}
 	rec, readErr := s.LoadCheckRecord(w.Owner)
 	if readErr == nil && !opts.Force && opts.FreshAfter == nil {
-		if due, _ := launchCheckDue(rec, in, w, now(), opts.Interval); !due {
+		if due, _ := launchCheckDue(rec, in); !due {
 			return CheckResult{Record: rec, Inputs: in}
 		}
 	}
@@ -205,7 +204,7 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 			return false, nil
 		}
 		// RE-READ UNDER THE LOCK: a check that a fixed ref settled while this one waited is not run again.
-		_, res.Due = launchCheckDue(r, in, w, now(), opts.Interval)
+		_, res.Due = launchCheckDue(r, in)
 		if !opts.Force && opts.FreshAfter == nil && recErr == nil && res.Due == "" {
 			res.Record = r
 			return false, nil
@@ -233,7 +232,7 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 		res.Ran = true
 		var found CheckFound
 		if n, err := ParseNpm(w.Source); err == nil {
-			found = s.findNpmCandidates(n)
+			found = s.findNpmCandidates(n, opts.Check, !opts.Force && recErr == nil && r.Check != nil && r.Read == in)
 		} else {
 			var patchBranch *Addr
 			if w.PatchBranch != "" {
@@ -304,11 +303,8 @@ func isCheckoutLocator(w PatchedWant, clone cloneChoice) bool {
 
 // launchCheckDue reports whether a launch's check of w is due and why. A git source is due at EVERY fresh launch
 // (LPC-D6: the probe is the throttle, and only a moved upstream fetches); what stays is a SETTLED record, whose
-// fixed ref never moves (Settled). An npm source has no probe, so it keeps CheckDue's interval.
-func launchCheckDue(r *CheckRecord, in CheckInputs, w PatchedWant, now time.Time, interval time.Duration) (bool, string) {
-	if _, err := ParseNpm(w.Source); err == nil {
-		return CheckDue(r, in, now, interval)
-	}
+// fixed ref never moves (Settled). An npm source is due at every launch too: its registry read is as cheap as a probe.
+func launchCheckDue(r *CheckRecord, in CheckInputs) (bool, string) {
 	if r.Settled(in) {
 		return false, ""
 	}

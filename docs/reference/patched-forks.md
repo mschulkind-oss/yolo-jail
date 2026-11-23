@@ -464,7 +464,7 @@ tag re-pointed upstream is not moved, since a patched fork never follows one ([P
   `LaunchFetchTimeout`. The replay and the build keep their own budgets.
 - **What still skips it.** An attach, a `--dry-run`, anything inside a jail or build jail, and an
   `agent_updates` hold never check ([PF-D5](#PF-D5)); an explicit act (`yolo pack update`, `yolo capture`) skips the
-  probe and fetches. An npm source has no probe and keeps its interval.
+  probe and fetches. An npm source is checked at every launch too, by one registry metadata read under the same deadline; a settled exact version is never read again.
 - **An edit to what the check reads still invalidates the answer.** The record keeps the repository,
   subdirectory, ref, `follow` and series base the last check read ([PF-D28](#PF-D28)).
 

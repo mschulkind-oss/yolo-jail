@@ -342,7 +342,7 @@ func npmDeprecated(raw json.RawMessage) bool {
 
 // findNpmCandidates is an npm source's half of the check: the version the spec names now, as the
 // walk's one entry. An exact version is that version with no request.
-func (s *Store) findNpmCandidates(n NpmSource) CheckFound {
+func (s *Store) findNpmCandidates(n NpmSource, check *PackCheck, held bool) CheckFound {
 	var found CheckFound
 	version := ""
 	switch n.Kind {
@@ -354,7 +354,15 @@ func (s *Store) findNpmCandidates(n NpmSource) CheckFound {
 		if n.Kind == NpmRange {
 			found.RefKind = RefKindNpmRange
 		}
+		// A LAUNCH's check that already holds an answer runs the registry read under the launch's deadline (LPC-D3);
+		// one with nothing to stand in for it keeps the store's own timeout.
 		ctx, cancel := context.WithTimeout(s.parentCtx(), s.timeout())
+		limit := s.timeout()
+		if check != nil && held {
+			cancel()
+			ctx, cancel = context.WithTimeout(check.Ctx, check.Limit)
+			limit = check.Limit
+		}
 		defer cancel()
 		p, err := fetchNpmPackument(ctx, n.Name)
 		switch {
@@ -366,8 +374,8 @@ func (s *Store) findNpmCandidates(n NpmSource) CheckFound {
 			return found
 		case err != nil:
 			found.FetchErr = oneLine(err)
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				found.FetchErr = fmt.Sprintf("the registry did not answer within %s", s.timeout().Round(time.Second))
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) || (check != nil && held && ctx.Err() != nil) {
+				found.FetchErr = fmt.Sprintf("the registry did not answer within %s", limit.Round(time.Second))
 			}
 			found.Problem = "could not ask the registry about " + n.Repo() + " (" + found.FetchErr + ")" +
 				unreachedNext(found.FetchErr)
