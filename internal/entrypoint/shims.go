@@ -2735,14 +2735,21 @@ export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 BIN=__YOLO_BIN__
 STAMP_DIR=__YOLO_STAMP_DIR__
-STAMP="$STAMP_DIR/$BIN.stamp"
+# A FAILED install is recorded as $STAMP_DIR/$BIN.failed.<id>, one per jail start (LU-D7): <id> is
+# what the boot's write_jail_start wrote, read with "$(<file)" (bash 3.2, env -i). It is retried at
+# the next jail start, never on a clock. With no record nothing can be recorded, so a cold install
+# is attempted every run, and the launcher never mints a record (the boot is its only writer).
+JAIL_START_FILE="$HOME/.local/state/yolo/jail-start"
+START_ID=""
+if [ -f "$JAIL_START_FILE" ]; then START_ID=$(<"$JAIL_START_FILE") || START_ID=""; fi
+FAILED_MARKER=""
+if [ -n "$START_ID" ]; then FAILED_MARKER="$STAMP_DIR/$BIN.failed.$START_ID"; fi
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/$BIN"
 # Only the install SPEC, deliberately: unlike the agent launcher this body never indexes
 # node_modules and never calls "npm view", which are the only two things the bare package
 # NAME is good for. Carrying an unread PKG beside it would read as "the name matters here
 # too" and invite the next edit to use it in a place only the spec belongs.
 SPEC=__YOLO_SPEC__  # what npm install is handed: name@<selector>
-RETRY_INTERVAL=3600  # seconds before retrying a failed install
 # Baked, never read from the environment: see receiptsFile.
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 # A pack's declared LAUNCH FLAGS for this name, baked (launchflags.go, DP-B44). No SHIPPED
@@ -2756,22 +2763,19 @@ LAUNCH_FLAGS=(__YOLO_LAUNCH_FLAGS__)
 mkdir -p "$STAMP_DIR"
 ` + stampMtimeFn + receiptShellFns + misplacedShellFn + `
 if [ ! -x "$REAL_BIN" ]; then
-    # Throttle repeated install attempts after a failure — without this, every
-    # invocation would re-hit npm registry when offline / install is broken. The stamp is a
+    # Throttle repeated install attempts after a failure to once per jail start — without this,
+    # every invocation would re-hit npm registry when offline / install is broken. The marker is a
     # failed install's alone (below).
     SHOULD_INSTALL=1
     pm_rc=1  # npm install's status; stays 1 when this run does not install
-    if [ -f "$STAMP" ]; then
-        STAMP_AGE=$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))
-        if [ "$STAMP_AGE" -lt "$RETRY_INTERVAL" ]; then
-            SHOULD_INSTALL=0
-        fi
+    if [ -n "$FAILED_MARKER" ] && [ -f "$FAILED_MARKER" ]; then
+        SHOULD_INSTALL=0
     fi
     if [ "$SHOULD_INSTALL" = "1" ]; then
         echo "  Installing $SPEC..." >&2
         # The status is CAPTURED, not dropped with "|| true". This install is one of the
         # "every install yolo itself runs" set (§10 step one) and it is the one that fails
-        # most often — the RETRY_INTERVAL throttle above exists because offline attempts are
+        # most often — the once-per-start throttle above exists because offline attempts are
         # routine — so a receipt appended unconditionally would record an install that never
         # happened, on exactly the boots where the record matters. The launch path's verdict
         # is still the -x test below, unchanged: this captures the status to decide whether
@@ -2786,13 +2790,13 @@ if [ ! -x "$REAL_BIN" ]; then
             # The omission says "unknown" rather than inventing a version — the same rule
             # _resolved_version follows in the agent launcher.
             _yolo_receipt __YOLO_RECEIPT_HEAD__ "$SPEC" "" "" install "$REAL_BIN"
-            # THE STAMP RECORDS A FAILURE, AND NOTHING ELSE, so the throttled line below is
+            # THE MARKER RECORDS A FAILURE, AND NOTHING ELSE, so the throttled line below is
             # true whenever it prints. It was touched after a success too, so a pnpm removed
-            # within the hour of its install was not installed again, and the run said its
-            # install had failed.
-            rm -f "$STAMP"
-        else
-            touch "$STAMP"
+            # after its install was not installed again, and the run said its install had
+            # failed. A success removes every start's marker.
+            rm -f "$STAMP_DIR/$BIN".failed.* 2>/dev/null || true
+        elif [ -n "$FAILED_MARKER" ]; then
+            : >> "$FAILED_MARKER" 2>/dev/null || true
         fi
     fi
 fi
@@ -2807,15 +2811,19 @@ elif [ "${pm_rc:-1}" = 0 ]; then
     exit 1
 else
     # THE THROTTLE DECIDES WHAT THE NEXT STEP IS. Unlike the agent launchers, a failed install
-    # here is retried only RETRY_INTERVAL after the last attempt, so "run it again" would be
-    # false for the next hour: the line says when a run retries, and the command that retries
-    # now, which removes the stamp the throttle reads.
-    if [ "${SHOULD_INSTALL:-0}" = "1" ]; then
-        echo "  ⚠ $BIN not available: its install failed, above. A run of $BIN $((RETRY_INTERVAL / 60)) minutes from now retries it." >&2
+    # here is retried only at the next jail start, so "run it again" would be false for the rest
+    # of this one: the line says when a run retries, and the command that retries now, which
+    # removes the marker the throttle reads. With no start record nothing throttles, so a run
+    # again retries.
+    if [ -z "$FAILED_MARKER" ]; then
+        echo "  ⚠ $BIN not available: its install failed, above. Run $BIN again to retry the install." >&2
+        exit 1
+    elif [ "${SHOULD_INSTALL:-0}" = "1" ]; then
+        echo "  ⚠ $BIN not available: its install failed, above. Relaunching the jail (yolo stop on the host, then launch) retries it." >&2
     else
-        echo "  ⚠ $BIN not available: its install failed less than $((RETRY_INTERVAL / 60)) minutes ago, so this run did not try again." >&2
+        echo "  ⚠ $BIN not available: its install failed earlier in this jail start, so this run did not try again. Relaunching the jail (yolo stop on the host, then launch) retries it." >&2
     fi
-    echo "    To retry the install now: rm -f $(printf '%q' "$STAMP") && $(printf '%q' "$BIN")" >&2
+    echo "    To retry the install now: rm -f $(printf '%q' "$FAILED_MARKER") && $(printf '%q' "$BIN")" >&2
     exit 1
 fi
 `
