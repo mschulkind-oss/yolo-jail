@@ -138,6 +138,9 @@ type WorkspaceSkillsReport struct {
 	// produces both: what the host's writer refused to deliver, and every reserved child it
 	// withheld (skills.go), one per entry and reason.
 	PackNotices []PackSkillNotice
+	// ToolSkills is what the tool-skills layer did, nil when it composed none. It is not part of
+	// Empty: its lines are slice 5's (docs/design/mise-tool-skills.md section 6.2).
+	ToolSkills *ToolSkillsReport
 }
 
 // Empty reports whether the report has nothing to say — the common case, which is silent.

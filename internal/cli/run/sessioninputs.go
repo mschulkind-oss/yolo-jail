@@ -2,6 +2,7 @@ package run
 
 import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -87,4 +88,16 @@ func (o *Options) toolSkillInputs() toolSkillInputs {
 		return toolSkillInputs{}
 	}
 	return toolSkillInputs{tools: tools, token: token}
+}
+
+// toolSkillsLayerInput is the request the host's skills composition makes for the tool-skills
+// layer: this launch's user-scope allowlist and the workspace's snapshot token, the same two
+// values the jail was handed (toolSkillInputs). Nil asks for no layer: an empty allowlist (the
+// default, and the sealed, capture and nested answer) or no token.
+func (o *Options) toolSkillsLayerInput() *jailcontent.ToolSkillsInput {
+	in := o.toolSkillInputs()
+	if len(in.tools) == 0 || in.token == "" {
+		return nil
+	}
+	return &jailcontent.ToolSkillsInput{Workspace: o.Workspace, Token: in.token, Tools: in.tools}
 }

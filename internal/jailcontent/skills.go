@@ -281,25 +281,39 @@ func PrepareSkillsWith(cname string, ws *WorkspaceSkills) (string, *WorkspaceSki
 
 // PrepareSkillsWithFactSheet stages built-in guidance from facts decided by the caller.
 func PrepareSkillsWithFactSheet(cname string, ws *WorkspaceSkills, facts *FactSheet) (string, *WorkspaceSkillsReport, error) {
+	return PrepareSkillsWithToolSkills(cname, ws, facts, nil)
+}
+
+// PrepareSkillsWithToolSkills is PrepareSkillsWithFactSheet with the TOOL-SKILLS layer as the
+// lowest source of every destination (toolskillslayer.go). tools nil asks for none.
+func PrepareSkillsWithToolSkills(cname string, ws *WorkspaceSkills, facts *FactSheet,
+	tools *ToolSkillsInput) (string, *WorkspaceSkillsReport, error) {
 	if err := SkillCollisionError(packSkillDirs, packSkillTargets); err != nil {
 		return "", nil, err
 	}
 	plan := SkillPlan(packSkillDirs, packSkillTargets)
-	return prepareSkillsWithPlan(cname, ws, facts, plan, false)
+	return prepareSkillsWithPlan(cname, ws, facts, tools, plan, false)
 }
 
 // PrepareSkillsWithLegacyMechanics stages compatible legacy skills while preserving the
 // mechanics guidance already present in each running target. It never renders mechanics from
 // compatibility defaults when an attach lacks an authenticated applied snapshot.
 func PrepareSkillsWithLegacyMechanics(cname string) (string, *WorkspaceSkillsReport, error) {
+	return PrepareSkillsWithLegacyMechanicsAndToolSkills(cname, nil)
+}
+
+// PrepareSkillsWithLegacyMechanicsAndToolSkills is PrepareSkillsWithLegacyMechanics with the
+// tool-skills layer: the layer is read fresh on every composition, never from an attach's frozen
+// snapshot, so an attach picks up a snapshot the jail wrote after the launch.
+func PrepareSkillsWithLegacyMechanicsAndToolSkills(cname string, tools *ToolSkillsInput) (string, *WorkspaceSkillsReport, error) {
 	if err := SkillCollisionError(packSkillDirs, packSkillTargets); err != nil {
 		return "", nil, err
 	}
 	plan := SkillPlan(packSkillDirs, packSkillTargets)
-	return prepareSkillsWithPlan(cname, nil, nil, plan, true)
+	return prepareSkillsWithPlan(cname, nil, nil, tools, plan, true)
 }
 
-func prepareSkillsWithPlan(cname string, ws *WorkspaceSkills, facts *FactSheet,
+func prepareSkillsWithPlan(cname string, ws *WorkspaceSkills, facts *FactSheet, tools *ToolSkillsInput,
 	plan []hostskills.Destination, preserveMechanics bool) (string, *WorkspaceSkillsReport, error) {
 	staging := filepath.Join(paths.AgentsDir(), cname)
 	if err := os.MkdirAll(staging, 0o755); err != nil {
@@ -310,16 +324,19 @@ func prepareSkillsWithPlan(cname string, ws *WorkspaceSkills, facts *FactSheet,
 		return "", nil, err
 	}
 	defer layer.close()
+	toolLayer := stageToolSkillsLayer(tools)
+	defer toolLayer.close()
 
 	var notices []PackSkillNotice
 	for i, target := range packSkillTargets {
-		said, err := prepareSkillTarget(plan[i], target, filepath.Join(staging, target.Staging), layer, facts, preserveMechanics)
+		said, err := prepareSkillTarget(plan[i], target, filepath.Join(staging, target.Staging), layer, toolLayer, facts, preserveMechanics)
 		if err != nil {
 			return "", nil, err
 		}
 		notices = append(notices, said...)
 	}
 	rep := layer.report()
+	toolLayer.finish(rep)
 	rep.PackNotices = groupPackNotices(notices)
 	return staging, rep, nil
 }
@@ -367,7 +384,7 @@ func groupPackNotices(notices []PackSkillNotice) []PackSkillNotice {
 // same order as before, so precedence is untouched, and treesync then changes only what
 // differs. skillsDir itself is never removed (the bind captured it).
 func prepareSkillTarget(dest hostskills.Destination, target SkillTarget, skillsDir string,
-	layer *workspaceLayer, facts *FactSheet, preserveMechanics bool) ([]PackSkillNotice, error) {
+	layer *workspaceLayer, toolLayer *toolSkillsLayer, facts *FactSheet, preserveMechanics bool) ([]PackSkillNotice, error) {
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		return nil, err
 	}
@@ -380,7 +397,7 @@ func prepareSkillTarget(dest hostskills.Destination, target SkillTarget, skillsD
 	if err := os.Mkdir(composed, 0o755); err != nil {
 		return nil, err
 	}
-	notices, err := composeSkillLayers(dest, target, composed, layer, facts, preserveMechanics)
+	notices, err := composeSkillLayers(dest, target, composed, layer, toolLayer, facts, preserveMechanics)
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +430,7 @@ func prepareSkillTarget(dest hostskills.Destination, target SkillTarget, skillsD
 // never replace one (OQ-WS2). Written first and overwritten, it would give the same tree — but
 // the report could not say which names were lost or to whom, and a shadow is a disclosure.
 func composeSkillLayers(dest hostskills.Destination, target SkillTarget, skillsDir string,
-	layer *workspaceLayer, facts *FactSheet, preserveMechanics bool) ([]PackSkillNotice, error) {
+	layer *workspaceLayer, toolLayer *toolSkillsLayer, facts *FactSheet, preserveMechanics bool) ([]PackSkillNotice, error) {
 	// 1. PACK skills, in config order, each at its own tier, wrapped plugins included.
 	res, err := hostskills.ComposeInto(dest, skillsDir)
 	if err != nil {
@@ -469,7 +486,11 @@ func composeSkillLayers(dest hostskills.Destination, target SkillTarget, skillsD
 	// yolo's LSP declaration.
 	taken[LSPPluginDir] = "yolo's LSP plugin"
 	// 4. THE WORKSPACE, into whatever names are left.
-	return notices, layer.deliver(target, skillsDir, taken)
+	if err := layer.deliver(target, skillsDir, taken); err != nil {
+		return notices, err
+	}
+	// 5. THE TOOL SKILLS, lowest of all: only the names nothing above claimed.
+	return notices, toolLayer.deliver(skillsDir, taken)
 }
 
 func preserveLegacyMechanics(sourceSkills, composedSkills string) error {

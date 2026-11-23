@@ -274,6 +274,11 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		in, extra = sealedBriefingInput(in), ""
 	}
 	hadAppliedFacts := facts != nil && facts.Briefing.Mechanism != ""
+	// THE TOOL-SKILLS LAYER (docs/design/mise-tool-skills.md slice 4), the lowest skills layer. It
+	// is read FRESH on every call, launch and attach alike, and never from an attach's applied
+	// snapshot: the jail writes the snapshot after the launch's composition ran, and the next
+	// attach is what delivers it. Slice 5 reads its report (wsSkills.ToolSkills) below.
+	toolSkills := o.toolSkillsLayerInput()
 	workspaceSkills := (*jailcontent.WorkspaceSkills)(nil)
 	if !preserveLegacyMechanics {
 		workspaceSkills = o.workspaceSkillsFor(cfg, rt, loadedPacks)
@@ -394,7 +399,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 			o.pr(o.Stderr).printf("[yellow]Warning: generated guidance could not be rendered: %s; the prior skills remain in place. Fix the guidance source, then run `yolo` again.[/yellow]", err.Error())
 			staging = filepath.Join(paths.AgentsDir(), cname)
 		} else {
-			staging, wsSkills, err = jailcontent.PrepareSkillsWithFactSheet(cname, workspaceSkills, facts)
+			staging, wsSkills, err = jailcontent.PrepareSkillsWithToolSkills(cname, workspaceSkills, facts, toolSkills)
 			if err != nil {
 				return "", err
 			}
@@ -403,9 +408,9 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	} else {
 		var err error
 		if preserveLegacyMechanics {
-			staging, wsSkills, err = jailcontent.PrepareSkillsWithLegacyMechanics(cname)
+			staging, wsSkills, err = jailcontent.PrepareSkillsWithLegacyMechanicsAndToolSkills(cname, toolSkills)
 		} else {
-			staging, wsSkills, err = jailcontent.PrepareSkillsWith(cname, workspaceSkills)
+			staging, wsSkills, err = jailcontent.PrepareSkillsWithToolSkills(cname, workspaceSkills, nil, toolSkills)
 		}
 		if err != nil {
 			return "", err
