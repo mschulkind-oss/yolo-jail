@@ -180,6 +180,16 @@ func newPatchedFixture(t *testing.T, follow string) *patchedFixture {
 		t.Fatalf("copying the template series: %v", err)
 	}
 
+	// The production launch check has a 5 s deadline (packsrc.PackCheckDeadline) that a real
+	// git ls-remote can overrun on a loaded machine. Every fixture checks under a generous guard
+	// instead; a test that wants a fired deadline assigns patchedCheckStart itself.
+	prevCheck := patchedCheckStart
+	patchedCheckStart = func() (*packsrc.PackCheck, context.CancelFunc) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		return &packsrc.PackCheck{Ctx: ctx, Limit: 10 * time.Minute}, cancel
+	}
+	t.Cleanup(func() { patchedCheckStart = prevCheck })
+
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
@@ -1610,5 +1620,21 @@ func TestAgentUpdatesHoldIsSaidAtUpdateAndStatus(t *testing.T) {
 				t.Errorf("status lacks %q:\n%s", want, out)
 			}
 		})
+	}
+}
+
+// productionPatchedCheckStart is the launch check deadline source as shipped, captured before any
+// fixture swaps patchedCheckStart for its generous one.
+var productionPatchedCheckStart = patchedCheckStart
+
+// The fixtures' generous guard must not leak into production: the shipped check keeps its 5 s deadline.
+func TestProductionLaunchCheckKeepsItsFiveSecondDeadline(t *testing.T) {
+	check, cancel := productionPatchedCheckStart()
+	defer cancel()
+	if check.Limit != 5*time.Second || packsrc.PackCheckDeadline != 5*time.Second {
+		t.Fatalf("launch check limit = %s (PackCheckDeadline %s), want 5s", check.Limit, packsrc.PackCheckDeadline)
+	}
+	if dl, ok := check.Ctx.Deadline(); !ok || time.Until(dl) > 5*time.Second {
+		t.Fatalf("launch check context deadline = %v, %v", dl, ok)
 	}
 }

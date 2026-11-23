@@ -1338,6 +1338,15 @@ func (a *advance) run() advanceResult {
 				var cancelDeadline context.CancelFunc
 				deadline, cancelDeadline = patchedCheckStart()
 				defer cancelDeadline()
+				// A Ctrl-C ends the check's git at once, not at its deadline: the phase's context
+				// also ends with the advance's.
+				if a.ctx != nil {
+					phaseCtx, cancelPhase := context.WithCancel(deadline.Ctx)
+					defer cancelPhase()
+					stopWatch := context.AfterFunc(a.ctx, cancelPhase)
+					defer stopWatch()
+					deadline = &packsrc.PackCheck{Ctx: phaseCtx, Limit: deadline.Limit}
+				}
 			}
 			res = a.packs.CheckPatched(f.CheckWant(a.series), packsrc.CheckOptions{Force: a.o.force, Check: deadline,
 				FreshAfter: a.freshCheckBoundary(), InputIdentity: a.o.freshIdentity, StartGuard: a.o.admitGuard, Now: patchedNow,
