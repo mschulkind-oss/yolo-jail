@@ -22,8 +22,8 @@ duration of the checks; it was removed afterwards ([§2](#2-yolo-pack-add-and-yo
 | `yolo pack add omp`, then `yolo pack remove omp` | **The remove wrote nothing**: add wrote to a drop-in file and remove looked only in `config.toml` |
 | Nightly 42372802408 (`4b26d1dfc`) | Still running when written. Four shards had failed tests and three runners lost communication; see [§3](#3-nightly-42372802408) |
 | `TestCircleCIFakeHostCLIUsesRealClassifier` | **Fails on this Mac too**: a test defect, cause confirmed |
-| Triage [W5](2026-11-06-mac-ci-triage-witnesses.md#3-the-version-stamp-on-a-tag-commit) | **Still open**: the stamp test passed, but on the off-tag form `0.17.0+82`, not on the tag commit |
-| Triage [W6](2026-11-06-mac-ci-triage-witnesses.md#4-the-60-minute-step-cap) | **First reading: the longest test step was 59 min** (shard 5), inflated by one 20-minute test timeout |
+| Triage W5 | **Still open**: the stamp test passed, but on the off-tag form `0.17.0+82`, not on the tag commit |
+| Triage W6 | **First reading: the longest test step was 59 min** (shard 5), inflated by one 20-minute test timeout |
 
 ### 1. The per-session-profiles checks
 
@@ -115,7 +115,7 @@ This was the first scheduled Nightly macOS Integration run since the triage fixe
 | Shard | Failure | Rerun on this Mac (`YOLO_SETUP=podman-self`) | Class |
 | :--- | :--- | :--- | :--- |
 | 2 | `TestCircleCIFakeHostCLIUsesRealClassifier` (2.2 s): `yolo check` failed with *"Container runtime installed but not started … unable to connect to Podman socket: … /var/folders/…/T/storage-run-501/podman/podman.sock: connect: no such file or directory"* | **Fails the same way** (1.9 s) | Test defect, below |
-| 5 | `TestAJailLaunchesOnTOMLFiles` (1206 s): *"yolo timed out after 20m0s: yolo run --accept-config-changes -- bash -lc command -v hello && echo HELLO-ON-PATH"*, with `podman run … yolo-005-…` still running | **Passes** (15.9 s) | Unknown. It is another test that asks for `hello` (`readableconfig_test.go:69`); see triage [§Open 1](2026-11-06-mac-ci-triage-witnesses.md#1-the-hello-image-build-on-the-mac) |
+| 5 | `TestAJailLaunchesOnTOMLFiles` (1206 s): *"yolo timed out after 20m0s: yolo run --accept-config-changes -- bash -lc command -v hello && echo HELLO-ON-PATH"*, with `podman run … yolo-005-…` still running | **Passes** (15.9 s) | Unknown. It is another test that asks for `hello` (`readableconfig_test.go:69`); see triage §Open 1 |
 | 18 | `TestBedrockTakesTheRegionOfTheHostsAWSConfig` (263 s): *"opencode: preparing it failed … selected sealed npm producer failed (status 1)"* | **Passes** (25.4 s) | Unknown; the log quotes only the producer's exit status |
 | 18 | `TestPackagesEntryInstallsWhatNixBuildBuilds/an_output_of_a_top-level_package`: the eval for `gtk4.dev` timed out downloading from `cache.nixos.org` and `api.github.com` | Not rerun | Infra (the network) |
 | 12, 14, 15 | *"The hosted runner lost communication with the server"* | — | Infra |

@@ -384,8 +384,9 @@ export YOLO_NIX_HOST_STORE_LINUX=1  # and the store holds the jail's Linux progr
 A jail normally ends when you exit the terminal session that started it. For one left running,
 run `yolo stop` from the project folder. On `Seatbelt` it ends every session of the project and
 the background process that holds their host services, and removes what one that was killed left
-behind; `yolo ps` lists each session that is still running and its project folder. Not yet tried
-on a Mac. A `Seatbelt` launch reclaims old loophole state by itself, and offers to clear the
+behind; `yolo ps` lists each session that is still running and its project folder. Tried on a Mac:
+`yolo ps` lists a live session and `yolo stop` ends it and the host-services process; the cleanup after
+a killed one is not yet tried. A `Seatbelt` launch reclaims old loophole state by itself, and offers to clear the
 shared build cache that container jails on the same Mac fill once it is large. To reclaim more
 disk, use `yolo prune`, a dry run until you add `--apply`; see [Storage](storage.md). On `Seatbelt`, `yolo stores` also
 lists what that backend keeps under `/Users/Shared/yolo-staged` and in the yolo account's home,

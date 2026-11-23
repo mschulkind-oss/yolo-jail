@@ -198,7 +198,7 @@ func decodeSurfaceBytes(surface manifest.Surface, path string, raw []byte) (*jso
 //
 // Why a header and nothing more: Copilot CLI 1.0.105 writes `// User settings belong in
 // settings.json.` and `// This file is managed automatically.` above the object of its own
-// ~/.copilot/config.json (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §14), so
+// ~/.copilot/config.json (the retired lab report 2026-11-03-mac-slice-12a-witness-w1 (git log --follow) §14), so
 // strict JSON refused every workspace Copilot had run in and the pack's defaults never landed.
 // A header sits above every key, so writing it back verbatim keeps every comment the file had.
 // A comment INSIDE the object has a position relative to keys this render may change, so it is

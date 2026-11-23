@@ -15,7 +15,7 @@ vantage:
 **Status:** 2026-11-03 — the model is ruled ([§7](#7-the-ruled-model-two-modes-one-profile)).
 Ten of [the plan](macos-user-model-plan.md)'s thirteen slices are built, opt-in behind
 `macos_user_mode = "self"`. [Slice 12a](macos-user-model-plan.md#MMP-D25), built 2026-11-03 and
-witnessed on a Mac by W1b and W1c ([the lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md)), moves the production default, the second account, onto the same
+witnessed on a Mac by W1b and W1c (the lab report), moves the production default, the second account, onto the same
 deny-by-default profile with a home per workspace, so a second workspace launches beside a running
 session instead of being refused. The
 [§6](#6-what-a-prototype-must-show) prototype passed in both modes on 2026-10-23. This document

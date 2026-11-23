@@ -1000,19 +1000,19 @@ What I would build, in order:
    refuses its own OAuth token in `COPILOT_GITHUB_TOKEN`: remove `host_keychain_env` from the
    copilot pack, so no launch hands over a token Copilot cannot use, and reopen [OQ-KC5](#OQ-KC5).
 
-   *Attempted 2026-11-03 at `064706ada`* ([lab report, W-KC5](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#witness-w-kc5-stopped-at-step-1)):
+   *Attempted 2026-11-03 at `064706ada`* (lab report, W-KC5):
    stopped at step 1. Host Copilot is 1.0.105, and `find-generic-password -s copilot-cli` found
    no item. The `dump-keychain` search was not run (the agent's permission policy refused it), so
    it is still unknown whether the host isn't logged in or 1.0.105 uses another service name. Also:
    step 2's `~/kc5-witness` is inside a home, which account mode refuses. Since then, step 2 uses
    `/Users/Shared/yolo/kc5-witness`, and step 1's missing-item branch is the owner's.
-   *Step 1 again 2026-11-04, after the owner's `copilot login`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w-kc5-after-copilot-login)):
+   *Step 1 again 2026-11-04, after the owner's `copilot login`* (lab report):
    that run came before the login's approvals finished. After them, step 1 passes (`copilot-cli`,
    with an account). Step 2 as written is refused by the installed `0.16.1+35` (`YOLO_RUNTIME is
    removed`; use `YOLO_SETUP=seatbelt-yolo-account`). Run from the agent's process, the launch
    could not read the item: macOS refused to show the Allow dialog, and yolo reported the keychain
    as locked. It waits on the owner running step 2 in their own Terminal.
-   *Run 2026-11-04 at the Mac's own display* ([lab report, W-KC5 at the display](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w-kc5)):
+   *Run 2026-11-04 at the Mac's own display* (lab report, W-KC5 at the display):
    after *Always Allow*, **the route works**: `Host login passed in: … COPILOT_GITHUB_TOKEN in
    copilot's own env file`, and step 3 passes (`-rw-------`, `unset`). Copilot then found the
    token but could not validate it (`network fetch failed` to `api.github.com`), because the

@@ -15,9 +15,8 @@ vantage:
 **Status:** 2026-11-12. Slices 1 to 10 and 12a are built and in main. W1 ran on a Mac and
 failed; its fixes were re-run by witness W1b on 2026-11-03, and W1c, the one W1b left failing (an
 unchanged relaunch keeps its delivered files), passed on 2026-11-04
-([the lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#13-2026-11-04-w1c-w-su5-claude--p-on-bedrock-and-just-done);
-[Mac checks](#mac-checks)). The account mode's shared `/tmp` is now closed, with the same hatch as
-self mode ([MMP-D29](#MMP-D29), [MMP-D36](#MMP-D36)); Mac check [W-TMP1](#W-TMP1) has not run yet.
+([Mac checks](#mac-checks)). The account mode's shared `/tmp` is now closed, with the same hatch as
+self mode ([MMP-D29](#MMP-D29), [MMP-D36](#MMP-D36)); Mac check [W-TMP1](#W-TMP1) ran on 2026-11-13: the closed `/tmp` holds, and its hatch half waits on [W-PATH1](#W-PATH1).
 Next are slices 11 ([OQ-MM10](macos-user-model.md#OQ-MM10), ruled 2026-11-03), 12b and 13. Loopback and the shared `/tmp` are ruled and
 built ([MMP-D14](#MMP-D14), [MMP-D18](#MMP-D18)); Homebrew's visibility is the one profile
 parameter still at the prototype's value ([Blockers](#blockers)). With 12a the production default,
@@ -129,8 +128,8 @@ These are mechanism choices made under the rulings above, not owner rulings. The
 | <a id="MMP-D31"></a>MMP-D31 | **The account mode names the XDG base dirs under the workspace home.** *Implementation decision, from W1's run.* `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` are set to `<ws>/.yolo/home/.config`, `.cache`, `.local/share` and `.local/state` (`withAccountXDGEnv`), each unless composed. | The workspace home is owned by you and the sandbox runs as `_yolojail`, so nix warned *"$HOME … is not owned by you"* on every call and read its user config from `/Users/_yolojail`. Nix consults `getHome()` only for a base dir whose `XDG_*` variable is unset (measured on Linux, nix 2.34.9, with a HOME another uid owns: warning with the variables unset, none with them set). The values are the defaults a tool would derive from HOME anyway. |
 | <a id="MMP-D32"></a>MMP-D32 | **An Apple Container home is refused by name, not adopted.** A macos-user launch whose inherited user-config destination is Apple Container's writable copy (a regular file you own, writable, one link, first line yolo's generated header) refuses before the sandbox (`refuseAppleContainerHome`), naming the file, that Apple Container used this workspace's home, the move that clears it (`mv <ws>/.yolo/home <ws>/.yolo/home.apple-container`), and `YOLO_RUNTIME=container` to keep using Apple Container. Any other occupant keeps the generic refusal. | Since 12a both backends use `<ws>/.yolo/home` with the same dotted layout. Nothing proves Apple Container's writable copy unedited, so adopting it could overwrite the owner's edit, and the rest of that home lacks the account's ACLs and holds container-era links; moving the whole home aside clears every such residue at once and loses nothing. |
 | <a id="MMP-D33"></a>MMP-D33 | **An occupied workspace home is cleared one path at a time.** When the layout's HOME is the workspace home (`DeriveDarwinWorkspaceHome`), its refusal (`occupiedWorkspaceHomeError`) is headed *"In THIS WORKSPACE'S HOME"*, names where each occupied path's link points, and offers `sudo rm -rf` of that path alone. The account layout's refusal is unchanged. | It offered `sudo rm -rf <ws>/.yolo/home` under the pre-12a heading *"the SANDBOX ACCOUNT HOME"*: the workspace's whole home, transcripts included, to clear one directory. |
-| <a id="MMP-D34"></a>MMP-D34 | **An empty `kern.procargs2` environment is an unread one.** Self mode's sandbox-marker reader treats a process whose environment comes back empty as unknown (`procArgs2Env`), so a live one counts as the sandbox's, as the tri-state in `guestprocs.go` already says for an unreadable one. | macOS 26.5 returns a platform binary's arguments and no environment, to its owner too (the W1 run's [§6](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#6-kernprocargs2-hides-a-platform-binarys-environment)), so a sandboxed `/bin/sh` read as known and unmarked and dropped out of the pack-tree holder proof. Every process the sandbox starts carries a marker, so an empty environment never proves *not the sandbox's*; counting one costs disk until the next prune. |
-| <a id="MMP-D35"></a>MMP-D35 | **The home overlay delivers copies on macos-user, in both modes; no `file-link` grant.** *Owner's ruling, 2026-11-03, A.* The guest stops trying `linkat` from the staging root and copies each staged file; an unchanged relaunch keeps a delivered copy whose content still matches the staged file (no rewrite, the inode stays), and replaces one that differs. The deny-by-default profile gets no `(allow file-link …)`. Owner: *"yes, A for your question."* | W1b measured that the profile is the only obstacle to the link and that self mode copies too ([§10](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#10-rerun-witness-w1b-and-the-just-done-fixes-witness)). A hard link is one inode under two names, and Seatbelt checks the path written through: in self mode the sandbox owns the staged file, so it could make it writable and edit a file other workspaces share. Copying a few dozen small files per relaunch costs almost nothing. |
+| <a id="MMP-D34"></a>MMP-D34 | **An empty `kern.procargs2` environment is an unread one.** Self mode's sandbox-marker reader treats a process whose environment comes back empty as unknown (`procArgs2Env`), so a live one counts as the sandbox's, as the tri-state in `guestprocs.go` already says for an unreadable one. | macOS 26.5 returns a platform binary's arguments and no environment, to its owner too (the W1 run's section 6), so a sandboxed `/bin/sh` read as known and unmarked and dropped out of the pack-tree holder proof. Every process the sandbox starts carries a marker, so an empty environment never proves *not the sandbox's*; counting one costs disk until the next prune. |
+| <a id="MMP-D35"></a>MMP-D35 | **The home overlay delivers copies on macos-user, in both modes; no `file-link` grant.** *Owner's ruling, 2026-11-03, A.* The guest stops trying `linkat` from the staging root and copies each staged file; an unchanged relaunch keeps a delivered copy whose content still matches the staged file (no rewrite, the inode stays), and replaces one that differs. The deny-by-default profile gets no `(allow file-link …)`. Owner: *"yes, A for your question."* | W1b measured that the profile is the only obstacle to the link and that self mode copies too (section 10). A hard link is one inode under two names, and Seatbelt checks the path written through: in self mode the sandbox owns the staged file, so it could make it writable and edit a file other workspaces share. Copying a few dozen small files per relaunch costs almost nothing. |
 | <a id="MMP-D36"></a>MMP-D36 | **Closing the account mode's shared `/tmp` ([MMP-D29](#MMP-D29)) brings self mode's hatch and checks with it.** *Implementation decision, 2026-11-12.* (1) `macos_user_shared_tmp = true` opens the shared `/tmp` in the account mode too (`PlanSession.SharedTmp` selects `TmpShared` in either mode; `RunPlan.SharedTmp` and its disclosure line follow). (2) The briefing's `/tmp` line (`macosUserTmpLimit`) is printed in both modes without the hatch, and names `yolo config set macos_user_shared_tmp true --user`. (3) A `TMPDIR` or program temp variable an env layer composes outside the account mode's roots (the workspace, its home, the account's temp dir, and `/tmp` under the hatch) refuses the launch, as [MMP-D20](#MMP-D20) does in self mode; the validation context baked into the launchers carries the same roots. (4) The account mode sets `TMUX_TMPDIR` and `TMPPREFIX` to follow its `TMPDIR`, unless set, and hands its `TMPDIR` to the bootstrap ([MMP-D21](#MMP-D21)); no `OVERMIND_SOCKET`. (5) The account mode's install capture keeps its `(allow default)` profile, which grants `/tmp` and all of `/var/folders`; its validation context names exactly those two. | "As [OQ-MM8](macos-user-model.md#OQ-MM8)'s trial closed it for self mode" includes the hatch: without it, a user whose tool needs `/tmp` has no next step. The `TMPDIR` check exists because a composed `/tmp` value would now fail every temporary file with a bare "Operation not permitted". tmux and zsh ignore `TMPDIR` and default to `/tmp`. `OVERMIND_SOCKET` stays unset because the account's temp dir is shared by every account-mode workspace, and overmind's default socket is in the workspace. The capture runs a vendor installer, not an agent, and has no `TMPDIR` of its own in the account mode; closing `/tmp` there would first need [MMP-D21](#MMP-D21)'s staging `TMPDIR` for the account's staging tree. |
 | <a id="MCWP-D2"></a>MCWP-D2 | **Machine root stays `/Users/_yolojail`** (`macosuser.SandboxHome()`), passed to the bootstrap as the env var `YOLO_DARWIN_MACHINE_HOME` and to every sandbox argv. Absent, or equal to HOME, means today's single-home layout, byte for byte. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | Moves no shared bytes. The directory-service record (`NFSHomeDirectory`) and the bootstrap's identity and scope checks stay on the account. |
 | <a id="MCWP-D10"></a>MCWP-D10 | **Guest yolo judges workspace scope by the account.** `sandboxEnvPairs` emits `YOLO_DARWIN_MACHINE_HOME` (protected) in private mode. `cli.Main` and `cmd/yolo-jaild` call one `paths` helper that, when that variable names a directory owned by the process euid, applies `paths.GuardScopeUnder` to it. The three per-verb copies (bootstrap, log sink, capture materialize) may stay. *Carried from the retired concurrent-workspaces plan (2026-10-22), where it was decided.* | With HOME inside the workspace, every guest verb that creates `.yolo` would otherwise see "workspace CONTAINS your home" and refuse. `yolo-jaild` reaches `nixroots` and `durable`, which create it. Ownership, not the variable, is the identity check, so the host user is unaffected even if it has the variable set. |
@@ -1178,42 +1177,42 @@ the colleague who reported the refusal):
   workspace's paths; `./run-checks.sh --mode account --account _yolojail --profile-from-yolo <dev
   yolo>` has no FAIL line. Paste into the model doc's *Self-mode rerun* section as the account-mode
   run.
-  *Run 2026-11-03 at `90ff72f2c`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md)):
+  *Run 2026-11-03 at `90ff72f2c`* (lab report):
   two workspaces ran at once and `run-checks.sh` had no FAIL line, but `$TMPDIR` was empty, nine
   `^TestMacosUser` tests that pass on 12a's parent failed (five not listed above), and `claude -p`
   could not authenticate (a revoked login). W1 is not yet passed. What each finding was, by the
   report's section:
-  - **[§2](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#2-tmpdir-is-empty-in-account-mode), `$TMPDIR` empty:** a defect, fixed ([MMP-D30](#MMP-D30)). `getconf DARWIN_USER_TEMP_DIR`
+  - **section 2, `$TMPDIR` empty:** a defect, fixed ([MMP-D30](#MMP-D30)). `getconf DARWIN_USER_TEMP_DIR`
     printing nothing *inside* the sandbox is not fixed: the likely cause is a denied lookup of the
     directory service the call makes, and no grant is widened without the denial in hand (W1b).
-  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the nix warning:** a defect, fixed ([MMP-D31](#MMP-D31)); the test is unchanged.
-  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the config capture missing the session's `settings.json` edit:** a defect, fixed. The
+  - **section 3, the nix warning:** a defect, fixed ([MMP-D31](#MMP-D31)); the test is unchanged.
+  - **section 3, the config capture missing the session's `settings.json` edit:** a defect, fixed. The
     capture mapped `~/.claude` to the undotted `<ws>/.yolo/home/claude` for macos-user, where 12a's
     HOME keeps it dotted (`jailHomeRel`).
-  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the floor resolving to mise shims:** a stale test, rewritten. The mise store is the
+  - **section 3, the floor resolving to mise shims:** a stale test, rewritten. The mise store is the
     machine root's (`MISE_DATA_DIR`), outside HOME by design, so the probe now drops it too.
-  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the unchanged relaunch replacing delivered files:** ruled 2026-11-03 ([MMP-D35](#MMP-D35)): copies, kept when unchanged; no `file-link` grant. Before the ruling: The
+  - **section 3, the unchanged relaunch replacing delivered files:** ruled 2026-11-03 ([MMP-D35](#MMP-D35)): copies, kept when unchanged; no `file-link` grant. Before the ruling: The
     delivered file is the account's own, so `linkat` from the staging root fell back to a copy.
     Pre-12a the bootstrap ran under `(allow default)` and linked; the deny-by-default profile is
     the change. The likely fix is an `(allow file-link …)` for the staging root, but an operation
     name the Mac's Seatbelt does not know fails the profile's compile on every launch, so it waits
     for W1b's errno and probe.
-  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the overlay agent-state symlink:** a stale test, rewritten. `~/.oh-omp` is now a real
+  - **section 3, the overlay agent-state symlink:** a stale test, rewritten. `~/.oh-omp` is now a real
     directory in the workspace home, not a link into it.
-  - **[§3](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#3-the-macos-user-suite-nine-failures-all-from-12a), the four predicted stale tests** (`macosuserhometier_test.go`,
+  - **section 3, the four predicted stale tests** (`macosuserhometier_test.go`,
     `macosuserlayoutrefusal_test.go`, `macosuserhomeroothostfiles_test.go`,
     `macosusertools_test.go`): rewritten to 12a's layout. The layout refusal's remedy was also a
     defect, fixed ([MMP-D33](#MMP-D33)).
-  - **[§4](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#4-the-briefing-still-describes-the-shared-account-home), the briefing's shared-home wording:** a defect, fixed. Both notches say the home is this
+  - **section 4, the briefing's shared-home wording:** a defect, fixed. Both notches say the home is this
     workspace's own and only its machine-scope links are shared.
-  - **[§5](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#5-an-apple-container-home-blocks-a-later-account-mode-launch), an Apple Container home refusing a macos-user launch:** a happy-path refusal, not
+  - **section 5, an Apple Container home refusing a macos-user launch:** a happy-path refusal, not
     support ([MMP-D32](#MMP-D32)).
-  - **[§6](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#6-kernprocargs2-hides-a-platform-binarys-environment), `kern.procargs2` hiding a platform binary's environment:** the four short-suite tests
+  - **section 6, `kern.procargs2` hiding a platform binary's environment:** the four short-suite tests
     now start a stand-in `sh` that is not a platform binary, found on `PATH` or in a nix profile,
     and skip naming `nix profile install nixpkgs#bash` when there is none. The one production
     reader, self mode's sandbox marker, is fixed ([MMP-D34](#MMP-D34)); `internal/prune` reads
     only the exec path.
-  - **[§7](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#7-run-checkssh-g4-and-a-concurrent-launch), `run-checks.sh` g4 beside a launch:** ours, fixed. The script now holds each fake
+  - **section 7, `run-checks.sh` g4 beside a launch:** ours, fixed. The script now holds each fake
     session's liveness lock while it runs, so a launch's sweep of dead sessions keeps them.
 - **W1b (the W1 fixes, before 12a lands):** on the branch carrying them, the owner's Mac agent
   re-runs exactly:
@@ -1232,14 +1231,14 @@ the colleague who reported the refusal):
     `getconf DARWIN_USER_TEMP_DIR` (paste its output, and `log show --last 2m --predicate 'sender
     == "Sandbox"'` if it prints nothing); `nix --version` prints no `$HOME … is not owned by you`
     line;
-  - the [§5](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#5-an-apple-container-home-blocks-a-later-account-mode-launch) case: a workspace launched with `YOLO_RUNTIME=container`, then `yolo -- true` with
+  - the section 5 case: a workspace launched with `YOLO_RUNTIME=container`, then `yolo -- true` with
     macos-user; paste the refusal, which names Apple Container and the `mv`;
   - the short suite: `go test -short ./integration -run
     '^(TestStopHomeProcesses|TestProcessEnvironReadsALiveChildsHome)'` passes, or skips naming
     the install;
   - `./run-checks.sh --mode account --account _yolojail --profile-from-yolo <dev yolo>` started
     while a `yolo -- sleep 60` runs in another workspace: no FAIL line, g4 included.
-  *Run 2026-11-03 at `fd702e9fb`* ([lab report §10](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#10-rerun-witness-w1b-and-the-just-done-fixes-witness)):
+  *Run 2026-11-03 at `fd702e9fb`* (lab report section 10):
   every item came back as expected. The relaunch's errno is `operation not permitted`.
   `(deny file-link)` compiles and refuses the link, and `_yolojail` links the staged file outside
   Seatbelt, so the profile is the only obstacle. Self mode delivers copies too (link count 1, the
@@ -1258,22 +1257,25 @@ the colleague who reported the refusal):
   `.yolo/boot.log` has no `home overlay: ~/… was delivered as a copy … refused` line (the test
   checks it; paste `rg -n 'delivered as a copy' <ws>/.yolo/boot.log` printing nothing, from a
   manual `yolo -- true` relaunch, as the record).
-  *Run 2026-11-04 at `3ccc28def`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#w1c-passes)):
+  *Run 2026-11-04 at `3ccc28def`* (lab report):
   PASS, `/account` and `/self`, and the manual relaunch's `rg` printed nothing. W1's `claude -p`
   line also answered `ok` on the Bedrock profile; the subscription login is still revoked.
-  *2026-11-04, with admin for `log show`* ([lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#why-copilot-cannot-reach-github-the-account-mode-now-denies-securityserver)):
+  *2026-11-04, with admin for `log show`* (lab report):
   W1's Sandbox-log line passes. **New:** the account-mode profile denies Copilot
   `com.apple.SecurityServer` and the system trust settings, so Copilot 1.0.105 cannot make HTTPS
   requests in account mode: #65's failure, until now run-as-you's alone.
+  Still open on main, with no ruling: the profile still denies the service by [MT-D7](macos-native-tls.md#decision-ledger), the
+  Copilot version gate still names only self mode, and Copilot's own refusal still lists account mode as a route
+  that runs (BACKLOG, [account mode denies Copilot's TLS](../plans/BACKLOG.md#account-mode-copilot-tls)).
 - **W2 (slice 11's precondition 3, the rows not yet recorded):** with `macos_user_mode = "self"` in
   the user config, `yolo -- claude` in a fresh `~/code/alpha` twice; Claude is logged in both times
   without a `/login`; a second workspace runs at the same time; `pip download requests` inside
   writes into the host's `~/Library/Caches/pip`. Paste as a dated run beside W1.
-  *Run 2026-11-05* ([lab report](../lab-reports/2026-11-04-host-workspace-skills-link-and-ssh.md#9-2026-11-05-the-claude-subscription-lines-of-w1-and-w2-pass)),
+  *Run 2026-11-05* (lab report),
   through `YOLO_SETUP=seatbelt-self` and no config edit: **passes**. Claude answered on both
   `~/code/alpha` launches with no `/login`, and `~/code/beta` ran at the same time. The pip line
   passed with Homebrew's pip, because the sandbox has no working one
-  ([lab report, W2's cache line](../lab-reports/2026-11-04-host-workspace-skills-link-and-ssh.md#w2s-cache-line-mmp-d12-run-as-you-mode-shares-host-caches)).
+  (lab report, W2's cache line).
   W1's `claude -p` on the subscription also answered in both of its workspaces.
 - <a id="W-TMP1"></a>**W-TMP1 ([MMP-D29](#MMP-D29), [MMP-D36](#MMP-D36): the account mode's shared
   `/tmp` is closed, with the hatch):** at the first main commit that contains MMP-D36 (`git log -1
@@ -1336,9 +1338,9 @@ the colleague who reported the refusal):
   four outputs, the refusal text, the launch's `tmp:` line, the test results, and
   `log show --last 5m --predicate 'sender == "Sandbox"'` lines naming `/private/tmp` if any tool
   you use failed. It decides whether [MMP-D29](#MMP-D29)'s closing stands for the account mode.
-  *Run 2026-11-13 at `b1d255ded`* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#2-w-tmp1)): the closed `/tmp` holds (the four outputs as expected). The closed-`/tmp` line is in `jail-mechanics/topics/limits.md`, not `CLAUDE.md`. The `tmp:` line prints. **`yolo config unset macos_user_shared_tmp --user` is refused** (*"no scalar removal policy"*). The hatch's `touch` and the tests did not run: account-mode launches intermittently stopped with `yolo: command not found` ([§3](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#3-account-mode-provisioning-loses-yolo-from-path)).
+  *Run 2026-11-13 at `b1d255ded`* (lab report): the closed `/tmp` holds (the four outputs as expected). The closed-`/tmp` line is in `jail-mechanics/topics/limits.md`, not `CLAUDE.md`. The `tmp:` line prints. **`yolo config unset macos_user_shared_tmp --user` is refused** (*"no scalar removal policy"*). The hatch's `touch` and the tests did not run: account-mode launches intermittently stopped with `yolo: command not found` (section 3).
 - <a id="W-PATH1"></a>**W-PATH1 (account-mode provisioning finds no `yolo`,
-  [lab report §3](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#3-account-mode-provisioning-loses-yolo-from-path)):**
+  lab report section 3):**
   at the first main commit that contains `StageYoloMissingStatus` (`git log -1 --format=%h -S
   StageYoloMissingStatus -- internal/provision/provision.go`) or later, run through the dev bundle
   (`just build-dev-bundle`), as the lab report's launches were. Setup: a fresh workspace `/Users/Shared/yolo/path1` whose config sets
