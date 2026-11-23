@@ -2,7 +2,7 @@
 title: "Mac run at fe37424b3: Darwin trace publication passes; 11-13's config-edit and stores items are fixed; test-fast fails 18 tests, 16 from a `yolo host` caller's env; an mcpauth test fails under -count"
 date: 2026-11-23
 tags: [lab-report, macos, testing, perf, config-edit, mcp-auth]
-summary: "At main fe37424b3, on the owner's Mac with the installed yolo at the same commit: the Darwin RENAME_EXCL trace publication passes natively; `yolo config unset` of macos_user_shared_tmp and of env.secrets now leaves a clean file; TestMacosUserStoresListsTheSandboxAccount passes. New: the config-edit diff prints a +/- marker on only the first line of a multi-line hunk, and `yolo config unset env.set.X` refuses and says to hand-edit. `just test-fast` fails 18 tests: 16 are deterministic when the caller's env carries a `yolo host` session's YOLO_* variables, TestOutcomeTwoBrokersAdoptOneSingleUseToken fails 39 of 40 repetitions under -count=20 but passed in the second full run, and 2 are load flakes. `just done`'s full gate adds a callbroker failure, a matched-bundle Exec format error and a pre-existing vantage link error. The account-mode provisioning re-check did not run."
+summary: "At main fe37424b3, on the owner's Mac with the installed yolo at the same commit: the Darwin RENAME_EXCL trace publication passes natively; `yolo config unset` of macos_user_shared_tmp and of env.secrets now leaves a clean file; TestMacosUserStoresListsTheSandboxAccount passes. New: the config-edit diff prints a +/- marker on only the first line of a multi-line hunk, and `yolo config unset env.set.X` refuses and says to hand-edit. `just test-fast` fails 18 tests: 16 are deterministic when the caller's env carries a `yolo host` session's YOLO_* variables, TestOutcomeTwoBrokersAdoptOneSingleUseToken fails 39 of 40 repetitions under -count=20 but passed in the second full run, and 2 are load flakes. `just done`'s full gate adds a callbroker failure, a matched-bundle Exec format error and a pre-existing vantage link error. Round two: the callbroker failure is a load flake, the matched-bundle error is a darwin-only test-fixture defect with a one-line fix, W-PH1, W-PH5 and W-PH4's dry run still pass, and W-GB1 is blocked on a stopped podman machine. The account-mode provisioning re-check did not run."
 ---
 
 # Mac run at `fe37424b3`
@@ -157,18 +157,64 @@ and both load flakes passed. It also showed three things the first run did not:
 
 - `TestSelectedHTTPWriteRevokedReadOrChangedNativeParentCannotSpend/pack_deselected`
   (`internal/callbroker`, `http_host_test.go:1284`): `rc=64` and *"HTTP broker refused: This is a
-  bug in the selected pack's HTTP classifier"*. It was not rerun, so whether it is env, load or
-  real is unknown.
+  bug in the selected pack's HTTP classifier"*. Rerun alone in [§7](#7-round-two), it is a load
+  flake.
 - `scripts/matched-bundle.py` (`_run_fresh_executable`, line 297) raised
-  `OSError: [Errno 8] Exec format error` running a staged `bundle/bin/yolo`. This looks like a
-  non-darwin binary executed on darwin. Not investigated.
+  `OSError: [Errno 8] Exec format error` running a staged `bundle/bin/yolo`. It is a darwin-only
+  fixture defect, see [§7](#7-round-two).
 - `lint-ci` failed on one vantage error, which this report did not cause:
   `docs/research/toml-scoped-pack-imports.md:69` links `#L695-L738` of
   `internal/hostskills/deliver.go`, which has 719 lines. The new report raised no finding.
 
+### 7. Round two
+
+The owner asked for a second pass. Everything still ran against `fe37424b3`.
+
+**The callbroker failure is a load flake.**
+`go test -short -count=3 -run '^TestSelectedHTTPWriteRevokedReadOrChangedNativeParentCannotSpend$' ./internal/callbroker`
+passed 3 of 3 with the session's env and 3 of 3 without it.
+
+**The matched-bundle failure is a darwin-only fixture defect, and it fails every time.**
+`python3 -I scripts/test_matched_bundle.py SnapshotTests.test_copied_build_scripts_run_from_frozen_tree_after_live_edit`
+fails alone.
+
+- The fake stage script in that test (`scripts/test_matched_bundle.py`) writes the fake launcher
+  script only to `bin/linux-<arch>/yolo`.
+- `_fake_helper_dirs` (line 58) writes the bytes `helper` to every name in `bin/darwin-<arch>/` on
+  a darwin host, and that list includes `yolo`.
+- Since `0dc56882e` ("ship the darwin host yolo in every bundle"), the launcher on darwin is the
+  darwin directory's `yolo`, so `validate_pair` runs `helper` and gets ENOEXEC.
+
+As a check only, writing the launcher to `bin/{goos}-{goarch}/yolo` instead (one line; on Linux
+`goos` is `linux`, so nothing changes there) makes the test pass and the whole file report `OK`.
+Reverted, the file fails again. The change was reverted and is not committed, so it is left for
+the agent that owns this.
+
+**The pinned-host-helper witnesses still pass on the current install**
+([pinned-host-helpers.md](../reference/pinned-host-helpers.md#mac-witnesses); they last passed on
+11-10 at `5a69dd0b4`):
+
+- [W-PH1](../reference/pinned-host-helpers.md#w-ph1): `bin/darwin-arm64/` lists `yolo`,
+  `yolo-jaild`, `yolo-log`, `yolo-ps` and `yolo-serial`, and `cmp` against `~/.local/bin/yolo`
+  prints `same`.
+- [W-PH5](../reference/pinned-host-helpers.md#w-ph5): `TestProcessExesNamesTheRunningBinary`
+  prints `ok`.
+- [W-PH4](../reference/pinned-host-helpers.md#w-ph4), the dry-run half only:
+  `yolo run --setup seatbelt-self --dry-run` in a scratch workspace printed the plan and
+  `✓ all plan invariants hold`, and exited 0.
+
+W-PH2 and W-PH3 need a running `podman-self` jail, and W-PH4's live half needs a `seatbelt-self`
+session, so none of those ran.
+
+**[W-GB1](../reference/git-broker.md#a-mac-witness-still-to-run-w-gb1) is blocked, because the
+podman machine is stopped.** HEAD contains `287479402`, so it qualifies. But
+`podman machine list` shows `podman-machine-default` (applehv) last up 4 weeks ago, and step 1's
+`podman info` cannot connect (`dial tcp 127.0.0.1:61044: connect: connection refused`). Starting
+the owner's VM was left to the owner.
+
 ## Fixed and committed
 
-Nothing in yolo. This report is the only commit.
+Nothing in yolo. This report and its updates are the only commits.
 
 ## Open
 
@@ -183,16 +229,19 @@ Nothing in yolo. This report is the only commit.
    exception.
 5. [§5](#5-just-test-fast-on-darwin), the flakes: make `TestGitPreflightEOFWaitsForOrdinaryExitStatus`
    event-driven, and look at `Decision`'s interrupt-to-kill grace.
-6. [§6](#6-just-dones-full-gate): rerun the callbroker test alone, find what
-   `matched-bundle.py` executes on darwin, and fix the out-of-range line anchor in
-   `docs/research/toml-scoped-pack-imports.md`.
+6. [§7](#7-round-two): land the one-line darwin fix to
+   `test_copied_build_scripts_run_from_frozen_tree_after_live_edit`'s fixture. Separately, fix the
+   out-of-range line anchor in `docs/research/toml-scoped-pack-imports.md`
+   ([§6](#6-just-dones-full-gate)).
 7. [§4](#4-account-mode-provisioning-not-re-checked): 11-13 item 1 still needs a run, by the owner
    or with the owner's permission.
+8. [§7](#7-round-two): W-GB1 steps 1 to 4, W-PH2, W-PH3 and W-PH4's live half need the podman
+   machine started and a live launch.
 
 ## Evidence
 
 In `/Users/Shared/yolo/evidence/2026-11-23/`: `perf-tracestore.log`, `config-unset.log`,
 `secrets-unset-raw.log`, `public-env-diff.log`, `public-env-unset.log`, `su14-test.log`,
 `test-fast.log`, `failed-by-pkg.txt`, `rerun-clean-env.log`, `rerun-dirty-env.log`,
-`rerun-dirty-env-2.log`, `mcpauth-x20-dirty.log`, `mcpauth-x20-clean.log` and `just-done.log`. Everything ran
+`rerun-dirty-env-2.log`, `mcpauth-x20-dirty.log`, `mcpauth-x20-clean.log`, `just-done.log`, `callbroker-dirty.log`, `callbroker-clean.log`, `matched-bundle-patched.log`, `matched-bundle-patched-full.log`, `matched-bundle-unpatched-full.log`, `pinned-helpers.log`, `w-ph4-dryrun.log` and `w-gb1-step1.txt`. Everything ran
 against `fe37424b3`.
