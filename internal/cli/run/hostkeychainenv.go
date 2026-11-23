@@ -45,7 +45,7 @@ var ErrHostKeychainItemNotFound = errors.New("no such item")
 
 // ErrHostKeychainNoDialog is `security` exit 36, errSecInteractionNotAllowed (-25308): macOS
 // refused to let the tool show its keychain dialog to this process. It is NOT "the keychain is
-// locked": on the owner's Mac (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §14) the
+// locked": on the owner's Mac (the retired lab report 2026-11-03-mac-slice-12a-witness-w1 (git log --follow) §14) the
 // login keychain was unlocked and no dialog appeared: a shell reached over ssh (with or without
 // tmux) got rc=36 at once, and a Terminal on the Mac's own display got rc=0 after an Allow
 // dialog. A locked keychain in such a session fails the same way,
@@ -211,8 +211,8 @@ func (o *Options) noteHostKeychainOutcome(res hostKeychainOutcome) {
 			" in this sandbox starts logged out: " + cause + ". Run this launch once from a " +
 			"Terminal on the Mac itself and choose Always Allow (not Allow, which is not " +
 			"remembered) in the dialog. Then test the read from this shell with `" +
-			richtext.Escape(probe) + "`; whether Always Allow also enables later reads over SSH " +
-			"has not been measured.[/yellow]")
+			richtext.Escape(probe) + "`. Always Allow is remembered, so later reads, ssh included, " +
+			"need no dialog.[/yellow]")
 		return
 	}
 	out.print("[yellow]Could not read your host " + agent + " login from your keychain (service " +
