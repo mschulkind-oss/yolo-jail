@@ -144,12 +144,13 @@ chmod +x "$HOME/.local/bin/` + bin + `"
 		t.Fatal(err)
 	}
 
-	// The first run installs and stamps; backdating the stamp past UPDATE_INTERVAL makes the
-	// second run the update. The stamp dir is read off the launcher, which bakes it.
+	// The check is once per jail start (docs/design/launcher-update-per-jail-start.md): the first
+	// run installs, and removing the check marker it may have claimed makes the second run, the
+	// same start's first CHECK, the update. The boot's jail-start record is left alone, since a
+	// launcher that finds none checks nothing.
 	r := macosUserRunProbe(t, "update-bound", ws, strings.Join([]string{
 		bin,
-		`eval "$(grep '^STAMP_DIR=' "$HOME/.yolo/bin/launch/` + bin + `")"`,
-		`touch -t 200001010000 "$STAMP_DIR/` + bin + `.stamp"`,
+		`rm -f "$HOME/.local/state/yolo/launch-checks/` + bin + `".*`,
 		`echo "=== SECOND ==="`, bin + ` 2>&1`,
 		`echo "=== HOW ==="`, `cat "$HOME/.local/update-run"`,
 		`echo "=== END ==="`,

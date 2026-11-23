@@ -63,7 +63,7 @@ var macosUserRunnerPlatforms = map[string]struct{ goos, goarch string }{
 }
 
 // TestMacosUserPackInstallsVersionsAndConfigures installs each shipped agent pack's program from
-// its vendor in a macos-user sandbox, then checks the version probe, the install stamp, the
+// its vendor in a macos-user sandbox, then checks the version probe, the installed program, the
 // rendered config marker and the declared project skills dirs (packInstallProbe).
 //
 // Each subtest is behind macosUserPackInstallGates, which TestMacosUserPackInstallsSkipInTheBackendJob

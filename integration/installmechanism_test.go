@@ -268,12 +268,13 @@ chmod +x "$HOME/.local/bin/` + bin + `"
 	dir := writeProject(t, `{}`)
 	packHome(t, `{"packs": [{"source": "file://`+pack+`", "name": "`+packName+`"}]}`)
 
-	// The first run installs (and stamps); backdating the stamp past UPDATE_INTERVAL makes the
-	// second run the update.
-	stamp := `"$HOME/.cache/yolo-agent-stamps/` + bin + `.stamp"`
+	// The check is once per jail start (docs/design/launcher-update-per-jail-start.md): the first
+	// run installs, and removing the check marker it may have claimed makes the second run, the
+	// same start's first CHECK, the update. The boot's jail-start record is left alone, since a
+	// launcher that finds none checks nothing.
 	script := strings.Join([]string{
 		bin,
-		`touch -d '2 hours ago' ` + stamp,
+		`rm -f "$HOME/.local/state/yolo/launch-checks/` + bin + `".*`,
 		`echo "=== UPDATE ==="`,
 		bin,
 		`echo "=== HOW ==="`,

@@ -78,17 +78,16 @@ func TestPackInstallProbePreparedCaptureEvidence(t *testing.T) {
 		vector         string
 		marker         string
 		spec           string
-		stamp          bool
 		payload        bool
 		wantDiagnostic string
 	}{
-		{name: "prepared exact identity without legacy stamp", vector: string(vector), marker: identity,
+		{name: "prepared exact identity without a legacy stamp", vector: string(vector), marker: identity,
 			spec: wantSpec, payload: true},
 		{name: "prepared marker mismatch", vector: string(vector), marker: strings.Repeat("b", 64),
 			spec: wantSpec, payload: true, wantDiagnostic: "prepared capture marker differs from launch identity"},
 		{name: "prepared payload missing", vector: string(vector), marker: identity,
 			spec: wantSpec, wantDiagnostic: "version command failed"},
-		{name: "legacy installer stamp", stamp: true},
+		{name: "legacy installer leaves the program on PATH"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -106,11 +105,6 @@ func TestPackInstallProbePreparedCaptureEvidence(t *testing.T) {
 					t.Fatal(err)
 				}
 				if err := os.WriteFile(filepath.Join(stampDir, bin+".spec"), []byte(tt.spec), 0o600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if tt.stamp {
-				if err := os.WriteFile(filepath.Join(stampDir, bin+".stamp"), nil, 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
