@@ -12,7 +12,7 @@ summary: "The measures the Claude credential view owes before the interception c
 
 **Status:** A procedure. Its Mac half ran on 2026-10-24 and 2026-10-25, through
 [the Mac session runbook](mac-claude-login-session.md#results) and recorded in
-[its lab report](../../lab-reports/2026-10-25-mac-claude-login-session.md) (`6dbce2e7f`): M11
+[its notes](mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section) (`6dbce2e7f`): M11
 passed in account mode (in self mode only with two workarounds), H1 to H3 and H5 passed at
 `yolo host` on a Mac, and H4, C1 and C2 failed there. No run of Parts A to C on Linux or of the
 day on a rootless host is recorded, and this doc's [Results](#results) table is still empty. It is what

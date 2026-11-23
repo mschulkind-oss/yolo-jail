@@ -10,7 +10,7 @@ summary: "Source-verified Mac Claude caller paths at private candidate 5925402: 
 
 **Status:** Source-verified on 2026-10-27 against private candidate `592540281f8bf4ff1f928e931cca2f5e8bc61d37` (tree `e38ff428719b6d821cdd056bfce0f945e98ef005`). The source change is test-only. This is Linux caller evidence with a Darwin launch predicate; it is not a native macOS certificate or item-acceptance verdict.
 
-This report connects the Mac observations in [the 2026-10-25 Claude login lab report](../lab-reports/2026-10-25-mac-claude-login-session.md) to the current production callers, permanent regressions, and exact scoped test receipts. It distinguishes the earlier CEA validation of the existing source from the new generated-shim caller tests. The source commit `5925402` is unchanged by this report; the follow-on commit contains documentation only.
+This report connects the Mac observations in [the 2026-10-25 Claude login session](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section) to the current production callers, permanent regressions, and exact scoped test receipts. It distinguishes the earlier CEA validation of the existing source from the new generated-shim caller tests. The source commit `5925402` is unchanged by this report; the follow-on commit contains documentation only.
 
 ## Observed requirements
 
@@ -64,7 +64,7 @@ Both new tests skip on Darwin before executing security operations. The producti
 
 `oauthbroker.BackgroundRefreshTick` reaches view maintenance under refresh ownership. `viewWasLoggedOut` classifies only a previously written view whose native Darwin file has since disappeared, or a surviving file with OAuth state removed. The view publication path rechecks logout under the storage update lock before rewriting, so a subsequent refresh does not resurrect the deleted native view. Never-written, malformed, unsafe, vendor, and retired-directory cases remain distinct controls.
 
-The current-source caller regressions are in `internal/oauthbroker/views_test.go`: `TestAViewCarryingARefreshTokenIsAdoptedRedeemedOnceAndStripped`, `TestAHostViewIsRegisteredRefreshedAdoptedAndSignedOutLikeAWorkspaces`, and adjacent deleted-view tests exercise `BackgroundRefreshTick`, `ForceRefresh`, registration, canonical adoption, stripped publication, and explicit re-registration. The Mac observation and its limit remain in the [lab report](../lab-reports/2026-10-25-mac-claude-login-session.md); the Linux fixture does not certify native `/logout` behavior.
+The current-source caller regressions are in `internal/oauthbroker/views_test.go`: `TestAViewCarryingARefreshTokenIsAdoptedRedeemedOnceAndStripped`, `TestAHostViewIsRegisteredRefreshedAdoptedAndSignedOutLikeAWorkspaces`, and adjacent deleted-view tests exercise `BackgroundRefreshTick`, `ForceRefresh`, registration, canonical adoption, stripped publication, and explicit re-registration. The Mac observation and its limit remain in the [Mac session record](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section); the Linux fixture does not certify native `/logout` behavior.
 
 ## Earlier CEA validation of unchanged source
 
@@ -121,7 +121,7 @@ The independent focused HIGH review of candidate `5925402` returned **OK, no blo
 
 ## Limits
 
-- The measured Mac behavior is from the [2026-10-25 lab report](../lab-reports/2026-10-25-mac-claude-login-session.md). It is not a fresh Mac run.
+- The measured Mac behavior is from the [2026-10-25 Mac session record](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section). It is not a fresh Mac run.
 - New generated-shim tests run on Linux with the Darwin launch predicate. They skip Darwin before executing because the production forwarding path is the fixed `/usr/bin/security`; no test reaches a real Keychain.
 - No real Claude, login/logout UI, account, credential, Keychain, or external token endpoint was used in the new tests. The fake broker endpoint returns synthetic values and counts one redemption.
 - Native account/self/host Keychain semantics, Apple Container behavior, real vendor lifetime, and macOS `/logout` remain unverified by this work.

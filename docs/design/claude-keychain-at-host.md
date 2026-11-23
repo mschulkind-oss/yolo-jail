@@ -15,7 +15,7 @@ vantage:
 
 **Status:** 2026-11-12. Nothing built. Claude's storage code read from the Claude Code 2.1.323
 bundle installed in this jail (its JavaScript is the same on every platform; [KE3](#KE3)); the
-Keychain item's facts come from the [2026-10-25 Mac lab report](../lab-reports/2026-10-25-mac-claude-login-session.md)
+Keychain item's facts come from the [2026-10-25 Mac session](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section)
 and the sources in [Appendix A](#appendix-a--evidence). No Claude was run and no Keychain was
 touched for this design.
 
@@ -406,5 +406,5 @@ shorter. **Report:** both lines and the read-back counts. **Decides:** the stdin
 | <a id="KE1"></a>KE1 | SOURCED | Service and account naming | Claude Code 2.1.323 bundle, `var hzr="-credentials"` at byte 300148478: `GOe` and `SY` |
 | <a id="KE2"></a>KE2 | SOURCED | One store object; the lock wrapper around every write, skipped only for a diskless launch (confirmed on Linux; the Mac's minified names differ, so the Mac's [W-KH2](#w-kh2) step 2 confirms its own); the 30 s read cache | 2.1.323 bundle at byte 300186544 (`fgn`, `Re`), and `var TTa=30000` before it; the diskless check in 2.1.325, read in [W-KH2](#w-kh2)'s Linux half |
 | <a id="KE3"></a>KE3 | INFERRED | The bundle's storage JavaScript is the same on macOS | The macOS branches (`security`, `O()==="macos"`) are present in the Linux build; [W-KH2](#w-kh2) checks the darwin binary |
-| <a id="KE4"></a>KE4 | SOURCED, MEASURED | `security -i` with hex on stdin up to 4032 bytes, the argv beyond | [keychain-from-a-jail E10](keychain-from-a-jail.md#E10); [lab report, defect 3](../lab-reports/2026-10-25-mac-claude-login-session.md#3-a-sandbox-login-cannot-save-in-account-mode-with-the-view-on-or-off-c1) |
+| <a id="KE4"></a>KE4 | SOURCED, MEASURED | `security -i` with hex on stdin up to 4032 bytes, the argv beyond | [keychain-from-a-jail E10](keychain-from-a-jail.md#E10); [Mac session, C1](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section) |
 | <a id="KE5"></a>KE5 | SOURCED | The item's access list holds only `/usr/bin/security` | [`macos-keychain-exposure-by-program.md`](../research/macos-keychain-exposure-by-program.md#table) |

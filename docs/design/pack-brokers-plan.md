@@ -124,7 +124,7 @@ Run by the owner's Mac agent on main; what they find is fixed forward.
   file or directory"*. The cause is the test's: it runs `yolo check` with `XDG_CONFIG_HOME` moved to
   a temporary directory (`integration/circleci_broker_test.go`), and podman on macOS finds its
   machine through `podman-connections.json` under that directory, so it falls back to a local
-  socket that does not exist ([report](../lab-reports/2026-11-07-mac-session-homes-and-nightly-42372802408.md#3-nightly-42372802408)).
+  socket that does not exist (measured on the owner's Mac 2026-11-07; the test keeps podman's config in its `XDG_CONFIG_HOME` since `59e3ae831`).
   1. On the Mac, outside any jail, with the podman machine running:
      `YOLO_SETUP=podman-self go test -count=1 -timeout 0 -run '^TestCircleCIFakeHostCLIUsesRealClassifier$' ./integration`.
      Expected: `ok`.

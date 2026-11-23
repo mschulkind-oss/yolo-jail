@@ -12,7 +12,7 @@ import (
 )
 
 // selfmode_accountname_test.go pins the two run-as-you defects of
-// docs/lab-reports/2026-10-24-mac-verification-after-gitbroker.md sections 1b and 1c, on Linux:
+// the 2026-10-24 Mac session's sections 1b and 1c (docs/design/macos-user-model-plan.md, MMP-D22 and MMP-D23), on Linux:
 // a run-as-you capture's bootstrap is told your real home and may stat it (MMP-D22), and a
 // diagnostic that mentions the second account never makes a plan unviable (MMP-D23).
 

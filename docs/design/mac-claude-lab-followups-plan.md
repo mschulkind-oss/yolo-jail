@@ -67,6 +67,8 @@ The temp writer's broader scoped race command also failed at this same macos-use
 
 ## Focused native confirmation after parent publication
 
+**Built on main (checked 2026-11-23):** temp `60549a751`, security `173b67c77` and `61d860711`, logout `b2f28da6b`. **Run these steps at main `61d860711` or later**; none has had a native run yet (the 2026-10-27 Mac session ran before these landed).
+
 1. Use the parent's published candidate and a disposable valid workspace under `/Users/Shared/yolo`, selected Claude only; do not repeat the full backend suite. Record launcher/Claude versions. After any user-scope mode or config edit, run `yolo check --no-build` before relaunching.
 2. In self mode verify direct Claude startup and selected Claude invoked from plain `yolo --bash`, without manual temp/store overrides; record that scratch uses the same session TMPDIR, not the host `/tmp/claude-<uid>`. Bash and an unrelated program must not receive Claude's follower.
 3. Human `/login` in account mode: confirm prompt completion, broker enrollment and a refresh-token-free view. Do not inspect or alter other Keychains.
