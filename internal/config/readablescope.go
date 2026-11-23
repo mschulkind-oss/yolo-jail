@@ -119,6 +119,9 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 	}
 	for i := range check.Sources {
 		source := &check.Sources[i]
+		if i >= len(projection.Sources) || projection.Sources[i].Source != source.Source {
+			continue // the projection pairs with the check by identity, never by position alone
+		}
 		pending := projection.Sources[i]
 		if !pending.NativeDeclaration || !pending.concrete() || brokerscope.HoldsRead(source.Grants) {
 			continue

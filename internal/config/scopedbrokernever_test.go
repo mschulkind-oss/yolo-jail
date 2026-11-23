@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
 // neverGrantKinds resolves user and project config the way a launch does and
@@ -164,5 +166,45 @@ func TestCallBrokerLegacyRecordDoesNotGainMarkerUnlisted(t *testing.T) {
 	}
 	if PolicyModelApproved(workspace, "local-tasks") {
 		t.Fatalf("marker written without listing the held writes; ScopeBlock=%q", prompt.report.ScopeBlock)
+	}
+}
+
+// Call-site pin: RecordApproval (--accept-config-changes and a host `yolo check`) publishes the
+// policy-model marker for the writes it approves, as the interactive y does. Deleting
+// publishPolicyApproval from recordApproval fails this (review M3).
+func TestRecordApprovalPublishesThePolicyModelMarker(t *testing.T) {
+	h := newBrokeredHost(t)
+	write(t, filepath.Join(h.ws, ".git", "config"), "[remote \"origin\"]\n url = git@github.com:o/r.git\n")
+	if err := os.Remove(h.userCfg); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(filepath.Dir(h.userCfg), "config.toml"), "[allow.git]\non_request = [\"push\"]\n")
+	write(t, filepath.Join(h.ws, "yolo-jail.toml"), "[requests.git]\npush = [\"main\"]\n")
+	read, err := ReadWorkspaceForGate(h.ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RecordApproval(h.ws, read.Config, nil); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := scopeRecordJSON(scopeRecord{"git": {"git@github.com:o/r.git"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy += "\n"
+	write(t, ApprovalScopePath(h.ws), legacy)
+	metadata := loopholedecl.Brokered{Source: "git", RemoteHost: "*", Grants: []string{"branch"}, ReadCapability: "fetch", KindCapabilities: map[string]string{"branch": "push"}}
+	declaration := readableBrokerDeclaration("git-pack", "git-broker", metadata, nil)
+	broker := ScopeBroker{Source: "git", Label: "git-broker", Pack: "git-pack", RemoteHost: "*", GrantKinds: metadata.Grants, Brokered: metadata, Readable: &declaration}
+	check := NewScopeCheck(h.ws, []ScopeBroker{broker}, read)
+	if PolicyModelApproved(h.ws, "git") {
+		t.Fatal("setup: marker already present")
+	}
+	if err := RecordApproval(h.ws, read.Config, check); err != nil {
+		t.Fatal(err)
+	}
+	if !PolicyModelApproved(h.ws, "git") || len(ApprovedGrants(h.ws, "git")) != 1 {
+		record, _, _, _ := readScopeRecords(h.ws)
+		t.Fatalf("approval recorded without the policy-model marker: %+v", record)
 	}
 }

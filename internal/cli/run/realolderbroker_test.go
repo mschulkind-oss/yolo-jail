@@ -285,6 +285,9 @@ func (f *realOlderBrokerFixture) apply(t *testing.T) (int, string) {
 }
 
 func TestSnapshotApplyRealOldBroker(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds an older broker tree and two yolo binaries; the fast pins are in liveapplypins_test.go")
+	}
 	binary, classifier := buildRealOlderBroker(t)
 	current := filepath.Join(t.TempDir(), "yolo-current")
 	build := exec.Command("go", "build", "-mod=vendor", "-o", current, "../../../cmd/yolo")
