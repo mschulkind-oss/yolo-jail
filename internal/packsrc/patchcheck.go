@@ -294,13 +294,6 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 	return res
 }
 
-// isCheckoutLocator reports a patch branch given as a local checkout: a relative locator, a git+file:// one, or a
-// URL a registered local clone's remote names (localclones.go).
-func isCheckoutLocator(w PatchedWant, clone cloneChoice) bool {
-	c, err := ParseFrom(w.PatchBranch, w.PatchBranchDir)
-	return err == nil && (strings.HasPrefix(c.Repo, "file://") || clone.match != nil)
-}
-
 // launchCheckDue reports whether a launch's check of w is due and why. A git source is due at EVERY fresh launch
 // (LPC-D6: the probe is the throttle, and only a moved upstream fetches); what stays is a SETTLED record, whose
 // fixed ref never moves (Settled). An npm source is due at every launch too: its registry read is as cheap as a probe.

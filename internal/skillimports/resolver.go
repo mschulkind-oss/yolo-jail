@@ -88,9 +88,6 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 	if fetch == nil {
 		return Resolution{}, "", errors.New("git broker fetcher is required")
 	}
-	if now.IsZero() {
-		now = time.Now()
-	}
 	access, allowed, err := gitbroker.DecideImportAccess(entry.Git, authority.ApprovedRemotes,
 		authority.CurrentRemotes, authority.ApprovedGrants, authority.CurrentGrants)
 	if err != nil {
