@@ -8,13 +8,13 @@ description: "Change applied host environment settings."
 
 ## Apply a host configuration change
 
-1. Edit the user configuration at `/home/test/.config/yolo-jail/config.jsonc`. Use `yolo config-ref` for accepted keys and their scope.
+1. Change the user TOML at `/home/test/.config/yolo-jail/config.jsonc`, or, when that file is generated from a source of the user's config (a dotfiles repository, say), edit that source, not the installed host config; if the source is absent, ask the human. Use `yolo config-ref` for accepted keys and their scope.
 2. Run `yolo check` from `/home/test/project` and resolve every reported failure.
 3. Run `yolo host apply` from `/home/test/project`. Its output is the record of what changed.
 
 ## Select skills in user TOML
 
-Use `yolo pack add local/corpus --skills-dir skills/core-tools --only skill-a --dry-run` to inspect a raw selection, then omit `--dry-run` to write it. Omit `--skills-dir` for typed candidate names. `--subdir` alone imports a whole pack. `yolo pack explain local/corpus` reports every tuple without fetching or writing; unavailable data is unverified. Scoped entries activate no non-skill capabilities. Do not convert legacy file filters to name selectors by guesswork. Indexed config edits or exact roots disambiguate removal; these are user choices across workspaces, not workspace pack authority.
+Direct scoped pack selection is user-only. Use `yolo pack add local/corpus --skills-dir skills/core-tools --only skill-a --dry-run` to inspect a raw selection, then omit `--dry-run` to write the entry `{ pack = "local/corpus", skills = { dir = "skills/core-tools", only = ["skill-a"] } }`. Omit `--skills-dir` for typed candidate names. `--subdir` alone imports a whole pack. `yolo pack explain local/corpus` reports every tuple without fetching or writing; unavailable data is unverified. Scoped entries activate no non-skill capabilities. Do not convert legacy file filters to name selectors by guesswork. Indexed config edits or exact roots disambiguate removal; these are user choices across workspaces, not this project's config or workspace pack authority.
 
 ===== diagnosing-the-jail/SKILL.md =====
 ---

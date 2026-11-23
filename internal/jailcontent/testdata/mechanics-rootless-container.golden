@@ -232,15 +232,21 @@ reading first saves a slow, human-gated round-trip.
 
 **Direct scoped pack selection is user-only.** Ask the human to run
 `yolo pack add local/corpus --skills-dir skills/core-tools --only skill-a --dry-run`
-on the host, then omit `--dry-run` to write the user TOML entry. It applies across
-workspaces, not through this project's config. Omit `--skills-dir` for typed
-candidate-name selectors; `--subdir` alone still imports a whole pack. Scoped
-entries activate no programs, hooks, briefing, native plugins or host capabilities.
-`yolo pack explain local/corpus` inspects all matching tuples without fetching or
-writing; unavailable content is explicitly unverified. Scoped Check is pure, but
-whole-pack readiness keeps its ordinary staging. Ambiguous `yolo pack remove`
-names indexed edits or `--subdir`/`--skills-dir` to choose one tuple. Do not rewrite
-legacy file filters as name selectors by guesswork, or substitute workspace
+on the host to inspect a raw selection, then omit `--dry-run` to write the user TOML
+entry:
+`{ pack = "local/corpus", skills = { dir = "skills/core-tools", only = ["skill-a"] } }`
+The entry applies across workspaces, not through this project's config. If the
+user's config is generated from a dotfiles repository or similar, the human should
+edit that source of the user's config, not the installed host config. If the
+source is absent, ask the human where the user's config lives. Omit `--skills-dir` for
+typed candidate-name selectors; `--subdir` alone still imports a whole pack.
+Scoped entries activate no programs, hooks, briefing, native plugins or host
+capabilities. `yolo pack explain local/corpus` inspects all matching tuples without
+fetching or writing; unavailable content is explicitly unverified. Scoped Check is
+pure, but whole-pack readiness keeps its ordinary staging. Ambiguous
+`yolo pack remove` names indexed edits or `--subdir`/`--skills-dir` to choose one
+tuple. Do not rewrite legacy file filters as name selectors by guesswork, or
+substitute workspace
 `skill_imports`, which has its own approved Git authority.
 
 ===== diagnosing-the-jail/SKILL.md =====
