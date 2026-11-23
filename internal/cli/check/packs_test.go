@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 func packsFixture(t *testing.T, cfgBody string) {
@@ -335,6 +336,26 @@ func TestSectionPacksWarnsOnZeroStagedFiles(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "stages 0 files") {
 		t.Errorf("expected a 0-files warning:\n%s", buf.String())
+	}
+}
+
+// The conventional local pack is implicit: it has no `packs` entry and so no `only`/`exclude`
+// filters. An empty one says to put content in it or remove it, and never points at filters the
+// user cannot have written (the 2026-10-30 Mac run).
+func TestSectionPacksEmptyLocalPackDoesNotBlameFilters(t *testing.T) {
+	packsFixture(t, `{}`)
+	if err := os.MkdirAll(paths.LocalPackDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	r := &reporter{w: &buf}
+	(&Options{}).sectionPacks(r, jsonx.NewOrderedMap())
+	if !strings.Contains(buf.String(), "local: stages 0 files") {
+		t.Fatalf("fixture does not exercise the empty local pack:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "filters") {
+		t.Errorf("the local pack has no filters, yet the warning names them:\n%s", buf.String())
 	}
 }
 

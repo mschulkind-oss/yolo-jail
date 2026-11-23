@@ -2135,6 +2135,10 @@ type AllowPackFacts struct {
 	Needed       []string
 	Names        map[string]string
 	LoginProfile map[string]string
+	// LoginLoophole maps a login pack to the loophole that serves its credential, whose legacy
+	// `loopholes.<loophole>.settings.<LoginProfile>` names the profile too and is honored at
+	// launch, so it satisfies the login nudge.
+	LoginLoophole map[string]string
 }
 
 // AllowPackNudges compares user-scope `allow.<name>` tables with the pack list. The location of
@@ -2190,6 +2194,10 @@ func AllowPackNudges(user *jsonx.OrderedMap, userSrc *Sources, facts AllowPackFa
 			continue
 		}
 		setting := facts.LoginProfile[pack]
+		if loophole := facts.LoginLoophole[pack]; loophole != "" &&
+			packload.LoopholeSettingIn(user)(loophole, setting) != "" {
+			continue
+		}
 		if table, ok := asMap(readableValue(allow, pack)); ok {
 			if profile, _ := table.Get(setting); profile != nil && profile != "" {
 				continue
@@ -2265,7 +2273,8 @@ func allowEditDistance(a, b string) int {
 // `region_profile_setting` is a login pack keyed by that setting. A listed pack that is not
 // shipped is still known by its own name.
 func EmbeddedAllowPackFacts(listed []string) AllowPackFacts {
-	facts := AllowPackFacts{Listed: listed, Names: map[string]string{}, LoginProfile: map[string]string{}}
+	facts := AllowPackFacts{Listed: listed, Names: map[string]string{}, LoginProfile: map[string]string{},
+		LoginLoophole: map[string]string{}}
 	shipped := packload.Embedded()
 	for _, pack := range shipped {
 		if pack == nil || pack.Name == "" {
@@ -2278,6 +2287,7 @@ func EmbeddedAllowPackFacts(listed []string) AllowPackFacts {
 		for _, gated := range pack.Decl.GatedEnvContributions() {
 			if gated.RegionProfileSetting != "" {
 				facts.LoginProfile[pack.Name] = gated.RegionProfileSetting
+				facts.LoginLoophole[pack.Name] = gated.ServedBy
 			}
 		}
 	}

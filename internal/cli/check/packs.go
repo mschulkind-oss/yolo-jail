@@ -307,6 +307,13 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 			case len(res.Staged.Staged) == 0:
 				// Not a hard failure — a pack may legitimately be empty mid-authoring —
 				// but never silent, because it is nearly always a filter typo.
+				if e.Implicit {
+					// The conventional local pack has no `packs` entry, so no filters to fix.
+					r.warn(e.Name+": stages 0 files",
+						"Its folder, "+paths.LocalPackDir()+", is empty. Put the files you want "+
+							"delivered in it, or delete the folder, "+recheck)
+					return nil, nil
+				}
 				r.warn(e.Name+": stages 0 files",
 					"Its `only`/`exclude` filters match none of its files. Fix them in its `packs` entry in "+
 						paths.UserConfigDisplayPath()+" (`yolo pack --help` shows the filters), "+recheck)

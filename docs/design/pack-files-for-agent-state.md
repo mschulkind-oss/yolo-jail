@@ -32,7 +32,7 @@ quoted as the code prints it.
 
 > **In short.** A `files` contribution that names a path inside a folder another pack declares as
 > `[[state]]` is addressing an agent by a path it does not own, and every defect in the
-> 2026-10-30 lab report follows from that one shape. yolo already has the right spelling —
+> 2026-10-30 Mac run follows from that one shape. yolo already has the right spelling —
 > `files` addressed to an agent, landing in a slot the agent's pack declares — and the agy pack
 > is the one agent pack with no such slot. The rest of this design is what yolo owes the shape it
 > cannot forbid: say it before it costs anything, refuse naming only what is in the way, and stop
@@ -61,9 +61,7 @@ loses its refusal entirely, so a misspelled agent name is skipped like an unsele
 **Needs your ruling:** [OQ-FS1](#OQ-FS1), [OQ-FS2](#OQ-FS2), [OQ-FS3](#OQ-FS3),
 [OQ-FS4](#OQ-FS4), [OQ-FS5](#OQ-FS5). [OQ-FS6](#OQ-FS6) is ruled.
 
-**Reads with:** the [lab report](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md)
-(the evidence: [its §2](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#2-dangling-layout-links-from-integration-runs)
-and [§3](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#3-a-files-delivery-into-another-packs-state-folder)), [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)
+**Reads with:** the [2026-10-30 Mac run](#appendix-the-2026-10-30-mac-run) (the evidence, kept below), [`macos-user-home-tiers.md`](../reference/macos-user-home-tiers.md)
 (the layout, the overlay, and the no-migration ruling this design narrows),
 [`pack-system.md`](../reference/pack-system.md#files) (the `files` kind and its slot mechanism),
 [`slots-and-contributions.md`](slots-and-contributions.md) (the slot shape this extends),
@@ -143,7 +141,7 @@ selection ([`seal.go`](../../internal/cli/run/seal.go)).
 | macos-user, `macos_user_mode = "self"` (built, opt-in) | the same overlay; `HOME` is `<workspace>/.yolo/home` itself ([MMP-D5](macos-user-model-plan.md#MMP-D5), `DeriveDarwinWorkspaceHome` in [`darwinhomelayout.go`](../../internal/entrypoint/darwinhomelayout.go)) | an ordinary directory in this workspace's own home, as on Apple Container |
 | `yolo host apply` | per-file write into the user's real home, refusing a path the user owns ([`hostfilestree.go`](../../internal/entrypoint/hostfilestree.go)) | a directory in the user's own home, which is what the agent reads there |
 
-Only one row makes a persistent, shared, wrong-tier directory. That row is the lab report, and it
+Only one row makes a persistent, shared, wrong-tier directory. That row is the 2026-10-30 Mac run, and it
 is the row the ruled macos-user model retires. *"Shared by both modes: a per-launch `HOME` under
 the workspace's `.yolo/home`"* ([macos-user-model.md §7](macos-user-model.md#7-the-ruled-model-two-modes-one-profile));
 its plan flips the default to `self` at slice 11, moves account mode onto the per-workspace
@@ -196,7 +194,7 @@ table (`runSteps`). The overlay install honors the same rule per destination.
 
 ## 3. The diagnosis
 
-Each finding of the lab report, and the one cause under it:
+Each finding of the [Mac run](#appendix-the-2026-10-30-mac-run), and the one cause under it:
 
 | # | Finding | Cause |
 | :--- | :--- | :--- |
@@ -431,7 +429,7 @@ covers only the packs yolo can see, and says nothing about the rest. It is no br
 reserves nothing and refuses nothing. It names an unselected pack in *advice*, as
 `config.UseProfileCLINames` already does, and the remedy it names is the pack's spelling, not the
 user's config. Its one new cost is a warning on the unmanaged-agent case above, which is the case
-the warning exists for: that user is one `macos-user` launch away from the lab report.
+the warning exists for: that user is one `macos-user` launch away from the Mac run.
 [OQ-FS2](#OQ-FS2) asks the maintainer to confirm the narrow rule over the broad one (warn on any
 undeclared dot-directory) and over an error.
 
@@ -751,7 +749,7 @@ the ledger.
 
 4. 💬 **OQ-FS4: After the home layout fails on a Mac, should the bootstrap stop, or run on and report everything?**
 
-   The lab report's refused launch kept generating agy's config into the real `~/.gemini` after
+   The Mac run's refused launch kept generating agy's config into the real `~/.gemini` after
    the layout refused. Both boots run every step so one boot reports every problem
    ([A12](../reference/jail-home.md#why-its-this-way)); on macos-user, in either mode, the layout
    is the first step that writes, and every later one writes into what it lays
@@ -843,7 +841,7 @@ Symbols rather than lines, so a move does not make this false.
   skipped there.
 - macos-user: `InstallDarwinHomeLayout` runs as the first bootstrap step; `ensureLayoutSymlink`
   repoints yolo's links and never removes a real path; `occupiedLayoutError` prints the groups;
-  `overlayLinks.route` refuses a link the layout did not lay with the text the lab report quotes;
+  `overlayLinks.route` refuses a link the layout did not lay with the text the Mac run quotes;
   `openOverlayParentIn` creates a missing parent beneath the home or the sidecar;
   `writeOverlayInstallRecord` records what was delivered.
 - Boot continues after a failed generator: `genStepAbout` warns and records; the refusal record
@@ -856,3 +854,33 @@ Symbols rather than lines, so a move does not make this false.
   running `agy`.
 - This jail: `/home/agent/.gemini` is root-owned and holds only `config/agents/design-research.md`;
   `agy` is a root-owned binary in `~/.local/bin`; no agy pack is selected.
+
+## Appendix: the 2026-10-30 Mac run
+
+The evidence this design rests on, from a native run on the maintainer's Mac (macOS 26.5, arm64) at
+`a8a96bd66`, deployed as `yolo-jail 0.15.1+889.ga8a96bd665a2`. The report that carried it was retired
+on 2026-11-23; `git log --follow` on `docs/lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md`
+recovers it.
+
+- **Dangling layout links (finding 5, [§8](#8-dangling-layout-links-from-dead-workspaces)).** A launch
+  from a fresh workspace under `/Users/Shared/yolo` stopped at `install_home_overlay` with
+  *"nothing was delivered at /Users/_yolojail/.gemini: it is a symbolic link in the account home that
+  is not one of this launch's layout links to a directory"*. The account home held three layout links
+  whose targets were deleted `yolo-it-*` integration workspaces: `.gemini` (Oct 18), `.mptreeagent`
+  (Oct 27) and `.oh-omp` (Oct 29). No test removed the link it laid. The launch blocked because
+  `matt-agentwork` delivers `files` into `.gemini/config/agents` and no selected pack owned `.gemini`.
+  `sudo rm` of the three links cleared it.
+- **The foreign-parent shape (findings 1 to 4).** After that, the passing launch left a real
+  `/Users/_yolojail/.gemini/config/agents/design-research.md`. A throwaway test selecting `agy`
+  (whose pack declares `[[state]] at = ".gemini"`) was then refused by `darwin_home_layout` with
+  *"1 path is real, where the workspace tier's symlink belongs"* and the next step
+  `sudo rm -rf /Users/_yolojail`. The refused launch still wrote `antigravity-cli/settings.json`,
+  `mcp_config.json`, `cache/onboarding.json` and the `antigravity-oauth-token` link into the real
+  folder (none of it a credential). The maintainer's config does not select `agy`, so their launches
+  were not refused.
+- **Left behind** (removing it needs sudo): `/Users/_yolojail/.gemini`; `sudo rm -rf` of that one
+  path clears it.
+- **Two `yolo check` warnings that named fixes that did not apply** were fixed 2026-11-23 and are
+  not part of this design: the aws-auth login nudge now honors the legacy
+  `loopholes.aws-auth.settings.profile`, and an empty conventional local pack no longer blames
+  `only`/`exclude` filters.

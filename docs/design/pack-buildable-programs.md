@@ -553,8 +553,8 @@ needs a build. The plan gives each an integration test.
 | :--- | :--- | :--- | :--- |
 | Nested podman jail, from a matched dev bundle | 1–6 | `packtreeprogram_test.go`, `programoverride_test.go` | No run recorded here |
 | A Linux host's `yolo host` | 1–6 on the floor | `TestHostFloorBuildsAPackTreeProgramFromItsTree` covers 1–4 and 6; step 5 has a unit test only | No run on a real host (outside a nested jail) recorded |
-| A real Mac, macos-user, account mode | 1–6 | `TestMacosUserPackTree*` | All four passed, 2026-10-23 ([lab report](../lab-reports/2026-10-23-native-mac-verification.md#2-the-macos-user-suite)) |
-| A real Mac, macos-user, run-as-you mode | 1–6 | `TestMacosUserPackTree*` | **Fails steps 1–4**: the build and override tests fail at the capture bootstrap, cause not yet found; the failure and prebuilt tests pass (same report) |
+| A real Mac, macos-user, account mode | 1–6 | `TestMacosUserPackTree*` | All four passed, 2026-10-23 (Mac suite run at `406b5599a`) |
+| A real Mac, macos-user, run-as-you mode | 1–6 | `TestMacosUserPackTree*` | **Failed steps 1–4 on 2026-10-23**: the build and override tests failed at the capture bootstrap. The cause was the capture bootstrap taking the account mode's identity check; fixed in `71df3f2af`. **Re-run on a Mac at main `71df3f2af` or later** |
 | A real Mac, Apple Container, and `yolo host` | 1–6 on each | none of their own | **Owed**: never run |
 
 > [!WARNING]

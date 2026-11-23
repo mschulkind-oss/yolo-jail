@@ -8,7 +8,7 @@ import (
 )
 
 // recordedrun_test.go pins the capture bootstrap's output reaching the act's writer, Out, which a
-// build jail's log keeps (docs/lab-reports/2026-10-23-native-mac-verification.md §2: a self-mode
+// build jail's log keeps (the 2026-10-23 Mac suite run: a self-mode
 // build's bootstrap failed on a Mac and the log held nothing of why).
 
 // isBootstrapArgv reports whether argv is a capture's bootstrap crossing.

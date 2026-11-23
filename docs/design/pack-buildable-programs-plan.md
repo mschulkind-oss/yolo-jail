@@ -14,8 +14,8 @@ three rulings of 2026-10-23 ([OQ-BG1 to OQ-BG3](pack-buildable-programs.md#decis
 Tasks 1 to 9 are built. The design's ledger names the code and tests for each decision. Task 10's
 Linux half is built: the darwin act's placement and the Mac floor have unit tests, and
 `integration/macosuserprograms_test.go` holds the Mac tests. Its native evidence is still owed. On
-a real Mac on 2026-10-23, account mode passed all four tests and run-as-you mode failed two of them
-([the lab report](../lab-reports/2026-10-23-native-mac-verification.md#2-the-macos-user-suite)).
+a real Mac on 2026-10-23, account mode passed all four tests and run-as-you mode failed two of them at the capture
+bootstrap; `71df3f2af` fixed that, and run-as-you mode awaits a Mac re-run at main `71df3f2af` or later.
 Apple Container has not run yet.
 
 **Design:** [`pack-buildable-programs.md`](pack-buildable-programs.md).

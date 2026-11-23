@@ -968,6 +968,7 @@ and its plan with it; git history keeps both.
      `--mode account --account _yolojail` on a Mac, with the profile built from those rulings. Both
      must be free of FAIL lines, and the output must be pasted into the design's
      [first Mac run](macos-user-model.md#first-mac-run-2026-10-22) section as a dated second run.
+     *Met 2026-10-23:* self mode 43 PASS and account mode 42 PASS, no FAIL, recorded in that section.
   3. On the same Mac, with `"macos_user_mode": "self"` set, `yolo -- claude` started in a fresh
      `~/code/alpha` with no admin step. Claude logged in and stayed logged in across two launches
      (design [§6](macos-user-model.md#6-what-a-prototype-must-show) items 1 and 6). Two workspaces
