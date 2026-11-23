@@ -182,3 +182,31 @@ func TestPackHelpNamesYoloPackAddAsTheWayToSelectAPack(t *testing.T) {
 		t.Error("pack --help still tells a reader to hand-edit config.jsonc to select a pack")
 	}
 }
+
+// A pack listed in a config.d fragment can be taken out by `yolo pack remove` when `packs` is set
+// in two user files (config.toml and the fragment). The Mac report of 2026-11-07 found add
+// writing the fragment while remove looked only in config.toml and wrote nothing.
+func TestPackRemoveTakesOutAPackListedInAConfigDFragment(t *testing.T) {
+	project := testconfig.Workspace(t, "")
+	user := testconfig.User(t, packAddUserTOML)
+	t.Setenv("HOME", user.Root)
+	t.Setenv("YOLO_VERSION", "")
+	fragment := filepath.Join(filepath.Dir(user.Path), "config.d", "work.toml")
+	if err := os.MkdirAll(filepath.Dir(fragment), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fragment, []byte("packs = [\"journal\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeMain, _ := os.ReadFile(user.Path)
+	rc, out, errw := runPackCapture(t, project.Root, []string{"remove", "journal"})
+	if rc != 0 {
+		t.Fatalf("remove of a pack listed in config.d/work.toml rc=%d stdout=%q stderr=%q", rc, out, errw)
+	}
+	if got, _ := os.ReadFile(fragment); strings.Contains(string(got), `"journal"`) {
+		t.Errorf("the fragment still lists journal:\n%s\nstdout=%q stderr=%q", got, out, errw)
+	}
+	if got, _ := os.ReadFile(user.Path); !bytes.Equal(got, beforeMain) {
+		t.Errorf("config.toml changed:\n%s", got)
+	}
+}
