@@ -368,5 +368,8 @@ Read at `d2a831cd8`, 2026-11-23, in the source; none run.
 - A `file://` pack follows symlinks and is `Local`; a fetched one does neither ([`packresolve.go:378`](../../internal/config/packresolve.go#L378)).
 - Not established: whether `newScratchOf` accepts a non-bare git directory for the clone's objects (it appends
   `<dir>/objects`, [`replay.go:546`](../../internal/packsrc/replay.go#L546)); whether `packstage.Stage` can take a file list or needs a
-  scratch snapshot; the exact patterns the patched fork's probe needs for each `follow` mode; whether the git broker offers `skill_imports` a moved-or-not read cheaper than its fetch. The planner checks each
+  scratch snapshot; the exact patterns the patched fork's probe needs for each `follow` mode; whether the git broker offers `skill_imports` a moved-or-not read cheaper than its fetch (slice 3b: it does not;
+  `FetchImport` lists refs internally at [`importfetch.go:190`](../../internal/gitbroker/importfetch.go#L190) via the unexported
+  `listImportRefs` ([`:303`](../../internal/gitbroker/importfetch.go#L303)) but exports no ref-only read, so the launch check is the
+  fetch, under `PackCheckDeadline`). The planner checks each
   before relying on it.

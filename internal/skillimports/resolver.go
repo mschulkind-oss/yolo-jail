@@ -101,20 +101,20 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 	}
 	current, currentOK := s.Resolution(entry.Handle, entry)
 	usable := currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
-	if usable && !refreshDue(entry, current, now) {
+	if usable && !refreshDue(entry, current) {
 		return current, "", nil
 	}
 
 	// A launch with a current usable record does not queue behind a refresh it does not own.
-	if usable && refreshDue(entry, current, now) {
+	if usable && refreshDue(entry, current) {
 		var refreshWarning string
 		locked, err := s.TryWithLock(func() error {
 			current, currentOK = s.Resolution(entry.Handle, entry)
 			usable = currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
-			if usable && !refreshDue(entry, current, now) {
+			if usable && !refreshDue(entry, current) {
 				return nil
 			}
-			fresh, fetchErr := s.fetchAndRecord(ctx, entry, authority, fetch)
+			fresh, fetchErr := s.launchCheck(ctx, entry, authority, fetch)
 			if fetchErr == nil {
 				current, usable = fresh, true
 				return nil
@@ -143,7 +143,7 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 	err = s.WithLock(func() error {
 		current, currentOK = s.Resolution(entry.Handle, entry)
 		usable = currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
-		if usable && !refreshDue(entry, current, now) {
+		if usable && !refreshDue(entry, current) {
 			return nil
 		}
 		fresh, fetchErr := s.fetchAndRecord(ctx, entry, authority, fetch)
@@ -252,7 +252,23 @@ func cacheAccessAllows(stored, current string) bool {
 	return stored == AccessAuthenticated && current == AccessAuthenticated
 }
 
-func refreshDue(entry config.SkillImport, record Resolution, now time.Time) bool {
-	return entry.Rev == "" && strings.HasPrefix(record.ResolvedRef, "refs/heads/") &&
-		now.Sub(record.ResolvedAt) >= packsrc.BranchRefreshInterval
+// refreshDue reports whether a fresh launch checks the record: every branch import is checked at
+// every fresh launch (docs/design/local-pack-clones.md LPC-D16), with no age throttle. A pinned
+// rev and a tag never move, so they never refresh. The transport is the git broker's fetch:
+// FetchImport lists refs internally (importfetch.go, listImportRefs) but offers no exported
+// moved-or-not read, so the check is one fetch under the pack-check deadline.
+func refreshDue(entry config.SkillImport, record Resolution) bool {
+	return entry.Rev == "" && strings.HasPrefix(record.ResolvedRef, "refs/heads/")
+}
+
+// launchCheck runs one brokered fetch under the launch's check deadline.
+func (s *Store) launchCheck(ctx context.Context, entry config.SkillImport, authority Authority,
+	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error)) (Resolution, error) {
+	deadline := s.refreshDeadline
+	if deadline <= 0 {
+		deadline = packsrc.PackCheckDeadline
+	}
+	ctx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	return s.fetchAndRecord(ctx, entry, authority, fetch)
 }
