@@ -49,7 +49,12 @@ func checkReadablePacksFromEmbeddedNames(raw any, definitions map[string]packsrc
 				}
 			}
 		} else {
-			ref, err := packsrc.ParsePackReference(rawEntry, definitions, readableLocalPackRoot(), paths.Home(), item, shipped)
+			rest, local, localErr := splitLocalKey(rawEntry, i)
+			if localErr != nil {
+				problems = append(problems, item+" ("+loc+"): "+localErr.Error())
+				continue
+			}
+			ref, err := packsrc.ParsePackReference(rest, definitions, readableLocalPackRoot(), paths.Home(), item, shipped)
 			if err != nil {
 				problems = append(problems, item+" ("+loc+"): "+err.Error())
 				continue
@@ -63,6 +68,7 @@ func checkReadablePacksFromEmbeddedNames(raw any, definitions map[string]packsrc
 				Namespace:       ref.Namespace, NamespaceOwner: ref.NamespaceOwner, Landing: ref.Landing,
 				KeepNamesStep: ref.KeepNamesStep, AcceptNamesStep: ref.AcceptNamesStep, BareStep: ref.BareStep,
 			}
+			entry.Local = local
 			entry.ConfigOrigin = item + " (" + loc + ")"
 			localPath = ref.LocalPath
 		}

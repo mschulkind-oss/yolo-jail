@@ -270,6 +270,9 @@ func readableTypeNextStep(path []string) string {
 		// same value.
 		return "; write `off = true` to keep the pack's loophole off, or delete the line to let it run"
 	}
+	if len(path) == 3 && path[0] == "packs" && path[2] == packLocalKey {
+		return "; write the path of your clone with `yolo config set packs[" + path[1] + "].local ~/src/<repo> --user`, or remove it with `yolo config unset packs[" + path[1] + "].local --user`"
+	}
 	return ""
 }
 

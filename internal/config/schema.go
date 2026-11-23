@@ -168,6 +168,7 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "packs.*.bare", Scope: user, Type: SchemaTypeBoolean},
 		{Path: "packs.*.namespace", Scope: user, Type: SchemaTypeString},
 		{Path: "packs.*.subdir", Scope: user, Type: SchemaTypeString},
+		{Path: "packs.*.local", Scope: user, Type: SchemaTypeString},
 		{Path: "packs.*.skills", Scope: user, Type: SchemaTypeObject},
 		{Path: "packs.*.skills.dir", Scope: user, Type: SchemaTypeString},
 		{Path: "packs.*.skills.only", Scope: user, Type: SchemaTypeList},
