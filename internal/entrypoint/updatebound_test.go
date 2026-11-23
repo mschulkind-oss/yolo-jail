@@ -112,6 +112,10 @@ func newBoundProbe(t *testing.T, o boundProbeOpts) *boundProbe {
 		inst.Kind, inst.Package = "npm", "probetool"
 		p.realBin = filepath.Join(home, ".npm-global", "bin", "probetool")
 		body = npmAgentLauncher("probe", inst, stamps, receipts, true, launcherServers{}, nil)
+		// The check is once per jail start: the boot's record makes the program's update due.
+		if err := writeJailStart(home); err != nil {
+			t.Fatal(err)
+		}
 	} else {
 		inst.Kind, inst.InstallerURL = "native", o.installerURL
 		if inst.InstallerURL == "" {
@@ -148,6 +152,9 @@ func newBoundProbe(t *testing.T, o boundProbeOpts) *boundProbe {
 	if o.refresh != nil {
 		// Only the refresh is due: the program's own stamp is fresh, and the store exists.
 		seedFreshStamp(t, stamps, "probetool")
+		if o.npm {
+			claimCheck(t, home, "probetool") // the npm launcher's own check is already claimed
+		}
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(home, o.refresh.Lock)), 0o755); err != nil {
 			t.Fatal(err)
 		}

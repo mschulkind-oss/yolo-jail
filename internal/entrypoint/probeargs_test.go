@@ -130,6 +130,10 @@ func (h *probeHarness) write(t *testing.T) {
 	var body string
 	switch h.template {
 	case "npm":
+		// The npm launcher's check is once per jail start: the boot's record makes it due.
+		if err := writeJailStart(h.home); err != nil {
+			t.Fatal(err)
+		}
 		body = npmAgentLauncher("probe", &h.inst, stamps, receipts, true, servers, nil)
 	case "native":
 		body = nativeAgentLauncher("probe", &h.inst, stamps, receipts, "", true, servers, nil)

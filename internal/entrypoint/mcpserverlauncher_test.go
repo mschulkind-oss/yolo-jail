@@ -82,7 +82,7 @@ func TestALaunchersInstallKeepsStdoutForTheProgram(t *testing.T) {
 		}
 
 		// THE HOURLY UPDATE takes the same install, and must keep the same stream.
-		p.agePastInterval(t, "probetool")
+		p.newJailStart(t)
 		stdout, stderr = splitRun(t, script, append(env, "FAKE_LATEST=9.9.9"), "--stdio")
 		if stdout != "RAN --stdio\n" {
 			t.Errorf("after an evergreen update, stdout = %q, want the program's output alone", stdout)

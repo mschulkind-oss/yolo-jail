@@ -99,7 +99,7 @@ func TestEveryBootStepRunsOrSaysWhy(t *testing.T) {
 // The container boot's order, which is Main's order before the table, step for step.
 func TestTheContainerBootRunsItsStepsInOrder(t *testing.T) {
 	want := []string{
-		"hydrate_user_env", "start_egress_probe", "configure_timezone", "scratch_permissions",
+		"hydrate_user_env", "start_egress_probe", "configure_timezone", "scratch_permissions", "write_jail_start",
 		"generate_store_packages", "configure_graphics_drivers", "export_image_ld_lib",
 		"export_podman_required_conf", "generate_ld_cache",
 		"generate_shims", "generate_agent_launchers", "generate_package_manager_launchers",
@@ -127,7 +127,7 @@ func TestTheContainerBootRunsItsStepsInOrder(t *testing.T) {
 // does in a container, now that every pointer its one line gives works here (NC-D26).
 func TestTheMacosUserBootRunsItsStepsInOrder(t *testing.T) {
 	want := []string{
-		"hydrate_session_env", "start_egress_probe", "darwin_home_layout",
+		"hydrate_session_env", "start_egress_probe", "darwin_home_layout", "write_jail_start",
 		"generate_shims", "generate_agent_launchers", "generate_package_manager_launchers",
 		"deliver_launch_flags", "assert_required_bins",
 		"catalog_installed_orphans", "reconcile_installed_programs", "report_durable_dir",

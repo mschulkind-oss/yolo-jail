@@ -222,6 +222,18 @@ func bootSteps() []bootStep {
 			notContainer: "the container's home tiers are the launcher's bind mounts",
 		},
 		{
+			// THE JAIL-START RECORD (jailstart.go, docs/design/launcher-update-per-jail-start.md):
+			// one fresh id per run of the jail's own boot, which the launchers key their
+			// once-per-start update check on. Above every generator and every program install, and AFTER darwin_home_layout (which
+			// refuses a real ~/.local it did not lay: the record lives under it), so no launcher invocation of this start can meet the previous start's id. Not a
+			// session's pass: an attach is never a jail start. The macos-user bootstrap is one.
+			name:   "write_jail_start",
+			run:    writeJailStartStep,
+			noMark: true,
+			notSessionPass: "an attach is not a jail start: the jail's own boot wrote the record " +
+				"the launchers key their update checks on, and a session's pass minting another would make every attach a start",
+		},
+		{
 			// C4/C5's jail half: link the store-delivered package profiles into the
 			// /run/yolo/packages farm. FIRST AMONG THE GENERATORS, and both steps below depend
 			// on that: generate_ld_cache scans the farm's lib dir, so a cache built before the

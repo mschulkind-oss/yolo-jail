@@ -66,6 +66,12 @@ func TestAVersionProbeSkipsTheUpdateAndTheRefresh(t *testing.T) {
 			p := newPrelaunchProbe(t, native)
 			p.probe = []string{"--version", "-v"}
 			backdatePath(t, filepath.Join(p.stamps, "tool.stamp"), 2*time.Hour) // the program's update is due
+			if !native {
+				// The npm launcher's check is once per jail start: the boot's record makes it due.
+				if err := writeJailStart(p.home); err != nil {
+					t.Fatal(err)
+				}
+			}
 			npm := fakeNpmLogging(t, p.home, p.log)
 			p.write(t)
 			stdout, stderr := p.runArgs(t, npm, arg)

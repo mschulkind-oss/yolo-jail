@@ -89,7 +89,7 @@ func assertOnlyTheProgramOnStdout(t *testing.T, stdout, stderr, want string) {
 func TestADueUpdateKeepsNpmOffAPipedLaunchsStdout(t *testing.T) {
 	p := newNpmProbe(t, "tool")
 	p.run(t, "tool", "tool")
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 
 	log, stdout, stderr := p.runPiped(t, "tool", "tool", []string{"FAKE_LATEST=2.0.0"}, "-p", "hello")

@@ -127,9 +127,12 @@ _shielded() {
     local cleanup="$1" rc=0
     shift
     _YOLO_INTERRUPTED=0
+    # _YOLO_SIGNALLED is 1 only inside the TERM and HUP traps: a cleanup that must tell a signal
+    # from a normal end (the npm launcher's check claim, released on a signal alone) reads it.
+    _YOLO_SIGNALLED=0
     trap '_YOLO_INTERRUPTED=1' INT
-    trap "trap '' INT; $cleanup; trap - TERM; kill -TERM \$\$" TERM
-    trap "trap '' INT; $cleanup; trap - HUP; kill -HUP \$\$" HUP
+    trap "trap '' INT; _YOLO_SIGNALLED=1; $cleanup; trap - TERM; kill -TERM \$\$" TERM
+    trap "trap '' INT; _YOLO_SIGNALLED=1; $cleanup; trap - HUP; kill -HUP \$\$" HUP
     "$@" || rc=$?
     trap '' INT
     eval "$cleanup" || true

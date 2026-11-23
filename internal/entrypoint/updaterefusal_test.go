@@ -29,7 +29,7 @@ func warmNpmProbe(t *testing.T) *npmProbe {
 	t.Helper()
 	p := newNpmProbe(t, "tool")
 	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	return p
 }
@@ -59,8 +59,8 @@ func TestANewerNpmVersionThatFailsToInstallRefuses(t *testing.T) {
 	if strings.Contains(out, "RAN") {
 		t.Errorf("a refused launch ran the program:\n%s", out)
 	}
-	if _, err := os.Stat(filepath.Join(p.home, "stamps", "tool.stamp")); !os.IsNotExist(err) {
-		t.Errorf("a refused update left its stamp (err=%v): the next invocation would run 1.0.0 without retrying", err)
+	if m := p.markers(t, "tool"); len(m) != 0 {
+		t.Errorf("a refused update left its check marker %v: the next invocation would run 1.0.0 without retrying", m)
 	}
 	p.truncateLog(t)
 	if log, _, rc := p.runStatus(t, "tool", "tool", "FAKE_LATEST=9.9.9", "FAKE_INSTALL_FAIL=1"); rc != UpdateRefusedStatus ||

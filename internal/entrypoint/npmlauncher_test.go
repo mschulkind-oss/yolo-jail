@@ -1,12 +1,12 @@
 package entrypoint
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
@@ -149,6 +149,11 @@ type npmProbe struct {
 	// verb is the pack's declared update verb (OQ-PD14). Empty for every probe but the
 	// one cell that measures it: no shipped npm pack declares one.
 	verb []string
+	// probeArgs is the pack's declared version-probe argv (probeargs.go); args is what the
+	// launcher is invoked with; starts numbers the jail-start records newJailStart writes.
+	probeArgs []string
+	args      []string
+	starts    int
 }
 
 // newNpmProbe writes the fakes. `npm install` materializes the binary and the
@@ -197,6 +202,11 @@ install)
     chmod +x "$NPM_CONFIG_PREFIX/bin/` + bin + `"
     ;;
 view)
+    # $FAKE_VIEW_STARTED / $FAKE_VIEW_BLOCK are named pipes (the race test): the view announces
+    # that it is in flight by writing the first, then blocks reading the second until the test
+    # releases it. Both are events, so the test waits on them and never on a clock.
+    if [ -n "${FAKE_VIEW_STARTED:-}" ]; then echo started > "$FAKE_VIEW_STARTED"; fi
+    if [ -n "${FAKE_VIEW_BLOCK:-}" ]; then read -r _ < "$FAKE_VIEW_BLOCK"; fi
     if [ -n "${FAKE_VIEW_FAIL:-}" ]; then
         echo "npm ERR! code ENOTFOUND" >&2
         exit 1
@@ -321,8 +331,22 @@ func (p *npmProbe) runOut(t *testing.T, bin, pkg string, env ...string) ([]strin
 // outcome as success.
 func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]string, string, int) {
 	t.Helper()
+	cmd := p.command(t, bin, pkg, env...)
+	out, err := cmd.CombinedOutput()
+	rc := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		rc = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("launcher could not be run at all: %v\n%s", err, out)
+	}
+	return p.log(t), string(out), rc
+}
+
+// command renders the launcher for pkg and returns it ready to run, not yet started.
+func (p *npmProbe) command(t *testing.T, bin, pkg string, env ...string) *exec.Cmd {
+	t.Helper()
 	body := npmAgentLauncher("probe",
-		&packdecl.Install{Kind: "npm", Bin: bin, Package: pkg, UpdateVerb: p.verb},
+		&packdecl.Install{Kind: "npm", Bin: bin, Package: pkg, UpdateVerb: p.verb, ProbeArgs: p.probeArgs},
 		filepath.Join(p.home, "stamps"),
 		// The receipts path is BAKED at generation time, so a harness that let it
 		// default would append to the developer's real /workspace/.yolo on every run
@@ -339,19 +363,51 @@ func (p *npmProbe) runStatus(t *testing.T, bin, pkg string, env ...string) ([]st
 	if p.pathDir != "" {
 		launchPath = p.pathDir
 	}
-	cmd := exec.Command(script)
+	cmd := exec.Command(script, p.args...)
 	cmd.Env = append([]string{
 		"HOME=" + p.home,
 		"PATH=" + testutil.YoloBinaryDir(t) + ":" + launchPath,
 	}, env...)
-	out, err := cmd.CombinedOutput()
-	rc := 0
-	if ee, ok := err.(*exec.ExitError); ok {
-		rc = ee.ExitCode()
-	} else if err != nil {
-		t.Fatalf("launcher could not be run at all: %v\n%s", err, out)
+	return cmd
+}
+
+// newJailStart writes a fresh jail-start record, which is what the boot's write_jail_start
+// does: the next launcher invocation is the first of a new jail start. It returns the id.
+func (p *npmProbe) newJailStart(t *testing.T) string {
+	t.Helper()
+	p.starts++
+	id := fmt.Sprintf("start%d", p.starts)
+	dir := filepath.Join(p.home, ".local", "state", "yolo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return p.log(t), string(out), rc
+	if err := os.WriteFile(filepath.Join(dir, "jail-start"), []byte(id+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// markers lists the check markers of bin under the launch-checks dir.
+func (p *npmProbe) markers(t *testing.T, bin string) []string {
+	t.Helper()
+	got, err := filepath.Glob(filepath.Join(p.home, ".local", "state", "yolo", "launch-checks", bin+".*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range got {
+		got[i] = filepath.Base(got[i])
+	}
+	return got
+}
+
+func countArgv(log []string, substr string) int {
+	n := 0
+	for _, line := range log {
+		if strings.Contains(line, substr) {
+			n++
+		}
+	}
+	return n
 }
 
 func (p *npmProbe) log(t *testing.T) []string {
@@ -373,17 +429,6 @@ func (p *npmProbe) log(t *testing.T) []string {
 func (p *npmProbe) truncateLog(t *testing.T) {
 	t.Helper()
 	if err := os.WriteFile(p.logPath, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// agePastInterval backdates the launcher's stamp beyond UPDATE_INTERVAL (3600s), which is
-// the trigger for the hourly registry poll.
-func (p *npmProbe) agePastInterval(t *testing.T, bin string) {
-	t.Helper()
-	stamp := filepath.Join(p.home, "stamps", bin+".stamp")
-	old := time.Now().Add(-3 * time.Hour)
-	if err := os.Chtimes(stamp, old, old); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -411,56 +456,6 @@ func TestNpmLauncherInstallsTheDeclaredVersion(t *testing.T) {
 	}
 }
 
-// TestUnpinnedNpmLauncherUpdatesPastItsStamp is the evergreen ruling, reduced to its one
-// observable claim (program-delivery.md §3.5, OQ-PD12, 2026-09-03).
-//
-// THIS CELL HAS BEEN INVERTED TWICE, and the file keeps the record rather than deleting it,
-// because which behaviour is defended has changed twice and each turn was deliberate:
-//
-//	until 2026-08-17  the hourly check REINSTALLED whenever the registry had moved
-//	2026-08-18        trust-paths.md §1 row 1 made it report only — a binary that changes
-//	                  between two invocations with nobody present has no act to pin to
-//	2026-09-03        OQ-PD3 was NARROWED: that ruling covers PROJECT dependencies, and an
-//	                  agent CLI is not one. It wants to be current, and there is no pin for
-//	                  it to be reproducible against
-//
-// The 2026-08-18 objection is answered rather than dropped. The trigger is the user's own
-// invocation of the agent, so somebody IS present — the person who just typed the program's
-// name — and the failure is scoped to that one command.
-//
-// The first install is untouched by any of it: a fresh jail home has no version to keep.
-func TestUnpinnedNpmLauncherUpdatesPastItsStamp(t *testing.T) {
-	p := newNpmProbe(t, "tool")
-
-	log := p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
-	if !hasArgv(log, "install -g --prefer-online tool@latest") {
-		t.Fatalf("an unversioned package must still install @latest on FIRST use:\n%s",
-			strings.Join(log, "\n"))
-	}
-
-	// Stamp older than the interval, and the registry has moved. The launcher must ask,
-	// must install, and must say which two versions it moved between.
-	p.agePastInterval(t, "tool")
-	p.truncateLog(t)
-	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
-	if !hasArgv(log, "view tool version") {
-		t.Errorf("the launcher must ask the registry what is current:\n%s", strings.Join(log, "\n"))
-	}
-	if !hasArgv(log, "install -g --prefer-online tool@latest") {
-		t.Errorf("an agent dependency past its stamp must be UPDATED, not merely reported "+
-			"on — the report was measured never to be acted upon (claude.stamp unmoved for "+
-			"nine days, OQ-PD8):\n%s", strings.Join(log, "\n"))
-	}
-	if !strings.Contains(out, "1.0.0 → 9.9.9") {
-		t.Errorf("the update must say which versions it moved between:\n%s", out)
-	}
-	// And it still launches: an update is something that happens on the way to running
-	// the program, never instead of it.
-	if !strings.Contains(out, "RAN") {
-		t.Errorf("the launcher must exec the tool after updating it:\n%s", out)
-	}
-}
-
 // TestUnpinnedNpmLauncherFrozenByPolicyNeverTouchesTheRegistry: `agent_updates` off means
 // the emitted launcher carries no update branch at all — no `npm view`, no install, no
 // network. Baked at generation time, so nothing in the jail can talk it into one.
@@ -469,7 +464,7 @@ func TestUnpinnedNpmLauncherFrozenByPolicyNeverTouchesTheRegistry(t *testing.T) 
 	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
 
 	p.updates = false
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
 	if len(log) != 0 {
@@ -490,7 +485,7 @@ func TestUnpinnedNpmLauncherRunsADeclaredVerbInsteadOfNpm(t *testing.T) {
 	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
 
 	p.verb = []string{"self-update"}
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
 	if hasArgv(log, "view") || hasArgv(log, "install") {
@@ -513,7 +508,7 @@ func TestNpmLauncherIsANoOpWhenReEntered(t *testing.T) {
 	p := newNpmProbe(t, "tool")
 	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
 
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9",
 		"_YOLO_LAUNCHER_ACTIVE=:tool")
@@ -529,7 +524,7 @@ func TestNpmLauncherIsANoOpWhenReEntered(t *testing.T) {
 	// a boolean, or the first launcher to run would freeze every other.
 	q := newNpmProbe(t, "tool")
 	q.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
-	q.agePastInterval(t, "tool")
+	q.newJailStart(t)
 	q.truncateLog(t)
 	if log := q.run(t, "tool", "tool", "FAKE_LATEST=9.9.9",
 		"_YOLO_LAUNCHER_ACTIVE=:someotherbin"); len(log) == 0 {
@@ -546,7 +541,7 @@ func TestNpmLauncherProceedsWithoutUpdatingWhenTheLockIsHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	log, out := p.runOut(t, "tool", "tool", "FAKE_LATEST=9.9.9")
 	if len(log) != 0 {
@@ -596,7 +591,7 @@ func TestUnpinnedNpmLauncherTimeline(t *testing.T) {
 	}
 
 	// STAMP-AGED: the update fires, asks once, and installs what it found.
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	log = p.run(t, "tool", "tool", "FAKE_LATEST=9.9.9")
 	if !hasArgv(log, "view tool version") {
@@ -773,7 +768,7 @@ func TestNpmLauncherUpdateModeDoesNotClaimCurrentWhenTheRegistryIsSilent(t *test
 
 	// The POLL keeps the opposite behaviour, and the contrast is the point: nobody asked,
 	// so an unreachable registry is silent, harmless and must not stop the launch.
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	log, out, rc = p.runStatus(t, "tool", "tool", "FAKE_VIEW_FAIL=1")
 	if !hasArgv(log, "view tool version") {
@@ -839,7 +834,7 @@ func TestUnpinnedNpmLauncherDoesNotReinstallWhenCurrent(t *testing.T) {
 	p := newNpmProbe(t, "tool")
 	p.run(t, "tool", "tool", "FAKE_INSTALLED_VERSION=1.0.0")
 
-	p.agePastInterval(t, "tool")
+	p.newJailStart(t)
 	p.truncateLog(t)
 	log := p.run(t, "tool", "tool", "FAKE_LATEST=1.0.0")
 
@@ -860,7 +855,7 @@ func TestPinnedNpmLauncherNeverPollsTheRegistry(t *testing.T) {
 		p := newNpmProbe(t, "tool")
 		p.run(t, "tool", pkg, "FAKE_INSTALLED_VERSION=1.2.3")
 
-		p.agePastInterval(t, "tool")
+		p.newJailStart(t)
 		p.truncateLog(t)
 		log := p.run(t, "tool", pkg, "FAKE_LATEST=9.9.9", "FAKE_INSTALLED_VERSION=1.2.3")
 

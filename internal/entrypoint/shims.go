@@ -1469,7 +1469,6 @@ BIN=__YOLO_BIN__
 # The pack that declares BIN, which the line for an install that lands nowhere names.
 PACK=__YOLO_PACK__
 STAMP_DIR=__YOLO_STAMP_DIR__
-STAMP="$STAMP_DIR/$BIN.stamp"
 SPEC_FILE="$STAMP_DIR/$BIN.spec"
 REAL_BIN="$NPM_CONFIG_PREFIX/bin/$BIN"
 # 1 once an "npm install" this run made exited 0 and left no $REAL_BIN (_say_misplaced).
@@ -1480,8 +1479,20 @@ _YOLO_MISPLACED=0
 PKG=__YOLO_PKG__
 SPEC=__YOLO_SPEC__
 PINNED=__YOLO_PINNED__   # 1 when the declaration carried a version selector
-UPDATE_INTERVAL=3600  # seconds between updates of an UNPINNED package
-UPDATE_TIMEOUT=60     # a hung updater must not hang the command the user typed
+# THE CHECK IS ONCE PER JAIL START, not once an hour (docs/design/launcher-update-per-jail-start.md).
+# JAIL_START_FILE holds the id the boot's write_jail_start wrote; the check is CLAIMED by creating
+# CHECK_DIR/<bin>.<id> with noclobber (O_EXCL), so the creator checks and every other invocation of
+# this start runs the installed version at once. Read with "$(<file)": a bash builtin that works
+# under env -i and in bash 3.2, so no environment variable carries the id.
+JAIL_START_FILE="$HOME/.local/state/yolo/jail-start"
+CHECK_DIR="$HOME/.local/state/yolo/launch-checks"
+CHECK_MARKER=""       # the marker THIS invocation claimed; empty when it claimed none
+CHECK_GARBAGE=604800  # seconds after which another start's marker is garbage (collected, decides nothing)
+# The PRE-LAUNCH REFRESH's hourly stamp still reads this (prelaunchrefresh.go, _refresh_due); the
+# program's own check above no longer does. Slice 4 of the design moves the refresh to per-start
+# markers and deletes this line.
+UPDATE_INTERVAL=3600
+UPDATE_TIMEOUT=60    # a hung updater must not hang the command the user typed
 STALE_LOCK=600        # a lock nobody released must not freeze updates forever
 # 1 when this jail's agent_updates policy lets this pack move. BAKED, so a launcher
 # generated under a frozen policy carries no update branch at all.
@@ -1614,7 +1625,6 @@ _do_install() {
         _YOLO_MISPLACED=0
         rc=1
     fi
-    touch "$STAMP"
     return "$rc"
 }
 
@@ -1635,13 +1645,53 @@ _take_lock() {
 
 _drop_lock() { rmdir "$LOCK_DIR" 2>/dev/null || true; }
 
-# _update_due is the throttle. UPDATES_ENABLED is checked FIRST because it is the one gate
-# that is not about time: a jail whose agent_updates policy freezes this pack must not even
-# ask what the stamp says.
+# _update_due decides whether this invocation CHECKS, by CLAIMING the check (LU-D5): it creates
+# CHECK_DIR/<bin>.<id> with noclobber, which opens O_CREAT|O_EXCL, so of any number of invocations
+# in one jail start exactly one wins and checks. No clock is read, and no mkdir lock is used (the
+# mkdir mutex is not exclusive on uutils coreutils). UPDATES_ENABLED is checked FIRST because it is
+# the one gate that is not about the start: a jail whose agent_updates policy freezes this pack
+# must not even ask what the record says. An absent record checks nothing and says so (LU-D6): the
+# boot is the only writer, and a second one minted here would break one-writer state.
 _update_due() {
     [ "$UPDATES_ENABLED" = "1" ] || return 1
-    [ -f "$STAMP" ] || return 0
-    [ "$(( $(date +%s) - $(_stamp_mtime "$STAMP") ))" -gt "$UPDATE_INTERVAL" ]
+    local id=""
+    if [ -f "$JAIL_START_FILE" ]; then id=$(<"$JAIL_START_FILE") || id=""; fi
+    if [ -z "$id" ]; then
+        echo "  $BIN: this jail has no start record, so it checked nothing for updates — running the installed $(_installed_version). Relaunch the jail (yolo stop on the host, then launch) to write it." >&2
+        return 1
+    fi
+    mkdir -p "$CHECK_DIR" 2>/dev/null || return 1
+    local marker="$CHECK_DIR/$BIN.$id"
+    # The subshell keeps noclobber off every other redirection in this script.
+    if ( set -o noclobber; : > "$marker" ) 2>/dev/null; then
+        CHECK_MARKER="$marker"
+        _collect_check_garbage "$marker"
+        return 0
+    fi
+    return 1
+}
+
+# _collect_check_garbage drops this bin's markers of OTHER starts older than CHECK_GARBAGE. It is
+# garbage collection and decides nothing: a marker it keeps or loses changes no verdict.
+_collect_check_garbage() {
+    local f
+    for f in "$CHECK_DIR/$BIN".*; do
+        { [ "$f" != "$1" ] && [ -f "$f" ]; } || continue
+        if [ "$(( $(date +%s) - $(_stamp_mtime "$f") ))" -gt "$CHECK_GARBAGE" ]; then rm -f "$f" 2>/dev/null || true; fi
+    done
+}
+
+# _release_check gives the claimed marker back, so the next invocation of this start can check:
+# a launch that ended without a verdict (a held lock, a SIGTERM or SIGHUP mid-act).
+_release_check() {
+    if [ -n "$CHECK_MARKER" ]; then rm -f "$CHECK_MARKER" 2>/dev/null || true; fi
+}
+
+# _drop_lock_signalled is _shielded's cleanup for the act: the lock always, the claim only when a
+# SIGTERM or SIGHUP ended the launcher (_YOLO_SIGNALLED), since the same cleanup runs on a normal end.
+_drop_lock_signalled() {
+    _drop_lock
+    if [ "$_YOLO_SIGNALLED" = 1 ]; then _release_check; fi
 }
 
 # _locked_update holds the install-prefix lock across the whole act, and is the only caller
@@ -1653,9 +1703,10 @@ _locked_update() {
     local rc=0
     if ! _take_lock; then
         echo "  $BIN: another update is in progress — running the installed version." >&2
+        _release_check
         return 0
     fi
-    _shielded _drop_lock _update || rc=$?
+    _shielded _drop_lock_signalled _update || rc=$?
     if [ "$rc" != 0 ] && [ "$_YOLO_INTERRUPTED" = 1 ] && [ "$HAS_UPDATE_VERB" != "1" ]; then
         _say_not_updated update "$rc"
     fi
@@ -1699,7 +1750,6 @@ _update() {
         echo "  Updating $BIN..." >&2
         local vrc=0
         _bounded "$REAL_BIN" "${UPDATE_VERB[@]}" >&2 || vrc=$?
-        touch "$STAMP"
         if [ "$vrc" != 0 ]; then
             # Update mode says its own outcome and exits non-zero; a Ctrl-C runs what is installed
             # (PD-NF4). A launch's failed verb is classified by its upstream (PD-NF3).
@@ -1729,14 +1779,13 @@ _update() {
             return 1
         fi
         # A LAUNCH that could not ask is not a failure (PD-NF1): nothing says a newer version
-        # exists. It runs what is installed, says so, and stamps, so an offline hour asks once.
-        echo "  $BIN: could not ask the npm registry for a newer version — running the installed $INSTALLED." >&2
-        touch "$STAMP"
+        # exists. It runs what is installed and says so, and the claimed marker is KEPT: an
+        # offline jail asks once per start, never again until the next one (LU-D2).
+        echo "  $BIN: could not ask the npm registry for a newer version — running the installed $INSTALLED. It asks again the next time this jail starts (yolo stop on the host, then launch), or now with: yolo pack update." >&2
         return 0
     fi
     if [ "$INSTALLED" = "$LATEST" ]; then
         echo "  $BIN $INSTALLED is already current." >&2
-        touch "$STAMP"
         return 0
     fi
     echo "  Updating $BIN $INSTALLED → $LATEST..." >&2
@@ -1801,6 +1850,12 @@ if [ ! -x "$REAL_BIN" ]; then
     # there something to exec? — and it answers it correctly for the upgrade case too,
     # where the install failed and the previous version is still perfectly runnable.
     _do_install || true
+    # A cold install is not a check, but a success installed the LATEST, so it records this
+    # start's marker (when the boot wrote the record) and the next invocation does not check.
+    if [ -x "$REAL_BIN" ] && [ "$PINNED" != "1" ] && [ "$UPDATES_ENABLED" = "1" ] && [ -f "$JAIL_START_FILE" ]; then
+        _yolo_id=$(<"$JAIL_START_FILE") || _yolo_id=""
+        if [ -n "$_yolo_id" ] && mkdir -p "$CHECK_DIR" 2>/dev/null; then : >> "$CHECK_DIR/$BIN.$_yolo_id" 2>/dev/null || true; fi
+    fi
 elif [ "$_YOLO_PROBE" = "1" ]; then
     # A VERSION PROBE (probeargs.go) answers with what is installed: no update, and no reinstall
     # for a moved pin, which the next launch that is not a probe makes.
@@ -1842,7 +1897,9 @@ elif _update_due; then
     # command and never to the jail: a newer version that did not install STOPS that command
     # (PD-NF1), which _yolo_refuse_failed says and exits with, and the next invocation retries.
     _locked_update || true
-    _yolo_refuse_failed "$STAMP"
+    # A refusal RELEASES the claimed marker (LU-D10): the registry answered, so the next
+    # invocation retries rather than quietly running the old version.
+    _yolo_refuse_failed "$CHECK_MARKER"
 fi
 
 # --- transitive MCP server refresh (§3.5, OQ-PD12a) ---------------------------------
