@@ -196,7 +196,7 @@ func ParsePodmanPsRows(stdout string) []PsRow {
 var ContainerLsJSONArgv = []string{"container", "ls", "--format", "json"}
 
 // containerLsEntry is the part of one `container ls --format json` element ps reads. The
-// shape is MEASURED (docs/lab-reports/2026-11-06-mac-ci-triage-witnesses-run.md §3): top-level
+// shape is MEASURED (the retired lab report 2026-11-06-mac-ci-triage-witnesses-run (git log --follow) §3): top-level
 // `configuration`, `id` and `status`, where `status` is an object {networks, startedDate,
 // state} and startedDate an RFC 3339 UTC string.
 type containerLsEntry struct {

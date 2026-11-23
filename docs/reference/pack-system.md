@@ -2926,7 +2926,7 @@ preserving a comment a PROJECTION out of the `host` layer rather than an in-plac
 
 Copilot CLI 1.0.105 writes two lines above the object of its own `~/.copilot/config.json`:
 `// User settings belong in settings.json.` and `// This file is managed automatically.`
-(owner's Mac, [lab report §14](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#14-2026-11-04-the-host-wrapper-line-yolo-prints-is-not-portable-and-w-kc5-again);
+(owner's Mac, lab report section 14;
 the same header is in the 1.0.89 binary, [copilot-token-storage.md](../research/copilot-token-storage.md)).
 Read as strict JSON, every workspace Copilot had run in printed `copilot/config: refused: … is
 not valid JSON` at each launch, and the pack's `yolo = true` config entry was not rendered.

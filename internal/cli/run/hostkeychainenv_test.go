@@ -130,11 +130,12 @@ func TestMacosUserLaunchWithNoHostCopilotLoginSetsNothingAndNamesTheLogin(t *tes
 
 // Exit 36 (errSecInteractionNotAllowed) is macOS refusing to let `security` show its dialog, not
 // a locked keychain: the owner's keychain was unlocked and no dialog appeared
-// (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §14). So the line must not send the
+// (the retired lab report 2026-11-03-mac-slice-12a-witness-w1 (git log --follow) §14). So the line must not send the
 // human to unlock it. It names the cause (ssh leads when yolo's own environment shows ssh: the
 // owner measured rc=36 over ssh and rc=0 from a Terminal on the Mac's display), the one-time
 // Always Allow from a Terminal on the Mac itself, the exact test for the declared service, and
-// the fact that Always Allow's effect on later SSH reads remains unmeasured.
+// the measured fact that Always Allow lets later reads through ssh included (lab report 2026-11-04,
+// retired; recorded in docs/design/keychain-from-a-jail.md W-KC5).
 func TestMacosUserLaunchWhoseKeychainReadCannotShowADialogNamesTheCauseAndTheTest(t *testing.T) {
 	sshCause := "this shell is reached over ssh, outside your desktop session, so macOS cannot show the access dialog here"
 	generalCause := "this shell runs in a session outside your desktop login"
@@ -159,14 +160,14 @@ func TestMacosUserLaunchWhoseKeychainReadCannotShowADialogNamesTheCauseAndTheTes
 				"macOS refused to let `security` show its keychain access dialog to this process",
 				tc.want,
 				"Run this launch once from a Terminal on the Mac itself and choose Always Allow (not Allow",
-				"whether Always Allow also enables later reads over SSH has not been measured",
+				"Always Allow is remembered, so later reads, ssh included, need no dialog",
 				"`security find-generic-password -s copilot-cli -w >/dev/null; echo rc=$?`",
 			} {
 				if !strings.Contains(stderr, want) {
 					t.Errorf("the launch line does not say %q:\n%s", want, stderr)
 				}
 			}
-			for _, wrong := range []string{"locked", "unlock your login keychain", "later reads should then need no dialog", tc.notWanted} {
+			for _, wrong := range []string{"locked", "unlock your login keychain", "later reads should then need no dialog", "has not been measured", tc.notWanted} {
 				if strings.Contains(stderr, wrong) {
 					t.Errorf("the launch line says %q:\n%s", wrong, stderr)
 				}

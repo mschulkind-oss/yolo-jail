@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 # with no test hung in any run: about 3 minutes on a 32-core Linux machine, about 9 on an idle
 # macOS CI runner (check-macos's three shards summed), where a process start costs far more, and
 # 22.6 on a Mac also running the macos-user and integration suites
-# (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md). The bound sits at twice the
+# (the retired lab report 2026-11-03-mac-slice-12a-witness-w1 (git log --follow)). The bound sits at twice the
 # slowest, so a hang still panics with every goroutine's stack.
 SHORT_TEST_TIMEOUT = "45m"
 

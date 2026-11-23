@@ -812,6 +812,55 @@ writer to matter; `yolo config apply` closes the same gap for the running case. 
 repository listed under `widened` and removed from the config is never narrowed live. Such a file
 belongs to a broker that cannot take live scope anyway. Found 2026-10-18.
 
+### <a id="account-mode-copilot-tls"></a>🔧 **Account mode denies `com.apple.SecurityServer`, so Copilot 1.0.93+ cannot make HTTPS requests there**
+
+Measured on a Mac 2026-11-04 at main `723b75754` (installed `0.16.1+35`). Slice 12a moved
+`seatbelt-yolo-account` onto the deny-by-default profile, whose closing block denies the service
+(`internal/macosuser/seatbeltdeny.go`, the `service-deny` block, per
+[MT-D7](../design/macos-native-tls.md#decision-ledger)). The Sandbox log named `copilot deny(1)
+mach-lookup com.apple.SecurityServer` and the system trust settings; `copilot update` failed with
+`error sending request` in account mode and passed on 12a's parent `467d785d9`. Three places still
+say account mode is fine: the `PARITY` comment on `nativeCompatibilityShell`
+(`internal/entrypoint/programcompatibility.go`) and its gate, which refuses only in self mode;
+the refusal's route list (`_yolo_self_mode_next_steps`), whose first route is
+`yolo config set setup seatbelt-yolo-account --user`; and the account-mode boundary text in
+[`copilot-keychain-boundary.md`](../research/copilot-keychain-boundary.md). The same failure stops
+witness [W-KC5](../design/keychain-from-a-jail.md#W-KC5) one request short of its answer. Smallest next
+step, an owner ruling that needs no new facts: grant account mode the trust-evaluation lookups
+Copilot needs (reopens MT-D7 and
+[OQ-MT12](../design/macos-native-tls.md#OQ-MT12)), or gate account mode too (a failing test that
+launches the gate with an account-mode context and expects the refusal; then drop that route from
+the next steps).
+
+### <a id="apple-container-copy-header"></a>🔧 **The generated user-config copy says edits are overwritten, but an Apple Container relaunch refuses an edited one**
+
+`config.InheritHeader` (`internal/config/inherit.go`) writes "your edits are overwritten on the
+next launch". Since `45ad8d15b`, an Apple Container relaunch replaces the copy only while it is yolo's
+own (the owner's, one link, first line unchanged); an edited copy refuses the launch and names the
+`mv` step (Mac run 2026-11-06 at `c5990cf51`, W8). The header's first line is how a later launch
+recognises the copy, so only the second line may change. Smallest next step: reword it to say an
+edit makes the next launch stop and name the `mv`, with the header's golden test updated first.
+
+### <a id="legacy-move-adoption-lines"></a>🔧 **The launch that moves a legacy home re-adopts two host-file surfaces**
+
+Mac run 2026-11-06 at `c5990cf51`, `seatbelt-yolo-account`: the launch that moved
+`.yolo/home` to `.yolo/setups/<setup>/home` printed `…/.config/mcp/mcp.json: adopted; the file as
+yolo found it is archived at …` and the same for `.codex/config.toml`, and spent 40 s in
+`launch.build_home_overlay`; the first and third launches printed neither. Probable cause, not
+checked: the adoption state (`FirstMigration`, `internal/entrypoint/adoptionarchive.go`) is keyed
+by a path the move changes. Smallest next step: a Linux test that moves a home after one render and
+asserts the next render does not report a first migration.
+
+### <a id="nightly-macos-witnesses"></a>🔧 **Two nightly-macOS witnesses only a CI runner can settle**
+
+From the 2026-11-06 triage. The image-build failure behind the old `hello` fixture (a plain
+build failing, then the Linux-builder offload not starting) did not reproduce on the owner's Mac
+(its nix does not use the Cachix substituter), so whether it is a `internal/containerbuilder`
+defect or the runner's podman machine is unanswered; `0ec931135` makes the next occurrence's
+report name the reason. And `TestTheJailsYoloCarriesItsMatchedBundleStamp` has passed on the on-tag
+form only locally (at `v0.17.1`), never in a scheduled nightly, because a scheduled run tests the
+last pushed commit. Next step for each: read the failing run's report the next time it appears.
+
 ### <a id="pi-paste-freeze"></a>🔧 **A long Kitty paste froze Pi's display twice; the cause is unknown and the work is parked**
 
 The owner reports that pasting one long selection through `clip2path` twice left Pi's input,

@@ -85,7 +85,7 @@ func TestParsePodmanPsRows(t *testing.T) {
 }
 
 // containerLsJSONMeasured is the shape `container ls --format json` printed on the Mac
-// (docs/lab-reports/2026-11-06-mac-ci-triage-witnesses-run.md §3): top-level keys
+// (the retired lab report 2026-11-06-mac-ci-triage-witnesses-run (git log --follow) §3): top-level keys
 // `configuration`, `id` and `status`, with `status` an OBJECT {networks, startedDate, state}
 // and startedDate RFC 3339 UTC. Only those keys are measured; nothing else is assumed.
 const containerLsJSONMeasured = `[

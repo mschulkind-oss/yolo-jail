@@ -224,7 +224,7 @@ below, is now measured; how yolo or its tests would pick that binary is still a 
 **The gate's bound, 2026-11-03: the per-package timeout settles it, at 45 minutes.** The Mac
 timed `internal/cli` out again under `just done` (1359 s alone with `-timeout 25m` while the
 macos-user and integration suites ran, the lab report
-[`2026-11-03-mac-slice-12a-witness-w1.md`](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#9-the-short-suite-on-this-mac)),
+`2026-11-03-mac-slice-12a-witness-w1.md`),
 and check-macos's three `internal/cli` shards summed to about 9 minutes on an idle runner, so the
 work is legitimately that long. `SHORT_TEST_TIMEOUT` in
 [`scripts/go_packages.py`](../../scripts/go_packages.py) is now the one bound, twice the slowest
@@ -520,7 +520,7 @@ two depend on how a particular day's agents were scheduled.
 
 ## Mac witness: the darwin `just done` fixes (2026-11-03)
 
-The [W1 lab report's](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md) short-suite failures
+The W1 lab report's short-suite failures
 were fixed on Linux (merged as `b208e4f51`): the symlinked-root bug in `scripts/completion-check.py`'s
 `go_graph`, the GC-closed lease in `TestHostPiLaunchGetsItsOwnSessionHome`, the sleep in the bounded
 command test's helper, the brokerhook start-up allowance, and one `SHORT_TEST_TIMEOUT` (45m) for
@@ -534,11 +534,11 @@ and appends the results to that lab report:
    `pgrep -f hostservice.test`: passes, and no leaf process is left.
 4. `go test -short -count=1 -run '^TestAHook' ./internal/brokerhook`: passes.
 5. `python3 scripts/test-completion-check.py`: passes.
-6. `just done` (the full `just check-ci`), under the same load as the report's [§9](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#9-the-short-suite-on-this-mac) if practical: the
+6. `just done` (the full `just check-ci`), under the same load as the report's section 9 if practical: the
    only expected failures are none (the four `kern.procargs2` tests were fixed in `f25911eb3`); report
    the `internal/cli` package's time.
 
-*Run 2026-11-03 at `fd702e9fb`* ([lab report §10](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md#10-rerun-witness-w1b-and-the-just-done-fixes-witness)):
+*Run 2026-11-03 at `fd702e9fb`* (lab report section 10):
 items 1–5 pass. `just done` failed on one load flake,
 `TestSharedDemandPublicHostProcessesProducerInterruptSecondRemains` (a TempDir cleanup race; it
 passes `-count=10` alone). `internal/cli` took 1574 s.
