@@ -82,15 +82,6 @@ launchers sharing a prefix can both install into it; GNU coreutils in the jail h
 `O_EXCL` file or an `ln -s` claim, keeping the owner token and the stale rule. Apple Container's shared host
 directories need the owner's Mac to verify. Context: [`launcher-update-per-jail-start.md`](../design/launcher-update-per-jail-start.md#found-out-of-scope).
 
-## A skill import's per-launch check is a full fetch (found 2026-11-23)
-
-Every fresh launch now checks each branch `skill_imports` entry (LPC-D16), but the git broker offers no cheap
-moved-or-not read: `FetchImport` lists refs only internally (`listImportRefs`, `internal/gitbroker/importfetch.go`)
-and fetches into a fresh scratch repository each time, so an unmoved import likely downloads its pack again,
-bounded by the 5 s pack-check deadline. Candidate fix: an exported ref-only read, or an "unchanged if this commit"
-field on `ImportFetchRequest`, so the unmoved case costs one ref listing. Context:
-[`local-pack-clones.md`](../design/local-pack-clones.md).
-
 ## Where the reasoning lives
 
 | Doc | Answers | Read it when |

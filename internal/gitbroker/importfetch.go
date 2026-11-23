@@ -32,10 +32,15 @@ const (
 // snapshots are intersected here before a temporary broker scope is written; neither the Git
 // URL nor the object store can add a remote or a read grant.
 type ImportFetchRequest struct {
-	Workspace       string
-	URL             string
-	Revision        string
-	Ref             string
+	Workspace string
+	URL       string
+	Revision  string
+	Ref       string
+	// UnchangedIf, for a branch or tag import, is the commit the caller already holds. When the
+	// one ref listing resolves the selected ref to exactly this commit, FetchImport returns an
+	// Unchanged result and creates no scratch repository and fetches no objects. It is read only
+	// after the same access decision as a fetch; it never selects a different remote.
+	UnchangedIf     string
 	StoreDir        string
 	ApprovedRemotes []string
 	CurrentRemotes  []string
@@ -56,6 +61,8 @@ type ImportFetchResult struct {
 	Commit      string
 	ResolvedRef string
 	AccessClass string
+	// Unchanged reports that the selected ref still names UnchangedIf, so nothing was fetched.
+	Unchanged bool
 }
 
 // FetchImport transfers one ref or full object id through the existing Git broker's fetch
@@ -176,18 +183,18 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 
 	scratch := filepath.Join(workDir, "objects.git")
 	gitEnv := importGitEnv(helperDir, endpoint, request.helperEnv)
-	objectFormat := "sha1"
-	if len(request.Revision) == 64 {
-		objectFormat = "sha256"
-	}
-	if err := initImportRepo(ctx, gitExecutable, gitEnv, scratch, objectFormat); err != nil {
-		return result, fmt.Errorf("initialize temporary import object store: %w", err)
-	}
 	remote := "yolo::" + request.URL
+	accessClass := func() string {
+		if transport == transportHTTPS && !broker.importUsedCredential.Load() {
+			return ImportAccessAnonymous
+		}
+		return ImportAccessAuthenticated
+	}
 	resolvedRef := ""
 	commit := request.Revision
 	if commit == "" {
-		refs, defaultRef, err := listImportRefs(ctx, gitExecutable, scratch, remote, gitEnv)
+		// The listing needs no repository, so an unmoved import creates no scratch store.
+		refs, defaultRef, err := listImportRefs(ctx, gitExecutable, workDir, remote, gitEnv)
 		if err != nil {
 			return result, err
 		}
@@ -195,14 +202,11 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 		if err != nil {
 			return result, err
 		}
-		if len(commit) == 64 && objectFormat != "sha256" {
-			if err := os.RemoveAll(scratch); err != nil {
-				return result, err
-			}
-			if err := initImportRepo(ctx, gitExecutable, gitEnv, scratch, "sha256"); err != nil {
-				return result, fmt.Errorf("initialize SHA-256 import object store: %w", err)
-			}
-			objectFormat = "sha256"
+		if request.UnchangedIf != "" && strings.EqualFold(request.UnchangedIf, commit) {
+			return ImportFetchResult{Commit: commit, ResolvedRef: resolvedRef, AccessClass: accessClass(), Unchanged: true}, nil
+		}
+		if err := initImportRepo(ctx, gitExecutable, gitEnv, scratch, objectFormatOf(commit)); err != nil {
+			return result, fmt.Errorf("initialize temporary import object store: %w", err)
 		}
 		if _, err := runImportGit(ctx, gitExecutable, gitEnv, "-C", scratch, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head",
 			remote, "+"+resolvedRef+":refs/yolo-import/selected"); err != nil {
@@ -213,6 +217,9 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 			return result, fmt.Errorf("selected skill ref does not name a commit: %w", err)
 		}
 	} else {
+		if err := initImportRepo(ctx, gitExecutable, gitEnv, scratch, objectFormatOf(commit)); err != nil {
+			return result, fmt.Errorf("initialize temporary import object store: %w", err)
+		}
 		if _, err := runImportGit(ctx, gitExecutable, gitEnv, "-C", scratch, "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote, commit); err != nil {
 			return result, fmt.Errorf("fetch pinned skill commit through the Git broker: %w", err)
 		}
@@ -227,11 +234,7 @@ func FetchImport(ctx context.Context, request ImportFetchRequest) (ImportFetchRe
 	if err := addImportObjects(ctx, gitExecutable, gitEnv, scratch, storeDir, commit); err != nil {
 		return result, fmt.Errorf("add broker-fetched objects to the import store: %w", err)
 	}
-	accessClass := ImportAccessAuthenticated
-	if transport == transportHTTPS && !broker.importUsedCredential.Load() {
-		accessClass = ImportAccessAnonymous
-	}
-	return ImportFetchResult{Commit: commit, ResolvedRef: resolvedRef, AccessClass: accessClass}, nil
+	return ImportFetchResult{Commit: commit, ResolvedRef: resolvedRef, AccessClass: accessClass()}, nil
 }
 
 func rejectURLCredentials(remote string) error {
@@ -300,8 +303,9 @@ type importRef struct {
 	sha  string
 }
 
-func listImportRefs(ctx context.Context, git, scratch, remote string, env []string) ([]importRef, string, error) {
-	output, err := runImportGit(ctx, git, env, "-C", scratch, "ls-remote", "--symref", remote)
+// listImportRefs is the one ref listing; dir is any non-repository directory.
+func listImportRefs(ctx context.Context, git, dir, remote string, env []string) ([]importRef, string, error) {
+	output, err := runImportGit(ctx, git, env, "-C", dir, "ls-remote", "--symref", remote)
 	if err != nil {
 		return nil, "", fmt.Errorf("list skill repository refs through the Git broker: %w", err)
 	}

@@ -3,6 +3,7 @@ package skillimports
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,5 +119,59 @@ func TestPinnedRevMakesNoTransportCall(t *testing.T) {
 	}
 	if _, _, err := f.store.resolveLaunchWithFetcher(context.Background(), pinned, f.authority, f.now, fetch); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLaunchCheckAsksTheBrokerWhetherTheRecordedCommitMoved(t *testing.T) {
+	f := newLaunchCheckFixture(t, 3*time.Minute)
+	var got gitbroker.ImportFetchRequest
+	fetch := func(_ context.Context, request gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error) {
+		got = request
+		return gitbroker.ImportFetchResult{Commit: f.commit, ResolvedRef: "refs/heads/main", AccessClass: AccessAuthenticated, Unchanged: true}, nil
+	}
+	record, warning, err := f.store.resolveLaunchWithFetcher(context.Background(), f.entry, f.authority, f.now, fetch)
+	if err != nil || warning != "" {
+		t.Fatalf("launch check = (%v, %q)", err, warning)
+	}
+	if got.UnchangedIf != f.commit {
+		t.Fatalf("launch check sent UnchangedIf %q, want the recorded commit %q", got.UnchangedIf, f.commit)
+	}
+	// An unchanged answer keeps the record exactly: ResolvedAt is when this commit was resolved
+	// (skills list prints it), so confirming the ref has not moved neither rewrites it nor
+	// reports a change.
+	then := f.now.Add(-3 * time.Minute)
+	if record.Commit != f.commit || record.Change != nil || !record.ResolvedAt.Equal(then) {
+		t.Fatalf("unchanged answer altered the record: %+v", record)
+	}
+	onDisk, ok := f.store.Resolution(f.entry.Handle, f.entry)
+	if !ok || !onDisk.ResolvedAt.Equal(then) {
+		t.Fatalf("unchanged answer rewrote the stored record: %+v", onDisk)
+	}
+}
+
+func TestMovedBranchAfterUnchangedIfRecordsTheNewCommit(t *testing.T) {
+	f := newLaunchCheckFixture(t, 3*time.Minute)
+	other := strings.Repeat("b", 40) // the broker fetched it; the fake needs no real object
+	fetch := func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error) {
+		return gitbroker.ImportFetchResult{Commit: other, ResolvedRef: "refs/heads/main", AccessClass: AccessAuthenticated}, nil
+	}
+	record, _, err := f.store.resolveLaunchWithFetcher(context.Background(), f.entry, f.authority, f.now, fetch)
+	if err != nil || record.Commit != other || record.Change == nil || record.Change.PreviousCommit != f.commit {
+		t.Fatalf("moved branch = (%+v, %v), want the new commit recorded as a change", record, err)
+	}
+}
+
+func TestExplicitResolveAlwaysFetches(t *testing.T) {
+	f := newLaunchCheckFixture(t, 3*time.Minute)
+	var got gitbroker.ImportFetchRequest
+	fetch := func(_ context.Context, request gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error) {
+		got = request
+		return gitbroker.ImportFetchResult{Commit: f.commit, ResolvedRef: "refs/heads/main", AccessClass: AccessAuthenticated}, nil
+	}
+	if _, err := f.store.resolveWithFetcher(context.Background(), f.entry, f.authority, fetch); err != nil {
+		t.Fatal(err)
+	}
+	if got.UnchangedIf != "" {
+		t.Fatalf("an explicit refresh sent UnchangedIf %q; it must always fetch", got.UnchangedIf)
 	}
 }

@@ -310,7 +310,7 @@ setup the launching account can read the owner's clone path. Neither is measured
 
 - **Workspace `skill_imports` follows the new rule** ([`resolver.go:257`](../../internal/skillimports/resolver.go#L257)):
   `refreshDue` is true for every branch import at every fresh launch, under the same 5 s deadline. Its transport is the
-  git broker, so the check is the broker's own moved-or-not read when it has one and otherwise its fetch; either way a
+  git broker, so the check is the broker's moved-or-not read (`UnchangedIf`: one ref listing when unmoved, a fetch when moved); either way a
   failure or timeout serves the usable record with its existing warning ("the last usable commit is staged"), and a launch
   never queues behind another's refresh (`TryWithLock`, unchanged). A pinned `rev` still never refreshes.
 - **The background retry delays keep `BranchRefreshInterval`** ([`backgroundadvance.go:557`](../../internal/cli/backgroundadvance.go#L557),
@@ -376,8 +376,5 @@ Read at `d2a831cd8`, 2026-11-23, in the source; none run.
 - A `file://` pack follows symlinks and is `Local`; a fetched one does neither ([`packresolve.go:378`](../../internal/config/packresolve.go#L378)).
 - Not established: whether `newScratchOf` accepts a non-bare git directory for the clone's objects (it appends
   `<dir>/objects`, [`replay.go:546`](../../internal/packsrc/replay.go#L546)); whether `packstage.Stage` can take a file list or needs a
-  scratch snapshot; the exact patterns the patched fork's probe needs for each `follow` mode; whether the git broker offers `skill_imports` a moved-or-not read cheaper than its fetch (slice 3b: it does not;
-  `FetchImport` lists refs internally at [`importfetch.go:190`](../../internal/gitbroker/importfetch.go#L190) via the unexported
-  `listImportRefs` ([`:303`](../../internal/gitbroker/importfetch.go#L303)) but exports no ref-only read, so the launch check is the
-  fetch, under `PackCheckDeadline`). The planner checks each
-  before relying on it.
+  scratch snapshot; the exact patterns the patched fork's probe needs for each `follow` mode. The git broker's moved-or-not read for `skill_imports` now exists (slice 3b found none): `ImportFetchRequest.UnchangedIf` takes the recorded commit, and `FetchImport` (after the same `DecideImportAccess` decision as a fetch) makes one ref listing and, when the selected ref still names that commit, returns `Unchanged` without a scratch repository or object fetch; a moved ref fetches as before, and `launchCheck` is the only caller that sets it, still under `PackCheckDeadline`. The planner checks each
+  open item before relying on it.
