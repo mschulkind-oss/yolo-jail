@@ -75,7 +75,7 @@ A launch refreshes each branch pack through `refreshGrouped` ([`refresh.go:312`]
 one mirror at a time, and `fetchStep` fetches only when the ref's success stamp is over an hour old
 ([`refresh.go:537`](../../internal/packsrc/refresh.go#L537)). A patched fork's upstream check is throttled by its own
 stamp, `CheckDue` ([`checkrecord.go:540`](../../internal/packsrc/checkrecord.go#L540)), and "an attempt counts" so an
-offline machine retries hourly ([§4.2](../reference/patched-forks.md#42-the-throttle)). A patch branch in a local
+offline machine retries hourly ([§4.2](../reference/patched-forks.md#42-the-check-at-every-fresh-launch)). A patch branch in a local
 checkout already has the opposite rule: it refreshes at every fresh launch and picks the newest copy
 ([`patchbranchcopy.go:179`](../../internal/packsrc/patchbranchcopy.go#L179)); the clone's committed branch is compared, never
 its working tree.

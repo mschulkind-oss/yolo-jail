@@ -82,15 +82,18 @@ func TestSkipPatchesRunsTheUpstreamBuildAtALaunchAndLeavesTheSeriesAlone(t *test
 	}
 
 	fx.later(time.Minute)
-	checked := upstream.CheckedAt
 	delivery, out = slotLaunch(t)
 	again, _, _ := delivery("tool")
-	if again != key || len(fx.builds) != builds+1 || patchedRecordOf(t, "forkpack/tool#upstream").CheckedAt != checked {
-		t.Fatalf("the second launch did not reuse the upstream build inside the throttle: key %q builds %d\n%s",
+	if again != key || len(fx.builds) != builds+1 {
+		t.Fatalf("the second launch did not reuse the unmoved upstream's build: key %q builds %d\n%s",
 			again, len(fx.builds), out)
 	}
 	if !strings.Contains(out, "fork forkpack/tool: running upstream v1.4.0 without its 2 patches") {
 		t.Errorf("the second launch does not say the disclosure line:\n%s", out)
+	}
+
+	if got := checkRecordBytes(t, "forkpack/tool"); got != series {
+		t.Errorf("the series' check record moved across the upstream launches")
 	}
 
 	t.Setenv(patchrecovery.SkipPatchesEnv, "")
@@ -98,9 +101,6 @@ func TestSkipPatchesRunsTheUpstreamBuildAtALaunchAndLeavesTheSeriesAlone(t *test
 	back, backFailure, _ := delivery("tool")
 	if back != first.delivery.Key || backFailure == nil || backFailure.Target.Tag != seriesFailure.Target.Tag {
 		t.Fatalf("without the variable the launch is not the series' again: key %q failure %+v\n%s", back, backFailure, out)
-	}
-	if got := checkRecordBytes(t, "forkpack/tool"); got != series {
-		t.Errorf("the series' check record moved across the upstream launches")
 	}
 	if strings.Contains(out, "running upstream") {
 		t.Errorf("a launch without the variable says the upstream line:\n%s", out)

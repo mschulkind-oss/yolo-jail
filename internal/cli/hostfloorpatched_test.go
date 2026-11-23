@@ -195,9 +195,8 @@ func TestHostLaunchOfAPatchedForkRunsTheGoodBuildItsAdvanceMakes(t *testing.T) {
 	}
 
 	fx.later(10 * time.Minute)
-	if rc, target, out := fx.hostLaunch(t); rc != 0 || target != launcher || len(fx.builds) != 1 ||
-		strings.Contains(out, "checking fork") {
-		t.Fatalf("inside the hour: rc=%d target=%s builds=%d, want the same copy, no check and no build\n%s",
+	if rc, target, out := fx.hostLaunch(t); rc != 0 || target != launcher || len(fx.builds) != 1 {
+		t.Fatalf("inside the old hour: rc=%d target=%s builds=%d, want the same copy and no build (the unmoved upstream is only probed)\n%s",
 			rc, target, len(fx.builds), out)
 	}
 
@@ -763,7 +762,7 @@ func TestAWalkThatStopsLeavesTheFloorsCopyServing(t *testing.T) {
 		if !reflect.DeepEqual(floorBefore, *floorRecord(t, "tool")) || treeDigest(t, floorBefore.Dir) != copyBefore {
 			t.Errorf("the failed fetch changed the installed floor copy")
 		}
-		if !strings.Contains(out, "could not check its upstream") {
+		if !strings.Contains(out, "could not check origin main") {
 			t.Errorf("the failed fetch is not said:\n%s", out)
 		}
 	})

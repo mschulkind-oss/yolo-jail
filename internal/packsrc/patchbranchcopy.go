@@ -13,8 +13,8 @@ package packsrc
 //     BUDGET OF ITS OWN, half of what the check has left (budget.share), so a hung fetch times out as a failed
 //     fetch and the steps after it keep theirs. Nothing is ever fetched into, or written to, the user's
 //     repository.
-//   - WHEN. At every check, and at every fresh launch inside the hourly throttle as well
-//     (CheckOptions.RefreshPatchBranch): a branch that moved is a new build key and the normal check and
+//   - WHEN. At every check, which is every fresh launch (LPC-D6 retired the hourly throttle and with it
+//     the in-throttle refresh): a branch that moved is a new build key and the normal check and
 //     build run. At most once per repository and ref per command (patchBranchFetches).
 //   - WHICH COPY. No local branch: the remote tip. Equal: either. The local branch behind: the remote tip,
 //     and the local branch is said to be stale. Ahead: the local branch, with its unpushed commits counted.

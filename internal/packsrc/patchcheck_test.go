@@ -164,19 +164,19 @@ func TestABaseTheUpstreamLacksIsTheReason(t *testing.T) {
 	}
 }
 
-// THE THROTTLE IS A FILE READ: inside the interval, with nothing it reads changed, a check runs no
-// git — proven with a git that does not exist — and an edit to what it reads makes it due at once.
-func TestTheThrottleRunsNoGitInsideTheInterval(t *testing.T) {
+// A GIT SOURCE HAS NO THROTTLE (LPC-D6): a check ten minutes after the last runs, whatever the old hour
+// said, and an explicit act still runs too. CheckDue remains for the status lines and the background
+// advance's schedule: an edit to what a check reads is due at once, and the interval is only displayed.
+func TestAGitSourceIsCheckedAtEveryLaunch(t *testing.T) {
 	u := newPatchedUpstream(t)
 	w := u.want(t, "main", "")
 	u.check(t, w, false)
-	broken := &Store{Dir: u.store.Dir, Git: "/nonexistent/git", Getenv: noStagedTree}
+	u.now = u.now.Add(10 * time.Minute)
 	begun := false
-	u.now = u.now.Add(59 * time.Minute)
-	res := broken.CheckPatched(w, CheckOptions{Now: func() time.Time { return u.now },
+	res := u.store.CheckPatched(w, CheckOptions{Now: func() time.Time { return u.now },
 		Begin: func() (func(string), func()) { begun = true; return nil, func() {} }})
-	if res.Ran || begun || res.Err != nil || res.Record == nil || res.Record.Seq != 1 {
-		t.Errorf("a check inside the interval = %+v (begun %v), want the record read and no git", res, begun)
+	if !res.Ran || !begun || res.Err != nil || res.Record == nil || res.Record.Seq != 2 {
+		t.Errorf("a check inside the old interval = %+v (begun %v), want it run", res, begun)
 	}
 	// An edited follow is due at once.
 	w2 := w
@@ -184,12 +184,8 @@ func TestTheThrottleRunsNoGitInsideTheInterval(t *testing.T) {
 	if due, why := CheckDue(res.Record, mustInputs(t, w2), u.now, 0); !due || !strings.Contains(why, "changed") {
 		t.Errorf("an edited follow is due=%v (%q), want due at once", due, why)
 	}
-	// And past the interval, due.
-	if due, _ := CheckDue(res.Record, mustInputs(t, w), u.now.Add(2*time.Minute), 0); !due {
-		t.Error("a check past the interval is not due")
-	}
-	// An explicit act ignores the throttle.
-	if res := u.check(t, w, true); !res.Ran || res.Record.Seq != 2 {
+	// An explicit act checks too.
+	if res := u.check(t, w, true); !res.Ran || res.Record.Seq != 3 {
 		t.Errorf("a forced check = %+v, want it run", res)
 	}
 }
@@ -219,8 +215,8 @@ func TestAPackRefreshOfTheSameBranchDoesNotSkipTheCheck(t *testing.T) {
 	}
 }
 
-// AN ATTEMPT COUNTS: a check whose fetch failed writes its stamp, so the next launch inside the
-// hour runs no git, and the record names the failure.
+// THE STAMP IS THE LAST ATTEMPT: a check whose fetch failed writes its stamp and names the failure, and
+// the next launch checks again (LPC-D6), rather than waiting out an hour.
 func TestAFailedFetchStillStampsTheAttempt(t *testing.T) {
 	u := newPatchedUpstream(t)
 	w := u.want(t, "main", "")
@@ -237,8 +233,11 @@ func TestAFailedFetchStillStampsTheAttempt(t *testing.T) {
 		t.Errorf("an offline check = %+v, want the failure noted and the mirror's answer kept", f)
 	}
 	u.now = u.now.Add(10 * time.Minute)
-	if again := u.check(t, w, false); again.Ran {
-		t.Error("the check after a failed one ran inside the interval: the attempt did not count")
+	if res.Record.CheckedAt != u.now.Add(-10*time.Minute).Unix() {
+		t.Errorf("the stamp = %d, want the failed attempt's", res.Record.CheckedAt)
+	}
+	if again := u.check(t, w, false); !again.Ran {
+		t.Error("the check after a failed one did not run: a failed attempt must not throttle the next launch")
 	}
 }
 
@@ -295,9 +294,10 @@ func TestTheCheckTakesTheRecordLockBeforeTheMirrors(t *testing.T) {
 	}
 }
 
-// THE LOSER OF A CHECK RACE TAKES THE WINNER'S: a check that waited for the record lock re-reads
-// the stamp the other check wrote and runs no git.
-func TestACheckThatWaitedReadsTheOthersStamp(t *testing.T) {
+// THE LOSER OF A CHECK RACE PROBES AGAIN (LPC-D6, §5): a check that waited for the record lock re-reads
+// the record the other check wrote and, with no throttle, runs its own (a qualifying FreshAfter check is the
+// only thing it reuses, TestFreshCheckBoundaryExcludesInFlightAndSharesFollowup).
+func TestACheckThatWaitedProbesAfterTheOthers(t *testing.T) {
 	u := newPatchedUpstream(t)
 	w := u.want(t, "main", "")
 	in := mustInputs(t, w)
@@ -320,8 +320,8 @@ func TestACheckThatWaitedReadsTheOthersStamp(t *testing.T) {
 	}
 	unlock()
 	res := <-done
-	if res.Ran || res.Record == nil || res.Record.Seq != 7 {
-		t.Errorf("the waiter = %+v, want the other check's record and no git", res)
+	if !res.Ran || res.Record == nil || res.Record.Seq != 8 {
+		t.Errorf("the waiter = %+v, want its own check after the other's (seq 8)", res)
 	}
 }
 

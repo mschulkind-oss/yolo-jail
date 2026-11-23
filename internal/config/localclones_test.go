@@ -119,7 +119,7 @@ func TestAPathPackRegistersItsCloneForAnotherPacksPublishedURL(t *testing.T) {
 	want := packsrc.PatchedWant{Owner: "fetched/tool", Source: "git+file://" + upstream + "?ref=main",
 		PatchBranch: "git+ssh://git@example.com/o/r?ref=mine"} // the ssh:// spelling still matches the scp remote
 	now := time.Unix(1_800_000_000, 0)
-	res := store.CheckPatched(want, packsrc.CheckOptions{RefreshPatchBranch: true, Now: func() time.Time { return now }})
+	res := store.CheckPatched(want, packsrc.CheckOptions{Now: func() time.Time { return now }})
 	if res.Err != nil {
 		t.Fatal(res.Err)
 	}

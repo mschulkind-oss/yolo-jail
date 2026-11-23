@@ -199,7 +199,9 @@ func TestPatchActorNextLaunchStillBuildsFirstTreeWithoutFallback(t *testing.T) {
 }
 
 func TestPatchActorReapedCopyClearsOnlyFreshlyIrrelevantFailure(t *testing.T) {
-	for _, mode := range []string{"accepted-removal", "failed-fetch", "problem", "unreadable"} {
+	// "accepted-removal" is gone with the throttle (LPC-D6): the delivery now checks the upstream itself, which still
+	// lists the failed target, so no simulated check can stand in for it.
+	for _, mode := range []string{"failed-fetch", "problem", "unreadable"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv("YOLO_ALLOW_PATCH_FAILURES", "")
 			fx := newTreeFixture(t, `"f.txt"`)

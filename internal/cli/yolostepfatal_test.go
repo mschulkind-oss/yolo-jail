@@ -219,7 +219,7 @@ func TestAnUnreachableUpstreamRunsTheGoodBuildAtAJailLaunch(t *testing.T) {
 	if got.delivery.PatchFailure != nil || got.delivery.Key != good.delivery.Key || len(fx.builds) != 1 {
 		t.Fatalf("an unreachable upstream handed %+v after %d builds, want the good build\n%s", got, len(fx.builds), out)
 	}
-	if !strings.Contains(out, "could not check its upstream") || !strings.Contains(out, "still running v1.1.0") ||
+	if !strings.Contains(out, "could not check origin main") || !strings.Contains(out, "still running v1.1.0") ||
 		strings.Contains(out, "ERROR") {
 		t.Errorf("the launch does not say it could not check and runs the good build:\n%s", out)
 	}

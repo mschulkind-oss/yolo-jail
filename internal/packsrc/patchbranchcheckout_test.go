@@ -71,7 +71,7 @@ func (f *checkoutFixture) localMine(t *testing.T, start string, n int) string {
 // launch runs the check a fresh launch runs (RefreshPatchBranch, not forced) at the fixture's clock.
 func (f *checkoutFixture) launch(t *testing.T) CheckResult {
 	t.Helper()
-	res := f.store.CheckPatched(f.want(), CheckOptions{RefreshPatchBranch: true, Now: func() time.Time { return f.now }})
+	res := f.store.CheckPatched(f.want(), CheckOptions{Now: func() time.Time { return f.now }})
 	if res.Err != nil {
 		t.Fatalf("CheckPatched: %v", res.Err)
 	}
@@ -371,7 +371,7 @@ func TestEachRemoteIsFetchedOncePerCommand(t *testing.T) {
 	for _, owner := range []string{"forkpack/tool", "forkpack/other"} { // one launch, two owners, one patch branch
 		w := f.want()
 		w.Owner = owner
-		if res := f.store.CheckPatched(w, CheckOptions{RefreshPatchBranch: true, Now: func() time.Time { return f.now }}); res.Err != nil {
+		if res := f.store.CheckPatched(w, CheckOptions{Now: func() time.Time { return f.now }}); res.Err != nil {
 			t.Fatal(res.Err)
 		}
 	}

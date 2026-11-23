@@ -456,9 +456,9 @@ func TestFreshCheckBypassesHeldRecentStampAndReusesAdmittedBuild(t *testing.T) {
 	}
 }
 
-// INSIDE THE HOUR, NOTHING PENDING: the next launch runs no git process at all (P4) and hands the
-// same build, building nothing.
-func TestALaunchInsideTheHourRunsNoGit(t *testing.T) {
+// INSIDE THE OLD HOUR, NOTHING PENDING: the next launch probes the upstream (one ls-remote, LPC-D6; P4 is
+// retired), fetches and replays nothing, and hands the same build, building nothing.
+func TestALaunchInsideTheOldHourOnlyProbes(t *testing.T) {
 	fx, _, _, r, _, _ := firstAdvance(t)
 	realGit, err := exec.LookPath("git")
 	if err != nil {
@@ -487,8 +487,14 @@ func TestALaunchInsideTheHourRunsNoGit(t *testing.T) {
 		t.Errorf("the second launch handed %+v after %d builds, want the first's build and no new one\n%s",
 			again.delivery, len(fx.builds), out)
 	}
-	if logged, err := os.ReadFile(logPath); err == nil && len(logged) > 0 {
-		t.Errorf("a launch inside the hour ran git:\n%s", logged)
+	logged, _ := os.ReadFile(logPath)
+	for _, sub := range []string{" fetch ", " clone ", " am ", " apply "} {
+		if strings.Contains(" "+string(logged)+" ", sub) {
+			t.Errorf("a launch whose upstream had not moved ran git%s:\n%s", sub, logged)
+		}
+	}
+	if !strings.Contains(string(logged), "ls-remote") {
+		t.Errorf("a launch inside the old hour did not probe the upstream:\n%s", logged)
 	}
 }
 

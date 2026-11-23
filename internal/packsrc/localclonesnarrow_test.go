@@ -49,7 +49,7 @@ func (f *checkoutFixture) checkRef(t *testing.T, ref string) CheckResult {
 	t.Helper()
 	w := f.want()
 	w.PatchBranch = "git+https://github.com/o/r?ref=" + ref
-	res := f.store.CheckPatched(w, CheckOptions{RefreshPatchBranch: true, Now: func() time.Time { return f.now }})
+	res := f.store.CheckPatched(w, CheckOptions{Now: func() time.Time { return f.now }})
 	if res.Err != nil {
 		t.Fatalf("CheckPatched: %v", res.Err)
 	}

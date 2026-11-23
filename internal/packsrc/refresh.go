@@ -68,10 +68,10 @@ import (
 )
 
 // BranchRefreshInterval is the backoff the background retry delays wait after a failed refresh
-// (backgroundadvance.go, preparationforks.go), the throttle a patched fork's check still keeps
-// (CheckDue, until its own slice) and the skill_imports resolver's refreshDue (until its slice). It
-// no longer throttles a branch pack's launch-time fetch: every launch probes the remote instead
-// (fetchStep, probeMoved; docs/design/local-pack-clones.md LPC-D1).
+// (backgroundadvance.go, preparationforks.go), the interval of an npm source's check and of CheckDue's
+// status lines, and the skill_imports resolver's refreshDue (until its slice). It no longer throttles a
+// branch pack's or a patched fork's launch-time check: every launch probes the remote instead (fetchStep,
+// probeMoved; docs/design/local-pack-clones.md LPC-D1, LPC-D6).
 const BranchRefreshInterval = 3600 * time.Second
 
 // LaunchFetchTimeout bounds each LAUNCH-TIME fetch, through the store's own Timeout: one
@@ -216,11 +216,14 @@ var gitTimedOut = regexp.MustCompile(`git (\S+) timed out after ([0-9.a-zµ]+)`)
 
 // checkCause is why a check gave no answer, in the warning's words: "ls-remote timed out after 5s"
 // for a run the deadline killed, else the error's first line.
-func checkCause(err error) string {
-	if m := gitTimedOut.FindStringSubmatch(err.Error()); m != nil {
+func checkCause(err error) string { return CheckCause(err.Error()) }
+
+// CheckCause is checkCause for an error already recorded as text (CheckFound.FetchErr).
+func CheckCause(msg string) string {
+	if m := gitTimedOut.FindStringSubmatch(msg); m != nil {
 		return m[1] + " timed out after " + m[2]
 	}
-	return oneLine(err)
+	return oneLine(errors.New(msg))
 }
 
 // Refresh brings every git pack in packs up to the ref rule above, checks each resolved

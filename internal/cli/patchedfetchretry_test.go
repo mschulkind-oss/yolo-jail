@@ -97,9 +97,9 @@ func TestALaunchAfterAFailedFetchFetchesAgainAndBuilds(t *testing.T) {
 	}
 }
 
-// A LAUNCH THAT HAS A GOOD BUILD TO RUN keeps the throttle (§4.2's "an attempt counts"): after a
-// failed fetch it runs the good build and runs no git inside the hour.
-func TestAServingLaunchAfterAFailedFetchKeepsTheThrottle(t *testing.T) {
+// A LAUNCH THAT HAS A GOOD BUILD TO RUN checks again too (LPC-D6 retired "an attempt counts"): after a
+// failed fetch it runs the good build, and the next launch, with the network back, fetches and builds.
+func TestAServingLaunchAfterAFailedFetchChecksAgain(t *testing.T) {
 	fx, _, _, first, _, _ := firstAdvance(t)
 	fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 	offline := offlineFetches(t)
@@ -114,10 +114,11 @@ func TestAServingLaunchAfterAFailedFetchKeepsTheThrottle(t *testing.T) {
 	log := patchedGitWrapper(t, "")
 	fx.later(10 * time.Minute)
 	r, out, _ = fx.launch(t, "podman")
-	if r.delivery.Key != first.delivery.Key {
-		t.Fatalf("inside the hour the launch was handed %+v, want the good build\n%s", r.delivery, out)
+	if r.delivery.Key == "" || r.delivery.Key == first.delivery.Key || len(fx.builds) != 2 {
+		t.Fatalf("with the network back the next launch was handed %+v after %d builds, want the new version built\n%s",
+			r.delivery, len(fx.builds), out)
 	}
-	if data, _ := os.ReadFile(log); strings.Contains(string(data), "fetch") {
-		t.Errorf("a launch with a good build fetched inside the hour after a failed attempt:\n%s", data)
+	if data, _ := os.ReadFile(log); !strings.Contains(string(data), "fetch") {
+		t.Errorf("the launch after a failed attempt did not fetch:\n%s", data)
 	}
 }
