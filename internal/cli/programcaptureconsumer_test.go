@@ -143,7 +143,7 @@ func TestSelectedNPMPreparedMarkerMismatchRematerializesAndMissingPayloadFails(t
 	}
 }
 
-func TestSelectedNPMGeneratedLegacyConsumerWritesInstallStamp(t *testing.T) {
+func TestSelectedNPMGeneratedLegacyConsumerClaimsItsJailStartCheck(t *testing.T) {
 	f := newSelectedNPMFixture(t)
 	home := t.TempDir()
 	root := t.TempDir()
@@ -156,7 +156,17 @@ func TestSelectedNPMGeneratedLegacyConsumerWritesInstallStamp(t *testing.T) {
 		t.Fatal(err)
 	}
 	// No ProgramCapturesEnv: this is the real generated launcher’s ordinary installer
-	// route, so the pack probe’s stamp assertion remains covered by an actual consumer.
+	// route, so what that route records stays covered by an actual consumer. It records the per-start
+	// claim marker (docs/design/launcher-update-per-jail-start.md LU-D1, LU-D9), not an hourly stamp; the
+	// boot's jail-start record, which only the boot writes, is the fixture's.
+	const startID = "0123456789abcdef0123456789abcdef"
+	startRecord := filepath.Join(home, filepath.FromSlash(entrypoint.JailStartRel))
+	if err := os.MkdirAll(filepath.Dir(startRecord), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(startRecord, []byte(startID+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	e := entrypoint.NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_WORKSPACE": filepath.Join(home, "ws"),
 		"YOLO_PACK_ROOT": root, entrypoint.CapturesDirEnv: f.store.Dir})
 	if err := entrypoint.GenerateAgentLaunchers(e); err != nil {
@@ -165,12 +175,18 @@ func TestSelectedNPMGeneratedLegacyConsumerWritesInstallStamp(t *testing.T) {
 	if out := runSelectedConsumer(t, f, home, e, entrypoint.InstallOnlyEnv); strings.Contains(out, "1.0.0") {
 		t.Fatalf("legacy readiness ran target: %s", out)
 	}
-	stamp := filepath.Join(home, ".cache/yolo-agent-stamps/probe.stamp")
-	if _, err := os.Stat(stamp); err != nil {
-		t.Fatalf("legacy installer did not write its actual stamp: %v", err)
-	}
-	if got := strings.TrimSpace(runSelectedConsumer(t, f, home, e, "")); got != "1.0.0" {
+	// The claimed check says "is already current" before the program's own output.
+	got := strings.Split(strings.TrimSpace(runSelectedConsumer(t, f, home, e, "")), "\n")
+	if got[len(got)-1] != "1.0.0" {
 		t.Fatalf("legacy launcher version = %q", got)
+	}
+	// The ordinary run after the cold install is the one that claims the jail start's check.
+	claim := filepath.Join(home, filepath.FromSlash(entrypoint.LaunchChecksDirRel), "probe."+startID)
+	if _, err := os.Stat(claim); err != nil {
+		t.Fatalf("legacy installer route did not claim this jail start's check: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".cache/yolo-agent-stamps/probe.stamp")); !os.IsNotExist(err) {
+		t.Fatalf("legacy installer route wrote the hourly stamp LU-D1 removed: %v", err)
 	}
 	if _, err := os.Stat(entrypoint.ProgramCaptureMarker(home, "probe")); !os.IsNotExist(err) {
 		t.Fatalf("legacy consumer unexpectedly wrote a prepared marker: %v", err)
