@@ -128,11 +128,9 @@ func (h *probeHarness) write(t *testing.T) {
 	receipts := filepath.Join(h.home, "ws", ".yolo", "receipts.jsonl")
 	servers := launcherServers{npm: "some-mcp-server"}
 	var body string
-	if h.template == "npm" || h.template == "native" {
-		// The launcher's check is once per jail start: the boot's record makes it due.
-		if err := writeJailStart(h.home); err != nil {
-			t.Fatal(err)
-		}
+	// The launcher's check and the refresh are once per jail start: the boot's record makes both due.
+	if err := writeJailStart(h.home); err != nil {
+		t.Fatal(err)
 	}
 	switch h.template {
 	case "npm":
@@ -432,8 +430,9 @@ func TestShippedPiVersionProbeRunsNoUpdateStep(t *testing.T) {
 	if !strings.Contains(string(body), "\nPROBE_ARGS=(--version -v)\n") {
 		t.Fatalf("the shipped pi launcher does not declare --version and -v as its probe")
 	}
-	// pi's own hourly update is due too (no stamp), and npm is a fake that logs every call.
-	if err := os.Remove(filepath.Join(home, ".cache", "yolo-agent-stamps", "pi.stamp")); err != nil {
+	// pi's own update is due too (a jail start that has checked nothing), and npm is a fake that
+	// logs every call.
+	if err := writeJailStart(home); err != nil {
 		t.Fatal(err)
 	}
 	fakeBin, npmLog := filepath.Join(home, "fakebin"), filepath.Join(home, "npm.log")

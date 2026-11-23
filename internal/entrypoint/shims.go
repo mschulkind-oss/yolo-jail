@@ -1181,7 +1181,7 @@ _drop_lock_signalled() {
 // these generated launchers NATIVELY on the host (RunDarwinBootstrap calls the same three
 // generators the container's boot path does), where BSD stat rejects `-c` and the old
 // `|| echo 0` swallowed it. The stamp's mtime then read as epoch 0, so every
-// `$(date +%s) - 0` age was ~56 years — permanently `-gt UPDATE_INTERVAL` and
+// `$(date +%s) - 0` age was ~56 years — permanently past any age bound and
 // permanently `-lt RETRY_INTERVAL`. Every launch polled the registry (npm agent), ran a
 // self-update (native agent), or re-attempted a failed install (package manager): the
 // exact per-invocation network traffic all three throttles exist to prevent, silently, on
@@ -1501,7 +1501,7 @@ _refresh_agent_auth() {
 // number in prose is a claim that goes stale without anything failing.
 //
 // THE LAUNCHER RESOLVES A NEW VERSION FOR AN UNPINNED PACKAGE, at most once per
-// UPDATE_INTERVAL, when the jail's agent_updates policy allows it (program-delivery.md
+// jail start, when the jail's agent_updates policy allows it (program-delivery.md
 // §3.5, OQ-PD12). It used to only REPORT: trust-paths.md §1 row 1 ("no magical evergreen
 // npm packages", 2026-08-18) took the hourly reinstall away, and OQ-PD3 was narrowed on
 // 2026-09-03 to say that ruling covers PROJECT dependencies and not the agent class.
@@ -1509,7 +1509,7 @@ _refresh_agent_auth() {
 // to "which version", so there is nothing to resolve.
 const npmLauncherTemplate = `#!/bin/bash
 # Lazy-install launcher — installs on first use, not at boot, and refreshes an UNPINNED
-# package at most once per UPDATE_INTERVAL. BIN below names the program.
+# package at most once per jail start. BIN below names the program.
 set -euo pipefail
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
@@ -1528,10 +1528,6 @@ PKG=__YOLO_PKG__
 SPEC=__YOLO_SPEC__
 PINNED=__YOLO_PINNED__   # 1 when the declaration carried a version selector
 ` + checkClaimDeclShell + `
-# The PRE-LAUNCH REFRESH's hourly stamp still reads this (prelaunchrefresh.go, _refresh_due); the
-# program's own check above no longer does. Slice 4 of the design moves the refresh to per-start
-# markers and deletes this line.
-UPDATE_INTERVAL=3600
 UPDATE_TIMEOUT=60    # a hung updater must not hang the command the user typed
 STALE_LOCK=600        # a lock nobody released must not freeze updates forever
 # 1 when this jail's agent_updates policy lets this pack move. BAKED, so a launcher
@@ -2050,9 +2046,6 @@ REAL_BIN="$HOME/.local/bin/$BIN"
 # 1 once the vendor installer this run started exited 0 and left no $REAL_BIN (_say_misplaced).
 _YOLO_MISPLACED=0
 ` + checkClaimDeclShell + `
-# The PRE-LAUNCH REFRESH's hourly stamp still reads this (prelaunchrefresh.go, _refresh_due); the
-# program's own check no longer does. Slice 4 of the design moves the refresh to per-start markers.
-UPDATE_INTERVAL=3600
 # A hung vendor updater must not hang the command the user actually typed (§3.5): after
 # this many seconds the launcher proceeds with whatever is already installed.
 UPDATE_TIMEOUT=60

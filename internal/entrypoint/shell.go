@@ -400,7 +400,7 @@ fc-cache >/dev/null 2>&1
 # Every program a selected pack declares (agent CLIs included) is installed by the readiness
 # act at the END of this script, through its own launcher in ~/.yolo/bin/launch, so it is
 # there before the command runs (OQ-JR1).  The launchers still refresh a program at
-# invocation, at most once per UPDATE_INTERVAL, and still install one that a failed or
+# invocation, at most once per jail start, and still install one that a failed or
 # skipped readiness left absent.  Never a language server: a configured lsp_servers command
 # must already be on PATH.
 

@@ -565,7 +565,7 @@ const (
 // refreshed, so the pre-launch refresh stays throttled for a --version probe (AGENTS.md: no
 // agent runs beyond --version). A pack whose refresh declares due_on_change is ALSO due when
 // the watched files' content was never refreshed, which on a fresh CI home it never was, so
-// touching the hourly stamp alone no longer suffices. The key is computed exactly as the
+// touching the refresh stamp alone no longer suffices. The key is computed exactly as the
 // launcher's _refresh_content_key does (internal/entrypoint/prelaunchrefresh.go); if that
 // formula drifts, the "Refreshing" check below fails rather than quietly running the vendor.
 // The list is read from the shipped pack's own declaration, so it cannot drift from pack.json.

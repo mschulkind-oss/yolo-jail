@@ -116,6 +116,8 @@ type prelaunchProbe struct {
 	// registry is fakeRegistryDir, first on every run's PATH, so a failed refresh's registry probe
 	// (PD-NF3) reaches no network; a cell passes registryDownEnv to make it unreachable.
 	registry string
+	// startID is the jail-start record the probe's home holds.
+	startID string
 }
 
 // newPrelaunchProbe seeds a fake program at REAL_BIN (so the launch path, not the cold-install
@@ -149,17 +151,27 @@ func newPrelaunchProbe(t *testing.T, native bool) *prelaunchProbe {
 	if err := os.WriteFile(p.realBin, []byte(fakeRefreshProgram(p.log, p.lockPath())), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(p.stamps, "tool.stamp"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// A jail start whose check of the PROGRAM has been claimed, so the only thing due is the
+	// refresh: the two must not be confused.
+	claimCheck(t, home, "tool")
+	p.startID = readJailStart(t, home)
 	return p
+}
+
+// newStart is a later jail start: a fresh record, with the program's own check claimed so only
+// the refresh can be due. Every refresh stamp of the earlier start is now someone else's.
+func (p *prelaunchProbe) newStart(t *testing.T) {
+	t.Helper()
+	claimCheck(t, p.home, "tool")
+	p.startID = readJailStart(t, p.home)
 }
 
 func (p *prelaunchProbe) lockPath() string { return filepath.Join(p.home, probeLockRel) }
 
-// stampPath is the refresh's stamp where production names it, beside the lock (XB-D14).
+// stampPath is THIS start's refresh stamp where production names it, beside the lock (XB-D14):
+// <bin>.stamp.<id>. The name is spelled here, so the production name is pinned.
 func (p *prelaunchProbe) stampPath() string {
-	return filepath.Join(p.home, filepath.FromSlash(RefreshStampRel(probeLockRel, "tool")))
+	return filepath.Join(p.home, filepath.FromSlash(RefreshStampRel(probeLockRel, "tool")+"."+p.startID))
 }
 
 // write renders the launcher through the production generator.
@@ -328,9 +340,9 @@ func TestPrelaunchRefreshRunsBeforeTheLaunchUnderTheLock(t *testing.T) {
 	}
 }
 
-// TestPrelaunchRefreshIsThrottledByItsStamp: at most once per UPDATE_INTERVAL, and the stamp
-// is the refresh's own — a fresh PROGRAM stamp (seeded by the probe) did not suppress it
-// above, and a fresh refresh stamp suppresses it here.
+// TestPrelaunchRefreshIsThrottledByItsStamp: once per jail start (LU-D1), and the stamp is the
+// refresh's own — the program's claimed check (seeded by the probe) did not suppress it above,
+// and this start's refresh stamp suppresses it here. A new start refreshes again.
 func TestPrelaunchRefreshIsThrottledByItsStamp(t *testing.T) {
 	p := newPrelaunchProbe(t, false)
 	p.run(t, "")
@@ -339,12 +351,12 @@ func TestPrelaunchRefreshIsThrottledByItsStamp(t *testing.T) {
 	}
 	p.run(t, "")
 	if n := countLine(p.logLines(t), "REFRESH"); n != 1 {
-		t.Errorf("a second launch inside UPDATE_INTERVAL must not refresh again (ran %d times)", n)
+		t.Errorf("a second launch of one jail start must not refresh again (ran %d times)", n)
 	}
-	backdatePath(t, p.stampPath(), 2*time.Hour)
+	p.newStart(t)
 	p.run(t, "")
 	if n := countLine(p.logLines(t), "REFRESH"); n != 2 {
-		t.Errorf("a launch past UPDATE_INTERVAL must refresh again (ran %d times)", n)
+		t.Errorf("a launch of a new jail start must refresh again (ran %d times)", n)
 	}
 }
 
@@ -555,7 +567,7 @@ func TestPrelaunchRefreshIsBoundedByUpdateTimeout(t *testing.T) {
 			t.Errorf("the fallback must say it could not detach the refresh:\n%s", stderr)
 		}
 
-		backdatePath(t, p.stampPath(), 2*time.Hour)
+		p.newStart(t)
 		if err := os.Remove(p.log); err != nil {
 			t.Fatal(err)
 		}
@@ -708,11 +720,15 @@ func TestConcurrentJailsRefreshTheSharedStoreOnce(t *testing.T) {
 	if n := countLine(log, "LAUNCH:"); n != 2 {
 		t.Errorf("both jails must launch, got %d:\n%v", n, log)
 	}
-	// And now the stamp A wrote throttles B: the next launch in B does not refresh.
+	// B was skipped, so it left no stamp for ITS start (the stamps are per jail start, LU-D8, and
+	// A's does not stand in for B's): B's next launch refreshes once, and the one after does not.
 	b.run(t, "")
-	if n := countLine(logLines(t, a.log), "REFRESH"); n != 1 {
-		t.Errorf("A's stamp lives in the store the two jails share, so it must throttle B "+
-			"too (refreshes=%d)", n)
+	if n := countLine(logLines(t, a.log), "REFRESH"); n != 2 {
+		t.Errorf("B's own jail start was due and did not refresh (refreshes=%d)", n)
+	}
+	b.run(t, "")
+	if n := countLine(logLines(t, a.log), "REFRESH"); n != 2 {
+		t.Errorf("B's stamp must throttle B for the rest of its start (refreshes=%d)", n)
 	}
 }
 
@@ -931,7 +947,7 @@ func TestShippedPiLauncherRefreshesItsExtensions(t *testing.T) {
 			"under and its workspace's lock, then launch:\n got %q\nwant %q\n%s", got, want, out)
 	}
 	const piLock = ".pi/.yolo-update.lock"
-	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(RefreshStampRel(piLock, "pi")))); err != nil {
+	if _, err := os.Stat(filepath.Join(home, filepath.FromSlash(RefreshStampRel(piLock, "pi")+"."+readJailStart(t, home)))); err != nil {
 		t.Errorf("the refresh stamp is not in the workspace's .pi beside its lock: %v", err)
 	}
 	if ents, err := os.ReadDir(filepath.Join(home, filepath.FromSlash(RefreshSeenRel(piLock, "pi")))); err != nil || len(ents) != 1 {
@@ -987,7 +1003,9 @@ func TestTheShippedPiLauncherRefreshesOnlyForRawEntriesAndNeverForAProbe(t *test
 				}
 			}
 			// The program's own update is due too: a probe must not run it either.
-			backdatePath(t, filepath.Join(home, ".cache", "yolo-agent-stamps", "pi.stamp"), 2*time.Hour)
+			if err := writeJailStart(home); err != nil { // a start that has checked nothing yet
+				t.Fatal(err)
+			}
 			fakeNpm := filepath.Join(home, "fakebin")
 			if err := os.MkdirAll(fakeNpm, 0o755); err != nil {
 				t.Fatal(err)
@@ -1081,9 +1099,7 @@ func shippedPiLauncher(t *testing.T) (launcher, home, log string) {
 	if err := os.WriteFile(realBin, []byte(fakeRefreshProgram(log, lock)), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".cache", "yolo-agent-stamps", "pi.stamp"), nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	claimCheck(t, home, "pi") // the jail-start record, and the program's check claimed
 	if !strings.Contains(string(body), "\nPROBE_ARGS=(--version -v)\n") ||
 		!strings.Contains(string(body), "\nHAS_REFRESH_ONLY_IF=1\n") {
 		t.Fatalf("the shipped pi launcher does not bake its probe arguments and its worth-running test")

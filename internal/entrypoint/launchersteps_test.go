@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 )
@@ -65,8 +64,7 @@ func TestAVersionProbeSkipsTheUpdateAndTheRefresh(t *testing.T) {
 		for _, arg := range []string{"--version", "chat"} {
 			p := newPrelaunchProbe(t, native)
 			p.probe = []string{"--version", "-v"}
-			backdatePath(t, filepath.Join(p.stamps, "tool.stamp"), 2*time.Hour) // the refresh's stamp is due
-			// The program's check is once per jail start: the boot's record makes it due.
+			// The program's check and the refresh are once per jail start: a fresh record makes both due.
 			if err := writeJailStart(p.home); err != nil {
 				t.Fatal(err)
 			}
