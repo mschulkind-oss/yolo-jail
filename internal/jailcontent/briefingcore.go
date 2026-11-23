@@ -27,15 +27,16 @@ const corePortListMax = 4
 // coreLines are the core's bullets and its pointer, after the header and any alert.
 func coreLines(in BriefingInput, v briefingView, topics []BriefingTopic) []string {
 	lines := []string{coreWorkspaceLine(in, v), coreSurvivesLine(in, v), coreNetworkLine(in, v), coreNotInHereLine(in)}
-	// The three rules the host-requests topic opens with: approvals are the human's, commands go
-	// on their own lines, and a background waiter follows. A refusal prints the menu; it cannot
-	// make the agent relay it.
-	lines = append(lines, "- **Asking the human**: relay a refusal's whole menu, each command alone in a "+
-		"code block; run `yolo wait <id>` in the background and retry once on exit 0. "+
-		"`yolo approve`, `yolo config apply` and `yolo allow` are the human's to run; anything "+
-		"else only the host can do: `yolo host-run`.")
+	// The host-requests topic carries the procedure; this always-loaded line makes the host-only
+	// trigger visible before the refusal and approval reminders.
+	lines = append(lines, "- **Host-only work**: Need host environment/capability? Request `yolo host-run`; "+
+		"no confinement bypass or human handoff. Relay full refusal menu; one command per code block. "+
+		"Background `yolo wait <id>`; retry once on exit 0. Human runs `yolo approve`, `yolo config apply`, `yolo allow`.")
 	if blocked := coreBlockedLine(in.BlockedTools); blocked != "" {
 		lines = append(lines, blocked)
+	}
+	if goCache := coreGoCacheLine(in); goCache != "" {
+		lines = append(lines, goCache)
 	}
 	return append(lines, "", corePointer(in, topics), "")
 }
@@ -211,6 +212,16 @@ func joinAnd(names []string) string {
 		return names[0]
 	}
 	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// coreGoCacheLine keeps the always-loaded ownership rule concise; the storage topic carries
+// platform defaults and the procedures.
+func coreGoCacheLine(in BriefingInput) string {
+	if !in.SharedGoCache {
+		return ""
+	}
+	return "- **Go cache**: keep shared `GOCACHE` and owner overrides; no repo/worktree/agent/version caches or " +
+		"routine `go env -w`/`go clean -cache` (tell workers). If unwritable, read the storage topic."
 }
 
 // corePointer is the core's last line: the one place it names the skill that holds the rest

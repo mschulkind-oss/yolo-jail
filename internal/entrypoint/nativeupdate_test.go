@@ -27,6 +27,7 @@ type updateProbe struct {
 	stamps  string
 	script  string
 	realBin string
+	starts  int // jail starts newJailStart has written
 }
 
 // newUpdateProbe writes a launcher for `probetool` with the given verb and policy, and
@@ -53,6 +54,10 @@ func newUpdateProbeAt(t *testing.T, verb []string, updates bool, install bool, u
 		stamps:  filepath.Join(home, "stamps"),
 		script:  filepath.Join(home, "launch-probetool"),
 		realBin: filepath.Join(home, ".local", "bin", "probetool"),
+	}
+	// The check is once per jail start: the boot's record makes the program's update due.
+	if err := writeJailStart(home); err != nil {
+		t.Fatal(err)
 	}
 	if install {
 		if err := os.MkdirAll(filepath.Dir(p.realBin), 0o755); err != nil {
@@ -142,27 +147,6 @@ func TestNativeLauncherRunsTheDeclaredUpdateVerb(t *testing.T) {
 	}
 	if got[1] != "RAN:" {
 		t.Errorf("the launcher must exec the program after updating it: %q", got[1])
-	}
-}
-
-// TestNativeLauncherThrottlesOnTheStamp: a second invocation inside UPDATE_INTERVAL does no
-// update work at all. Without this the vendor updater runs on every single invocation.
-func TestNativeLauncherThrottlesOnTheStamp(t *testing.T) {
-	p := newUpdateProbe(t, []string{"update"}, true, true)
-
-	if _, rc := p.run(t); rc != 0 {
-		t.Fatalf("first run rc=%d", rc)
-	}
-	if _, rc := p.run(t); rc != 0 {
-		t.Fatalf("second run rc=%d", rc)
-	}
-	got := p.argvLog(t)
-	// update + launch, then launch alone.
-	if len(got) != 3 {
-		t.Fatalf("expected 3 invocations (update, launch, launch), got %v", got)
-	}
-	if got[2] != "RAN:" {
-		t.Errorf("the second invocation must be a plain launch, got %q", got[2])
 	}
 }
 
@@ -341,12 +325,12 @@ func TestNativeLauncherUpdateModeReportsTheVerbsStatus(t *testing.T) {
 	}
 }
 
-// TestNativeLauncherUpdateModeIgnoresTheStampAndThePolicy: `yolo pack update` is the act a
+// TestNativeLauncherUpdateModeIgnoresTheClaimAndThePolicy: `yolo pack update` is the act a
 // human performs, and §3.5 leaves it exactly one job the launcher cannot do — refreshing a
 // pack whose `agent_updates` is false, now, without restarting the jail.
-func TestNativeLauncherUpdateModeIgnoresTheStampAndThePolicy(t *testing.T) {
+func TestNativeLauncherUpdateModeIgnoresTheClaimAndThePolicy(t *testing.T) {
 	p := newUpdateProbe(t, []string{"update"}, false /* frozen */, true)
-	seedFreshStamp(t, p.stamps, "probetool")
+	claimCheck(t, p.home, "probetool")
 
 	out, rc := p.run(t, "YOLO_PACK_UPDATE=1")
 	if rc != 0 {
@@ -354,7 +338,7 @@ func TestNativeLauncherUpdateModeIgnoresTheStampAndThePolicy(t *testing.T) {
 	}
 	got := p.argvLog(t)
 	if len(got) != 1 || got[0] != "RAN:update" {
-		t.Errorf("an explicit `yolo pack update` must refresh a frozen, freshly-stamped "+
+		t.Errorf("an explicit `yolo pack update` must refresh a frozen, already-claimed "+
 			"pack, got %v\n%s", got, out)
 	}
 }

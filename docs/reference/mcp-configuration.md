@@ -168,7 +168,9 @@ Absent legacy facts preserve baseline behavior; supplied-invalid facts render pl
 
 Agent packs declare supported retained formats with TOML `[native_sign_in]` and `formats = ["claude-plugin"]`; this metadata alone neither loads a plugin nor grants a server. The measured v0.18.0 reader tolerates this table without losing the program.
 
-Select a sign-in bundle with `yolo pack add slack-mcp`, run `yolo config check`, then relaunch.
+Yolo ships no provider-specific MCP sign-in bundle. Select only an integration pack you
+explicitly supply, run `yolo config check`, then relaunch; existing user-owned integrations
+remain selectable and are not removed or rewritten.
 `yolo mcp-auth status [SERVER] [--json]` is token-free/effect-free and names the resolved native
 entry and recovery. Header supports `--format bare|json`; unexpired issuance never redeems,
 expired jail requests wake the durable poll, and host issuance never refreshes. An own client

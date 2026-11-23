@@ -30,6 +30,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/jailtrace"
 	"github.com/mschulkind-oss/yolo-jail/internal/logstamp"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -171,6 +172,9 @@ type child struct {
 	// read its pipe to EOF and closed the log, so the exit line follows the
 	// child's last line rather than racing it.
 	copied chan struct{}
+	// trace is the supervisor's jail-half trace writer, shared by every child; nil writes
+	// nothing.
+	trace *jailtrace.Writer
 }
 
 // errStopping is start()'s report that teardown claimed this child while the
@@ -178,7 +182,20 @@ type child struct {
 // reaped, so the supervise loop must simply return.
 var errStopping = errors.New("supervisor is stopping")
 
-func (c *child) start() error {
+func (c *child) start() (err error) {
+	// EACH SPAWN IS A SPAN OF THE LAUNCH'S TRACE (docs/design/startup-tracing.md §5.6), its start
+	// written before anything else and its end on every way out, so a spawn that hangs leaves an
+	// open start and one that fails a mark beside its end. A restart is a spawn too. The
+	// entrypoint writes each required daemon's span up to its readiness answer; this is the part
+	// of it only the supervisor can see.
+	span := spawnSpan(c.spec.Name)
+	c.trace.Start(span)
+	defer func() {
+		c.trace.End(span)
+		if err != nil && !errors.Is(err, errStopping) {
+			c.trace.Mark(span + ".failed")
+		}
+	}()
 	lf, err := openLog(c.spec.Name)
 	if err != nil {
 		return err
@@ -267,6 +284,21 @@ func (c *child) start() error {
 	c.copied = copied
 	c.mu.Unlock()
 	return nil
+}
+
+// spawnSpan is the jail-half span over one spawn of the named daemon.
+func spawnSpan(name string) string { return "daemon." + name + ".spawn" }
+
+// openTrace opens the supervisor's trace writer from the YOLO_TRACEPARENT its environment
+// carries (TR-D3: the in-jail daemons are among the readers the design allows that variable),
+// under the jail home resolved as the entrypoint resolves it ($JAIL_HOME, then $HOME), so both
+// processes append to one file. Nil when the launch handed no context.
+func openTrace() *jailtrace.Writer {
+	home := os.Getenv("JAIL_HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	return jailtrace.Open(home, os.Getenv(jailtrace.Env))
 }
 
 // logf appends one supervisor-authored line to the daemon's own <name>.log,
@@ -394,9 +426,11 @@ func (c *child) superviseOne(stop <-chan struct{}) {
 // settled (or stop fired + children terminated).
 // parsing.
 func Run(specs []Spec, stop <-chan struct{}) {
+	trace := openTrace()
+	defer trace.Close()
 	children := make([]*child, len(specs))
 	for i, s := range specs {
-		children[i] = &child{spec: s, backoff: RestartBackoffInitial}
+		children[i] = &child{spec: s, backoff: RestartBackoffInitial, trace: trace}
 	}
 	var wg sync.WaitGroup
 	for _, c := range children {

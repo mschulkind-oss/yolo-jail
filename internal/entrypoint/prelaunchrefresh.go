@@ -114,9 +114,9 @@ REFRESH_SESSION_HOMES=(__YOLO_REFRESH_SESSION_HOMES__)
 // the exec — §3.2's "strictly before exec", and after every step that can change what $REAL_BIN
 // is.
 //
-// It reads the templates' own UPDATE_INTERVAL, UPDATE_TIMEOUT, STALE_LOCK, UPDATES_ENABLED,
-// _stamp_mtime and _bounded rather than defining its own, so a refresh is throttled, bounded
-// and policy-gated by exactly the numbers the program's own update is. It does not read
+// It reads the templates' own UPDATE_TIMEOUT, STALE_LOCK, UPDATES_ENABLED, _stamp_mtime and
+// _bounded rather than defining its own, so a refresh is bounded and policy-gated by exactly the
+// numbers the program's own update is. Its due rule is the JAIL START's (LU-D8): no clock. It does not read
 // STAMP_DIR: that is the machine-global ~/.cache, and the refresh's throttle is its lock's
 // (RefreshStateDirName).
 // __YOLO_EXEC_PREFIX__ is the npm template's resolved interpreter (a declared node_floor), so a
@@ -160,7 +160,10 @@ const prelaunchRefreshShellFn = programPhasePerfShellFn + `
 # --- pre-launch refresh (pi-extensions.md §17.2, §17.3) -------------------------
 # The stamp has the LOCK'S SCOPE (pi-extension-store-builds.md XB-D14): it lives beside the
 # lock, in the store the lock's parent names, so it throttles exactly the launches the lock
-# excludes. For pi that store is the workspace's own .pi, so one refresh an hour per workspace.
+# excludes. For pi that store is the workspace's own .pi, so one refresh a jail start per
+# workspace. It is a MARKER per jail start (LU-D8): <bin>.stamp.<id>, the id the boot's
+# write_jail_start wrote, so its existence means "this start has had its refresh" and no
+# decision reads a clock. An old <bin>.stamp is ignored, never deleted.
 # Its directory is yolo's bookkeeping inside the store (named, like the lock, with the prefix
 # that tells it from the tool's content), and the bin in each name keeps two programs locking
 # one store from colliding.
@@ -168,6 +171,14 @@ REFRESH_LOCK="$HOME/$REFRESH_LOCK_REL"
 REFRESH_STORE="${REFRESH_LOCK%/*}"
 REFRESH_STATE="$REFRESH_STORE/$REFRESH_STATE_NAME"
 REFRESH_STAMP="$REFRESH_STATE/$BIN.stamp"
+# This start's marker is $REFRESH_STAMP_NOW, empty when the boot wrote no record (an older boot, a
+# failed write): then nothing is due by the stamp, and only changed content refreshes. The boot is
+# the record's only writer. Read with "$(<file)", which works under env -i and in bash 3.2.
+REFRESH_START_FILE="$HOME/.local/state/yolo/jail-start"
+REFRESH_START_ID=""
+if [ -f "$REFRESH_START_FILE" ]; then REFRESH_START_ID=$(<"$REFRESH_START_FILE") || REFRESH_START_ID=""; fi
+REFRESH_STAMP_NOW=""
+if [ -n "$REFRESH_START_ID" ]; then REFRESH_STAMP_NOW="$REFRESH_STAMP.$REFRESH_START_ID"; fi
 REFRESH_TOKEN=""
 REFRESH_HEARTBEAT=60 # seconds between touches of a HELD lock; STALE_LOCK is ten of them
 REFRESH_BEAT_PID=""
@@ -232,8 +243,8 @@ _refresh_content_key() {
 }
 
 # _refresh_content_unseen: 0 when the watched content has never been refreshed with here, and no
-# refresh of it failed within UPDATE_INTERVAL (XB-D26): content a failed refresh met waits out the
-# hourly stamp like any other, so an offline jail does not refresh on every launch.
+# refresh of it failed in THIS jail start (XB-D26): content a failed refresh met waits for the next
+# start like any other, so an offline jail does not refresh on every launch.
 _refresh_content_unseen() {
     [ "$HAS_REFRESH_DUE" = "1" ] || return 1
     [ -n "$REFRESH_KEY" ] || REFRESH_KEY=$(_refresh_content_key)
@@ -245,24 +256,23 @@ _refresh_content_unseen() {
 _refresh_content_unseen_fresh() {
     [ "$HAS_REFRESH_DUE" = "1" ] || return 1
     [ ! -e "$REFRESH_SEEN_DIR/$REFRESH_KEY" ] || return 1
-    local failed="$REFRESH_SEEN_DIR/$REFRESH_KEY.failed"
-    [ -f "$failed" ] || return 0
-    [ "$(( $(date +%s) - $(_stamp_mtime "$failed") ))" -gt "$UPDATE_INTERVAL" ]
+    [ ! -f "$REFRESH_SEEN_DIR/$REFRESH_KEY.failed.${REFRESH_START_ID:-none}" ]
 }
 
 _refresh_record_seen() {
     [ "$HAS_REFRESH_DUE" = "1" ] && [ -n "$REFRESH_KEY" ] || return 0
     _refresh_state_dir && mkdir -p "$REFRESH_SEEN_DIR" 2>/dev/null &&
         : > "$REFRESH_SEEN_DIR/$REFRESH_KEY" 2>/dev/null
-    rm -f "$REFRESH_SEEN_DIR/$REFRESH_KEY.failed" 2>/dev/null || true
+    rm -f "$REFRESH_SEEN_DIR/$REFRESH_KEY".failed* 2>/dev/null || true
 }
 
 # _refresh_record_failed records that a refresh of the watched content FAILED (XB-D26), beside the
-# seen marker it did not earn, so that content is due again only past UPDATE_INTERVAL.
+# seen marker it did not earn, as <key>.failed.<id>, so that content is due again at the next jail
+# start. A success removes every one of them.
 _refresh_record_failed() {
     [ "$HAS_REFRESH_DUE" = "1" ] && [ -n "$REFRESH_KEY" ] || return 0
     _refresh_state_dir && mkdir -p "$REFRESH_SEEN_DIR" 2>/dev/null &&
-        : > "$REFRESH_SEEN_DIR/$REFRESH_KEY.failed" 2>/dev/null
+        : > "$REFRESH_SEEN_DIR/$REFRESH_KEY.failed.${REFRESH_START_ID:-none}" 2>/dev/null
 }
 
 # _refresh_worth is the declared worth-running test (XB-D23): 0 when there is none, or when a
@@ -295,11 +305,13 @@ _refresh_file_holds() {
     return 1
 }
 
+# _refresh_due: changed content is unseen, or this jail start has no stamp yet (LU-D8). No record:
+# only changed content, since the stamp cannot be named.
 _refresh_due() {
     [ "$UPDATES_ENABLED" = "1" ] || return 1
     _refresh_content_unseen && return 0
-    [ -f "$REFRESH_STAMP" ] || return 0
-    [ "$(( $(date +%s) - $(_stamp_mtime "$REFRESH_STAMP") ))" -gt "$UPDATE_INTERVAL" ]
+    [ -n "$REFRESH_STAMP_NOW" ] || return 1
+    [ ! -e "$REFRESH_STAMP_NOW" ]
 }
 
 # _wait_for_refresh_lock is the ONE case a held lock is waited on: this launch's watched
@@ -320,7 +332,18 @@ _wait_for_refresh_lock() {
     return 1
 }
 
-_refresh_touch() { _refresh_state_dir && touch "$REFRESH_STAMP" 2>/dev/null; }
+_refresh_touch() {
+    _refresh_state_dir || return 1
+    [ -n "$REFRESH_STAMP_NOW" ] || return 0
+    : >> "$REFRESH_STAMP_NOW" 2>/dev/null || return 1
+    # Garbage, which decides nothing: this bin's stamps of OTHER starts over a week old.
+    local f
+    for f in "$REFRESH_STAMP".*; do
+        { [ "$f" != "$REFRESH_STAMP_NOW" ] && [ -f "$f" ]; } || continue
+        if [ "$(( $(date +%s) - $(_stamp_mtime "$f") ))" -gt 604800 ]; then rm -f "$f" 2>/dev/null || true; fi
+    done
+    return 0
+}
 
 # _take_refresh_lock returns 0 when this launcher now holds the lock, 1 when another holds it,
 # and 2 when it cannot be taken at all. The STORE is never created here (a plain mkdir, never
@@ -403,7 +426,7 @@ _refresh_act() {
     _refresh_touch || true
     # The content key only on SUCCESS: a failed refresh leaves the change due, so a later launch
     # retries the install under the lock instead of leaving it to the program — once the failure
-    # it records is past UPDATE_INTERVAL (XB-D26), not at every launch an offline hour makes.
+    # it records is from an earlier jail start (XB-D26), not at every launch an offline start makes.
     if [ "$rc" = 0 ]; then
         _refresh_record_seen || true
         # A refresh that succeeded clears a failed background refresh's report (_refresh_report_last).
@@ -663,7 +686,7 @@ _prelaunch_refresh() {
             echo "  ⚠ $BIN: cannot take the refresh lock $REFRESH_LOCK ($REFRESH_STORE refuses writes, or something that is not a directory is at that path) — skipping the pre-launch refresh. See which: ls -ld $(printf '%q %q' "$REFRESH_STORE" "$REFRESH_LOCK")" >&2
         fi
         # Stamped where the store can hold a stamp, so a lock path something else occupies says
-        # so once an hour rather than every launch, and the content key is recorded for the same
+        # so once a jail start rather than every launch, and the content key is recorded for the same
         # reason. A store that is missing or refuses writes has nowhere to keep either, so it is
         # said at every launch (XB-D14): a stamp kept anywhere else would be the machine-wide
         # throttle that let one jail's failed mount silence another's refresh.
@@ -687,13 +710,13 @@ _prelaunch_refresh() {
         # A FAILED REFRESH has no version query (PD-NF3): its upstream decides. Unreachable runs
         # what is installed, said in one line, and clears a failed background result (nothing is
         # known to be newer); reachable REFUSES (PD-NF1), with the refresh's stamp removed so the
-        # next launch retries it rather than running the older content for an hour. A launch the
+        # next launch retries it rather than running the older content for the rest of the start. A launch the
         # hatch covers clears the background result too.
         _yolo_failed_act "$rc" "the pre-launch refresh (${REFRESH_ARGV[*]})" _yolo_registry_reachable
         if [ -z "$_YOLO_FAIL_HEAD" ] || _yolo_use_installed; then
             rm -f "$REFRESH_RESULT" 2>/dev/null || true
         fi
-        _yolo_refuse_failed "$REFRESH_STAMP"
+        _yolo_refuse_failed "$REFRESH_STAMP_NOW"
     fi
     return 0
 }
@@ -715,8 +738,8 @@ const prelaunchRefreshCallShell = `
 // constant is the one spelling.
 const RefreshStateDirName = packdecl.StoreBookkeepingPrefix + "refresh"
 
-// RefreshStampRel is the home-relative path of bin's refresh stamp, for the home-relative lock
-// a pack declares.
+// RefreshStampRel is the home-relative path of bin's refresh stamp BASE, for the home-relative lock
+// a pack declares. The marker a jail start leaves is that base plus "." and the start's id.
 func RefreshStampRel(lockRel, bin string) string {
 	return path.Join(path.Dir(lockRel), RefreshStateDirName, bin+".stamp")
 }

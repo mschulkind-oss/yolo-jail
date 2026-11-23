@@ -389,8 +389,8 @@ if [ "${1:-}" = view ]; then echo 9.9.9; fi`)
 // reach: splitNpmSpec puts everything after the first non-zero-index `@` in the SPEC, so a
 // payload carried in the version selector leaves the NAME half clean. A declaration with no
 // selector at all is what makes PKG hostile — and PKG has exactly one place it reaches a
-// tool, `npm view "$PKG" version`, so the test drives the hourly poll to get there
-// (installed binary present, no selector, no stamp).
+// tool, `npm view "$PKG" version`, so the test drives the update check to get there
+// (installed binary present, no selector, a jail-start record, no marker).
 func TestNpmLauncherQuotesThePackageName(t *testing.T) {
 	home := t.TempDir()
 	fakeBin := filepath.Join(home, "fakebin")
@@ -410,6 +410,10 @@ func TestNpmLauncherQuotesThePackageName(t *testing.T) {
 	// the only shape that both makes PKG hostile and leaves the poll enabled.
 	pkg := "pkg-" + hostileValue("-pkgname")
 	seedInstalled(t, filepath.Join(home, ".npm-global", "bin"), "tool")
+	// The check is once per jail start, so the boot's record must exist for it to run.
+	if err := writeJailStart(home); err != nil {
+		t.Fatal(err)
+	}
 
 	body := npmAgentLauncher("probe",
 		&packdecl.Install{Kind: "npm", Bin: "tool", Package: pkg},

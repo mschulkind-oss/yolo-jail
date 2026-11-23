@@ -378,6 +378,10 @@ func BootstrapScript(e *Env) string {
 // bootstrapTemplate is the body of the bootstrap script.
 const bootstrapTemplate = `#!/bin/bash
 ` + programPhasePerfShellFn + `
+# The bootstrap is a span of the launch's trace (provision.bootstrap), ended on every way out,
+# the refusal's exit included. A no-op without a trace context (_yolo_trace).
+_yolo_trace start provision.bootstrap
+trap '_yolo_trace end provision.bootstrap' EXIT
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOME/.npm-global}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOME/.cache/npm}"
 export GOPATH="${GOPATH:-$HOME/go}"
@@ -396,7 +400,7 @@ fc-cache >/dev/null 2>&1
 # Every program a selected pack declares (agent CLIs included) is installed by the readiness
 # act at the END of this script, through its own launcher in ~/.yolo/bin/launch, so it is
 # there before the command runs (OQ-JR1).  The launchers still refresh a program at
-# invocation, at most once per UPDATE_INTERVAL, and still install one that a failed or
+# invocation, at most once per jail start, and still install one that a failed or
 # skipped readiness left absent.  Never a language server: a configured lsp_servers command
 # must already be on PATH.
 

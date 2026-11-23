@@ -8,13 +8,13 @@
   every key.  `yolo check` and every launch say when a file is in the old
   format, and `yolo config migrate` converts it.
 
-  Project file:    yolo-jail.toml in the project root (committed)
-  Local overrides: yolo-jail.local.toml beside it (this machine; merged
+  Project file:    [cyan]yolo-jail.toml[/cyan] in the project root (committed)
+  Local overrides: [cyan]yolo-jail.local.toml[/cyan] beside it (this machine; merged
                    automatically when it exists; keep it out of git)
-  Your defaults:   ~/.config/yolo-jail/config.toml, plus every
-                   ~/.config/yolo-jail/config.d/*.toml fragment
-  Legacy names:    yolo-jail.jsonc, yolo-jail.local.jsonc and
-                   ~/.config/yolo-jail/config.jsonc (or .json); see LEGACY JSONC FORMAT.
+  Your defaults:   [cyan]~/.config/yolo-jail/config.toml[/cyan], plus every
+                   [cyan]~/.config/yolo-jail/config.d/*.toml[/cyan] fragment
+  Legacy names:    [cyan]yolo-jail.jsonc[/cyan], [cyan]yolo-jail.local.jsonc[/cyan] and
+                   [cyan]~/.config/yolo-jail/config.jsonc[/cyan] (or .json); see LEGACY JSONC FORMAT.
 
   [bold]THE WORKSPACE IS THE DIRECTORY YOU RUN `yolo` IN[/bold], and it is
   bind-mounted [bold]read-write and LIVE[/bold] at [bold]/workspace[/bold].
@@ -779,7 +779,7 @@
     A GRANT IS YOURS TO GIVE.  A workspace file may ask (a request), never grant:
     reading the whole host journal used to be settable from a file the agent
     inside the jail can rewrite, and the grant is what ended that.
-    Endpoint file: /run/yolo-services/journal.endpoint
+    Endpoint file: [cyan]/run/yolo-services/journal.endpoint[/cyan]
     Env var: YOLO_SERVICE_JOURNAL_ENDPOINT
     The value is a PATH to the endpoint file, not an address: the bridge is on
     the loopback-TLS transport, so the address lives inside the file and a
@@ -2470,8 +2470,9 @@
                     error.
       models        {provider, add:[{id, vendor, alias, name, description,
                     context_window, max_tokens, reasoning, input, cost}]} or
-                    {provider, only:[id...]} — SHAPES the model list of the provider
-                    it names, any provider's, another pack's included: `add` appends
+                    {provider, only:[id...], agents:[bin...]} — SHAPES the model list of
+                    the provider it names, any provider's, another pack's included: `add`
+                    appends
                     entries (a duplicate id keeps the first writer's), `only` keeps the
                     ids it names and drops the rest.  One verb per contribution.
                     Every `add` applies, in pack order, before every `only`, and two
@@ -2484,6 +2485,19 @@
                     `enforce_models` is on (the default) claude, opencode and pi also
                     refuse any other model.  `yolo check` names a duplicate, an
                     `only` id nothing added, and a provider nothing declares.
+                    Scope an `only` to some agents with `agents`:
+                      [[models]]
+                      provider = "bedrock"
+                      only = ["example.fable", "example.sonnet"]
+                      agents = ["claude"]
+                    agents is optional and may appear only with only.
+                    Say it plainly: without agents, only keeps the provider-wide list.
+                    Each agents name
+                    matches a program's bin and derive identity exactly, not its pack name.
+                    A name no selected program has is inert.
+                    An agents-scoped only
+                    changes a consumer menu only; it does not change shared provider routes.
+                    only keeps IDs; it never adds them.
       adapter       {adapts:{from, to}, address} — a PROTOCOL CONVERSION: the wire it
                     reads, the wire it speaks, and where the converted wire is served.
                     An agent that speaks `to` can be pointed at a provider that offers
@@ -2562,7 +2576,8 @@
                     TOML-only retained native sign-in content.  Selected skills delivery
                     places the whole tree; this declaration contributes no MCP server,
                     sign_in opt-in, client id in an agent config, or operation authority.
-                    Select with `yolo pack add slack-mcp`, `yolo config check`, relaunch.
+                    Use an explicitly supplied integration pack, then `yolo config check`
+                    and relaunch. Yolo ships no provider-specific MCP sign-in bundle.
                     `yolo mcp-auth status [SERVER] [--json]` reads token-free native-name
                     recovery; placement is not plugin-loading proof. Callback convenience
                     is leased IPv4 loopback TCP on qualifying Linux bridge podman only;

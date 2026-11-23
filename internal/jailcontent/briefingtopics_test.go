@@ -162,3 +162,61 @@ func TestTheRgWarningNeedsAnRgBlock(t *testing.T) {
 // coreAnchor opens the core's bullets: what follows the header and any alert. It replaces the
 // "## Environment" heading the pre-diet body opened with, as the boundary tests measure from.
 const coreAnchor = "- **Workspace**"
+
+func TestGoCacheCoreLine(t *testing.T) {
+	without := BriefingContent(BriefingInput{Workspace: "/w"})
+	if strings.Contains(without, "**Go cache**") {
+		t.Errorf("SharedGoCache=false must not emit Go cache rule:\n%s", without)
+	}
+	const want = "- **Go cache**: keep shared `GOCACHE` and owner overrides; no repo/worktree/agent/version caches or routine `go env -w`/`go clean -cache` (tell workers). If unwritable, read the storage topic."
+	for _, tc := range []struct {
+		name, mechanism string
+	}{{"container", "podman"}, {"native", "macos-user"}} {
+		got := BriefingContent(BriefingInput{Workspace: "/w", Mechanism: tc.mechanism, SharedGoCache: true})
+		if !strings.Contains(got, want) {
+			t.Errorf("%s core must keep the always-loaded Go cache rule:\n%s", tc.name, got)
+		}
+		if strings.Contains(got, "GOCACHEPROG") || strings.Contains(got, "go-build") {
+			t.Errorf("%s core should leave cache procedures and platform paths to the storage topic:\n%s", tc.name, got)
+		}
+	}
+}
+
+func TestSharedGoCacheDetailsReachGeneratedStorageTopic(t *testing.T) {
+	for _, tc := range []struct{ setup, cachePath string }{
+		{"podman-self", "~/.cache/go-build"},
+		{"seatbelt-self", "~/Library/Caches/go-build"},
+	} {
+		t.Run(tc.setup, func(t *testing.T) {
+			in := referenceFactSheets()[tc.setup]
+			in.SharedGoCache = true
+			files, err := RenderBuiltinSkills(FactSheet{Briefing: in, WorkspacePath: in.Workspace, HostWorkspace: in.Workspace,
+				ConfigPath: "/workspace/yolo-jail.toml"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			core := BriefingContent(in)
+			index := string(files["jail-mechanics/SKILL.md"])
+			storageBytes, ok := files["jail-mechanics/topics/storage.md"]
+			if !ok {
+				t.Fatal("the generated mechanics skill has no storage topic")
+			}
+			storage := string(storageBytes)
+			if !strings.Contains(core, "If unwritable, read the storage topic.") ||
+				!strings.Contains(index, "→ `topics/storage.md`") {
+				t.Fatalf("the always-loaded core does not lead to the generated storage topic:\ncore:\n%s\nindex:\n%s", core, index)
+			}
+			for _, want := range []string{
+				"the shared default `GOCACHE` is `" + tc.cachePath + "`.",
+				"Preserve owner `GOCACHE`, `GOENV`, `GOCACHEPROG`, and project-script overrides; inspect effective `go env` before changing anything.",
+				"Tell workers to use this shared cache; never create repo/worktree/agent/version caches.",
+				"If the default is unwritable, report it. Any fallback must be command-scoped to a writable shared cache, never a private worktree cache.",
+				"Do not routinely run `go env -w` or `go clean -cache`.",
+			} {
+				if !strings.Contains(storage, want) {
+					t.Errorf("generated storage topic lacks %q:\n%s", want, storage)
+				}
+			}
+		})
+	}
+}

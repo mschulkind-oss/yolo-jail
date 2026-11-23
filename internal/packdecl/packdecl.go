@@ -309,7 +309,7 @@ type Install struct {
 	// selector: `foo`, `foo@1.2.3`, `foo@next`, `@scope/foo@^1.0.0`.
 	//
 	// No selector means `@latest`, re-resolved by the launcher at most once per
-	// UPDATE_INTERVAL when this jail's `agent_updates` policy allows it (§3.5's evergreen
+	// jail start when this jail's `agent_updates` policy allows it (§3.5's evergreen
 	// ruling, OQ-PD12). A selector turns that off — the registry's `latest` is not an
 	// answer to a declaration that named its own version. (Until 2026-08-17 the launcher appended `@latest`
 	// unconditionally, so a version was not expressible at all: `foo@1.2.3` was
@@ -471,7 +471,7 @@ type Install struct {
 // pinned, on a stamp of its own, and never through `yolo pack update`.
 //
 // What the launcher guarantees around it (§3.2–§3.3), none of which the pack can turn off:
-// at most once per UPDATE_INTERVAL on a stamp kept beside Lock, so with the lock's scope;
+// at most once per jail start, on a stamp kept beside Lock, so with the lock's scope;
 // only when the jail's
 // `agent_updates` policy lets this pack move; bounded by the launcher's UPDATE_TIMEOUT;
 // stdin from /dev/null and stdout sent to stderr, so it can neither prompt nor pollute a

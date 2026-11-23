@@ -8,43 +8,18 @@ import (
 	_ "embed"
 	"io"
 	"os"
-	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
 //go:embed config_ref.txt
 var configRefContent string
 
-// tagReplacer maps the closed set of rich tags in the reference to ANSI. rich
-// nests styles, but this document never nests beyond one level, so a flat
-// open→code / close→reset mapping renders identically to the eye. Order is
-// irrelevant (tags are distinct literals). `[5432]` in the text is literal
-// content, not a tag, so it is left untouched.
-var tagReplacer = strings.NewReplacer(
-	"[bold cyan]", ansiBold+ansiCyan,
-	"[/bold cyan]", ansiReset,
-	"[bold yellow]", ansiBold+ansiYellow,
-	"[/bold yellow]", ansiReset,
-	"[bold]", ansiBold,
-	"[/bold]", ansiReset,
-	"[cyan]", ansiCyan,
-	"[/cyan]", ansiReset,
-	"[yellow]", ansiYellow,
-	"[/yellow]", ansiReset,
-	// A `Default:` or `Values:` label: the value tier of docs/plans/cli-visual-polish.md's
-	// Group C, so a reader scanning for what a key accepts finds it apart from the prose.
-	"[green]", ansiGreen,
-	"[/green]", ansiReset,
-)
-
 // Render returns the reference document with rich tags rendered to ANSI when
 // color is true, or with the tags stripped to plain text when false.
 func Render(color bool) string {
-	if color {
-		return tagReplacer.Replace(configRefContent)
-	}
-	return stripTags(configRefContent)
+	return richtext.Render(configRefContent, color)
 }
 
 // configRefRun prints the reference to w (color-on when w is a terminal, per
@@ -58,36 +33,6 @@ func configRefRun(w io.Writer, color bool) int {
 // a TTY.
 func RunStdout() int {
 	return configRefRun(os.Stdout, colorForWriter(os.Stdout))
-}
-
-// stripTags removes every rich tag, leaving plain text (for non-TTY output).
-func stripTags(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); {
-		if s[i] == '[' {
-			if end := strings.IndexByte(s[i:], ']'); end >= 0 {
-				tag := s[i : i+end+1]
-				if isRichTag(tag) {
-					i += end + 1
-					continue
-				}
-			}
-		}
-		b.WriteByte(s[i])
-		i++
-	}
-	return b.String()
-}
-
-// isRichTag reports whether tok is one of the document's known rich tags (so
-// literal bracketed text like `[5432]` is preserved).
-func isRichTag(tok string) bool {
-	switch tok {
-	case "[bold cyan]", "[/bold cyan]", "[bold yellow]", "[/bold yellow]",
-		"[bold]", "[/bold]", "[cyan]", "[/cyan]", "[yellow]", "[/yellow]", "[green]", "[/green]":
-		return true
-	}
-	return false
 }
 
 // isTTY reports whether f is a real terminal, via the shared ioctl probe

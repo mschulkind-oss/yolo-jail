@@ -59,6 +59,7 @@ func TestDirectScopedGitMixedRowsUseCommonPayloadAndComposer(t *testing.T) {
 	commit := git("rev-parse", "HEAD")
 	user := testconfig.User(t, fmt.Sprintf("packs = [{ pack = 'demo/corpus', skills = { only = ['chosen', 'marked', 'remote'] } }]\n[pack_sources.demo]\ngit = 'file://%s'\nref = 'main'\n", filepath.ToSlash(repo)))
 	t.Setenv("HOME", user.Root)
+	t.Cleanup(func() { _ = packsrc.RemoveSealedSkillTree(user.Root, paths.PacksDir()) })
 	entries, problems, err := config.LoadPackEntries()
 	if err != nil || len(problems) > 0 {
 		t.Fatalf("producer: %v %v", err, problems)

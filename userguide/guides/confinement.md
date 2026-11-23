@@ -111,8 +111,8 @@ in `~/.local/share/yolo-jail/host-floor`:
   your machine instead, confined by Landlock to a throwaway home, and that capture serves yolo's own
   copy alone: your jails capture their own. On a Mac the installer runs as the yolo account, created
   once with `yolo yolo-account create`, through the rule setup installs, with no password.
-- **Keeping it current.** The floor updates an agent the way a jail does: at most once an hour, when
-  you start it, unless `agent_updates` freezes that pack. It says when it is checking for a newer
+- **Keeping it current.** The floor updates an agent much as a jail does, but on a clock: at most once an hour, when
+  you start it (a jail checks once per jail start; a host has no jail start), unless `agent_updates` freezes that pack. It says when it is checking for a newer
   version, so a slow package registry is not a launch that hangs saying nothing. An agent with its
   own installer is captured again once its capture is a day old, and the floor moves only to a newer
   release, never back to an older one. If a newer release fails to install, the launch stops and

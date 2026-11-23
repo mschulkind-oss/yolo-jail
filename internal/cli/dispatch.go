@@ -53,6 +53,7 @@ var registry = map[string]func(args []string) int{
 	"prune":       runPrune,
 	"stores":      runStores,
 	"nix-roots":   runNixRoots,
+	"trace":       runTrace,
 	"programs":    runPrograms,
 	// The yolo account's verbs (commands.go). The four macos-* verbs they replaced are not
 	// keys: the front door refuses them naming these (renamedVerbs).

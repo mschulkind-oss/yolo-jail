@@ -50,6 +50,7 @@ var setupScript = provision.StageBypassingShims(
 		provision.StepPruneStore,
 		provision.StepAnnounceMiseInstall,
 		provision.StepMiseInstall,
+		provision.StepToolSkills(jailWorkspace, provision.JailMainDir+"/"+provision.ToolSkillsLockName),
 		provision.StepRunVenvPrecreate,
 	},
 	[]string{

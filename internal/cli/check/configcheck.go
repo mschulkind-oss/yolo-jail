@@ -103,7 +103,11 @@ func ConfigCheck(opts Options) int {
 	for _, msg := range errors {
 		r.fail(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace, configRecheck(r.mode)))
 	}
-	if len(errors) == 0 && len(collisionFindings) == 0 {
+	inheritFailed := false
+	if len(errors) == 0 {
+		inheritFailed = opts.reportInheritedScope(r, opts.Workspace, "")
+	}
+	if len(errors) == 0 && !inheritFailed && len(collisionFindings) == 0 {
 		r.ok("Merged config is semantically valid")
 	}
 	r.sectionHeader("Selected Packs")
@@ -111,6 +115,13 @@ func ConfigCheck(opts Options) int {
 		r.fail(finding.message, finding.note)
 	}
 	configPackCoverage(r, selection, packErr)
+	// A `local` clone is read by git, read-only and without the network; a jail's snapshot names host paths
+	// this process cannot see.
+	if packErr == nil && !opts.inJail() {
+		if entries, err := config.LoadPacks(r.configWarn); err == nil {
+			reportLocalClones(r, entries)
+		}
+	}
 
 	r.sectionHeader("Scope")
 	r.setScopeNotChecked(configCheckScopeEntries(opts.inJail()))

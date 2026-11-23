@@ -38,7 +38,7 @@ import (
 //
 // K IS 1, not a tunable. A second entry per program would be a rollback target with nowhere
 // to be used: the store is not a version history, it holds whatever a human captured, and a
-// materialized older version is updated by evergreen within UPDATE_INTERVAL anyway. Real
+// materialized older version is updated by evergreen at the next jail start anyway. Real
 // rollback is the vendor's own per-workspace `~/.local/share/<bin>/versions/*` — a different
 // axis, and a different sweeper's job.
 //

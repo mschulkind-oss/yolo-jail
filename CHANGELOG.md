@@ -10,6 +10,44 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-19
+
+Workspaces can import skills directly from Git repositories, yolo config approval-diff previews configuration changes before launch, packs can export skills without their binaries, and agents can query AWS Cost Explorer through your AWS login.
+
+### Added
+
+**Workspaces can import skills directly from Git repositories.** `yolo skills add <url>` lets a workspace import skills directly from an upstream Git repository without wrapper packs or full-pack installation. Skills are fetched through your approved Git broker permissions and isolated into the jail. Run `yolo skills list`, `yolo skills update`, `yolo skills pin` or `yolo skills remove`. Machine-wide imports can be turned off with `workspace_skill_imports = false` in your host configuration.
+
+**Preview pending config approvals before launch.** `yolo config approval-diff` inspects changes between approved and active workspace configuration on the host without starting a jail or touching files. Launch confirmation prompts now summarize multi-scope changes in clear diff views.
+
+**Select only skills from a pack in user TOML config.** You can narrow packs directly in your configuration with `yolo pack add <pack> --skills-dir <dir> --only <glob> --exclude <glob>`, pulling instructions and documentation while leaving binaries, background hooks, and loopholes inert. Inspect available import tuples ahead of time with `yolo pack explain <pack>`.
+
+**Managed MCP sign-in and bundled Slack pack.** MCP servers configured with `sign_in = "once"` now share credentials across agents and jails through managed native sign-in bundles (`[[mcp_sign_in_bundle]]`). A new `slack-mcp` pack ships with pinned Slack skills and native credential sharing.
+
+**Read-only AWS Cost Explorer queries through host AWS login.** Agents can query AWS Cost Explorer alongside S3 under declared `call_roots.aws` prefixes (`ce://host-login`). Read-only cost queries are classified and forwarded to your host's `aws` CLI without sharing credentials or access keys with the jail.
+
+**Inspect completed requests and ended grants.** `yolo approve --json --ended` outputs decided approval requests, ended grants, and ended working-set entries within the broker store's 7-day retention horizon.
+
+**Agent-scoped exact model menus.** Pack manifests can restrict model menus to specific agents using `agents = ["claude"]` on `[[models]]` `only` contributions, keeping specialized pickers isolated to designated tools while other agents see standard lists.
+
+**Pack-declared Git-sourced skill registrations.** Pack manifests can declare `[[skills]]` sourced directly from Git subtrees and repositories, resolved and isolated at pack staging time.
+
+**Preview inherited jail delivery and disclose omissions in check.** `yolo check` and `yolo config check` preview the inherited configuration, environment variables, and mounts delivered to the jail, and disclose any host-only settings omitted from jail user scope.
+
+### Changed
+
+- The `aws` pack replaces `aws-s3`. Declared roots move from `brokered.aws-s3.roots` to workspace TOML `call_roots.aws` (or legacy `brokered.aws.roots`).
+- `yolo config unset` now successfully removes any configuration key or table advised by diagnostic hints, without leaving dangling table headers or whitespace lines.
+- `yolo config migrate` retains legacy JSONC pack entries with `only` or `exclude` filters and advises manual conversion rather than altering candidate selection.
+- Console and documentation resource paths across `config-ref` are colorized consistently with state commands, and tag-to-ANSI formatting tables are consolidated.
+
+### Fixed
+
+- When macOS account-mode provisioning cannot find `yolo` on PATH, yolo reports the staged command directory and next debugging steps rather than misleading permission or disk errors.
+- Host management refusals now name unreadable user configuration files instead of reporting the setting as unset.
+- The `⚡ Executing:` banner is now printed only after preparation and refresh steps finish rather than before.
+- Model list filtering preserves wire IDs and normalizes readable rows before applying filters.
+
 ## [0.18.0] - 2026-11-13
 
 API keys now reach only the agents that use them, your own instructions come first in every agent's instructions file, and agents can work with S3 through your own AWS login.

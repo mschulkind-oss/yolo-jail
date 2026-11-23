@@ -155,6 +155,52 @@ func TestPreparationNativeConstructorsRefuseUnclassifiedCurrentInputsBeforeExecu
 	}
 }
 
+func TestPrivateNativeTempFixtureAvoidsConfiguredAncestryWithoutAdmittingForeignInputs(t *testing.T) {
+	previousSuite := privateSuite
+	defer func() { privateSuite = previousSuite }()
+	privateSuite.armed = false
+	ancestor := resolvedTempDir(t)
+	ancestorConfig := filepath.Join(ancestor, "yolo-jail.toml")
+	if err := os.WriteFile(ancestorConfig, []byte("packages = [\"unclassified-fixture\"]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", ancestor)
+	privateSuite.armed = true
+	workspace := resolvedTempDir(t)
+	if rel, err := filepath.Rel(ancestor, workspace); err != nil || rel == "." || !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("fixture retained configured ancestry: %s (%v)", workspace, err)
+	}
+	if err := privateNativeOwnedPath(workspace, true); err != nil {
+		t.Fatal(err)
+	}
+	xbWrite(t, filepath.Join(workspace, "yolo-jail.jsonc"), "{}")
+	if err := privateNativeWorkspaceAdmission(workspace); err != nil {
+		t.Fatal(err)
+	}
+
+	// An unrelated owned ancestor is still refused before reading its bytes.
+	contaminated := filepath.Join(ancestor, "workspace")
+	if err := os.Mkdir(contaminated, 0700); err != nil {
+		t.Fatal(err)
+	}
+	xbWrite(t, filepath.Join(contaminated, "yolo-jail.jsonc"), "{}")
+	if err := privateNativeWorkspaceAdmission(contaminated); err == nil || err.Error() != "private native unclassified ancestor workspace input: "+ancestor {
+		t.Fatalf("unclassified ancestor was admitted: %v", err)
+	}
+
+	// A foreign file cannot enter the finite graph through a workspace selector.
+	selector := filepath.Join(workspace, "yolo-jail.jsonc")
+	if err := os.Remove(selector); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(ancestorConfig, selector); err != nil {
+		t.Fatal(err)
+	}
+	if err := privateNativeWorkspaceAdmission(workspace); err == nil || err.Error() != "private native input missing or linked: "+selector {
+		t.Fatalf("foreign workspace selector was admitted: %v", err)
+	}
+}
+
 func TestXBNativeRequesterRetainsRawRolesAndRefusesChangedFiniteGraph(t *testing.T) {
 	previousSuite, previousBin, previousFixture := privateSuite, yoloBin, privateNative
 	defer func() { privateSuite, yoloBin, privateNative = previousSuite, previousBin, previousFixture }()

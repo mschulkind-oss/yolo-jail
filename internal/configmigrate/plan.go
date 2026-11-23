@@ -180,15 +180,19 @@ func (e *InequalityError) Error() string {
 			fmt.Fprintf(&b, "\n    next: %s", d.Next)
 		}
 	}
-	for _, nc := range e.Plan.NotConverted {
+	writeNotConverted(&b, e.Plan.NotConverted)
+	b.WriteString("\nChange the old files as each line says (or leave them; this yolo keeps reading them), then run `yolo config migrate` again.")
+	return b.String()
+}
+
+func writeNotConverted(b *strings.Builder, items []NotConverted) {
+	for _, nc := range items {
 		where := nc.Path
 		if nc.File != "" {
 			where = nc.File + ": " + nc.Path
 		}
-		fmt.Fprintf(&b, "\n  not converted: %s — %s", where, nc.Reason)
+		fmt.Fprintf(b, "\n  not converted: %s — %s", where, nc.Reason)
 	}
-	b.WriteString("\nChange the old files as each line says (or leave them; this yolo keeps reading them), then run `yolo config migrate` again.")
-	return b.String()
 }
 
 // canonicalSet is one side of the equality check.

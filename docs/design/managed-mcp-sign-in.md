@@ -3,7 +3,7 @@ title: "Managed MCP sign-in: the agent's own sign-in first, then capture, delive
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Complete the retained synthetic candidate's gates and independent review; obtain native/rootless/Mac/provider witnesses separately"
+next: "Review provider-content removal and synthetic fixtures; containment-reviewed census and combined landing gates remain owed"
 depends-on: [mcp-auth-sharing.md]
 tags: [design, mcp, oauth, credentials, broker, packs, status, recovery]
 summary: "The first credential for a one-sign-in MCP server comes from the ordinary sign-in inside a yolo-managed agent, at a sign-in point a selected pack delivers. The existing broker captures and refreshes it; the source agent's duplicate plain entry becomes a header route; a token-free, zero-effect `yolo mcp-auth status` and recovery lines say which layer failed and which native server to authenticate. No third login command, no client id invented or borrowed by core."
@@ -11,11 +11,17 @@ summary: "The first credential for a one-sign-in MCP server comes from the ordin
 
 # Managed MCP sign-in: the agent's own sign-in first, then capture, delivery, status and recovery
 
-**Status:** 2026-11-18 — implemented in the retained synthetic candidate, not landed or native-verified. Tasks 1–8 and the Task 9 caller repairs follow the [companion plan](managed-mcp-sign-in-plan.md); the [coverage inventory](managed-mcp-sign-in-coverage.md) separates executable synthetic evidence from witnesses still owed. Independent review and the final landing gates remain separate. MS-E1, MS-E2 and MS-E3 are [closed](#engineering-closure).
+**Status:** 2026-11-19 — the owner corrected scope: generic MCP-auth sharing was requested, not
+shipping any Slack integration. The bundled plugin landed with `492dab7fa` and was embedded in
+v0.19.0 without that authorization; removal is owed. The [companion plan](managed-mcp-sign-in-plan.md)
+and [coverage inventory](managed-mcp-sign-in-coverage.md) retain the generic implementation and
+synthetic evidence; neither establishes native/provider verification. The former provisioning
+choice is withdrawn in the [engineering closure](#engineering-closure).
 
 > **In short.** The existing broker already adopts, refreshes and (for pi) delivers a one-sign-in credential. This document adds the first step it lacks, a declared place to sign in inside a managed agent. It also repairs Claude's duplicate unauthenticated entry, and makes every failure layer visible without printing or spending a token.
 
-**Needs your ruling:** None. The owner's rulings of 2026-11-17 are recorded as MS-R1 to MS-R5; the engineering closure is recorded as MS-D8 to MS-D14.
+**Needs your ruling:** None. The owner's scope correction is recorded as MS-R6 in the
+[decision ledger](#decision-ledger); it overrides the former provider-specific provisioning choice.
 
 **Reads with:** [`managed-mcp-sign-in-plan.md`](managed-mcp-sign-in-plan.md) (the completed build hand-off), [source-read grounding](../research/managed-mcp-sign-in-grounding.md) (source/public evidence and its limits), [`mcp-auth-sharing.md`](mcp-auth-sharing.md) (the sharing contract).
 
@@ -84,13 +90,12 @@ What public documents establish (packet, with the sharing design's Appendix C):
 - The bundle's own server content is the only carrier of the client id and callback port.
 - Core reads that content by format name. It never writes a client id into any agent's config and never starts a flow. MA-D18 holds unamended.
 
-**Provisioning (MS-D8).** The managed Slack route is an integration pack. The proposed name is `slack-mcp`; no such pack ships today.
-
-- **Contents.** The pack carries Slack's published plugin tree, pinned at upstream commit `5b8802105740b5c045c97247fded2e73b205e95e` (tag `v1.8.0`), with its MIT `LICENSE` retained. The tree is part of the pack. Nothing is fetched at launch, and no marketplace, installer or agent command is involved.
-- **Selection.** On the host, the user selects it with `yolo pack add slack-mcp` (the verb edits user scope), and `yolo config check` validates it.
-- **Delivery.** The next launch delivers it through the existing whole-plugin route. The agent loads it as an in-place plugin. Public Claude documentation describes that loading; it is not measured here.
-- **No server contribution.** The pack contributes no `mcp_servers` entry and sets no `sign_in`. The user's configuration keeps declaring the one-sign-in server.
-- **Rejected:** conditional delivery by the agent pack whenever a matching server is configured. It is a larger declaration change, and it moves a vendor's tree into a pack that does not own it.
+**Provisioning scope (MS-R6; MS-D8 withdrawn).** The feature shares authentication for
+user-configured MCP servers. Slack is an example of that requirement, not permission to ship
+Slack content, client identities, a plugin, or an integration pack. No provider-specific bundle
+is required or shipped by this contract. Generic pack declarations remain available for content
+the user explicitly selects; an existing user-owned integration is not installed, removed, or
+rewritten by this correction.
 
 **What delivery may change (MS-D9).**
 
@@ -271,7 +276,7 @@ Inputs:
 | Source agent, route supported and reachable | neither | Plain native entry, as at baseline. It is this agent's sign-in point. |
 | Any | route unsupported or unreachable | Baseline plain entry ([OQ-MA8](mcp-auth-sharing.md#decision-ledger)). Status says `delivered plain`. |
 
-**Why two conditions for a source agent.** Replacing the plain entry unconditionally would leave a self-registering server with nowhere to sign in. Never replacing it leaves Slack's dead duplicate. The two conditions cover both cases.
+**Why two conditions for a source agent.** Replacing the plain entry unconditionally would leave a self-registering server with nowhere to sign in. Never replacing it can leave an unauthenticated duplicate beside a user-supplied plugin. The two conditions cover both cases.
 
 **Header output form (MS-D4).**
 
@@ -308,7 +313,7 @@ Rules:
 
 - **Synthetic gate.** It is account-free and must pass before the route lands: the scenarios in [§12](#12-acceptance-scenarios). The local implementation is not blocked on a real sign-in.
 - **Native validation.** It is owed after landing. The sharing design's two measurements ([§16 step 4](mcp-auth-sharing.md#16-what-i-would-build-in-order)) are that the helper reruns on reconnect or a 401, and that Claude starts no OAuth for a helper-rendered server. Public Claude documentation states both. Neither is measured on an installed version.
-- **Why the route may land before the measurement.** The entry it replaces is, for Slack, one that cannot sign in at all. A wrong helper assumption therefore leaves the user no worse off than baseline.
+- **Measurement boundary.** Synthetic helper-route tests do not prove native or provider success. A provider-specific limitation is not authorization to ship that provider's integration or to claim a helper leaves the user no worse off.
 - **If a measurement fails.** The Claude pack withdraws its header-route declaration, and the baseline plain entry returns at the next launch.
 - **Reporting.** Until the measurements pass, the Built column reads "synthetic gate only". Nothing reports the route as working against a provider.
 
@@ -411,7 +416,9 @@ A record that outlives its configuration is listed as `retained, unused`.
   - Where no callback route is owned, the line adds: `if the browser cannot reach the agent, paste the full callback URL into its prompt`.
   - A line never offers the configured name when that entry cannot register.
 - **`no sign-in point` names provisioning when it can be derived** ([§4](#4-the-sign-in-point), MS-D14). The pack name always comes from a candidate's own declaration.
-  - One candidate: `<server>: no agent here can sign in. Run: yolo pack add <pack>, then relaunch`. With the shipped `slack-mcp` pack and the motivating configuration, this renders as `slack: no agent here can sign in. Run: yolo pack add slack-mcp, then relaunch`.
+  - One candidate: `<server>: no agent here can sign in. Run: yolo pack add <pack>, then relaunch`.
+    Advice names only an actually available, authorized contribution; there is no bundled Slack
+    candidate. A motivating provider example does not authorize provisioning it.
   - Several candidates: the same line lists each `yolo pack add <pack>` in pack-name order and says any one serves.
   - None: `<server>: no agent here can sign in. Select a pack that delivers a sign-in bundle for <url>, or set your own client: yolo config set mcp_servers.<server>.oauth.client_id <id> --user`.
   - Every form names the user's own `oauth.client_id` as the alternative.
@@ -511,12 +518,12 @@ All fixtures are synthetic, with loopback only where an effect is under test. No
 **Native witnesses owed.** These are the owner's checks and are not claimed here:
 
 - Claude loads the placed bundle and shows the resolved native name;
-- the Slack plugin, delivered by pack, signs in from a rootless podman jail through the callback route, with the host's rootless and network facts recorded. Nested podman cannot stand in for this;
+- an explicitly user-supplied integration signs in from a rootless podman jail through the callback route, with the host's rootless and network facts recorded. Nested podman cannot stand in for this; no particular provider bundle is required or shipped;
 - a browser that prefers `::1` for `localhost` still completes, or the IPv4-only limit is confirmed;
 - Claude keeps working after its refresh token is removed;
 - Claude reruns the helper on reconnect and on a 401, and starts no OAuth for a helper entry;
 - Claude's paste fallback;
-- Slack accepts a client-id-only refresh, and a second presenter of the token;
+- the user-selected provider accepts its declared refresh method and a second presenter of the token;
 - the Mac file-versus-Keychain checks already listed in the sharing design.
 
 ## 13. Amendments owed to the sharing design
@@ -545,6 +552,7 @@ These are pointer edits only. No ruling changes.
 | MS-R3 | **Owner:** first-login client metadata comes through pack declarations, not a manual install or an invented registration | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-R4 | **Owner:** token-free status and truthful recovery ship with the capture and delivery repair, Claude's duplicate entry included | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) to [§8](#8-recovery-lines) | Synthetic only |
 | MS-R5 | **Owner:** the own-client preference, user-only credential settings and live stores are unchanged | 2026-11-17 | [§10](#10-compatibility) | Synthetic only |
+| MS-R6 | **Owner:** “I absolutely never approved shipping ANYTHING slack related. I said we should be able to share MCP auth LIKE slack.” Generic sharing only; withdraw bundled Slack provisioning without changing user-owned integrations or credentials | 2026-11-19 | [§4](#4-the-sign-in-point) | Removed from candidate source/catalog; regression and synthetic fixtures, review/landing owed |
 | MS-D1 | A managed sign-in point is a server of a sign-in bundle that a user-selected integration pack declares and delivers. The bundle's own server content alone carries the client identity; core reads, never writes (amended by the closure: see MS-D8 and MS-D9) | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-D2 | Unmanaged sign-in points are adopted as at baseline and labelled; yolo never installs or edits them | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-D3 | A source agent's plain entry becomes a header route when it has a managed sign-in point or a usable record at launch; otherwise it stays the sign-in point | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
@@ -552,7 +560,7 @@ These are pointer edits only. No ruling changes.
 | MS-D5 | The callback route has one owner per host port, by a per-user, per-port lease. It is an IPv4 loopback publication on bridge podman only. A second launch, a foreign holder and every other backend run without it and say so; paste completes the same sign-in. Closes MS-E1 | 2026-11-17 | [§5](#5-the-callback-route) | Synthetic only |
 | MS-D6 | Status has zero effects and a closed diagnosis set. It makes no provider request and stages nothing; a jail's exchange with its own endpoint is the read. The broker keeps a token-free outcome note per identity | 2026-11-17 | [§7](#7-token-free-status) | Synthetic only |
 | MS-D7 | The launch input carries the user's expected client id. A native entry or bundle server under another client is refused before any provider request, and is not a sign-in point | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
-| MS-D8 | Managed Slack provisioning is an integration pack (proposed `slack-mcp`) that carries Slack's MIT plugin pinned at `5b880210`, selected by the user and delivered by the shipped whole-plugin route. No fetch at launch, no installer, no server contribution. Closes MS-E2 | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
+| MS-D8 | Withdrawn by MS-R6: the agent's Slack bundling choice was outside the owner's generic MCP-auth-sharing request | 2026-11-19 | [§4](#4-the-sign-in-point) | Removed from candidate source/catalog; no replacement shipped integration |
 | MS-D9 | Delivery keeps the shipped ownership marks and namespaced name. Server content is never altered. The native name comes from the delivered manifest | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
 | MS-D10 | Header issuance has an 8-second total deadline. An unexpired token is returned with no refresh. An expired one triggers one daemon pass of at most 5 seconds in a jail and is refused at the host. An expired token is never returned | 2026-11-17 | [§6](#6-delivery-choice-including-the-source-agent) | Synthetic only |
 | MS-D11 | A sign-in point inventory is read from delivered sign-in bundles by a format-named reader and kept apart from `mcp_servers` composition. Closes MS-E3 | 2026-11-17 | [§4](#4-the-sign-in-point) | Synthetic only |
@@ -562,15 +570,17 @@ These are pointer edits only. No ruling changes.
 
 ## Engineering closure
 
-Closed 2026-11-17 from the Fable-authored source-read closure at `a97a0e055`, accepted by the parent. No engineering item is open. Source/public evidence below is not native behavioral verification.
+The 2026-11-17 source-read closure at `a97a0e055` was accepted by the parent, not authorization
+from the owner to ship a provider integration. On 2026-11-19 MS-R6 withdrew its provisioning
+choice. Source/public evidence below is not native behavioral verification.
 
 - **MS-E1, closed by MS-D5.**
   - **Found:** podman bridge launches already [publish a host port](../../internal/cli/run/assemble.go#L730-L760) and [forward it to the jail's loopback](../../internal/entrypoint/runtime.go). Nothing owned a port across jails.
   - **Decided:** an exclusive lease, with paste as the route-free path.
   - **Validation owed:** rootless forwarding on a real host.
-- **MS-E2, closed by MS-D8.**
-  - **Found:** Slack's plugin is MIT-licensed ([pinned licence](https://github.com/slackapi/slack-skills-plugin/blob/5b8802105740b5c045c97247fded2e73b205e95e/LICENSE)). Its tag `v1.8.0` and `main` both resolved to commit `5b8802105740b5c045c97247fded2e73b205e95e` in the closure evidence; those moving refs are not the redistribution pin.
-  - **Decided:** an integration pack carries it with the licence retained. The unmanaged route is no longer described as the working one; it remains only as unchanged baseline behavior (MS-D2).
+- **MS-E2, withdrawn by MS-R6.** A redistributable license did not make provider bundling part
+  of the requested feature. Remove that shipped content and its instructions; preserve the generic
+  declarations, adoption path, and user-owned configuration.
 - **MS-E3, closed by MS-D9 and MS-D11.**
   - **Found:** whole-plugin placement and disclosure are shipped ([plugin recognition](../../internal/pluginpack/pluginpack.go)), and [delivery marks the manifest](../../internal/hostskills/plugin.go). Reading individual servers is not shipped.
   - **Decided:** a format-named reader feeding a separate sign-in point inventory.

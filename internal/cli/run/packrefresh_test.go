@@ -2,6 +2,7 @@ package run
 
 import (
 	"bytes"
+	"context"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"os"
 	"os/exec"
@@ -200,9 +201,48 @@ func TestRefreshConfiguredPacksWarnsWhenAFetchFailsOverACachedCopy(t *testing.T)
 	}
 	var said, warned []string
 	RefreshConfiguredPacks(func(s string) { said = append(said, s) }, func(s string) { warned = append(warned, s) })
-	if len(warned) != 1 || !strings.Contains(warned[0], "pack gp: could not refresh main") ||
-		!strings.Contains(warned[0], "using the cached") {
-		t.Errorf("warn got %q (say got %q), want the one cached-copy warning", warned, said)
+	if len(warned) != 1 || !strings.Contains(warned[0], "pack gp: could not check origin main") ||
+		!strings.Contains(warned[0], "running the held") || !strings.Contains(warned[0], "`yolo pack update`") {
+		t.Errorf("warn got %q (say got %q), want the one held-copy warning", warned, said)
+	}
+}
+
+// THE DEADLINE AT THE CALL SITE (LPC-D3/D4): the phase's context comes from packCheckStart, so a
+// launch whose phase has already run out runs the held copy with the one warning, says nothing else,
+// and never refuses. Deleting the Check from refreshConfiguredPacks' Refresh call fails here: the
+// remote is reachable and unmoved, so only the deadline can produce the warning.
+func TestLaunchPackCheckDeadlineRunsTheHeldCopyAndWarns(t *testing.T) {
+	home := hostRefreshEnv(t)
+	repo := refreshGitRepo(t)
+	writeUserPacks(t, home, `[{"name": "gp", "source": "git+file://`+repo+`?ref=main"}]`)
+	RefreshConfiguredPacks(func(string) {}, func(string) {})
+
+	prev := packCheckStart
+	t.Cleanup(func() { packCheckStart = prev })
+	packCheckStart = func() (*packsrc.PackCheck, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // the phase's deadline has fired
+		return &packsrc.PackCheck{Ctx: ctx, Limit: packsrc.PackCheckDeadline}, cancel
+	}
+	var said, warned []string
+	RefreshConfiguredPacks(func(s string) { said = append(said, s) }, func(s string) { warned = append(warned, s) })
+	if len(warned) != 1 || !strings.Contains(warned[0], "pack gp: could not check origin main (") ||
+		!strings.Contains(warned[0], "timed out after 5s) — running the held ") || len(said) != 0 {
+		t.Errorf("warn got %q, say got %q, want the one timed-out warning and nothing said", warned, said)
+	}
+}
+
+// AN UNMOVED PACK PRINTS NOTHING (LPC-D5): a second launch against an unchanged remote says and warns
+// nothing at all.
+func TestLaunchPackCheckOfAnUnmovedPackIsSilent(t *testing.T) {
+	home := hostRefreshEnv(t)
+	repo := refreshGitRepo(t)
+	writeUserPacks(t, home, `[{"name": "gp", "source": "git+file://`+repo+`?ref=main"}]`)
+	RefreshConfiguredPacks(func(string) {}, func(string) {})
+	var said, warned []string
+	RefreshConfiguredPacks(func(s string) { said = append(said, s) }, func(s string) { warned = append(warned, s) })
+	if len(said) != 0 || len(warned) != 0 {
+		t.Errorf("an unmoved pack printed: said %q, warned %q", said, warned)
 	}
 }
 
@@ -298,5 +338,23 @@ func TestRefreshPacksReportsNoPhaseForSkippedWork(t *testing.T) {
 			o.refreshPacks()
 			assertPhaseEvents(t, events, "launch.refresh_configured_packs", false)
 		})
+	}
+}
+
+// A pack with a `local` clone ALWAYS says which copy runs (docs/design/local-pack-clones.md §4.4): its bytes may
+// be uncommitted work, which is a disclosure. A line that is a warning goes to warn, the rest to say; a pack with
+// no decision prints nothing of this kind. The decision itself is pinned in internal/packsrc/localcopy_test.go.
+func TestRefreshOutcomesSayWhichCopyOfALocalPackRuns(t *testing.T) {
+	var said, warned []string
+	sayOutcomes([]packsrc.Outcome{
+		{Name: "plain"},
+		{Name: "tillr", Local: &packsrc.LocalCopyDecision{Line: "local ~/src/tillr (working tree, equal to origin)"}},
+		{Name: "loud", Local: &packsrc.LocalCopyDecision{Line: "local ~/src/loud (working tree) is behind origin by 3 and has uncommitted changes", Warn: true}},
+	}, func(s string) { said = append(said, s) }, func(s string) { warned = append(warned, s) })
+	if len(said) != 1 || said[0] != "tillr  local ~/src/tillr (working tree, equal to origin)" {
+		t.Errorf("said = %q, want the one disclosure line for tillr", said)
+	}
+	if len(warned) != 1 || !strings.HasPrefix(warned[0], "loud  local ~/src/loud") {
+		t.Errorf("warned = %q, want the one warning line for loud", warned)
 	}
 }

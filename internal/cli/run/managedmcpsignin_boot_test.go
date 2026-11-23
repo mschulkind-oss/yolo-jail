@@ -29,7 +29,13 @@ func TestRunManagedMCPRouteReachesProductionBootConsumer(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := packHome(t)
-			writeUserConfigJSON(t, home, `{"packs":["claude","slack-mcp"],"mcp_servers":{"configured-alias":{"url":"https://mcp.slack.com/mcp","sign_in":"once","headers":{"aUtHoRiZaTiOn":"stale","X-Team":"t1"}}}}`)
+			integrationRoot := managedSignInFixture(t, t.TempDir(), false)
+			settings := map[string]any{"packs": []any{"claude", map[string]any{"source": integrationRoot, "name": "fixture-mcp"}}, "mcp_servers": map[string]any{"configured-alias": map[string]any{"url": "https://mcp.fixture.invalid/mcp", "sign_in": "once", "headers": map[string]any{"aUtHoRiZaTiOn": "stale", "X-Team": "t1"}}}}
+			encoded, err := json.Marshal(settings)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeUserConfigJSON(t, home, string(encoded))
 			workspace := t.TempDir()
 			var out, errs bytes.Buffer
 			o := dispatchOptions(t, workspace, tc.backend, &out, &errs, nil)

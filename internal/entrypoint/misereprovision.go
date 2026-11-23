@@ -68,7 +68,8 @@ func reprovisionMise(e *Env, run func(*Env, string) int, out io.Writer) int {
 		return 0
 	}
 	fmt.Fprintln(out, "yolo: this session's mise tools changed since this jail installed its tools; installing them")
-	rc := run(e, provision.SetupBypassingShims(provision.StepAnnounceMiseInstall, provision.StepMiseInstall))
+	rc := run(e, provision.SetupBypassingShims(provision.StepAnnounceMiseInstall, provision.StepMiseInstall,
+		provision.StepToolSkills("/workspace", mainStatePath(provision.ToolSkillsLockName))))
 	if rc != 0 {
 		fmt.Fprintln(out, "yolo: this session's mise install failed (exit "+strconv.Itoa(rc)+"); "+
 			"the next session tries again, or run `mise install` here")

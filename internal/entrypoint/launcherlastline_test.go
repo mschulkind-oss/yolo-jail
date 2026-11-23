@@ -93,7 +93,7 @@ func TestAFailedUpdateSaysWhatEachModeDoesNext(t *testing.T) {
 				"\nRepair:\n", "    misnative\n", "\nStart anyway:\n",
 				useInstalledLines("misnative", "misnative", "version")}, false},
 		{"a launch due an update its upstream cannot answer", down, nil,
-			[]string{"  misnative: its update (misnative selfupdate) failed (status 3), and its upstream could not be reached to check for a newer version — running what is installed.\n"}, true},
+			[]string{"  misnative: its update (misnative selfupdate) failed (status 3), and its upstream could not be reached to check for a newer version — running what is installed. It asks again the next time this jail starts (yolo stop on the host, then launch), or now with: yolo pack update.\n"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e, pathEnv, _ := misplacedFixture(t, `{"kind":"program","bin":"misnative","via":"installer",`+

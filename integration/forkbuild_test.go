@@ -30,10 +30,11 @@ const (
 )
 
 // forkFixtureRepo is a local git repository on main whose rev.txt holds rev, with a commit func
-// that moves it.
+// that moves it. Its path is resolved: the private-native fixture refuses an input with linked
+// ancestry, which an unresolved darwin t.TempDir (/var -> /private/var) always has.
 func forkFixtureRepo(t *testing.T) (dir string, commit func(rev string)) {
 	t.Helper()
-	dir = t.TempDir()
+	dir = resolvedTempDir(t)
 	git := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("git", args...)

@@ -54,7 +54,8 @@ func TestASessionWithChangedMiseToolsInstallsThemOnce(t *testing.T) {
 	if rc := reprovisionMise(miseSessionEnv(t, `{"jq":"1.8.0"}`, "pnpm"), run, &said); rc != 0 {
 		t.Fatalf("rc = %d", rc)
 	}
-	want := provision.SetupBypassingShims(provision.StepAnnounceMiseInstall, provision.StepMiseInstall)
+	want := provision.SetupBypassingShims(provision.StepAnnounceMiseInstall, provision.StepMiseInstall,
+		provision.StepToolSkills("/workspace", mainStatePath(provision.ToolSkillsLockName)))
 	if len(ran) != 1 || ran[0] != want {
 		t.Fatalf("ran %q, want the one mise install stage %q", ran, want)
 	}

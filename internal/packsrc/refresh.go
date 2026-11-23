@@ -7,8 +7,8 @@ package packsrc
 //	never fetched (no mirror, or the ref does not resolve)  fetch and check out
 //	a full 40-hex commit SHA that resolves                   never fetch — frozen
 //	a tag that resolves (refs/tags/<ref>)                    never fetch — frozen
-//	a branch that resolves (refs/heads/<ref>)                fetch when the last good
-//	                                                         fetch is over an hour old
+//	a branch that resolves (refs/heads/<ref>)                probed at every launch (one ls-remote);
+//	                                                         fetched only when the remote moved
 //	a ref git could not look up (a local rev-parse           never fetch for it; report
 //	timed out or git failed)                                 the failure (FetchErr)
 //
@@ -49,8 +49,8 @@ package packsrc
 // CONCURRENCY. Fetch and checkout run under an exclusive flock per mirror, and the
 // lockfile's load-modify-save under an exclusive flock of its own, so two launches at
 // once cannot corrupt a mirror, a tree or the lockfile. Every decision — including
-// "is the stamp fresh" — is taken UNDER the mirror lock, so a launch that waited for
-// another's fetch re-reads the stamp that fetch wrote and does not fetch again.
+// "has the remote moved" — is taken UNDER the mirror lock, so a launch that waited for
+// another's fetch probes again, finds the branch reached, and does not fetch again.
 
 import (
 	"context"
@@ -59,6 +59,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,10 +67,11 @@ import (
 	"time"
 )
 
-// BranchRefreshInterval is how old a branch's last successful fetch must be before a
-// launch fetches it again. The same interval as the in-jail launchers' UPDATE_INTERVAL
-// (internal/entrypoint/shims.go), so "how often does something a pack follows move" has
-// one answer across the product.
+// BranchRefreshInterval is the backoff the background retry delays wait after a failed refresh
+// (backgroundadvance.go, preparationforks.go), the schedule CheckDue gives the background advance and
+// the status lines, and the skill_imports resolver's refreshDue (until its slice). It no longer throttles a
+// branch pack's or a patched fork's launch-time check: every launch probes the remote instead (fetchStep,
+// probeMoved; docs/design/local-pack-clones.md LPC-D1, LPC-D6).
 const BranchRefreshInterval = 3600 * time.Second
 
 // LaunchFetchTimeout bounds each LAUNCH-TIME fetch, through the store's own Timeout: one
@@ -89,6 +91,26 @@ func LaunchStore(dir string) *Store {
 	return &Store{Dir: dir, Timeout: LaunchFetchTimeout, Detached: true}
 }
 
+// PackCheckDeadline is the ONE deadline of a launch's pack-check phase (docs/design/local-pack-clones.md
+// LPC-D3): it covers every mirror's lock wait, probe and fetch together, because the mirrors are checked
+// at the same time. A pack with no held copy is exempt (LaunchFetchTimeout), since nothing can stand in
+// for it.
+const PackCheckDeadline = 5 * time.Second
+
+// PackCheck is the deadline a launch gives its pack-check phase. Ctx ends the phase (a test cancels it);
+// Limit is the duration the warning names.
+type PackCheck struct {
+	Ctx   context.Context
+	Limit time.Duration
+}
+
+// NewPackCheck starts the launch's phase: PackCheckDeadline from now. The caller calls cancel when the
+// phase is over.
+func NewPackCheck() (*PackCheck, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.Background(), PackCheckDeadline)
+	return &PackCheck{Ctx: ctx, Limit: PackCheckDeadline}, cancel
+}
+
 // RefreshPack is one configured git pack to refresh: its config NAME (the lockfile key)
 // and its address as written.
 type RefreshPack struct {
@@ -102,6 +124,11 @@ type RefreshPack struct {
 	// previously resolved remote-default lock. Ordinary Force callers keep the
 	// existing explicit-update behavior; launch refreshes do not force.
 	PreserveDefaultPin bool
+	// Local is the pack's `local` key: the user's clone, absolute. Empty for none.
+	Local string
+	// Subdir is the entry's `subdir`: the pack's directory below the address's, which a `local` clone's dirty
+	// count and file set are limited to.
+	Subdir string
 }
 
 // RefreshOptions tunes one Refresh call.
@@ -116,11 +143,15 @@ type RefreshOptions struct {
 	EditLock func(*Lock)
 	// Now is the clock for stamps. Nil means time.Now.
 	Now func() time.Time
-	// Interval overrides BranchRefreshInterval (tests). Zero means the constant.
-	Interval time.Duration
 	// Waiting, when non-nil, is told when this call is about to block on a lock another
-	// process holds, so a pause reads as serialisation rather than as a hang.
+	// process holds, so a pause reads as serialisation rather than as a hang. It may be called from
+	// several goroutines, one per mirror, but never at the same time.
 	Waiting func(string)
+	// Check, when non-nil, is a LAUNCH's pack-check phase: a mirror whose every pack has a held copy
+	// is checked under Check's one deadline (its lock wait, probe and fetch), and a check that does
+	// not finish runs the held copy with a warning (Outcome.Warning). A mirror with a pack that has
+	// no held copy keeps the store's own budget. Nil is every explicit act, which has no deadline.
+	Check *PackCheck
 }
 
 // Outcome is what Refresh did for one pack.
@@ -148,6 +179,11 @@ type Outcome struct {
 	FetchErr error
 	// Err is why the pack is unusable (bad address, unresolvable ref, failed checkout).
 	Err error
+	// Checked is true when this outcome is a launch's pack check (RefreshOptions.Check), whose failure
+	// reads as the design's §4.3 warning rather than an explicit act's.
+	Checked bool
+	// Local is the launch's copy decision for a pack with a `local` clone; nil for any other.
+	Local *LocalCopyDecision
 }
 
 // Disclosure is the line a launch prints for this outcome, or "" when nothing moved.
@@ -156,6 +192,9 @@ type Outcome struct {
 func (o Outcome) Disclosure() string {
 	if o.Commit == "" || o.Err != nil {
 		return ""
+	}
+	if o.Local != nil && o.Local.Copy == CopyWorkingTree {
+		return "" // the clone runs, not the commit: the local line is the disclosure, and the pin did not move
 	}
 	if o.First {
 		return fmt.Sprintf("Fetched pack %s: %s → %s", o.Name, o.Ref, shortCommit(o.Commit))
@@ -174,8 +213,30 @@ func (o Outcome) Warning() string {
 	if o.FetchErr == nil || o.Commit == "" {
 		return ""
 	}
+	if o.Local != nil && o.Local.Copy == CopyWorkingTree {
+		return "" // the local line says the check failed and that the clone runs; "running the held" would not be true
+	}
+	if o.Checked {
+		return fmt.Sprintf("pack %s: could not check origin %s (%s) — running the held %s. "+
+			"Nothing to do until the network is back; `yolo pack update` checks on demand.",
+			o.Name, o.Ref, checkCause(o.FetchErr), shortCommit(o.Commit))
+	}
 	return fmt.Sprintf("pack %s: could not refresh %s (%s) — using the cached %s",
 		o.Name, o.Ref, oneLine(o.FetchErr), shortCommit(o.Commit))
+}
+
+var gitTimedOut = regexp.MustCompile(`git (\S+) timed out after ([0-9.a-zµ]+)`)
+
+// checkCause is why a check gave no answer, in the warning's words: "ls-remote timed out after 5s"
+// for a run the deadline killed, else the error's first line.
+func checkCause(err error) string { return CheckCause(err.Error()) }
+
+// CheckCause is checkCause for an error already recorded as text (CheckFound.FetchErr).
+func CheckCause(msg string) string {
+	if m := gitTimedOut.FindStringSubmatch(msg); m != nil {
+		return m[1] + " timed out after " + m[2]
+	}
+	return oneLine(errors.New(msg))
 }
 
 // Refresh brings every git pack in packs up to the ref rule above, checks each resolved
@@ -192,10 +253,6 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 	now := opts.Now
 	if now == nil {
 		now = time.Now
-	}
-	interval := opts.Interval
-	if interval <= 0 {
-		interval = BranchRefreshInterval
 	}
 	needDefaultPin := false
 	for _, pack := range packs {
@@ -251,9 +308,23 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 			outcomes[i].Err = fmt.Errorf("pack %s is local (%s): there is nothing to fetch", p.Name, a.Path)
 			continue
 		}
-		items = append(items, refreshItem{idx: i, addr: a})
+		item := refreshItem{idx: i, addr: a}
+		if a.Kind == KindGit && p.Local != "" {
+			item.name, item.local, item.subdir = p.Name, p.Local, p.Subdir
+		}
+		items = append(items, item)
 	}
-	s.refreshGrouped(items, outcomes, opts.Force, now(), interval, opts.Waiting)
+	s.refreshGrouped(items, outcomes, opts.Force, now(), opts.Waiting, opts.Check)
+	for i := range outcomes {
+		if outcomes[i].Local != nil {
+			s.recordLocalCopy(&outcomes[i])
+		}
+	}
+	if opts.Check != nil {
+		for i := range outcomes {
+			outcomes[i].Checked = true
+		}
+	}
 	if opts.LockPath == "" {
 		return outcomes, nil
 	}
@@ -270,6 +341,11 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 				o.Prev, o.Locked = prev.Commit, true
 			}
 			if o.Commit == "" || o.Err != nil {
+				continue
+			}
+			if o.Local != nil && o.Local.Copy == CopyWorkingTree {
+				// THE LOCKFILE PINS ONLY ORIGIN'S COPY (LPC-D14): the clone's bytes are no commit, so the pin
+				// stays where it was and the launch record says what ran.
 				continue
 			}
 			if !same {
@@ -302,6 +378,11 @@ func sameContent(lockedSource string, a Addr) bool {
 type refreshItem struct {
 	idx  int
 	addr Addr
+	// name and local are the pack's handle and its `local` clone (RefreshPack.Local): set only for a git pack
+	// that names one, which the launch check then decides a copy for (localcopy.go).
+	name, local string
+	// subdir is RefreshPack.Subdir.
+	subdir string
 }
 
 // refreshGrouped runs refreshMirror for items GROUPED BY MIRROR, in first-appearance order:
@@ -309,8 +390,12 @@ type refreshItem struct {
 // from a monorepo cost at most one fetch, and a fetch one pack needs cannot move another
 // pack's frozen ref behind its back (refreshMirror). Each item's idx indexes outcomes. A
 // fork's pin (forkpin.go) runs the same rule through it.
+//
+// THE MIRRORS RUN AT THE SAME TIME (LPC-D3), one goroutine each with no cap. Each writes only its own
+// items' outcomes, and waiting is serialized so a progress line is never torn. A nil check is no
+// deadline: the store's own budget per mirror, as an explicit act has.
 func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bool, now time.Time,
-	interval time.Duration, waiting func(string)) {
+	waiting func(string), check *PackCheck) {
 	var order []string
 	groups := map[string][]refreshItem{}
 	for _, it := range items {
@@ -319,8 +404,64 @@ func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bo
 		}
 		groups[it.addr.Repo] = append(groups[it.addr.Repo], it)
 	}
+	if waiting != nil {
+		var mu sync.Mutex
+		inner := waiting
+		waiting = func(msg string) {
+			mu.Lock()
+			defer mu.Unlock()
+			inner(msg)
+		}
+	}
+	var wg sync.WaitGroup
 	for _, repo := range order {
-		s.refreshMirror(repo, groups[repo], outcomes, force, now, interval, waiting)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.refreshMirror(repo, groups[repo], outcomes, force, now, waiting, check)
+		}()
+	}
+	wg.Wait()
+}
+
+// heldCopy reports whether every item's ref already resolves in repo's mirror: a copy that can run when
+// a check does not finish. Read with no network and no lock; a ref git cannot be asked about is not held.
+func (s *Store) heldCopy(repo string, items []refreshItem) bool {
+	mirror := s.mirrorPath(repo)
+	if !mirrorExists(mirror) {
+		return false
+	}
+	for _, it := range items {
+		if it.addr.Ref == "" {
+			return false
+		}
+		if _, _, local, err := s.classifyRef(mirror, it.addr.Ref); err != nil || local == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// runHeld answers a mirror whose check never got its lock with its held copies, for each item whose
+// tree is already complete (so no git runs under no lock), and err for any other.
+func (s *Store) runHeld(repo string, items []refreshItem, outcomes []Outcome, err error) {
+	mirror := s.mirrorPath(repo)
+	for _, it := range items {
+		o := &outcomes[it.idx]
+		_, _, local, cerr := s.classifyRef(mirror, it.addr.Ref)
+		if cerr != nil || local == "" {
+			o.Err = err
+			continue
+		}
+		if _, serr := os.Stat(filepath.Join(s.treeDir(it.addr, local), treeCompleteMarker)); serr != nil {
+			o.Err = err
+			continue
+		}
+		o.Prev, o.Commit, o.FetchErr = local, local, err
+		s.recordDecided(it.addr, local)
+		if it.local != "" {
+			o.Local = s.localCopyFor(it, local, err, time.Now())
+		}
 	}
 }
 
@@ -352,9 +493,9 @@ func (s *Store) remoteDefaultBranch(b budget, repo string) (string, error) {
 
 // refreshMirror is Refresh for every pack on one repository, under that mirror's lock.
 //
-// THE DECISION IS TAKEN UNDER THE LOCK, from what the mirror and the stamps say NOW: a
-// launch that waited for another's fetch sees the stamp that fetch wrote and does not
-// fetch again inside the interval.
+// THE DECISION IS TAKEN UNDER THE LOCK, from what the mirror and the remote say NOW: a
+// launch that waited for another's fetch sees the mirror that fetch brought up and does not
+// fetch again for a branch it already reached.
 //
 // A FROZEN REF STAYS FROZEN WHEN ITS MIRROR IS FETCHED FOR ANOTHER PACK. The fetch
 // force-updates (and prunes) tags, which is what lets `yolo pack install`/`update` move to
@@ -373,8 +514,24 @@ func (s *Store) remoteDefaultBranch(b budget, repo string) (string, error) {
 // same ref rule and fetch and NO CHECKOUT: everything below the fetch step is resolution and
 // the materialize, which a check must not run (each would leave a tree no reaper reads).
 func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outcome, force bool,
-	now time.Time, interval time.Duration, waiting func(string)) {
-	unlock, err := s.lockMirror(repo, waiting)
+	now time.Time, waiting func(string), check *PackCheck) {
+	// A mirror the launch can answer from what it holds is checked under the phase's deadline; one that
+	// cannot (a first fetch) keeps its own budget, since nothing can stand in for it.
+	held := check != nil && !force && s.heldCopy(repo, items)
+	lockStore := s
+	if held {
+		c := *s
+		c.Ctx = check.Ctx
+		lockStore = &c
+	}
+	unlock, err := lockStore.lockMirror(repo, waiting)
+	if err != nil && held {
+		if check.Ctx.Err() != nil {
+			err = fmt.Errorf("waiting for the mirror lock timed out after %s", check.Limit)
+		}
+		s.runHeld(repo, items, outcomes, err)
+		return
+	}
 	if err != nil {
 		for _, it := range items {
 			outcomes[it.idx].Err = err
@@ -411,7 +568,13 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 	for i, it := range items {
 		addrs[i] = it.addr
 	}
-	step := s.fetchStep(b, repo, addrs, fetchMode{always: force}, now, interval)
+	// The deadline bounds the probe and the fetch only: what follows a fetch that finished, and the
+	// checkout of the copy that runs, are under the store's own budget b.
+	fb := b
+	if held {
+		fb = budget{ctx: check.Ctx, d: check.Limit}
+	}
+	step := s.fetchStep(fb, repo, addrs, fetchMode{always: force}, now)
 	before := step.before
 	for i, it := range items {
 		o := &outcomes[it.idx]
@@ -435,6 +598,8 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 			o.FetchErr = fetchErr
 		case before[i].err != nil:
 			o.FetchErr = before[i].err
+		case step.probeErr != nil:
+			o.FetchErr = step.probeErr
 		}
 		commit := before[i].local
 		switch {
@@ -442,6 +607,10 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 			// The fetch is the truth now, for every ref including one it removed.
 			c, rerr := s.resolveCommit(mirror, it.addr)
 			if rerr != nil {
+				if _, _, held, cerr := s.classifyRef(mirror, it.addr.Ref); it.local != "" && cerr == nil && held == "" {
+					// The fetch showed origin no longer has the branch: the clone's work is all there is.
+					o.Local = s.localCopyFor(it, "", nil, now)
+				}
 				o.Err = rerr
 				continue
 			}
@@ -463,6 +632,15 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 				continue
 			}
 			commit = c
+		}
+		if it.local != "" {
+			// THE COPY DECISION (localcopy.go, LPC-D8..LPC-D11), taken after the probe and fetch from what the
+			// mirror holds now. It stages nothing; the record it leaves is what the working-tree staging reads.
+			origin := commit
+			if step.absent[before[i].name] && o.FetchErr == nil {
+				origin = "" // the probe reached origin and it no longer lists the branch: the mirror's copy is stale
+			}
+			o.Local = s.localCopyFor(it, origin, o.FetchErr, now)
 		}
 		if _, err := s.materialize(b, it.addr, commit); err != nil {
 			o.Err = err
@@ -490,6 +668,10 @@ type fetchMode struct {
 	// forced fetch leaves them moved, which is how install moves to a re-pointed tag; a patched
 	// fork's check never follows a re-pointed tag (PF-D4), forced or not.
 	keepTags bool
+	// probeTags makes the launch's probe ask for refs/tags/* too, so a tag the mirror does not hold yet
+	// counts as the remote having moved. A patched fork's check follows release tags, which a branch tip
+	// alone does not show (a re-pointed tag is not a move: PF-D4). A pack's own fetch leaves it off.
+	probeTags bool
 	// sourced defers the pair stamp until required explicit blob completion, and
 	// propagates this address's required pin-fetch failure without changing the
 	// ordinary best-effort pin/stamp contract. Only the sourced adapter sets it.
@@ -505,6 +687,11 @@ type fetchStepResult struct {
 	needFetch bool
 	fetched   bool
 	fetchErr  error
+	// probeErr is why the launch's probe of the remote gave no answer (probeMoved). No fetch ran on its
+	// account: the held copy answers, and the caller reports it as the refresh failure.
+	probeErr error
+	// absent is the full names of the held branches the probe's remote did not list (probeBranches).
+	absent map[string]bool
 }
 
 // fetchStep is THE PER-MIRROR STEP'S FETCH (the design's term, forked-programs-as-packs.md
@@ -513,15 +700,15 @@ type fetchStepResult struct {
 // mirror's lock and owns the budget.
 //
 // Each address's ref is classified with no network (classifyRef), and a fetch runs when one has
-// no local copy, a branch's last good fetch is over interval old, or mode.always — never on
+// no local copy, a branch's probe finds the remote moved, or mode.always — never on
 // account of a ref git could not be asked about. A good fetch stamps every address and puts
 // moved tags back (refreshMirror says why), and fetches the full commits the addresses pin that
 // no branch or tag brought; a failed one is recorded for resolution's message.
-func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, now time.Time,
-	interval time.Duration) fetchStepResult {
+func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, now time.Time) fetchStepResult {
 	mirror := s.mirrorPath(repo)
 	r := fetchStepResult{before: make([]refPre, len(addrs)), needFetch: mode.always}
 	existed := mirrorExists(mirror)
+	var branches []int // addresses whose held branch the probe asks the remote about
 	for i, a := range addrs {
 		if existed {
 			p := &r.before[i]
@@ -534,9 +721,16 @@ func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, n
 			// failure is reported by the caller; the next launch asks again (no stamp was written).
 		case r.before[i].local == "":
 			r.needFetch = true
-		case r.before[i].kind == refBranch && !s.stampFresh(a, now, interval):
-			r.needFetch = true
+		case r.before[i].kind == refBranch:
+			branches = append(branches, i)
 		}
+	}
+	if !r.needFetch && len(branches) > 0 {
+		// A BRANCH IS ASKED OF ITS REMOTE AT EVERY LAUNCH, not at its stamp's age (LPC-D2): one
+		// ls-remote downloads no object and writes nothing, and only a moved branch is fetched.
+		moved, absent, err := s.probeBranches(b, repo, r.before, branches, mode.probeTags)
+		r.probeErr, r.absent = err, absent
+		r.needFetch = moved
 	}
 	if !r.needFetch {
 		return r
@@ -587,6 +781,61 @@ func (s *Store) fetchStep(b budget, repo string, addrs []Addr, mode fetchMode, n
 		}
 	}
 	return r
+}
+
+// probeMoved asks repo's remote where the branches named by before[idx] are, with one ls-remote of
+// exactly those refs, and reports whether any is at a commit other than the one the mirror holds. A
+// branch the remote no longer lists is not moved: the mirror's copy stays the held one. An error is a
+// probe that got no answer (unreachable, timed out), which is never a reason to fetch.
+//
+// With tags, refs/tags/* is asked too and a tag NAME the mirror lacks counts as moved; a tag the mirror
+// holds at another object does not (a patched fork never follows a re-pointed tag).
+func (s *Store) probeMoved(b budget, repo string, before []refPre, idx []int, tags bool) (bool, error) {
+	moved, _, err := s.probeBranches(b, repo, before, idx, tags)
+	return moved, err
+}
+
+// probeBranches is probeMoved that also says which watched branches the remote did not list at all (by full
+// ref name): not a move, but what a `local` pack's decision reads as "origin deleted the branch" (localcopy.go).
+func (s *Store) probeBranches(b budget, repo string, before []refPre, idx []int, tags bool) (bool, map[string]bool, error) {
+	args := []string{"ls-remote", "--", repo}
+	held := map[string]string{}
+	for _, i := range idx {
+		args = append(args, before[i].name)
+		held[before[i].name] = before[i].local
+	}
+	var heldTags map[string]string
+	if tags {
+		args = append(args, "refs/tags/*")
+		// An unreadable mirror's tags answer nothing, so every remote tag reads as new: a fetch, the safe side.
+		heldTags, _ = s.tagSnapshot(s.mirrorPath(repo))
+	}
+	out, err := s.runIn(b, "", args...)
+	if err != nil {
+		return false, nil, fmt.Errorf("could not check %s: %w", repo, err)
+	}
+	moved := false
+	absent := map[string]bool{}
+	for name := range held {
+		absent[name] = true
+	}
+	for _, line := range strings.Split(out, "\n") {
+		sha, name, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if !ok {
+			continue
+		}
+		if want, watched := held[name]; watched {
+			delete(absent, name)
+			if sha != want {
+				moved = true
+			}
+		}
+		if _, isHeld := heldTags[name]; tags && strings.HasPrefix(name, "refs/tags/") &&
+			!strings.HasSuffix(name, "^{}") && !isHeld {
+			moved = true
+		}
+	}
+	return moved, absent, nil
 }
 
 // tagSnapshot is every tag in the mirror and the object it names (a tag object for an
@@ -764,21 +1013,6 @@ func (s *Store) writeStamp(a Addr, at time.Time) {
 		return
 	}
 	_ = os.Rename(tmp, p)
-}
-
-// stampFresh reports whether the ref's last successful fetch is within interval of now.
-// A missing or unreadable stamp is stale: the answer that fetches.
-func (s *Store) stampFresh(a Addr, now time.Time, interval time.Duration) bool {
-	data, err := os.ReadFile(s.stampPath(a))
-	if err != nil {
-		return false
-	}
-	secs, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-	if err != nil {
-		return false
-	}
-	age := now.Sub(time.Unix(secs, 0))
-	return age >= 0 && age < interval
 }
 
 // fetchFailures is this PROCESS's record of the last failed fetch per store+repo, so the

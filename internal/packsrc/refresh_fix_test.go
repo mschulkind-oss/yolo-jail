@@ -966,7 +966,7 @@ func TestFetchErrorNamesTheSubcommand(t *testing.T) {
 	f.refresh(t, false, pack)
 	f.breakRemote(t)
 	f.now = f.now.Add(2 * BranchRefreshInterval)
-	o := f.refresh(t, false, pack)[0]
+	o := f.refresh(t, true, pack)[0] // forced: the fetch itself runs, with no probe before it
 	if o.FetchErr == nil || !strings.Contains(o.FetchErr.Error(), "git fetch:") ||
 		strings.Contains(o.FetchErr.Error(), "git -c") {
 		t.Errorf("FetchErr = %v, want it labelled `git fetch`", o.FetchErr)

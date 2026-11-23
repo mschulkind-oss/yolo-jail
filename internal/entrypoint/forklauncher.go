@@ -272,8 +272,8 @@ KEY_DIR=__YOLO_FORK_KEY_DIR__
 KEY_STAMP="$KEY_DIR/$BIN"
 _YOLO_RECEIPTS=__YOLO_RECEIPTS_FILE__
 CAPTURES_DIR=__YOLO_CAPTURES_DIR__
-# The pre-launch refresh's throttle and bounds, the other launchers' own numbers.
-UPDATE_INTERVAL=3600
+# The pre-launch refresh's bounds, the other launchers' own numbers. Its due rule is the jail
+# start's, not a clock (prelaunchrefresh.go).
 UPDATE_TIMEOUT=60
 STALE_LOCK=600
 UPDATES_ENABLED=__YOLO_UPDATES_ENABLED__

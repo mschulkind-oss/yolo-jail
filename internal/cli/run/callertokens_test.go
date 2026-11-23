@@ -92,6 +92,8 @@ func TestALaunchWithoutAServiceDaemonMintsNoCallerToken(t *testing.T) {
 		t.Errorf("a launch with no pack service minted %q", channel.callerTokens)
 	}
 	shared, _ := deliveredFiles(t, channel)
+	// The snapshot token (YOLO_TOOL_SKILLS_TOKEN, mise tool skills MS-D9) is a session input, not a caller token.
+	shared = strings.ReplaceAll(shared, "YOLO_TOOL_SKILLS_TOKEN=", "")
 	if strings.Contains(shared, "_TOKEN=") {
 		t.Errorf("a launch with no pack service writes a caller token line:\n%s", shared)
 	}

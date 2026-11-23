@@ -51,9 +51,15 @@ func (pin *privateNativeForkPin) commits() (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The lines `git init` itself writes. On darwin it adds ignorecase and precomposeunicode
+	// when the volume is case-insensitive (APFS's default), so those are git's own defaults too.
+	initLines := map[string]bool{
+		"": true, "[core]": true, "repositoryformatversion = 0": true, "filemode = true": true,
+		"bare = false": true, "logallrefupdates = true": true,
+		"ignorecase = true": true, "precomposeunicode = true": true,
+	}
 	for _, line := range strings.Split(string(configBytes), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" && line != "[core]" && line != "repositoryformatversion = 0" && line != "filemode = true" && line != "bare = false" && line != "logallrefupdates = true" {
+		if !initLines[strings.TrimSpace(line)] {
 			return nil, fmt.Errorf("private native plain fork git config is unclassified")
 		}
 	}

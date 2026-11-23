@@ -127,9 +127,12 @@ _shielded() {
     local cleanup="$1" rc=0
     shift
     _YOLO_INTERRUPTED=0
+    # _YOLO_SIGNALLED is 1 only inside the TERM and HUP traps: a cleanup that must tell a signal
+    # from a normal end (the npm launcher's check claim, released on a signal alone) reads it.
+    _YOLO_SIGNALLED=0
     trap '_YOLO_INTERRUPTED=1' INT
-    trap "trap '' INT; $cleanup; trap - TERM; kill -TERM \$\$" TERM
-    trap "trap '' INT; $cleanup; trap - HUP; kill -HUP \$\$" HUP
+    trap "trap '' INT; _YOLO_SIGNALLED=1; $cleanup; trap - TERM; kill -TERM \$\$" TERM
+    trap "trap '' INT; _YOLO_SIGNALLED=1; $cleanup; trap - HUP; kill -HUP \$\$" HUP
     "$@" || rc=$?
     trap '' INT
     eval "$cleanup" || true
@@ -240,7 +243,7 @@ _yolo_failed_act() {
     how="failed (status $rc)"
     if [ "$rc" = 124 ]; then how="timed out after ${UPDATE_TIMEOUT}s"; fi
     if [ "$reached" != 0 ]; then
-        echo "  $BIN: $what $how, and its upstream could not be reached to check for a newer version — running what is installed." >&2
+        echo "  $BIN: $what $how, and its upstream could not be reached to check for a newer version — running what is installed. It asks again the next time this jail starts (yolo stop on the host, then launch), or now with: yolo pack update." >&2
         return 0
     fi
     _YOLO_FAIL_HEAD="$BIN: $what $how"

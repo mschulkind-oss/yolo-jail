@@ -335,6 +335,13 @@ func startJailDaemonSupervisor(e *Env) error {
 	if readyRead == nil {
 		return nil
 	}
+	// EACH REQUIRED DAEMON IS A SPAN OF THE TRACE from the supervisor's start to its readiness
+	// answer (docs/design/startup-tracing.md §5.6), written by this process so a span's start and
+	// end share a pid. One that never answers keeps an open start, which the summary reports as
+	// "did not end". The supervisor writes each spawn's own span beside these.
+	for _, name := range readyNames {
+		e.trace.Start(daemonReadySpan(name))
+	}
 	defer readyRead.Close()
 	// ONE PROGRESS LINE, NAMING WHAT IT WAITS FOR, and nothing else on a wait that ends at once
 	// (docs/reference/report-tiers.md, progress lines: a step that ends within two seconds
@@ -376,7 +383,9 @@ func startJailDaemonSupervisor(e *Env) error {
 					"boot waits for", scanner.Text()))
 		}
 		delete(ready, fields[1])
+		e.trace.End(daemonReadySpan(fields[1]))
 		if fields[0] == "failed" {
+			e.trace.Mark(daemonReadySpan(fields[1]) + ".failed")
 			// The daemon's own reason, verbatim: it alone knows the cause and the next step
 			// (a held port, a missing key; wirebridged's servePlan).
 			reason := "it reported no reason"
@@ -399,6 +408,10 @@ func startJailDaemonSupervisor(e *Env) error {
 	result = "done"
 	return nil
 }
+
+// daemonReadySpan is the jail-half span over one required in-jail daemon's start, ended by its
+// readiness answer.
+func daemonReadySpan(name string) string { return "daemon." + name }
 
 // jailDaemonLogsPhrase names the supervisor's log file for each of names, under home:
 // "daemon log: <path>", or "daemon logs: <path>, <path>" for several.

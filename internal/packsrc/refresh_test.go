@@ -232,23 +232,19 @@ func TestRefreshNeverFetchesATagButForceDoes(t *testing.T) {
 	}
 }
 
-// (d) A BRANCH IS FETCHED ONLY WHEN ITS LAST GOOD FETCH IS OLDER THAN THE INTERVAL, and the
+// (d) A BRANCH IS FETCHED WHEN THE REMOTE MOVED, whatever the stamp says (probe, LPC-D2), and the
 // stamp is written only by a successful fetch.
-func TestRefreshFetchesABranchHourly(t *testing.T) {
+func TestRefreshFetchesAMovedBranch(t *testing.T) {
 	f := newRefreshFixture(t)
 	c1 := f.head(t)
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
 	c2 := commitFile(t, f.repo, "two", "2")
 
-	f.now = f.now.Add(BranchRefreshInterval - time.Minute)
-	if o := f.refresh(t, false, pack)[0]; o.Fetched || o.Commit != c1 || o.Disclosure() != "" {
-		t.Fatalf("inside the interval: %+v, want no fetch at %s and nothing said", o, c1)
-	}
-	f.now = f.now.Add(2 * time.Minute) // now past the interval since the first fetch
+	f.now = f.now.Add(time.Minute) // inside the old hourly interval
 	o := f.refresh(t, false, pack)[0]
 	if !o.Fetched || o.Commit != c2 {
-		t.Fatalf("past the interval: %+v, want a fetch reaching %s", o, c2)
+		t.Fatalf("moved branch: %+v, want a fetch reaching %s", o, c2)
 	}
 	if got, want := o.Disclosure(), fmt.Sprintf("Updated pack p: main %s → %s", c1[:8], c2[:8]); got != want {
 		t.Errorf("Disclosure() = %q, want %q", got, want)
@@ -390,9 +386,9 @@ func TestRefreshSaysNothingWhenNothingMoved(t *testing.T) {
 	pack := RefreshPack{Name: "p", Source: f.source("main")}
 	f.refresh(t, false, pack)
 	f.now = f.now.Add(2 * BranchRefreshInterval)
-	o := f.refresh(t, false, pack)[0]
+	o := f.refresh(t, true, pack)[0] // forced: a fetch that has nothing new to bring
 	if !o.Fetched {
-		t.Fatalf("fixture: expected a fetch past the interval: %+v", o)
+		t.Fatalf("fixture: expected a forced fetch: %+v", o)
 	}
 	if o.Disclosure() != "" || o.Warning() != "" {
 		t.Errorf("a fetch that moved nothing said %q / %q", o.Disclosure(), o.Warning())

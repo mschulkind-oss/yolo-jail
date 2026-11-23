@@ -151,7 +151,7 @@ jobs:
       # a replacement gate; a passing diagnostic cannot erase the original failure.
       - name: Capture CLI/run test events after a quality-gate failure
         if: ${{ failure() && steps.quality_gate.outcome == 'failure' }}
-        run: go test -short -count=1 -timeout=8m -json ./internal/cli/run > "$RUNNER_TEMP/check-go-cli-run.jsonl" 2>&1
+        run: go test -short -count=1 -timeout=45m -json ./internal/cli/run > "$RUNNER_TEMP/check-go-cli-run.jsonl" 2>&1
 
       # A failed package can print its entire buffered output in one write;
       # retain the file too, so a missing console tail cannot hide its cause.

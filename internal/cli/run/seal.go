@@ -140,7 +140,7 @@ func sealedChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack) *packChannel {
 		scope:         scope,
 		userEnv:       config.NewHydratedEnv(),
 		served:        served,
-		sessionInputs: composeSessionInputs(cfg, packs, true, true, nil),
+		sessionInputs: composeSessionInputs(cfg, packs, true, true, nil, toolSkillInputs{}),
 	}
 }
 
@@ -283,6 +283,7 @@ func sealedBriefingInput(in jailcontent.BriefingInput) jailcontent.BriefingInput
 	in.Sealed = true
 	in.ContextMounts, in.PublishPorts, in.ForwardHostPorts, in.Loopholes = nil, nil, nil, nil
 	in.HostNix = false
+	in.SharedGoCache = false
 	return in
 }
 

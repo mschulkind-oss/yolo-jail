@@ -42,7 +42,7 @@ func TestASessionInputChangeReachesTheNextSessionOfARunningJail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("inspect the running jail's env: %v", err)
 	}
-	for _, name := range []string{"YOLO_BLOCK_CONFIG", "YOLO_MISE_TOOLS", "MISE_DISABLE_TOOLS", "YOLO_LSP_SERVERS", "YOLO_MCP_SERVERS"} {
+	for _, name := range []string{"YOLO_BLOCK_CONFIG", "YOLO_MISE_TOOLS", "MISE_DISABLE_TOOLS", "YOLO_LSP_SERVERS", "YOLO_MCP_SERVERS", "YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN"} {
 		if strings.Contains(string(inspect), "\n"+name+"=") || strings.HasPrefix(string(inspect), name+"=") {
 			t.Errorf("the container's frozen env carries the session input %s:\n%s", name, inspect)
 		}

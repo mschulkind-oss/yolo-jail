@@ -40,6 +40,10 @@ func misplacedFixture(t *testing.T, contribution string) (*Env, string, string) 
 	if err := os.Chmod(filepath.Join(fakeBin, "npm"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The update check is once per jail start: the boot's record makes the launcher's check due.
+	if err := writeJailStart(home); err != nil {
+		t.Fatal(err)
+	}
 	e := NewEnv(map[string]string{"JAIL_HOME": home, "YOLO_PACK_ROOT": packRoot,
 		"YOLO_WORKSPACE": filepath.Join(home, "ws")})
 	if err := GenerateAgentLaunchers(e); err != nil {

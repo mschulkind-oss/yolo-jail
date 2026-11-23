@@ -303,14 +303,14 @@ func TestVersionPruneRunsOnTheColdInstallPathToo(t *testing.T) {
 // only call sites were the install and update arms. So these cells drive the launcher with NO
 // install or update happening at all, and the prune still has to have run.
 
-// pruneProbeWithoutAnUpdate seeds the version tree and a FRESH stamp, so the update is not due and
+// pruneProbeWithoutAnUpdate seeds the version tree and an already-claimed check, so the update is not due and
 // the only thing that can change the tree is the every-invocation prune. updates=false is the
 // frozen agent_updates policy, which bakes the update branch out of the launcher entirely.
 func pruneProbeWithoutAnUpdate(t *testing.T, updates bool) (*updateProbe, string, int) {
 	t.Helper()
 	p := newUpdateProbe(t, []string{"noop"}, updates, false /* seedVersions seeds REAL_BIN */)
 	seedVersions(t, p.home, "probetool", []string{"2.1.165", "2.1.218", "2.1.219", "2.1.220", "2.1.260"}, 4)
-	seedFreshStamp(t, p.stamps, "probetool")
+	claimCheck(t, p.home, "probetool")
 	out, rc := p.run(t)
 	return p, out, rc
 }
@@ -362,7 +362,7 @@ func TestVersionPruneRunsUnderAFrozenUpdatePolicy(t *testing.T) {
 func TestVersionPruneYieldsToAWriterHoldingTheLock(t *testing.T) {
 	p := newUpdateProbe(t, []string{"noop"}, true, false)
 	seedVersions(t, p.home, "probetool", []string{"1.0.0", "2.0.0", "3.0.0", "4.0.0"}, 3)
-	seedFreshStamp(t, p.stamps, "probetool")
+	claimCheck(t, p.home, "probetool")
 	lock := filepath.Join(p.home, ".local", ".yolo-update.lock")
 	if err := os.MkdirAll(lock, 0o755); err != nil {
 		t.Fatal(err)
@@ -428,7 +428,7 @@ func TestAnEveryInvocationPruneThatCannotDeleteStillLaunches(t *testing.T) {
 	}
 	p := newUpdateProbe(t, []string{"noop"}, true, false)
 	seedVersions(t, p.home, "probetool", []string{"1.0.0", "2.0.0", "3.0.0"}, 2)
-	seedFreshStamp(t, p.stamps, "probetool")
+	claimCheck(t, p.home, "probetool")
 	shim := filepath.Join(p.home, "failing-rm")
 	if err := os.MkdirAll(shim, 0o755); err != nil {
 		t.Fatal(err)

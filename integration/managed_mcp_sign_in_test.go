@@ -92,7 +92,7 @@ func managedMCPConsumerAdapter(t *testing.T, name, parent string) string {
 	return root
 }
 
-func managedMCPHome(t *testing.T, source, slack bool) string {
+func managedMCPHome(t *testing.T, source, integration bool) string {
 	t.Helper()
 	packs := []string{}
 	root := resolvedTempDir(t)
@@ -103,8 +103,9 @@ func managedMCPHome(t *testing.T, source, slack bool) string {
 		managedMCPConsumerAdapter(t, name, root)
 		packs = append(packs, fmt.Sprintf(`{"source":%q,"name":%q}`, filepath.Join(root, name), name))
 	}
-	if slack {
-		packs = append(packs, `"slack-mcp"`)
+	if integration {
+		fixture := managedMCPIntegrationFixture(t, root)
+		packs = append(packs, fmt.Sprintf(`{"source":%q,"name":"fixture-mcp"}`, fixture))
 	}
 	packs = append(packs, `"mcp-auth"`)
 	allow := `"cgroup-delegate":{"off":true}`
@@ -113,7 +114,7 @@ func managedMCPHome(t *testing.T, source, slack bool) string {
 	}
 	// Legacy selection keeps existing leaf source IDs. Readable custom handles
 	// containing '/' are rejected by Source.validate; no schema migration here.
-	text := `{"packs":[` + strings.Join(packs, ",") + `],"allow":{` + allow + `},"mcp_servers":{"configured-alias":{"url":"https://mcp.slack.com/mcp","sign_in":"once"}}}`
+	text := `{"packs":[` + strings.Join(packs, ",") + `],"allow":{` + allow + `},"mcp_servers":{"configured-alias":{"url":"https://mcp.fixture.invalid/mcp","sign_in":"once"}}}`
 	home := mcpAuthHome(t, "")
 	configDir := filepath.Join(home, ".config/yolo-jail")
 	if err := os.Remove(filepath.Join(configDir, "config.toml")); err != nil {
@@ -188,11 +189,14 @@ assert c['headersHelper']=='yolo mcp-auth header configured-alias --format json'
 assert 'oauth' not in c
 assert p['headers']['Authorization']=='!yolo mcp-auth header configured-alias'
 assert 'oauth' not in p
-manifest=json.load(open(os.path.expanduser('~/.claude/skills/slack/.claude-plugin/plugin.json')))
-assert manifest['name']=='slack'
+manifest=json.load(open(os.path.expanduser('~/.claude/skills/fixture/.claude-plugin/plugin.json')))
+assert manifest['name']=='fixture'
 s=json.loads(subprocess.check_output(['yolo','mcp-auth','status','configured-alias','--json']))
-assert 'plugin:slack:slack' in json.dumps(s)
-assert 'full callback URL' in json.dumps(s)
+assert 'plugin:fixture:fixture' in json.dumps(s)
+row=[o for o in s['once'] if o['name']=='configured-alias'][0]
+callback=row.get('callback','')
+assert ('full callback URL' in json.dumps(row))==(callback not in ('owner','not needed')),(callback,row.get('next_step'))
+print('MANAGED_CALLBACK='+callback)
 print('MANAGED_RENDER=yes')
 PY`
 
@@ -204,10 +208,7 @@ func TestManagedMCPSignInLaunchPlacesAndDerivesWithoutExecutingAgents(t *testing
 	home := managedMCPHome(t, true, true)
 	workspace := writeProject(t, `{}`)
 	for _, rel := range []string{"LICENSE", ".mcp.json"} {
-		want, err := fs.ReadFile(packload.EmbeddedFS(), "slack-mcp/skills/slack/"+rel)
-		if err != nil {
-			t.Fatal(err)
-		}
+		want := []byte(managedMCPFixtureFiles[rel])
 		if err := os.WriteFile(filepath.Join(workspace, "expected-"+rel), want, 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -215,12 +216,18 @@ func TestManagedMCPSignInLaunchPlacesAndDerivesWithoutExecutingAgents(t *testing
 	compare := `python3 - <<'PY'
 import os
 for rel in ['LICENSE','.mcp.json']:
- assert open(os.path.expanduser('~/.claude/skills/slack/'+rel),'rb').read()==open('/workspace/expected-'+rel,'rb').read()
+ assert open(os.path.expanduser('~/.claude/skills/fixture/'+rel),'rb').read()==open('/workspace/expected-'+rel,'rb').read()
 print('ORIGINAL_BYTES=yes')
 PY`
 	r := managedMCPRun(t, workspace, managedMCPRenderProbe+"\n"+compare)
 	if kvLine(r.stdout, "MANAGED_RENDER") != "yes" || kvLine(r.stdout, "ORIGINAL_BYTES") != "yes" {
-		t.Fatal("real boot consumer did not verify rendered routes and originals")
+		t.Fatalf("real boot consumer did not verify rendered routes and originals:\n%s", r.combined())
+	}
+	// The paste hint follows the callback's disposition (mcpsignin.Diagnose omits it for
+	// a published "owner" callback). A nested jail publishes nothing, so there it must be
+	// the unpublished branch; a bridged rootless host publishes the port and gets "owner".
+	if got := kvLine(r.stdout, "MANAGED_CALLBACK"); inContainer() && got != "not published on this backend" {
+		t.Fatalf("nested launch callback disposition = %q, want %q:\n%s", got, "not published on this backend", r.combined())
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(`{"mcp_servers":{"configured-alias":{"url":"https://workspace.fixture.invalid/mcp"}}}`), 0600); err != nil {
 		t.Fatal(err)
@@ -235,7 +242,7 @@ assert not any('yolo mcp-auth header' in str(v) for v in p.get('headers',{}).val
 print('WORKSPACE_NO_BORROW=yes')
 PY`
 	if r := managedMCPRun(t, workspace, noBorrow); kvLine(r.stdout, "WORKSPACE_NO_BORROW") != "yes" {
-		t.Fatal("workspace override borrowed user sign-in route")
+		t.Fatalf("workspace override borrowed user sign-in route:\n%s", r.combined())
 	}
 	if err := os.WriteFile(filepath.Join(workspace, "yolo-jail.jsonc"), []byte(`{}`), 0600); err != nil {
 		t.Fatal(err)
@@ -251,7 +258,8 @@ PY`
 	}
 	var selected []any
 	for _, entry := range cfg["packs"].([]any) {
-		if entry != "slack-mcp" {
+		integration, ok := entry.(map[string]any)
+		if !ok || integration["name"] != "fixture-mcp" {
 			selected = append(selected, entry)
 		}
 	}
@@ -265,13 +273,13 @@ PY`
 	}
 	withdrawn := `python3 - <<'PY'
 import json,os
-assert not os.path.exists(os.path.expanduser('~/.claude/skills/slack'))
+assert not os.path.exists(os.path.expanduser('~/.claude/skills/fixture'))
 c=json.load(open(os.path.expanduser('~/.claude.json')))['mcpServers']['configured-alias']
 assert 'headersHelper' not in c
 print('WITHDRAWAL=yes')
 PY`
 	if r := managedMCPRun(t, workspace, withdrawn); kvLine(r.stdout, "WITHDRAWAL") != "yes" {
-		t.Fatal("withdrawn bundle remained a managed sign-in route")
+		t.Fatalf("withdrawn bundle remained a managed sign-in route:\n%s", r.combined())
 	}
 }
 
@@ -285,9 +293,9 @@ func TestManagedMCPSignInHeaderOnlyStatusReadsSyntheticRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256([]byte(`{"client_id":"","headers":{},"transport":"http","url":"https://mcp.slack.com/mcp"}`))
+	sum := sha256.Sum256([]byte(`{"client_id":"","headers":{},"transport":"http","url":"https://mcp.fixture.invalid/mcp"}`))
 	fixtureToken := "task9-inert-access-only"
-	record := mcpauth.Record{Server: "configured-alias", Identity: hex.EncodeToString(sum[:]), URL: "https://mcp.slack.com/mcp", Generation: 1, State: "live", Entry: json.RawMessage(`{}`), AccessToken: fixtureToken, ExpiresAtMS: time.Now().Add(24 * time.Hour).UnixMilli()}
+	record := mcpauth.Record{Server: "configured-alias", Identity: hex.EncodeToString(sum[:]), URL: "https://mcp.fixture.invalid/mcp", Generation: 1, State: "live", Entry: json.RawMessage(`{}`), AccessToken: fixtureToken, ExpiresAtMS: time.Now().Add(24 * time.Hour).UnixMilli()}
 	if err := store.WithLock(func(file *mcpauth.CanonicalFile) error { file.Records = []mcpauth.Record{record}; return nil }); err != nil {
 		t.Fatal(err)
 	}

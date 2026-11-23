@@ -2,6 +2,7 @@ package entrypoint
 
 import (
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailtrace"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	_ "github.com/mschulkind-oss/yolo-jail/internal/packreg" // registers the embedded packs with packload
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
@@ -668,7 +669,25 @@ func execBash(e *Env, command string, announce bool) error {
 		return err
 	}
 	argv := []string{"bash", "--rcfile", e.BashrcPath(), "-c", activatedCommand}
+	// THE STARTUP WINDOW ENDS HERE (TR-D10): the last thing this process does before it becomes
+	// the session's shell. Written immediately before the exec, so a failed exec still marks the
+	// attempt and the error below says why it did not happen.
+	e.trace.Mark(sessionExecMark)
 	return sysExec(bashPath, argv, os.Environ())
+}
+
+// sessionExecMark is the jail-half mark that ends a launch's startup window
+// (docs/design/startup-tracing.md, TR-D10).
+const sessionExecMark = "session.exec"
+
+// bootPassSpan names the span over one run of the boot table: the jail's own boot, or a
+// session's pass into a jail whose main process holds (the two are told apart by pid as well,
+// but a reader of one trace should not have to know which pid was which).
+func bootPassSpan(sessionPass bool) string {
+	if sessionPass {
+		return "session.boot"
+	}
+	return "boot"
 }
 
 // activationPrefix is what every session's shell runs before its command: the frozen user
@@ -736,6 +755,12 @@ func Main(args []string) error {
 
 	e := EnvFromOS()
 	scrubLegacyLDLibraryPath(e)
+	// THE JAIL HALF OF THE LAUNCH'S TRACE (docs/design/startup-tracing.md §5.3, TR-D3/TR-D5):
+	// written only when the launch handed this process a context in YOLO_TRACEPARENT, as lines
+	// in the jail home's file named for the trace, each as it happens. The entrypoint is one of
+	// the readers the design allows that variable; no id is minted here. Nil when there is none,
+	// and every write below is then a no-op.
+	e.trace = jailtrace.Open(e.Home, e.Getenv(jailtrace.Env))
 
 	// THE MAIN PROCESS SAYS ITS BOOT HAS BEGUN, before the boot, so a session exec'd into the
 	// container meanwhile waits for it rather than finding nothing. A SESSION of a jail whose
@@ -750,7 +775,12 @@ func Main(args []string) error {
 	case e.Getenv(JailMainEnv) == JailMainHold:
 		gate = newSessionGate(tty.IsTerminalFile(os.Stdin), os.Stderr)
 		first := mode == modeFirstSession && gate.registerFirst(os.Getpid())
-		if err := gate.awaitBoot(); err != nil {
+		// A session's wait on the jail's own boot is time the session's startup spends in no
+		// step of its own, so it is a span of the session's trace.
+		e.trace.Start("session.await_boot")
+		err := gate.awaitBoot()
+		e.trace.End("session.await_boot")
+		if err != nil {
 			return err
 		}
 		if first {
@@ -803,7 +833,10 @@ func Main(args []string) error {
 	if gate != nil {
 		delete(e.Vars, paths.LaunchUpdateEnv)
 	}
+	pass := bootPassSpan(gate != nil)
+	e.trace.Start(pass)
 	runBootSteps(&bootRun{e: e, target: bootContainer, perf: p, sessionPass: gate != nil})
+	e.trace.End(pass)
 
 	// NOTE: We intentionally do NOT call `mise hook-env` here (flock deadlock).
 	p.dump(e.Home)

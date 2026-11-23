@@ -249,9 +249,9 @@ then says `Set YOLO_NO_AUTO_CAPTURE=1 to skip.`
    (`TestAPackUpdateWhoseNpmInstallLandsNothingSaysSoAndFails`). An installer re-run that takes
    away the program it was updating gets that line alone, where it also said the update had
    failed and the installed version runs (`TestAnInstallerUpdateThatLeavesNothingToRunSaysSoOnce`).
-   The pnpm launcher retries a failed install only an hour after the last failure, so it says
-   when a run retries and prints the command that retries now. Only a failure starts that hour, a
-   successful install clearing it, so a pnpm removed after it installed is installed again on the
+   The pnpm launcher retries a failed install only at the next jail start, so it says
+   when a run retries and prints the command that retries now. Only a failure records that
+   wait (`pnpm.failed.<id>`), a successful install clearing it, so a pnpm removed after it installed is installed again on the
    next run, where the line used to say its install had failed
    (`launcherretry_test.go` runs each launcher again, and the pnpm command as printed;
    `pnpmthrottle_test.go` runs both orders).

@@ -11,7 +11,10 @@ func TestWalkRootPermissionRestorationUsesOpenedRootAfterNameReplacement(t *test
 	owned := filepath.Join(parent, "owned")
 	moved := filepath.Join(parent, "moved")
 	outside := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(owned, "dir"), 0555); err != nil {
+	if err := os.Mkdir(owned, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(owned, "dir"), 0555); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(outside, "dir"), 0555); err != nil {

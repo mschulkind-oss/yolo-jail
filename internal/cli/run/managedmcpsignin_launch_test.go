@@ -20,7 +20,7 @@ import (
 )
 
 func TestMCPProducerCarriesExpectedClientNotJustItsDigest(t *testing.T) {
-	text := `{"slack":{"url":"https://mcp.slack.com/mcp","sign_in":"once","oauth":{"client_id":"owner-client"}}}`
+	text := `{"fixture":{"url":"https://mcp.fixture.invalid/mcp","sign_in":"once","oauth":{"client_id":"owner-client"}}}`
 	in := onceLaunchInput(t, text, text)
 	data, err := mcpShareFromPacks(in, []*packload.Pack{shippedPack(t, "claude")})
 	if err != nil {
@@ -44,25 +44,30 @@ func TestMCPProducerCarriesExpectedClientNotJustItsDigest(t *testing.T) {
 func TestRunResolvesOnlyUserSelectedDeliveredSignInPoints(t *testing.T) {
 	t.Setenv("YOLO_NO_PROGRAM_READINESS", "1")
 	t.Setenv("YOLO_NO_AUTO_CAPTURE", "1")
+	// The no-canonical-state assertion below is about launch INSPECTION on Linux podman,
+	// where the resident broker owns the store. On any other host podman takes the
+	// boundary tier (onceTierMode, ID-19), whose start pass legitimately opens the store
+	// before the keeper, so pin the Linux tier rather than inherit the test host's OS.
+	setOnceGOOS(t, "linux")
 	for _, tc := range []struct {
 		name, namespace, native                                                                                     string
 		workspaceOnly, changedURL, view, unselected, ownClient, nonOnce, removed, capturable, usable, expired, dead bool
 		skillOnlyAgent, skillOnlyIntegration                                                                        bool
 	}{
-		{name: "bare", native: "plugin:slack:slack", capturable: true},
+		{name: "bare", native: "plugin:fixture:fixture", capturable: true},
 		{name: "skill-only agent", skillOnlyAgent: true},
 		{name: "skill-only integration", skillOnlyIntegration: true, capturable: true},
-		{name: "usable record", native: "plugin:slack:slack", capturable: true, usable: true},
-		{name: "expired record", native: "plugin:slack:slack", capturable: true, expired: true},
-		{name: "dead record", native: "plugin:slack:slack", capturable: true, dead: true},
-		{name: "namespaced", namespace: "team", native: "plugin:team-slack:slack", capturable: true},
+		{name: "usable record", native: "plugin:fixture:fixture", capturable: true, usable: true},
+		{name: "expired record", native: "plugin:fixture:fixture", capturable: true, expired: true},
+		{name: "dead record", native: "plugin:fixture:fixture", capturable: true, dead: true},
+		{name: "namespaced", namespace: "team", native: "plugin:team-fixture:fixture", capturable: true},
 		{name: "workspace-only", workspaceOnly: true},
 		{name: "pack unselected", unselected: true, capturable: true},
 		{name: "own client mismatch", ownClient: true, capturable: true},
 		{name: "not once", nonOnce: true},
 		{name: "server removed", removed: true},
 		{name: "workspace redirect", changedURL: true},
-		{name: "credential view", native: "plugin:slack:slack", view: true},
+		{name: "credential view", native: "plugin:fixture:fixture", view: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := packHome(t)
@@ -114,63 +119,22 @@ hook="shared_credentials"
 			if err := os.WriteFile(filepath.Join(root, "skills", "probe", "SKILL.md"), []byte("inert projection fixture\n"), 0644); err != nil {
 				t.Fatal(err)
 			}
-			integrationSource := filepath.Dir(shippedPack(t, "slack-mcp").Root)
-			if tc.skillOnlyIntegration {
-				// slack-mcp ships one plugin root rather than typed skill candidates. A local
-				// mixed-contribution fixture exercises typed projection without loosening its grammar.
-				integrationSource = t.TempDir()
-				integrationRoot := filepath.Join(integrationSource, "slack-mcp")
-				if err := os.MkdirAll(filepath.Join(integrationRoot, "skills", "slack", ".claude-plugin"), 0755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.MkdirAll(filepath.Join(integrationRoot, "skills", "slack-api"), 0755); err != nil {
-					t.Fatal(err)
-				}
-				manifest := `name="slack-mcp"
-skills_tier="namespaced"
-[native_sign_in]
-formats=["claude-plugin"]
-[[skills]]
-from="skills"
-agents=["claude"]
-[[skills]]
-agent="claude"
-into=".claude/skills"
-[[mcp_sign_in_bundle]]
-bundle="skills/slack"
-format="claude-plugin"
-origin="https://github.com/slackapi/slack-skills-plugin"
-revision="5b8802105740b5c045c97247fded2e73b205e95e"
-license="skills/slack/LICENSE"
-callback_route=true
-`
-				if err := os.WriteFile(filepath.Join(integrationRoot, "pack.toml"), []byte(manifest), 0644); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(integrationRoot, "skills", "slack", ".claude-plugin", "plugin.json"), []byte(`{"name":"slack","mcpServers":{"slack":{"url":"https://mcp.slack.com/mcp"}}}`), 0644); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(integrationRoot, "skills", "slack", "LICENSE"), []byte("synthetic fixture license\n"), 0644); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(integrationRoot, "skills", "slack-api", "SKILL.md"), []byte("synthetic projected skill\n"), 0644); err != nil {
-					t.Fatal(err)
-				}
-			}
+			integrationSource := t.TempDir()
+			integrationRoot := managedSignInFixture(t, integrationSource, tc.skillOnlyIntegration)
 			selected := []any{root}
-			slack := any("slack-mcp")
+			integration := any(map[string]any{"source": integrationRoot, "name": "fixture-mcp"})
 			if tc.namespace != "" {
-				slack = map[string]any{"source": shippedPack(t, "slack-mcp").Root, "name": tc.namespace}
+				integration = map[string]any{"source": integrationRoot, "name": tc.namespace}
 			}
 			if !tc.workspaceOnly && !tc.unselected {
-				selected = append(selected, slack)
+				selected = append(selected, integration)
 			}
-			settings := map[string]any{"packs": selected, "mcp_servers": map[string]any{"slack": map[string]any{"url": "https://mcp.slack.com/mcp", "sign_in": "once"}}}
+			settings := map[string]any{"packs": selected, "mcp_servers": map[string]any{"fixture": map[string]any{"url": "https://mcp.fixture.invalid/mcp", "sign_in": "once"}}}
 			if tc.view {
 				selected = append(selected, "claude-auth")
 				settings["packs"] = selected
 			}
-			server := settings["mcp_servers"].(map[string]any)["slack"].(map[string]any)
+			server := settings["mcp_servers"].(map[string]any)["fixture"].(map[string]any)
 			if tc.ownClient {
 				server["oauth"] = map[string]any{"client_id": "owner-client"}
 			}
@@ -186,12 +150,12 @@ callback_route=true
 				if err := os.Remove(filepath.Join(home, ".config/yolo-jail/config.jsonc")); err != nil {
 					t.Fatal(err)
 				}
-				toml := fmt.Sprintf(`packs=["fixture/%s","team/slack-mcp"]
+				toml := fmt.Sprintf(`packs=["fixture/%s","team/fixture-mcp"]
 pack_sources={fixture={path=%q,bare=true},team={path=%q,bare=false}}
-[mcp_servers.slack]
-url="https://mcp.slack.com/mcp"
+[mcp_servers.fixture]
+url="https://mcp.fixture.invalid/mcp"
 sign_in="once"
-`, filepath.Base(root), filepath.Dir(root), filepath.Dir(shippedPack(t, "slack-mcp").Root))
+`, filepath.Base(root), filepath.Dir(root), integrationSource)
 				if err := os.WriteFile(filepath.Join(home, ".config/yolo-jail/config.toml"), []byte(toml), 0644); err != nil {
 					t.Fatal(err)
 				}
@@ -201,26 +165,27 @@ sign_in="once"
 					t.Fatal(err)
 				}
 				handle := "fixture/" + filepath.Base(root)
-				agent, integration := fmt.Sprintf("%q", handle), `"slack-mcp"`
+				agent, integration := fmt.Sprintf("%q", handle), `"team/fixture-mcp"`
 				if tc.skillOnlyAgent {
 					agent = fmt.Sprintf(`{pack=%q,skills={only=["probe"]}}`, handle)
 				}
 				if tc.skillOnlyIntegration {
-					integration = `{pack="team/slack-mcp",skills={only=["slack-api"]}}`
+					integration = `{pack="team/fixture-mcp",skills={only=["fixture-api"]}}`
 				}
-				toml := fmt.Sprintf("packs=[%s,%s]\npack_sources={fixture={path=%q,bare=true},team={path=%q,bare=false}}\n[mcp_servers.slack]\nurl=\"https://mcp.slack.com/mcp\"\nsign_in=\"once\"\n", agent, integration, filepath.Dir(root), integrationSource)
+				toml := fmt.Sprintf("packs=[%s,%s]\npack_sources={fixture={path=%q,bare=true},team={path=%q,bare=false}}\n[mcp_servers.fixture]\nurl=\"https://mcp.fixture.invalid/mcp\"\nsign_in=\"once\"\n", agent, integration, filepath.Dir(root), integrationSource)
 				if err := os.WriteFile(filepath.Join(home, ".config/yolo-jail/config.toml"), []byte(toml), 0644); err != nil {
 					t.Fatal(err)
 				}
 			}
 			ws := t.TempDir()
 			if tc.changedURL {
-				writeWorkspaceConfig(t, ws, `{"mcp_servers":{"slack":{"url":"https://attacker.invalid/mcp"}}}`)
+				writeWorkspaceConfig(t, ws, `{"mcp_servers":{"fixture":{"url":"https://attacker.invalid/mcp"}}}`)
 			}
 			var out, errs bytes.Buffer
 			o := dispatchOptions(t, ws, "podman", &out, &errs, nil)
 			if tc.workspaceOnly {
-				writeWorkspaceConfig(t, ws, `{"packs":["slack-mcp"]}`)
+				workspacePack, _ := json.Marshal(map[string]any{"packs": []any{map[string]any{"source": integrationRoot, "name": "fixture-mcp"}}})
+				writeWorkspaceConfig(t, ws, string(workspacePack))
 			}
 			if tc.view {
 				withViewSwitch(o)
@@ -246,7 +211,7 @@ sign_in="once"
 				return nil, errors.New("fixture stops before runtime creation")
 			}
 			if tc.usable || tc.expired || tc.dead {
-				identity, err := mcpIdentity("https://mcp.slack.com/mcp", "http", map[string]string{}, "")
+				identity, err := mcpIdentity("https://mcp.fixture.invalid/mcp", "http", map[string]string{}, "")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -255,7 +220,7 @@ sign_in="once"
 					t.Fatal(err)
 				}
 				if err := store.WithLock(func(file *mcpauth.CanonicalFile) error {
-					file.Records = []mcpauth.Record{{Server: "slack", Identity: identity, URL: "https://mcp.slack.com/mcp", Generation: 1, State: "live", Entry: json.RawMessage(`{}`), AccessToken: "fixture-access", ExpiresAtMS: time.Now().Add(time.Hour).UnixMilli()}}
+					file.Records = []mcpauth.Record{{Server: "fixture", Identity: identity, URL: "https://mcp.fixture.invalid/mcp", Generation: 1, State: "live", Entry: json.RawMessage(`{}`), AccessToken: "fixture-access", ExpiresAtMS: time.Now().Add(time.Hour).UnixMilli()}}
 					if tc.expired {
 						file.Records[0].ExpiresAtMS = time.Now().Add(-time.Hour).UnixMilli()
 					}
@@ -285,7 +250,7 @@ sign_in="once"
 			}
 			if tc.skillOnlyIntegration && plan.LaunchInputMCP != nil && plan.LaunchInputMCP.SignIn != nil {
 				for _, bundle := range plan.LaunchInputMCP.SignIn.Bundles {
-					if bundle.Pack == "team/slack-mcp" {
+					if bundle.Pack == "team/fixture-mcp" {
 						t.Fatalf("skill-only integration retained native sign-in bundle: %+v", bundle)
 					}
 				}
@@ -299,7 +264,7 @@ sign_in="once"
 			capturable := false
 			if plan.LaunchInputMCP != nil && plan.LaunchInputMCP.SignIn != nil {
 				for _, d := range plan.LaunchInputMCP.SignIn.Decisions {
-					if d.Server == "slack" && d.Agent == "claude" {
+					if d.Server == "fixture" && d.Agent == "claude" {
 						if d.Point != nil {
 							native = d.Point.NativeName
 						}

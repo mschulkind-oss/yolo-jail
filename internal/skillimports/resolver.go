@@ -64,7 +64,7 @@ func (s *Store) resolveWithFetcher(ctx context.Context, entry config.SkillImport
 	var record Resolution
 	err := s.WithLock(func() error {
 		var err error
-		record, err = s.fetchAndRecord(ctx, entry, authority, fetch)
+		record, err = s.fetchAndRecord(ctx, entry, authority, fetch, false)
 		return err
 	})
 	if err != nil {
@@ -88,9 +88,6 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 	if fetch == nil {
 		return Resolution{}, "", errors.New("git broker fetcher is required")
 	}
-	if now.IsZero() {
-		now = time.Now()
-	}
 	access, allowed, err := gitbroker.DecideImportAccess(entry.Git, authority.ApprovedRemotes,
 		authority.CurrentRemotes, authority.ApprovedGrants, authority.CurrentGrants)
 	if err != nil {
@@ -101,20 +98,20 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 	}
 	current, currentOK := s.Resolution(entry.Handle, entry)
 	usable := currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
-	if usable && !refreshDue(entry, current, now) {
+	if usable && !refreshDue(entry, current) {
 		return current, "", nil
 	}
 
 	// A launch with a current usable record does not queue behind a refresh it does not own.
-	if usable && refreshDue(entry, current, now) {
+	if usable && refreshDue(entry, current) {
 		var refreshWarning string
 		locked, err := s.TryWithLock(func() error {
 			current, currentOK = s.Resolution(entry.Handle, entry)
 			usable = currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
-			if usable && !refreshDue(entry, current, now) {
+			if usable && !refreshDue(entry, current) {
 				return nil
 			}
-			fresh, fetchErr := s.fetchAndRecord(ctx, entry, authority, fetch)
+			fresh, fetchErr := s.launchCheck(ctx, entry, authority, fetch)
 			if fetchErr == nil {
 				current, usable = fresh, true
 				return nil
@@ -143,10 +140,10 @@ func (s *Store) resolveLaunchWithFetcher(ctx context.Context, entry config.Skill
 	err = s.WithLock(func() error {
 		current, currentOK = s.Resolution(entry.Handle, entry)
 		usable = currentOK && s.HasCommit(current.Commit) && cacheAccessAllows(current.AccessClass, access)
-		if usable && !refreshDue(entry, current, now) {
+		if usable && !refreshDue(entry, current) {
 			return nil
 		}
-		fresh, fetchErr := s.fetchAndRecord(ctx, entry, authority, fetch)
+		fresh, fetchErr := s.fetchAndRecord(ctx, entry, authority, fetch, false)
 		if fetchErr == nil {
 			current, usable = fresh, true
 			return nil
@@ -175,15 +172,25 @@ func (s *Store) FetchForCommand(ctx context.Context, entry config.SkillImport, a
 	if err := validateResolveEntry(entry); err != nil {
 		return Resolution{}, err
 	}
-	return s.fetchResolution(ctx, entry, authority, gitbroker.FetchImport)
+	record, _, err := s.fetchResolution(ctx, entry, authority, gitbroker.FetchImport, "")
+	return record, err
 }
 
 func (s *Store) fetchAndRecord(ctx context.Context, entry config.SkillImport, authority Authority,
-	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error)) (Resolution, error) {
+	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error), cheapCheck bool) (Resolution, error) {
 	previous, hadPrevious := s.Resolution(entry.Handle, entry)
-	record, err := s.fetchResolution(ctx, entry, authority, fetch)
+	unchangedIf := ""
+	if cheapCheck && hadPrevious {
+		unchangedIf = previous.Commit
+	}
+	record, unchanged, err := s.fetchResolution(ctx, entry, authority, fetch, unchangedIf)
 	if err != nil {
 		return Resolution{}, err
+	}
+	if unchanged {
+		// The ref still names the recorded commit and nothing was fetched: the record, its
+		// ResolvedAt included (when this commit was resolved), stays exactly as written.
+		return previous, nil
 	}
 	if err := s.WriteResolution(record); err != nil {
 		return Resolution{}, err
@@ -197,18 +204,24 @@ func (s *Store) fetchAndRecord(ctx context.Context, entry config.SkillImport, au
 }
 
 func (s *Store) fetchResolution(ctx context.Context, entry config.SkillImport, authority Authority,
-	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error)) (Resolution, error) {
+	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error), unchangedIf string) (Resolution, bool, error) {
 	fetched, err := fetch(ctx, gitbroker.ImportFetchRequest{
-		Workspace: s.workspace, URL: entry.Git, Revision: entry.Rev, Ref: entry.Ref, StoreDir: s.ObjectDirectory(),
+		Workspace: s.workspace, URL: entry.Git, Revision: entry.Rev, Ref: entry.Ref, UnchangedIf: unchangedIf, StoreDir: s.ObjectDirectory(),
 		ApprovedRemotes: authority.ApprovedRemotes, CurrentRemotes: authority.CurrentRemotes,
 		ApprovedGrants: authority.ApprovedGrants, CurrentGrants: authority.CurrentGrants,
 	})
 	if err != nil {
-		return Resolution{}, err
+		return Resolution{}, false, err
+	}
+	if fetched.Unchanged {
+		if unchangedIf == "" || !strings.EqualFold(fetched.Commit, unchangedIf) {
+			return Resolution{}, false, errors.New("the git broker reported an unchanged import that was not asked about")
+		}
+		return Resolution{}, true, nil
 	}
 	repo, err := gitproto.Identity(entry.Git)
 	if err != nil {
-		return Resolution{}, err
+		return Resolution{}, false, err
 	}
 	ref := entry.Ref
 	if ref == "" && entry.Rev == "" {
@@ -224,7 +237,7 @@ func (s *Store) fetchResolution(ctx context.Context, entry config.SkillImport, a
 		ResolvedRef: fetched.ResolvedRef, Repo: repo, Commit: fetched.Commit,
 		AccessClass: fetched.AccessClass, ResolvedAt: time.Now().UTC(),
 	}
-	return record, nil
+	return record, false, nil
 }
 
 func validateResolveEntry(entry config.SkillImport) error {
@@ -252,7 +265,23 @@ func cacheAccessAllows(stored, current string) bool {
 	return stored == AccessAuthenticated && current == AccessAuthenticated
 }
 
-func refreshDue(entry config.SkillImport, record Resolution, now time.Time) bool {
-	return entry.Rev == "" && strings.HasPrefix(record.ResolvedRef, "refs/heads/") &&
-		now.Sub(record.ResolvedAt) >= packsrc.BranchRefreshInterval
+// refreshDue reports whether a fresh launch checks the record: every branch import is checked at
+// every fresh launch (docs/design/local-pack-clones.md LPC-D16), with no age throttle. A pinned
+// rev and a tag never move, so they never refresh. The transport is the git broker's fetch:
+// the check is FetchImport with UnchangedIf set to the recorded commit, so an unmoved branch costs
+// one ref listing and a moved one fetches, under the pack-check deadline.
+func refreshDue(entry config.SkillImport, record Resolution) bool {
+	return entry.Rev == "" && strings.HasPrefix(record.ResolvedRef, "refs/heads/")
+}
+
+// launchCheck runs one brokered moved-or-fetch under the launch's check deadline.
+func (s *Store) launchCheck(ctx context.Context, entry config.SkillImport, authority Authority,
+	fetch func(context.Context, gitbroker.ImportFetchRequest) (gitbroker.ImportFetchResult, error)) (Resolution, error) {
+	deadline := s.refreshDeadline
+	if deadline <= 0 {
+		deadline = packsrc.PackCheckDeadline
+	}
+	ctx, cancel := context.WithTimeout(ctx, deadline)
+	defer cancel()
+	return s.fetchAndRecord(ctx, entry, authority, fetch, true)
 }

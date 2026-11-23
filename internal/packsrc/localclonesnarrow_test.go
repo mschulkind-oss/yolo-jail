@@ -49,7 +49,7 @@ func (f *checkoutFixture) checkRef(t *testing.T, ref string) CheckResult {
 	t.Helper()
 	w := f.want()
 	w.PatchBranch = "git+https://github.com/o/r?ref=" + ref
-	res := f.store.CheckPatched(w, CheckOptions{RefreshPatchBranch: true, Now: func() time.Time { return f.now }})
+	res := f.store.CheckPatched(w, CheckOptions{Now: func() time.Time { return f.now }})
 	if res.Err != nil {
 		t.Fatalf("CheckPatched: %v", res.Err)
 	}
@@ -140,8 +140,8 @@ func TestARefsSpellingThroughACloneBuildsFromTheURL(t *testing.T) {
 	wantLine(t, pb, f.now, "local clone "+f.machine, "no branch name")
 }
 
-// Inside the throttle a fresh launch re-reads a clone the URL resolved to, as it does a checkout, so a commit made
-// in the clone since the last check builds now (isCheckoutLocator's clone arm).
+// A fresh launch re-reads a clone the URL resolved to, as it does a checkout, so a commit made in the clone since
+// the last check builds now (LPC-D6: every fresh launch checks).
 func TestAFreshLaunchPicksUpANewCloneCommitInsideTheThrottle(t *testing.T) {
 	f := newCheckoutFixture(t)
 	f.publishedRemote(t)

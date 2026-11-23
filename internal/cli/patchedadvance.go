@@ -1229,6 +1229,21 @@ func (a *advance) pendingBuild() bool {
 	return len(a.pendingOf(a.rec.Candidates(a.in), false)) > 0
 }
 
+// patchedCheckStart opens a launch's own deadline for this fork's upstream check (packsrc.PackCheckDeadline,
+// LPC-D3, LPC-D6). A var only so a test can hand the check a context it controls; nothing in production assigns it.
+var patchedCheckStart = packsrc.NewPackCheck
+
+// checkFailedLine is the one warning for an upstream check that gave no answer while a build runs (§4.3 of
+// docs/design/local-pack-clones.md): the cause as the check recorded it, what runs, and the next step.
+func checkFailedLine(label, ref, fetchErr, runs string) string {
+	origin := "its upstream"
+	if ref != "" {
+		origin = "origin " + ref
+	}
+	return fmt.Sprintf("%s: could not check %s (%s) — %s. Nothing to do until the network is back; "+
+		"`yolo pack update` checks on demand.", label, origin, packsrc.CheckCause(fetchErr), runs)
+}
+
 // interrupted reports whether the interrupt scope's Ctrl-C has ended this advance.
 func (a *advance) interrupted() bool { return a.ctx.Err() != nil }
 
@@ -1281,10 +1296,9 @@ func (a *advance) run() advanceResult {
 	// THE NO-VERSION NOTE IS SAID ONCE (PF-D60): not again by a check that finds what the last check
 	// of the same inputs found.
 	notedBefore := a.rec.Check != nil && a.rec.Check.NoVersion != "" && a.rec.Read == a.in
-	// THE GIT A CONFLICT IS KEYED BY is asked only when this launch runs git anyway (a check ran):
-	// inside the throttle a recorded conflict holds whichever git recorded it, so a steady-state
-	// launch runs no git process at all (P4), and a git upgrade is replayed at the next check
-	// (PF-D41).
+	// THE GIT A CONFLICT IS KEYED BY is asked whenever a check ran, which is every fresh launch
+	// (PF-D41, LPC-D6): a recorded conflict still holds for the same inputs and candidate, and a git
+	// upgrade is replayed at once. A check the record's settled ref skips runs no git at all.
 	exactGit := false
 	held := hold != "" && good != nil && !a.o.force && !a.o.freshCheck
 	if held {
@@ -1314,12 +1328,18 @@ func (a *advance) run() advanceResult {
 		checked := a.checkSlot(func() {
 			slotWait.End()
 			defer advanceSpan(f, "check").End()
-			// NOTHING BUILT TO RUN: a failed fetch an earlier check recorded — a launch or the
-			// background advance at boot, before the network was up — does not hold this one inside
-			// the hour; it fetches itself, as a failed build with nothing to serve is retried by every
-			// fresh launch (§6.2). With a good build to run the throttle stands (§4.2).
-			res = a.packs.CheckPatched(f.CheckWant(a.series), packsrc.CheckOptions{Force: a.o.force,
-				RetryFailedFetch: !a.serves(), RefreshPatchBranch: true,
+			// EVERY FRESH LAUNCH CHECKS (LPC-D6): one probe of the upstream, a fetch only when it moved, no
+			// throttle for a failed fetch to wait out. A launch's check has a deadline of its own, which
+			// opens here and not at the slot wait; one that does not finish runs the good build with the
+			// warning below. An explicit act (force, a fresh check) and the background advance keep the
+			// store's own budget.
+			var deadline *packsrc.PackCheck
+			if a.o.launch && !a.o.force && !a.o.freshCheck {
+				var cancelDeadline context.CancelFunc
+				deadline, cancelDeadline = patchedCheckStart()
+				defer cancelDeadline()
+			}
+			res = a.packs.CheckPatched(f.CheckWant(a.series), packsrc.CheckOptions{Force: a.o.force, Check: deadline,
 				FreshAfter: a.freshCheckBoundary(), InputIdentity: a.o.freshIdentity, StartGuard: a.o.admitGuard, Now: patchedNow,
 				Begin: func() (func(string), func()) {
 					if a.o.slot != nil {
@@ -1375,6 +1395,16 @@ func (a *advance) run() advanceResult {
 			a.problem = "could not check its upstream: " + oneLineErr(res.Err)
 			return a.serveOr(fmt.Sprintf("%s's upstream could not be checked (%v)", f.Label(), res.Err))
 		}
+		if res.Unchecked != "" {
+			// THE LAUNCH'S DEADLINE ENDED ON THE MIRROR LOCK: nothing was asked of the upstream and the record
+			// still holds the last check's list, so what runs is what the held copy answers (§4.3 of
+			// docs/design/local-pack-clones.md). Never a refusal while something serves.
+			a.rec = res.Record
+			a.seq = a.rec.Seq
+			a.warn("%s", checkFailedLine(f.Label(), a.in.Ref, res.Unchecked, a.runsNow()))
+			a.problem = "could not check its upstream: " + res.Unchecked
+			return a.serveOr(fmt.Sprintf("%s's upstream could not be checked (%s)", f.Label(), res.Unchecked))
+		}
 		if a.o.freshCheck {
 			if res.Record == nil || !res.Record.Fresh.Qualifies(a.o.freshBoundary, a.o.freshIdentity) || res.Record.Check == nil || res.Record.Check.FetchErr != "" ||
 				res.Record.Check.Problem != "" {
@@ -1390,7 +1420,7 @@ func (a *advance) run() advanceResult {
 			}
 		}
 		a.rec = res.Record
-		if res.Ran || res.PatchBranchRefreshed {
+		if res.Ran {
 			// A LOCAL CHECKOUT'S PATCH BRANCH says which copy answered and how fresh it is (§3.5).
 			if line, loud := patchBranchProvenance(f.Label(), a.rec.PatchBranch); loud {
 				a.warn("%s", line)
@@ -1411,8 +1441,7 @@ func (a *advance) run() advanceResult {
 			if !a.o.host || a.o.force {
 				a.operationError = found.FetchErr
 			}
-			a.warn("%s: could not check its upstream (%s) — %s; the next check is in an hour, or "+
-				"`yolo pack update` checks now", f.Label(), found.FetchErr, a.runsNow())
+			a.warn("%s", checkFailedLine(f.Label(), a.in.Ref, found.FetchErr, a.runsNow()))
 		}
 		if a.walkBackHolds() && !a.o.force {
 			// THE WALK-BACK HOLDS (docs/reference/patched-forks.md §8.6): the newest entry is still the one the
@@ -1496,7 +1525,7 @@ func (a *advance) run() advanceResult {
 			}
 			if found.FetchErr != "" {
 				// THE UPSTREAM WAS NOT ASKED: no verdict about what it holds, and the next run with nothing
-				// built to run fetches again (RetryFailedFetch above), so the refusal's "tries again" holds.
+				// built to run fetches again (every launch checks), so the refusal's "tries again" holds.
 				return a.serveOr(fmt.Sprintf("%s's upstream could not be fetched (%s)", f.Label(), found.Problem))
 			}
 			return a.serveOr(fmt.Sprintf("%s's upstream names nothing to build (%s)", f.Label(), found.Problem))

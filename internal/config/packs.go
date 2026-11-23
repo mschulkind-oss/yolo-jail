@@ -125,6 +125,11 @@ type PackEntry struct {
 	AcceptNamesStep string `json:"acceptNamesStep,omitempty"`
 	BareStep        string `json:"bareStep,omitempty"`
 
+	// Local is the entry's `local` key: the user's clone of this repository, `~` expanded and absolute
+	// (docs/design/local-pack-clones.md §6.1, LPC-D7). Empty when unset. Slice 5's copy rule reads it; nothing
+	// acts on it yet. json:"-": a host path never crosses into the jail through YOLO_PACKS.
+	Local string `json:"-"`
+
 	// AllowDefaultRef carries the authored omitted-ref state into the resolver and the
 	// refresh adapter. It is never inferred from an empty ref in a legacy address.
 	AllowDefaultRef bool `json:"allowDefaultRef,omitempty"`

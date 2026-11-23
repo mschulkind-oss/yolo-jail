@@ -244,7 +244,7 @@ func TestTheBackgroundJobNeverWaitsAndNeverRepeats(t *testing.T) {
 		t.Errorf("a job with nothing to do must release the lock it took (err=%v)", err)
 	}
 
-	backdatePath(t, p.stampPath(), 2*time.Hour)
+	p.newStart(t)
 	stdout, _ = p.run(t, "", job)
 	log := p.logLines(t)
 	if countLine(log, "REFRESH") != 1 || countLine(log, "LOCKED") != 1 || !strings.Contains(stdout, "ended (status 0)") {
@@ -279,7 +279,7 @@ func TestNextLaunchKeepsANewInstallInFront(t *testing.T) {
 		t.Errorf("no job may have been started for it (err=%v)", err)
 	}
 
-	backdatePath(t, p.stampPath(), 2*time.Hour)
+	p.newStart(t)
 	_, stderr = p.run(t, "")
 	if !strings.Contains(stderr, "refreshing in the background") {
 		t.Errorf("with the content seen, the hourly refresh must go to the background:\n%s", stderr)

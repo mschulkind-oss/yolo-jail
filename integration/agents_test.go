@@ -164,7 +164,7 @@ func TestPackMatrixCoversEveryShippedProgram(t *testing.T) {
 
 // TestPackInstallsVersionsAndConfigures runs, for each shipped agent pack, a single jail
 // session that: exercises the lazy launcher's install path via `<bin> --version`; confirms
-// the post-install/update stamp file exists (proving the update path ran); and greps the
+// the install left the program runnable (the launcher keeps no install stamp); and greps the
 // generated config for the pack's auto-approve marker (proving the surface rendered).
 //
 // It is the strongest end-to-end statement that the transition is real: every one of these
@@ -235,12 +235,11 @@ func TestPackInstallsVersionsAndConfigures(t *testing.T) {
 // darwin cell asks exactly the question the Linux cell asks and the two cannot drift.
 //
 // `<bin> --version` exercises the lazy launcher. Prepared installs must prove the exact identity
-// the launch decided, plus its installed spec, without consulting the legacy install stamp; only
-// a legacy installer is required to write that stamp. The remaining checks pin the rendered
+// the launch decided, plus its installed spec, without consulting any install stamp (the launcher
+// keeps none since the per-jail-start rule); a legacy installer is required only to leave the program on PATH. The remaining checks pin the rendered
 // marker and declared project skills dirs.
 func packInstallProbe(t *testing.T, tc packCase) string {
 	t.Helper()
-	stamp := "$HOME/.cache/yolo-agent-stamps/" + tc.binary + ".stamp"
 	specFile := "$HOME/.cache/yolo-agent-stamps/" + tc.binary + ".spec"
 	captureMarker := "$HOME/.cache/yolo-program-captures/" + tc.binary
 	in := shippedProgram(t, tc.pack, tc.binary)
@@ -273,10 +272,10 @@ if [ -n "$_capture" ]; then
   [ -f "%s" ] || { echo 'PROBE_FAIL: prepared install spec is missing' >&2; exit 1; }
   [ "$(cat "%s")" = %s ] || { echo 'PROBE_FAIL: prepared install spec differs from shipped declaration' >&2; exit 1; }
 else
-  [ -f "%s" ] || { echo 'PROBE_FAIL: legacy installer did not write its install stamp' >&2; exit 1; }
+  command -v %s >/dev/null || { echo 'PROBE_FAIL: the legacy installer left no program on PATH' >&2; exit 1; }
 fi`,
 		shquote.Quote(capturePrefix), captureMarker, captureMarker, specFile, specFile,
-		shquote.Quote(expectedSpec), stamp)
+		shquote.Quote(expectedSpec), shquote.Quote(tc.binary))
 	return fmt.Sprintf(`probe_fail() { echo "PROBE_FAIL: $1" >&2; exit 1; }
 %s%s%s %s || probe_fail 'version command failed'
 %s
@@ -566,7 +565,7 @@ const (
 // refreshed, so the pre-launch refresh stays throttled for a --version probe (AGENTS.md: no
 // agent runs beyond --version). A pack whose refresh declares due_on_change is ALSO due when
 // the watched files' content was never refreshed, which on a fresh CI home it never was, so
-// touching the hourly stamp alone no longer suffices. The key is computed exactly as the
+// touching the refresh stamp alone no longer suffices. The key is computed exactly as the
 // launcher's _refresh_content_key does (internal/entrypoint/prelaunchrefresh.go); if that
 // formula drifts, the "Refreshing" check below fails rather than quietly running the vendor.
 // The list is read from the shipped pack's own declaration, so it cannot drift from pack.json.

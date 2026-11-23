@@ -294,9 +294,10 @@ func TestImportResolverLaunchCacheAndAccessPolicy(t *testing.T) {
 		t.Fatalf("due branch refresh = (%+v, %q, %v), fetches=%d", got, warning, err, fetchCount)
 	}
 	got, warning, err = store.resolveLaunchWithFetcher(context.Background(), entry, authority, now, fetch)
-	if err != nil || warning != "" || got.Commit != commit || fetchCount != 1 {
-		t.Fatalf("fresh branch record should be reused: (%+v, %q, %v), fetches=%d", got, warning, err, fetchCount)
+	if err != nil || warning != "" || got.Commit != commit || fetchCount != 2 {
+		t.Fatalf("a branch record is checked at every fresh launch: (%+v, %q, %v), fetches=%d", got, warning, err, fetchCount)
 	}
+	fetchCount = 1 // the pinned and anonymous cases below count from here
 
 	pinned := config.SkillImport{Handle: "pinned", Git: entry.Git, Rev: commit, Ref: "main", Path: "skills"}
 	pinnedRecord := Resolution{Version: resolutionVersion, Handle: pinned.Handle, Git: pinned.Git, Rev: pinned.Rev,

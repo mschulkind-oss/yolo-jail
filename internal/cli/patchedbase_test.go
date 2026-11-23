@@ -173,8 +173,8 @@ func TestAFirstAdvanceWhoseWalkHitsAnApplyErrorBuildsTheBase(t *testing.T) {
 
 // AN APPLY ERROR STOPS THE LAUNCH, AND THE NEXT CHECK RETRIES IT (§6.2; PD-NF1, superseding PF-D45's
 // serving): the launch that met it refuses with the error block — the replay's error, the repair and
-// the hatches — beside the good build it would run only under a hatch; a launch inside the hour runs
-// no replay and stops on the recorded error; YOLO_ALLOW_PATCH_FAILURES runs the good build; and the
+// the hatches — beside the good build it would run only under a hatch; a launch inside the old hour
+// probes the upstream again (LPC-D6) and stops on the same error; YOLO_ALLOW_PATCH_FAILURES runs the good build; and the
 // launch after the next check builds what then replays.
 func TestAnApplyErrorIsRetriedByTheNextCheckNotEveryLaunch(t *testing.T) {
 	for _, env := range patchrecovery.Scoped {
@@ -184,7 +184,7 @@ func TestAnApplyErrorIsRetriedByTheNextCheckNotEveryLaunch(t *testing.T) {
 	v13 := fx.commit(t, "v1.3.0", map[int]string{14: "fourteen", 20: "twenty"})
 	failFile := filepath.Join(t.TempDir(), "fail")
 	writeFile(t, failFile, v13)
-	logPath := patchedGitWrapper(t, failReadingFilesAt(failFile))
+	_ = patchedGitWrapper(t, failReadingFilesAt(failFile))
 	fx.later(2 * time.Hour)
 	got, out, _ := fx.launch(t, "podman")
 	stopped := func(when string, got advanceResult, out string) {
@@ -210,36 +210,11 @@ func TestAnApplyErrorIsRetriedByTheNextCheckNotEveryLaunch(t *testing.T) {
 	if strings.Contains(out, "YOLO_ALLOW_OLDER_UPSTREAM") {
 		t.Errorf("the refusal offers the walk-back past an apply error, which meets the same replay:\n%s", out)
 	}
-	if err := os.Remove(logPath); err != nil {
-		t.Fatal(err)
-	}
 	fx.later(time.Minute)
-	beforeProbe := fx.record(t)
 	again, out, _ := fx.launch(t, "podman")
-	probed := fx.record(t)
-	stopped("inside the hour", again, out)
-	if probed.Seq != beforeProbe.Seq || probed.CheckedAt != beforeProbe.CheckedAt || probed.ApplyErr == nil || probed.ApplyErr.Legacy == nil ||
-		probed.ApplyErr.Legacy.State != "unavailable" {
-		t.Errorf("the one bounded legacy diagnosis changed the check or the record: result=%+v record=%+v\n%s", again, probed, out)
-	}
-	if logged, err := os.ReadFile(logPath); err != nil {
-		t.Errorf("the local-only classification made no bounded Git attempt: %v", err)
-	} else {
-		for _, line := range strings.Split(string(logged), "\n") {
-			if strings.Contains(" "+line+" ", " fetch ") || strings.Contains(" "+line+" ", " fetch-pack ") ||
-				strings.Contains(" "+line+" ", " merge-tree ") {
-				t.Errorf("the cached classification fetched or entered ordinary replay: %s", line)
-			}
-		}
-	}
-	if err := os.Remove(logPath); err != nil {
-		t.Fatal(err)
-	}
-	fx.later(time.Minute)
-	cached, out, _ := fx.launch(t, "podman")
-	stopped("an unchanged unavailable diagnosis", cached, out)
-	if logged, err := os.ReadFile(logPath); err == nil && len(logged) > 0 {
-		t.Errorf("an unchanged unavailable attempt repeated member replay:\n%s", logged)
+	stopped("at the next launch, which probes again (LPC-D6)", again, out)
+	if probed := fx.record(t); probed.ApplyErr == nil {
+		t.Errorf("the next launch lost the recorded apply error: %+v\n%s", probed, out)
 	}
 	t.Setenv(patchrecovery.AllowPatchFailuresEnv, "forkpack/tool")
 	fx.later(time.Minute)

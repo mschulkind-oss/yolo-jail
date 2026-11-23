@@ -101,15 +101,6 @@ import (
 // it reaches the exec. And a jail with NO yolo-installed server pays nothing at all — the
 // launcher's baked SERVERS_ENABLED is 0 and the call is never made.
 
-// ServerRefreshInterval is the seconds between refreshes of one server package.
-//
-// It is the agent launchers' own `UPDATE_INTERVAL`, and it has to be: a server refresh that
-// ran on a different clock than the agent that triggers it would make "the first invocation
-// refreshes it, the second sees a fresh stamp" (§3.5) false for exactly one of the two.
-// TestServerRefreshSharesTheLaunchersThrottle pins the two numbers together across Go and
-// the two bash templates, because nothing else can.
-const ServerRefreshInterval = 3600
-
 // ServerRefreshTimeout bounds the WHOLE stale phase, in seconds — not each package.
 //
 // It is the launchers' `UPDATE_TIMEOUT` for the same reason as the interval, and it is a
@@ -140,15 +131,15 @@ type serverPkg struct {
 	pinned bool
 }
 
-// stampName is the per-package throttle file's basename.
+// markerName is the per-package check marker's basename for one jail start: <package>.<id>.
 //
 // PER PACKAGE, not per agent (§3.5): two agents that both connect to one server must not
-// both pay for it — the first invocation refreshes it and the second sees a fresh stamp. The
-// sanitizer exists because a spec can be a scope-shaped string (`@scope/name`) and this is
-// a filename. Two specs that
-// differ only in a sanitized character would share a stamp; npm package names cannot differ
-// that way, and a shared stamp would cost a missed refresh rather than a wrong install.
-func (p serverPkg) stampName() string {
+// both pay for it — the first invocation refreshes it and the second sees this start's marker.
+// The sanitizer exists because a spec can be a scope-shaped string (`@scope/name`) and this is
+// a filename. Two specs that differ only in a sanitized character would share a marker; npm
+// package names cannot differ that way, and a shared marker would cost a missed refresh rather
+// than a wrong install.
+func (p serverPkg) markerName(id string) string {
 	flat := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
@@ -159,7 +150,7 @@ func (p serverPkg) stampName() string {
 			return '_'
 		}
 	}, p.spec)
-	return string(p.kind) + "-" + flat + ".stamp"
+	return string(p.kind) + "-" + flat + "." + id
 }
 
 // installArgv is the command that installs or refreshes this package.
@@ -393,10 +384,14 @@ func RefreshServers(req ServerRefreshRequest) error {
 	if len(pkgs) == 0 {
 		return nil
 	}
-	stampDir := filepath.Join(req.Env.Home, ".cache", "yolo-agent-stamps", "servers")
+	// The check marker is keyed by the jail-start record (LU-D1): an absent record is "check
+	// nothing", said once with its next step, and the refresh never writes the record.
+	marks := serverMarks{dir: filepath.Join(req.Env.Home, filepath.FromSlash(LaunchChecksDirRel), "servers"),
+		id: currentJailStart(req.Env.Home), now: now}
 
 	var absentFailures []string
 	var stale []serverPkg
+	noRecordSaid := false
 	for _, p := range pkgs {
 		if bin, identity := req.Env.ProgramCaptureForSpec(p.spec); identity != "" {
 			marker := ProgramCaptureMarker(req.Env.Home, bin)
@@ -437,14 +432,18 @@ func RefreshServers(req ServerRefreshRequest) error {
 					p.kind, p.spec, err)
 				continue
 			}
-			touchServerStamp(stampDir, p, now())
+			marks.keep(p)
 			continue
 		}
 		if p.pinned || (!req.Updates && !req.Fresh) {
 			continue
 		}
-		if req.Fresh || serverRefreshDue(stampDir, p, now()) {
+		if req.Fresh || marks.due(p) {
 			stale = append(stale, p)
+		} else if marks.id == "" && !noRecordSaid {
+			noRecordSaid = true
+			fmt.Fprintf(stderr, "  %s servers: this jail has no start record, so it checked nothing for updates — "+
+				"running the installed versions. Relaunch the jail (yolo stop on the host, then launch) to write it.\n", p.kind)
 		}
 	}
 
@@ -453,7 +452,7 @@ func RefreshServers(req ServerRefreshRequest) error {
 		if view == nil {
 			view = runServerView
 		}
-		sr := staleRefresh{strict: req.Fresh, e: req.Env, stampDir: stampDir, stderr: stderr, now: now,
+		sr := staleRefresh{strict: req.Fresh, e: req.Env, marks: marks, stderr: stderr, now: now,
 			run: run, view: view, bin: req.Bin, hatch: patchrecovery.Read(req.Getenv, patchrecovery.UseInstalledEnv)}
 		if err := sr.refresh(ctx, stale); err != nil {
 			return err
@@ -468,15 +467,15 @@ func RefreshServers(req ServerRefreshRequest) error {
 
 // staleRefresh is one STALE phase: the request's seams, and the user's hatch.
 type staleRefresh struct {
-	strict   bool
-	e        *Env
-	stampDir string
-	stderr   io.Writer
-	now      func() time.Time
-	run      func(context.Context, io.Writer, []string) error
-	view     func(context.Context, string) (string, error)
-	bin      string
-	hatch    patchrecovery.Scope
+	strict bool
+	e      *Env
+	marks  serverMarks
+	stderr io.Writer
+	now    func() time.Time
+	run    func(context.Context, io.Writer, []string) error
+	view   func(context.Context, string) (string, error)
+	bin    string
+	hatch  patchrecovery.Scope
 	// parent is the caller's context, whose cancellation is an interrupt rather than the budget.
 	parent context.Context
 }
@@ -556,7 +555,7 @@ func (s staleRefresh) refresh(parent context.Context, stale []serverPkg) error {
 			fmt.Fprintf(s.stderr, "  ⚠ %s server %s could not be refreshed (%v).\n", p.kind, p.spec, err)
 			failures = append(failures, fmt.Sprintf("%s server refresh failed: %v", p.spec, err))
 		}
-		touchServerStamp(s.stampDir, p, s.now())
+		s.marks.keep(p)
 		if ctx.Err() != nil {
 			budgetSpent()
 			failures = append(failures, ctx.Err().Error())
@@ -589,12 +588,13 @@ func (s staleRefresh) refreshOne(ctx context.Context, p serverPkg) (stop bool, r
 			return true, nil
 		}
 		fmt.Fprintf(s.stderr, "  %s server %s: could not ask the npm registry for a newer version — "+
-			"keeping the installed %s.\n", p.kind, p.spec, orInstalledVersion(installed))
-		touchServerStamp(s.stampDir, p, s.now())
+			"keeping the installed %s. It asks again the next time this jail starts (yolo stop on the host, then launch), "+
+			"or now with: yolo pack update.\n", p.kind, p.spec, orInstalledVersion(installed))
+		s.marks.keep(p)
 		return false, nil
 	}
 	if latest == installed {
-		touchServerStamp(s.stampDir, p, s.now())
+		s.marks.keep(p)
 		return false, nil
 	}
 	fmt.Fprintf(s.stderr, "  Refreshing %s server %s %s → %s...\n", p.kind, p.spec, orInstalledVersion(installed), latest)
@@ -604,7 +604,7 @@ func (s staleRefresh) refreshOne(ctx context.Context, p serverPkg) (stop bool, r
 			// the user's own interrupt is the hatch at that moment (PD-NF4).
 			fmt.Fprintf(s.stderr, "  ⚠ %s server %s: its refresh was interrupted — keeping the installed version.\n",
 				p.kind, p.spec)
-			touchServerStamp(s.stampDir, p, s.now())
+			s.marks.keep(p)
 			return true, nil
 		}
 		if ctx.Err() != nil {
@@ -613,12 +613,12 @@ func (s staleRefresh) refreshOne(ctx context.Context, p serverPkg) (stop bool, r
 		if s.hatch.Covers(patchrecovery.Subject{Key: p.spec, Name: name}) {
 			fmt.Fprintf(s.stderr, "  ⚠ %s server %s %s → %s did not install (%v) — keeping the installed version, "+
 				"as %s asks.\n", p.kind, p.spec, orInstalledVersion(installed), latest, err, patchrecovery.UseInstalledEnv)
-			touchServerStamp(s.stampDir, p, s.now())
+			s.marks.keep(p)
 			return ctx.Err() != nil, nil
 		}
 		return ctx.Err() != nil, &serverRefused{p: p, installed: installed, latest: latest, err: err}
 	}
-	touchServerStamp(s.stampDir, p, s.now())
+	s.marks.keep(p)
 	return ctx.Err() != nil, nil
 }
 
@@ -747,33 +747,69 @@ func acquirePrefixLock(dir string, now time.Time) bool {
 // on anyway.
 func releasePrefixLock(dir string) { _ = os.Remove(dir) }
 
-// serverRefreshDue reports whether p is past its interval. An absent stamp is due — a package
-// installed by the bootstrap has never been refreshed by this mechanism, and treating "no
-// record" as fresh is how a warm home stays frozen forever, which is the defect this file
-// exists to fix.
-func serverRefreshDue(stampDir string, p serverPkg, now time.Time) bool {
-	st, err := os.Stat(filepath.Join(stampDir, p.stampName()))
+// currentJailStart reads the jail-start record the boot wrote, "" when there is none (an older
+// boot, a failed write).
+func currentJailStart(home string) string {
+	raw, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(JailStartRel)))
 	if err != nil {
-		return true
+		return ""
 	}
-	return now.Sub(st.ModTime()) > ServerRefreshInterval*time.Second
+	return strings.TrimSpace(string(raw))
 }
 
-func touchServerStamp(stampDir string, p serverPkg, now time.Time) {
-	if err := os.MkdirAll(stampDir, 0o755); err != nil {
+// serverMarks is the refresh's per-start check markers: servers/<package>.<id> under the
+// launch-checks directory. Its existence means this jail start has had that package's check.
+// No decision reads a clock.
+type serverMarks struct {
+	dir string
+	id  string
+	now func() time.Time
+}
+
+// due is the whole rule (LU-D1): a package is due when this jail start has not checked it.
+func (m serverMarks) due(p serverPkg) bool {
+	return serverRefreshDue(m.dir, m.id, p)
+}
+
+// serverRefreshDue reports whether p has not been checked since this jail start. An absent
+// marker is due — a package installed by the bootstrap has never been refreshed by this
+// mechanism, and treating "no marker" as checked is how a warm home stays frozen forever. With
+// no record nothing is due, because only the boot writes the record.
+func serverRefreshDue(dir, id string, p serverPkg) bool {
+	if id == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(dir, p.markerName(id)))
+	return err != nil
+}
+
+// keep records this start's check of p. It is called on every outcome except a refusal, and on a
+// busy lock it is not called at all (nothing was attempted). Markers of other starts over a week
+// old are collected here; that decides nothing.
+func (m serverMarks) keep(p serverPkg) {
+	if m.id == "" {
 		return
 	}
-	path := filepath.Join(stampDir, p.stampName())
-	// Both errors stay dropped, and serverRefreshDue is why: an absent or un-touched
-	// stamp reads as DUE, so every failure here degrades to "refresh again next
-	// invocation" — the safe direction, and the one this file's own comment says it
-	// chose deliberately ("treating 'no record' as fresh is how a warm home stays
-	// frozen forever"). A stamp that cannot be written is a repeated refresh, not a
-	// missed one, and the refresh itself already reports its own outcome.
-	if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+	if err := os.MkdirAll(m.dir, 0o755); err != nil {
+		return
+	}
+	// Errors stay dropped: an unwritten marker reads as DUE, so a failure here is a repeated
+	// check, never a missed one, and the refresh reports its own outcome.
+	own := p.markerName(m.id)
+	if f, err := os.OpenFile(filepath.Join(m.dir, own), os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		_ = f.Close()
 	}
-	_ = os.Chtimes(path, now, now)
+	prefix := p.markerName("")
+	entries, _ := os.ReadDir(m.dir)
+	for _, ent := range entries {
+		name := ent.Name()
+		if !strings.HasPrefix(name, prefix) || name == own {
+			continue
+		}
+		if info, err := ent.Info(); err == nil && m.now().Sub(info.ModTime()) > 7*24*time.Hour {
+			_ = os.Remove(filepath.Join(m.dir, name))
+		}
+	}
 }
 
 // runServerInstall runs one install argv.

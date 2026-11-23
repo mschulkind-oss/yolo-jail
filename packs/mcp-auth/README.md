@@ -13,8 +13,9 @@ unexpired issuance does not redeem; expired jail requests wake the durable poll,
 requests never refresh. pi keeps the bare helper; Claude derives JSON `headersHelper` only when
 its source bootstrap or usable-record conditions hold. Native helper/reconnect behavior is unverified.
 
-Select native sign-in content with `yolo pack add slack-mcp`, run `yolo config check`, then
-relaunch. This adds no server or sharing authority: `sign_in = "once"` remains user-scope.
+Native sign-in content comes from integrations you explicitly supply and select; yolo ships
+no provider-specific MCP sign-in bundle. Run `yolo config check` after selecting your pack,
+then relaunch. Selection adds no server or sharing authority: `sign_in = "once"` remains user-scope.
 Status names the resolved native entry and full callback URL paste. An own-client choice uses
 `yolo config set mcp_servers.<name>.oauth.client_id <id> --user`, then config check/relaunch;
 no other consumer borrows that client identity. Placement is not plugin-loading proof.

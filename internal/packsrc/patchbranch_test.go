@@ -183,7 +183,7 @@ func TestAPatchBranchThatCannotBeFetchedIsAFailedFetch(t *testing.T) {
 		t.Fatalf("a patch branch never fetched = fetch %q, problem %q", c.FetchErr, c.Problem)
 	}
 	f.now = f.now.Add(time.Minute)
-	retry := f.store.CheckPatched(w, CheckOptions{RetryFailedFetch: true, Now: func() time.Time { return f.now }})
+	retry := f.store.CheckPatched(w, CheckOptions{Now: func() time.Time { return f.now }})
 	if !retry.Ran {
 		t.Error("with nothing to run, the failed patch branch fetch held the next check for the hour")
 	}

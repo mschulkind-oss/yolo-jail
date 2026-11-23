@@ -89,6 +89,10 @@ func LocalClones() ([]packsrc.LocalClone, error) {
 		if dir := packEntryPath(e.Source); dir != "" {
 			add(dir, e.Name, false)
 		}
+		// A `local` clone is a path into a clone like any pack path (LPC-D15); a missing one registers nothing.
+		if e.Local != "" {
+			add(e.Local, e.Name, false)
+		}
 	}
 	return out, nil
 }

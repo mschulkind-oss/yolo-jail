@@ -2,6 +2,7 @@ package run
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,6 +21,13 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
+
+// hasGoBinary reports whether a `go` binary is available on PATH (used on native runtimes
+// where Go is not baked into a container image).
+func hasGoBinary() bool {
+	_, err := exec.LookPath("go")
+	return err == nil
+}
 
 // refreshJailBriefings rebuilds the per-jail skills staging + one briefing per
 // pack-declared briefing destination. Called on
@@ -236,7 +244,8 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		// appears exactly where the jail's nix reaches the host daemon from another mount
 		// namespace (docs/reference/in-jail-nix-roots.md). A native backend mounts nothing and
 		// shares the host's paths, so its roots are real whatever the predicate says.
-		HostNix: !slices.Contains(paths.NativeRuntimes, rt) && o.hostNixMounted(rt), // parity: NotApplicable — a native backend shares the host's paths, so its nix roots are real
+		HostNix:       !slices.Contains(paths.NativeRuntimes, rt) && o.hostNixMounted(rt), // parity: NotApplicable — a native backend shares the host's paths, so its nix roots are real
+		SharedGoCache: !slices.Contains(paths.NativeRuntimes, rt) || hasGoBinary(),        // parity: Honored — the same Go cache rule applies on native backends when Go is available
 		// THE PERSISTENCE MAP, from the definitions the mount argv reads and the same
 		// selected packs and config it is assembled from (persistencemap.go). It renders
 		// the storage-classes section and the Home line that points at it
@@ -265,6 +274,11 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		in, extra = sealedBriefingInput(in), ""
 	}
 	hadAppliedFacts := facts != nil && facts.Briefing.Mechanism != ""
+	// THE TOOL-SKILLS LAYER (docs/design/mise-tool-skills.md slice 4), the lowest skills layer. It
+	// is read FRESH on every call, launch and attach alike, and never from an attach's applied
+	// snapshot: the jail writes the snapshot after the launch's composition ran, and the next
+	// attach is what delivers it. Its report (wsSkills.ToolSkills) is said below (noteToolSkills).
+	toolSkills := o.toolSkillsLayerInput()
 	workspaceSkills := (*jailcontent.WorkspaceSkills)(nil)
 	if !preserveLegacyMechanics {
 		workspaceSkills = o.workspaceSkillsFor(cfg, rt, loadedPacks)
@@ -385,7 +399,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 			o.pr(o.Stderr).printf("[yellow]Warning: generated guidance could not be rendered: %s; the prior skills remain in place. Fix the guidance source, then run `yolo` again.[/yellow]", err.Error())
 			staging = filepath.Join(paths.AgentsDir(), cname)
 		} else {
-			staging, wsSkills, err = jailcontent.PrepareSkillsWithFactSheet(cname, workspaceSkills, facts)
+			staging, wsSkills, err = jailcontent.PrepareSkillsWithToolSkills(cname, workspaceSkills, facts, toolSkills)
 			if err != nil {
 				return "", err
 			}
@@ -394,15 +408,18 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	} else {
 		var err error
 		if preserveLegacyMechanics {
-			staging, wsSkills, err = jailcontent.PrepareSkillsWithLegacyMechanics(cname)
+			staging, wsSkills, err = jailcontent.PrepareSkillsWithLegacyMechanicsAndToolSkills(cname, toolSkills)
 		} else {
-			staging, wsSkills, err = jailcontent.PrepareSkillsWith(cname, workspaceSkills)
+			staging, wsSkills, err = jailcontent.PrepareSkillsWithToolSkills(cname, workspaceSkills, nil, toolSkills)
 		}
 		if err != nil {
 			return "", err
 		}
 	}
 	o.noteWorkspaceSkills(wsSkills)
+	if wsSkills != nil {
+		o.noteToolSkills(wsSkills.ToolSkills)
+	}
 	// Attach refreshes content, but never recomposes the running owner's facts.
 	if o.launchInputMCP.Proven && o.launchInputMCP.SignIn == nil {
 		o.freezeDeliveredMCPSignIn(staging, loadedPacks, wsSkills)

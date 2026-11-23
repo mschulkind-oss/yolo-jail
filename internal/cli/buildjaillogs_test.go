@@ -173,7 +173,7 @@ func TestKeptBuildJailLogsAreBounded(t *testing.T) {
 		}
 	}
 	writeFile(t, filepath.Join(logs, buildJailLogPrefix+"fork-00.log.1"), "older\n")
-	workspace := filepath.Join(t.TempDir(), "fork-big")
+	workspace := filepath.Join(t.TempDir(), "xxx", "fork-big")
 	writeFile(t, buildJailLogPath(workspace), strings.Repeat("x", treeBuildLogRotateAt+1))
 	writeFile(t, filepath.Join(workspace, ".yolo", "boot.log"), "the newest build's boot\n")
 
@@ -188,7 +188,9 @@ func TestKeptBuildJailLogsAreBounded(t *testing.T) {
 		t.Errorf("a log among the newest %d was removed: %v", buildJailLogsKept, err)
 	}
 	data, err := os.ReadFile(buildJailLogPath(workspace))
-	if err != nil || strings.Contains(string(data), "xxx") || !strings.Contains(string(data), "the newest build's boot") {
+	header, body, hasHeader := strings.Cut(string(data), "\n")
+	if err != nil || !hasHeader || !strings.HasPrefix(header, "=== boot.log of "+workspace+", kept ") ||
+		!strings.HasSuffix(header, " ===") || body != "the newest build's boot\n" {
 		t.Errorf("the oversized log was not rotated before the append (%v):\n%.200s", err, data)
 	}
 	if fi, err := os.Stat(buildJailLogPath(workspace) + ".1"); err != nil || fi.Size() != treeBuildLogRotateAt+1 {

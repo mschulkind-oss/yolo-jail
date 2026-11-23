@@ -200,7 +200,7 @@ const (
 	DefaultInstallTimeout = 600 * time.Second
 	// DefaultPollTimeout bounds the evergreen poll, the jail launcher's UPDATE_TIMEOUT.
 	DefaultPollTimeout = 60 * time.Second
-	// DefaultUpdateInterval is the jail launcher's UPDATE_INTERVAL: at most one evergreen
+	// DefaultUpdateInterval is the hourly rate the jail launchers had before they moved to one check per jail start (LU-D11: the host has no jail start yet): at most one evergreen
 	// poll per program per hour, at the program's own invocation.
 	DefaultUpdateInterval = time.Hour
 	// DefaultCaptureRefreshAge is how old the machine's newest capture of an installer program

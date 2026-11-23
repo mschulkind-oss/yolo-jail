@@ -56,6 +56,10 @@ type Store struct {
 	workspace   string
 	directory   string
 	commandLock *configedit.DirectoryLock
+
+	// refreshDeadline bounds one launch's brokered check of a branch import; zero means
+	// packsrc.PackCheckDeadline. Tests inject a short one.
+	refreshDeadline time.Duration
 }
 
 // Open returns the host store partitioned by runtime.FromWorkspace. It does not create files.

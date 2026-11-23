@@ -194,3 +194,81 @@ func TestRepairImportEndpointStartupFailureReturns(t *testing.T) {
 		t.Fatal("FetchImport hung after endpoint startup result was consumed")
 	}
 }
+
+// sshInvocations counts the host SSH sessions the fixture's fake ssh served: one per ref listing
+// and one per object fetch.
+func (f *fixture) sshInvocations(t *testing.T) int {
+	t.Helper()
+	argv, err := os.ReadFile(filepath.Join(f.record, "argv"))
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(argv), "git-upload-pack")
+}
+
+func unchangedRequest(f *fixture, store, unchangedIf string) ImportFetchRequest {
+	return ImportFetchRequest{
+		Workspace: f.ws, URL: origin, Ref: "main", UnchangedIf: unchangedIf, StoreDir: store,
+		ApprovedRemotes: []string{origin}, CurrentRemotes: []string{origin},
+		ApprovedGrants: []brokerscope.Grant{readGrant}, CurrentGrants: []brokerscope.Grant{readGrant},
+		helperCommand: []string{os.Args[0], "-test.run=^TestHelperProcess$", "--"},
+		helperEnv:     []string{"GO_HELPER=1"},
+	}
+}
+
+func TestUnmovedImportCostsOneRefListingAndNoObjectFetch(t *testing.T) {
+	f := newFixture(t, "")
+	setFakeSSHPath(t, f.bin)
+	commit := mustGit(t, f.bare, "rev-parse", "refs/heads/main")
+	store := filepath.Join(t.TempDir(), "imports.git")
+	got, err := FetchImport(context.Background(), unchangedRequest(f, store, commit))
+	if err != nil || !got.Unchanged || got.Commit != commit || got.ResolvedRef != "refs/heads/main" || got.AccessClass != ImportAccessAuthenticated {
+		t.Fatalf("unmoved FetchImport = (%+v, %v), want Unchanged at %s", got, err, commit)
+	}
+	if n := f.sshInvocations(t); n != 1 {
+		t.Fatalf("unmoved import made %d host SSH sessions, want exactly the one ref listing", n)
+	}
+	if _, statErr := os.Stat(store); !os.IsNotExist(statErr) {
+		t.Fatalf("unmoved import touched the object store (stat %v)", statErr)
+	}
+}
+
+func TestMovedImportFetchesTheNewCommit(t *testing.T) {
+	f := newFixture(t, "")
+	setFakeSSHPath(t, f.bin)
+	old := mustGit(t, f.bare, "rev-parse", "refs/heads/main")
+	mustGit(t, f.ws, "-c", "user.name=f", "-c", "user.email=f@x", "commit", "-q", "--allow-empty", "-m", "next")
+	mustGit(t, f.ws, "push", "-q", f.bare, "main")
+	moved := mustGit(t, f.bare, "rev-parse", "refs/heads/main")
+	if moved == old {
+		t.Fatal("fixture ref did not move")
+	}
+	store := filepath.Join(t.TempDir(), "imports.git")
+	got, err := FetchImport(context.Background(), unchangedRequest(f, store, old))
+	if err != nil || got.Unchanged || got.Commit != moved {
+		t.Fatalf("moved FetchImport = (%+v, %v), want a fetch of %s", got, err, moved)
+	}
+	if n := f.sshInvocations(t); n != 2 {
+		t.Fatalf("moved import made %d host SSH sessions, want a listing and a fetch", n)
+	}
+	if _, err := run(t, store, gitEnv(), "--git-dir", store, "cat-file", "-e", moved+"^{commit}"); err != nil {
+		t.Fatalf("moved commit missing from the object store: %v", err)
+	}
+}
+
+func TestRefusedRemoteIsRefusedBeforeAnyListingEvenWithUnchangedIf(t *testing.T) {
+	f := newFixture(t, "")
+	setFakeSSHPath(t, f.bin)
+	commit := mustGit(t, f.bare, "rev-parse", "refs/heads/main")
+	request := unchangedRequest(f, filepath.Join(t.TempDir(), "imports.git"), commit)
+	request.CurrentGrants = nil
+	if got, err := FetchImport(context.Background(), request); err == nil || got.Unchanged {
+		t.Fatalf("refused remote answered (%+v, %v)", got, err)
+	}
+	if f.sshRan() {
+		t.Fatalf("a refused remote was listed: %s", f.record)
+	}
+}

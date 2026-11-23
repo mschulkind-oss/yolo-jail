@@ -125,6 +125,12 @@ func runSteps(b *bootRun, steps []bootStep) {
 		if s.excludedFrom(b.target) != "" || (b.target == bootContainer && b.sessionPass && s.notSessionPass != "") {
 			continue
 		}
+		// THE TRACE'S START LINE IS WRITTEN BEFORE THE STEP RUNS, and its end after, each as it
+		// happens (docs/design/startup-tracing.md §5.6): the perf marks below are held in memory
+		// and dumped once at the end, so a step that hangs leaves no mark, but it does leave
+		// this start line. Every step that runs is traced, a noMark one included.
+		span := "boot." + s.name
+		b.e.trace.Start(span)
 		switch {
 		case s.gen != nil:
 			label := s.label
@@ -136,6 +142,7 @@ func runSteps(b *bootRun, steps []bootStep) {
 		case s.run != nil:
 			s.run(b)
 		}
+		b.e.trace.End(span)
 		if b.perf != nil && !s.noMark {
 			mark := s.perf
 			if mark == "" {
@@ -213,6 +220,18 @@ func bootSteps() []bootStep {
 				genStep(b.e, "darwin_home_layout", func() error { return InstallDarwinHomeLayout(b.e, packs) })
 			},
 			notContainer: "the container's home tiers are the launcher's bind mounts",
+		},
+		{
+			// THE JAIL-START RECORD (jailstart.go, docs/design/launcher-update-per-jail-start.md):
+			// one fresh id per run of the jail's own boot, which the launchers key their
+			// once-per-start update check on. Above every generator and every program install, and AFTER darwin_home_layout (which
+			// refuses a real ~/.local it did not lay: the record lives under it), so no launcher invocation of this start can meet the previous start's id. Not a
+			// session's pass: an attach is never a jail start. The macos-user bootstrap is one.
+			name:   "write_jail_start",
+			run:    writeJailStartStep,
+			noMark: true,
+			notSessionPass: "an attach is not a jail start: the jail's own boot wrote the record " +
+				"the launchers key their update checks on, and a session's pass minting another would make every attach a start",
 		},
 		{
 			// C4/C5's jail half: link the store-delivered package profiles into the

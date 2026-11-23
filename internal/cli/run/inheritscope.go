@@ -216,17 +216,57 @@ func (o *Options) inheritedScopeWithSelector(rt string, stamped bool, selectLega
 				". No user-owned sibling file was changed.[/yellow]")
 		}
 	}
-	for _, line := range inheritOmissionLines(files) {
+	for _, line := range InheritOmissionLines(files) {
 		out.print("[yellow]" + richtext.Escape(line) + "[/yellow]")
 	}
 	return files, nil
 }
 
-// inheritOmissionLines is the one disclosure line per value a TOML delivery left out of the
+// InheritedScopePreview renders the generated user-scope files for `yolo check` and
+// `yolo config check` from the same computation a launch runs (LC-D4,
+// docs/reference/config/rulings.md#LC-D4), without staging files or writing to stderr.
+// When rt is empty, both scopes are checked (as on a host that can nest), so any omission or
+// bug in either scope is disclosed.
+type InheritedScopePreview struct {
+	Omissions []string
+	Unknown   []string
+	Fallbacks []string
+}
+
+func PreviewInheritedScope(workspace, rt string) (InheritedScopePreview, error) {
+	effective, src, err := config.LoadConfigWithoutWorkspaceFileWithSources(workspace, false, func(string) {})
+	if err != nil {
+		return InheritedScopePreview{}, fmt.Errorf("the jail's inherited user config could not be rendered because the config no longer loads: %w. "+
+			"Fix the file it names, run `yolo check` to confirm, then launch again", err)
+	}
+	checkRT := rt
+	if checkRT == "" {
+		// When runtime is not known (e.g. `yolo config check`), include both preflight and
+		// nested scopes so omissions or errors in either scope are disclosed.
+		checkRT = "podman"
+	}
+	files, unknown, err := inheritScopeFilesWithSelector(effective, src, checkRT, "", nil)
+	if err != nil {
+		return InheritedScopePreview{}, err
+	}
+	var fallbacks []string
+	for _, f := range files {
+		if f.fallbackReason != "" {
+			fallbacks = append(fallbacks, "inherited "+f.scope.String()+" scope uses generated JSONC because "+f.fallbackReason)
+		}
+	}
+	return InheritedScopePreview{
+		Omissions: InheritOmissionLines(files),
+		Unknown:   unknown,
+		Fallbacks: fallbacks,
+	}, nil
+}
+
+// InheritOmissionLines is the one disclosure line per value a TOML delivery left out of the
 // jail's user scope (LC-D4): each named once, however many of the scope files left it out, with
 // the host file and line that wrote it, what the jail does without it, and the step where one
 // is named. Nothing refuses, and nothing else is required of the user.
-func inheritOmissionLines(files []inheritScopeFile) []string {
+func InheritOmissionLines(files []inheritScopeFile) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, f := range files {

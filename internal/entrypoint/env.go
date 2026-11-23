@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
+	"github.com/mschulkind-oss/yolo-jail/internal/jailtrace"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/render"
 )
@@ -97,6 +98,12 @@ type Env struct {
 	// jail's tree. Unexported: only this package's host entries set it, and a caller
 	// outside should be reaching for RenderHostPack, not assembling a host Env by hand.
 	hostTarget bool
+
+	// trace is this process's jail-half trace writer (internal/jailtrace), opened by Main from
+	// the YOLO_TRACEPARENT the launch handed it, or nil when it handed none. Nil writes nothing,
+	// so every caller writes unconditionally. The macos-user bootstrap leaves it nil until that
+	// backend hands its bootstrap a context.
+	trace *jailtrace.Writer
 
 	// session is this session pass's render into its session homes (sessionhome.go,
 	// docs/design/per-session-profiles.md SP-D2): set by prepare_session_homes once every

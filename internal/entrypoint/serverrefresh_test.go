@@ -160,8 +160,8 @@ func TestALauncherWithNoServersCarriesNoRefresh(t *testing.T) {
 	}
 }
 
-// TestServerRefreshSharesTheLaunchersThrottle is the cross-language pin. The interval and
-// the timeout are each spelled in THREE places — this Go file and the two bash templates —
+// TestServerRefreshSharesTheLaunchersThrottle is the cross-language pin. The timeout is
+// spelled in THREE places — this Go file and the two bash templates —
 // and §3.5's "the first invocation refreshes it, the second sees a fresh stamp" is false for
 // one of the two the moment they disagree.
 func TestServerRefreshSharesTheLaunchersThrottle(t *testing.T) {
@@ -170,7 +170,6 @@ func TestServerRefreshSharesTheLaunchersThrottle(t *testing.T) {
 		goValue int
 		bashVar string
 	}{
-		{"interval", ServerRefreshInterval, "UPDATE_INTERVAL"},
 		{"timeout", ServerRefreshTimeout, "UPDATE_TIMEOUT"},
 	} {
 		// `\b` on the value, not a trailing newline: the npm template carries a
@@ -195,8 +194,10 @@ func TestServerRefreshSharesTheLaunchersThrottle(t *testing.T) {
 
 // refreshProbe is one refresh, with the clock and the installer replaced.
 type refreshProbe struct {
-	e        *Env
-	stampDir string
+	e         *Env
+	markerDir string
+	// id is the jail-start record the probe wrote; other starts' markers are under otherID.
+	id string
 	// ran records every install argv, in order.
 	ran [][]string
 	// fail names the specs whose install must fail.
@@ -228,7 +229,9 @@ func newRefreshProbe(t *testing.T, vars map[string]string) *refreshProbe {
 		now:    time.Unix(1_700_000_000, 0),
 		latest: "9.9.9",
 	}
-	p.stampDir = filepath.Join(home, ".cache", "yolo-agent-stamps", "servers")
+	p.markerDir = filepath.Join(home, filepath.FromSlash(LaunchChecksDirRel), "servers")
+	p.id = "start-1"
+	p.writeStart(t, p.id)
 	// A real prefix, so the presence stats have somewhere to look.
 	if err := os.MkdirAll(filepath.Join(p.e.NpmPrefix, "lib", "node_modules"), 0o755); err != nil {
 		t.Fatal(err)
@@ -250,32 +253,51 @@ func (p *refreshProbe) installed(t *testing.T, pkg string) {
 	}
 }
 
-// stamp writes a per-package throttle file aged by `age`.
-func (p *refreshProbe) stamp(t *testing.T, kind serverKind, spec string, age time.Duration) time.Time {
+// writeStart writes the jail-start record the way the boot does (the boot is its only writer).
+func (p *refreshProbe) writeStart(t *testing.T, id string) {
 	t.Helper()
-	if err := os.MkdirAll(p.stampDir, 0o755); err != nil {
+	path := filepath.Join(p.e.Home, filepath.FromSlash(JailStartRel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(p.stampDir, serverPkg{kind: kind, spec: spec}.stampName())
+	if err := os.WriteFile(path, []byte(id+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.id = id
+}
+
+// markerFile is the per-package check marker for one start: servers/<package>.<id>. The
+// package part is spelled here on purpose, so the production name is pinned, not shared.
+func (p *refreshProbe) markerFile(kind serverKind, spec, id string) string {
+	flat := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_' {
+			return r
+		}
+		return '_'
+	}, spec)
+	return filepath.Join(p.markerDir, string(kind)+"-"+flat+"."+id)
+}
+
+func (p *refreshProbe) touchMarker(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(p.markerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	at := p.now.Add(-age)
-	if err := os.Chtimes(path, at, at); err != nil {
-		t.Fatal(err)
-	}
-	return at
 }
 
-// stampTime reads a package's throttle mtime. It FAILS on an absent stamp: a cell that
-// wanted "no stamp" would otherwise read a zero time and compare equal to nothing.
-func (p *refreshProbe) stampTime(t *testing.T, kind serverKind, spec string) time.Time {
+// otherStart seeds a marker an EARLIER jail start left: it must not silence this start.
+func (p *refreshProbe) otherStart(t *testing.T, kind serverKind, spec string) {
 	t.Helper()
-	st, err := os.Stat(filepath.Join(p.stampDir, serverPkg{kind: kind, spec: spec}.stampName()))
-	if err != nil {
-		t.Fatalf("no stamp for %s %s: %v", kind, spec, err)
-	}
-	return st.ModTime()
+	p.touchMarker(t, p.markerFile(kind, spec, "start-0"))
+}
+
+// checked seeds this start's marker: the package has had its check since the jail started.
+func (p *refreshProbe) checked(t *testing.T, kind serverKind, spec string) {
+	t.Helper()
+	p.touchMarker(t, p.markerFile(kind, spec, p.id))
 }
 
 func (p *refreshProbe) run(npmSpecs string, updates bool) error {
@@ -307,9 +329,9 @@ func (p *refreshProbe) run(npmSpecs string, updates bool) error {
 	})
 }
 
-// hasStamp reports whether a throttle file exists for this package.
+// hasStamp reports whether THIS start's marker exists for the package.
 func (p *refreshProbe) hasStamp(kind serverKind, spec string) bool {
-	_, err := os.Stat(filepath.Join(p.stampDir, serverPkg{kind: kind, spec: spec}.stampName()))
+	_, err := os.Stat(p.markerFile(kind, spec, p.id))
 	return err == nil
 }
 
@@ -361,7 +383,7 @@ func TestAnAbsentServerThatCannotBeInstalledIsReported(t *testing.T) {
 func TestAStaleServerIsRefreshedBoundedAndSwallowed(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp")
-	staleAt := p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 	p.viewErr = errors.New("ENOTFOUND")
 
 	if err := p.run("chrome-devtools-mcp", true); err != nil {
@@ -373,21 +395,20 @@ func TestAStaleServerIsRefreshedBoundedAndSwallowed(t *testing.T) {
 	if !strings.Contains(p.out.String(), "could not ask the npm registry for a newer version — keeping the installed 1.0.0") {
 		t.Errorf("the could-not-check line is missing:\n%s", p.out.String())
 	}
-	// MTIME, not existence: the stamp file is this cell's own fixture, so what must have
-	// happened is that the stamp MOVED to now. Without it an offline jail would spend the
-	// budget again on every single agent invocation.
-	if at := p.stampTime(t, serverNpm, "chrome-devtools-mcp"); !at.Equal(p.now) {
-		t.Errorf("a refresh that could not check did not advance the stamp (%v, was %v)", at, staleAt)
+	// The marker is KEPT (LU-D2): an offline jail does not spend the budget again until the
+	// next start.
+	if !p.hasStamp(serverNpm, "chrome-devtools-mcp") {
+		t.Error("a refresh that could not check left no marker, so it would ask again this start")
 	}
 
 	// The registry answers the installed version: nothing is newer, nothing is installed.
-	p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.writeStart(t, "start-2")
 	p.viewErr, p.latest = nil, "1.0.0"
 	if err := p.run("chrome-devtools-mcp", true); err != nil || len(p.ran) != 0 {
 		t.Fatalf("a current server was installed (%v) or failed (%v)", p.ran, err)
 	}
-	if at := p.stampTime(t, serverNpm, "chrome-devtools-mcp"); !at.Equal(p.now) {
-		t.Errorf("a server found current did not advance its stamp (%v)", at)
+	if !p.hasStamp(serverNpm, "chrome-devtools-mcp") {
+		t.Errorf("a server found current left no marker for this start")
 	}
 }
 
@@ -399,7 +420,7 @@ func TestAStaleServerIsRefreshedBoundedAndSwallowed(t *testing.T) {
 func TestAStaleServerWhoseNewerVersionFailsRefuses(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp")
-	staleAt := p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 	p.fail["chrome-devtools-mcp"] = true
 
 	err := p.run("chrome-devtools-mcp", true)
@@ -423,8 +444,8 @@ func TestAStaleServerWhoseNewerVersionFailsRefuses(t *testing.T) {
 			t.Errorf("the refusal lacks %q:\n%s", want, p.out.String())
 		}
 	}
-	if at := p.stampTime(t, serverNpm, "chrome-devtools-mcp"); !at.Equal(staleAt) {
-		t.Errorf("a refused server's stamp moved (%v, was %v): the next invocation would not retry it", at, staleAt)
+	if p.hasStamp(serverNpm, "chrome-devtools-mcp") {
+		t.Errorf("a refused server kept its marker: the next invocation would not retry it")
 	}
 
 	p.hatch = "other"
@@ -440,7 +461,7 @@ func TestAStaleServerWhoseNewerVersionFailsRefuses(t *testing.T) {
 		if !strings.Contains(p.out.String(), "keeping the installed version, as YOLO_USE_INSTALLED asks") {
 			t.Errorf("YOLO_USE_INSTALLED=%s: the kept server is not said:\n%s", hatch, p.out.String())
 		}
-		p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+		p.writeStart(t, p.id+"x")
 	}
 }
 
@@ -452,7 +473,7 @@ func TestAStaleServerWhoseBudgetRunsOutAfterANewerWasFoundRefuses(t *testing.T) 
 		t.Run(map[bool]string{false: "budget", true: "ctrl-c"}[interrupted], func(t *testing.T) {
 			p := newRefreshProbe(t, nil)
 			p.installed(t, "chrome-devtools-mcp")
-			p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+			p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 			// A parent DEADLINE stands in for the budget, which the child context inherits.
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 			defer cancel()
@@ -486,14 +507,14 @@ func TestAStaleServerWhoseBudgetRunsOutAfterANewerWasFoundRefuses(t *testing.T) 
 func TestFreshServerRefreshFailureAndCancellationAreFatal(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp")
-	p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 	p.fail["chrome-devtools-mcp"] = true
 	if err := RefreshServers(ServerRefreshRequest{Env: p.e, NpmSpecs: "chrome-devtools-mcp", Updates: true,
 		Fresh: true, Stderr: &p.out, Now: func() time.Time { return p.now },
 		Run: func(context.Context, io.Writer, []string) error { return errors.New("registry unavailable") }}); err == nil {
 		t.Fatal("explicit fresh request accepted the historical installed server after its refresh failed")
 	}
-	p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	started := make(chan struct{})
@@ -524,17 +545,118 @@ func TestFreshServerRefreshFailureAndCancellationAreFatal(t *testing.T) {
 	}
 }
 
-// A stamp inside the interval is the throttle, and it is per PACKAGE: two agents that both
-// connect to one server must not both pay for it.
-func TestAFreshStampDoesNoWork(t *testing.T) {
+// serverRefreshDue is the whole rule (LU-D1): a package is due when this jail start has not
+// checked it, and not otherwise. TestAServerChecksOncePerJailStart drives it through
+// RefreshServers, so deleting the call site fails it.
+func TestAServerChecksOncePerJailStart(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp")
-	p.stamp(t, serverNpm, "chrome-devtools-mcp", 10*time.Second)
+	for i := 0; i < 2; i++ {
+		if err := p.run("chrome-devtools-mcp", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(p.viewed) != 1 || len(p.ran) != 1 {
+		t.Fatalf("two invocations of one start asked %v and installed %v, want one of each", p.viewed, p.ran)
+	}
+	p.writeStart(t, "start-2")
 	if err := p.run("chrome-devtools-mcp", true); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.ran) != 0 {
-		t.Errorf("a fresh stamp still ran %v", p.ran)
+	if len(p.viewed) != 2 {
+		t.Errorf("a new jail start did not check again: asked %v", p.viewed)
+	}
+	// The marker is keyed by package: another package of the same start is still due.
+	p.installed(t, "other-mcp")
+	if err := p.run("chrome-devtools-mcp other-mcp", true); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.viewed) != 3 || p.viewed[2] != "other-mcp" {
+		t.Errorf("a checked package silenced another's check: asked %v", p.viewed)
+	}
+	if !p.hasStamp(serverNpm, "other-mcp") {
+		t.Error("the check left no servers/<package>.<id> marker")
+	}
+}
+
+// A marker of an earlier start never silences this one, and neither does an old-style stamp.
+func TestAnEarlierStartsMarkerDoesNotSilenceThisStart(t *testing.T) {
+	p := newRefreshProbe(t, nil)
+	p.installed(t, "chrome-devtools-mcp")
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
+	old := filepath.Join(p.e.Home, ".cache", "yolo-agent-stamps", "servers", "npm-chrome-devtools-mcp.stamp")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.viewed) != 1 {
+		t.Errorf("an old marker or stamp silenced the check: asked %v", p.viewed)
+	}
+}
+
+// No record (an older boot, a failed write): check nothing, run the installed version, and say
+// the next step. The refresh never writes the record: the boot is its only writer (LU-D6).
+func TestNoJailStartRecordChecksNothingAndSaysSo(t *testing.T) {
+	p := newRefreshProbe(t, nil)
+	p.installed(t, "chrome-devtools-mcp")
+	if err := os.Remove(filepath.Join(p.e.Home, filepath.FromSlash(JailStartRel))); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.viewed) != 0 || len(p.ran) != 0 {
+		t.Errorf("checked without a record: asked %v installed %v", p.viewed, p.ran)
+	}
+	for _, want := range []string{"no start record", "Relaunch the jail"} {
+		if !strings.Contains(p.out.String(), want) {
+			t.Errorf("the missing-record line lacks %q:\n%s", want, p.out.String())
+		}
+	}
+	if _, err := os.Stat(filepath.Join(p.e.Home, filepath.FromSlash(JailStartRel))); err == nil {
+		t.Error("the refresh wrote the jail-start record; the boot is its only writer")
+	}
+}
+
+// The could-not-ask line names its next step (LU-D2's disclosure).
+func TestAnUnreachableServerRegistryNamesTheNextStep(t *testing.T) {
+	p := newRefreshProbe(t, nil)
+	p.installed(t, "chrome-devtools-mcp")
+	p.viewErr = errors.New("ENOTFOUND")
+	if err := p.run("chrome-devtools-mcp", true); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"asks again the next time this jail starts", "yolo pack update"} {
+		if !strings.Contains(p.out.String(), want) {
+			t.Errorf("the could-not-ask line lacks %q:\n%s", want, p.out.String())
+		}
+	}
+}
+
+// Every outcome but a refusal keeps the marker: current, offline and the user's hatch above, and
+// a Ctrl-C here. A refusal (covered above) releases it.
+func TestAServerInterruptedByCtrlCKeepsItsMarker(t *testing.T) {
+	p := newRefreshProbe(t, nil)
+	p.installed(t, "chrome-devtools-mcp")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	err := RefreshServers(ServerRefreshRequest{Context: ctx, Env: p.e, NpmSpecs: "chrome-devtools-mcp", Updates: true,
+		Stderr: &p.out, Now: func() time.Time { return p.now }, Bin: "claude", Getenv: func(string) string { return "" },
+		View: func(context.Context, string) (string, error) { return "9.9.9", nil },
+		Run: func(ctx context.Context, _ io.Writer, _ []string) error {
+			cancel()
+			return ctx.Err()
+		}})
+	if err != nil {
+		t.Fatalf("a Ctrl-C is the user's hatch, not a refusal: %v", err)
+	}
+	if !p.hasStamp(serverNpm, "chrome-devtools-mcp") {
+		t.Error("a Ctrl-C at the install released the marker")
 	}
 }
 
@@ -569,7 +691,7 @@ func TestAPinnedServerIsNeverRefreshed(t *testing.T) {
 func TestAFrozenPolicyStopsRefreshesButNotColdInstalls(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp") // installed and stale
-	p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 	const absent = "@modelcontextprotocol/server-sequential-thinking"
 	if err := p.run("chrome-devtools-mcp "+absent, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -589,7 +711,7 @@ func TestAFrozenPolicyStopsRefreshesButNotColdInstalls(t *testing.T) {
 func TestALockedPrefixProceedsWithoutUpdatingAndSaysSo(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp")
-	staleAt := p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 
 	// The lock a competing npm agent launcher would hold, at the path its template names.
 	lock := filepath.Join(p.e.NpmPrefix, ".yolo-update.lock")
@@ -609,8 +731,8 @@ func TestALockedPrefixProceedsWithoutUpdatingAndSaysSo(t *testing.T) {
 	// The stamp file is this cell's own fixture, so EXISTENCE proves nothing — what must
 	// not have happened is a TOUCH. A refreshed stamp here would throttle the retry for an
 	// hour over a lock that is gone in a second.
-	if at := p.stampTime(t, serverNpm, "chrome-devtools-mcp"); !at.Equal(staleAt) {
-		t.Errorf("a refresh that never ran touched the stamp (%v, was %v)", at, staleAt)
+	if p.hasStamp(serverNpm, "chrome-devtools-mcp") {
+		t.Errorf("a refresh that never ran left a marker")
 	}
 	if _, err := os.Stat(lock); err != nil {
 		t.Errorf("the competing holder's lock was removed: %v", err)
@@ -621,7 +743,7 @@ func TestALockedPrefixProceedsWithoutUpdatingAndSaysSo(t *testing.T) {
 func TestTheRefreshReleasesThePrefixLock(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp")
-	p.stamp(t, serverNpm, "chrome-devtools-mcp", 2*ServerRefreshInterval*time.Second)
+	p.otherStart(t, serverNpm, "chrome-devtools-mcp")
 	if err := p.run("chrome-devtools-mcp", true); err != nil {
 		t.Fatal(err)
 	}
@@ -743,7 +865,7 @@ fi`)
 func TestFreshServerRefreshBypassesPolicyAndEveryAttemptStampButKeepsPins(t *testing.T) {
 	p := newRefreshProbe(t, nil)
 	p.installed(t, "chrome-devtools-mcp")
-	p.stamp(t, serverNpm, "chrome-devtools-mcp", 0)
+	p.checked(t, serverNpm, "chrome-devtools-mcp")
 	attempts := 0
 	req := ServerRefreshRequest{Env: p.e, Fresh: true, Updates: false, NpmSpecs: "chrome-devtools-mcp",
 		Stderr: &p.out, Now: func() time.Time { return p.now },

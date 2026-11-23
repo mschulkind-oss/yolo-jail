@@ -105,6 +105,7 @@ var verbDispatchers = map[string]verbDispatcher{
 	"claude-auth":  {"internal/cli", "claudeAuthMain", "args[0]", ""},
 	"openai-auth":  {"internal/openaiauthhost", "runOperator", "args[0]", ""},
 	"nix-roots":    {"internal/cli", "nixRootsMain", "sub", ""},
+	"trace":        {"internal/cli", "traceMain", "sub", ""},
 	"host-run":     {"internal/cli", "hostRunMain", "args[0]", ""},
 	"yolo-account": {"internal/cli", "yoloAccountMain", "verb", ""},
 	"setup":        {"internal/cli", "setupMain", "verb", ""},

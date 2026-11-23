@@ -64,10 +64,15 @@ func interruptAfterStart(dir string, n int, offset time.Duration) error {
 	if err := cmd.Process.Signal(os.Interrupt); err != nil {
 		return err
 	}
+	// The event is the process exiting. An interrupt that lands in the shell's gap before `wait`
+	// turns its interrupt on is answered once that wait's 0.05-second sleep ends (UntilInterrupted
+	// says why), and on a loaded machine that sleep can start and end late, so no short budget is a
+	// fair bound on the answer. The stand-in gives up by itself after 30 seconds with status 1, which
+	// is how a trap that never runs shows below, so the guard only has to outlast that.
 	select {
 	case <-done:
-	case <-time.After(2 * time.Second):
-		return fmt.Errorf("it was still running 2 seconds later (trap marker exists: %t)", exists(interrupted))
+	case <-time.After(2 * time.Minute):
+		return fmt.Errorf("it was still running 2 minutes later (trap marker exists: %t)", exists(interrupted))
 	}
 	if code := cmd.ProcessState.ExitCode(); code != 130 || !exists(interrupted) {
 		return fmt.Errorf("it ended %d, its trap marking %v", code, exists(interrupted))

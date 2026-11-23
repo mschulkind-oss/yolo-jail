@@ -33,7 +33,7 @@ const viaRetiredOverride = "override"
 // materialize a capture with). A host bakes none of that, so the same template run here would
 // behave differently per machine — the dependence on the launcher's environment the floor exists
 // to remove. What the jail's launcher DECIDES is kept, and nothing else: install on first use, at
-// most one poll per UPDATE_INTERVAL when `agent_updates` allows it, a pinned package never
+// most one poll per jail start in a jail, per DefaultUpdateInterval on the host, when `agent_updates` allows it, a pinned package never
 // polled, a poll that cannot reach upstream keeping the installed version, one writer per install
 // prefix — and, by PD-NF1 (nofallback.go), a failed update STOPPING the launch rather than running
 // the installed version unless the user's hatch says to. The

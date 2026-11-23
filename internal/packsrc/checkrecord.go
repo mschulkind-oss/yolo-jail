@@ -290,6 +290,8 @@ type CheckFound struct {
 	// lockHeld is a NoWait store's check that found the mirror's lock held (an error matching
 	// ErrLockHeld): it fetched and listed nothing, and CheckPatched records none of it. Never written.
 	lockHeld error
+	// unchecked is why the launch deadline ended the check before it asked the upstream anything.
+	unchecked string
 }
 
 // NoVersionLine is the line that says, once at a launch and in `yolo pack status`, why a release

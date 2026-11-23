@@ -167,6 +167,12 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 		}
 	}
 
+	// A `local` clone is a host path: a jail's config is a generated snapshot whose paths this process
+	// cannot verify.
+	if o.getenv("YOLO_VERSION") == "" {
+		reportLocalClones(r, entries)
+	}
+
 	lockPath := packsrc.LockPath(paths.UserConfigPath())
 	lock, lockErr := packsrc.LoadLock(lockPath)
 	if lockErr != nil {

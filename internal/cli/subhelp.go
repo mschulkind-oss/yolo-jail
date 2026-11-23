@@ -106,6 +106,7 @@ var subcommandUsage = map[string]subUsage{
 	// owns the flags it documents; this table stays the one complete inventory.
 	"stores":      {text: stores.Usage, valueFlags: []string{"--setup"}},
 	"nix-roots":   {text: nixRootsUsage, valueFlags: []string{"--format"}},
+	"trace":       {text: traceUsage, valueFlags: []string{"-o"}}, // Reserved, unimplemented; the value is not help.
 	"update":      {text: updateUsage, valueFlags: []string{"--from"}},
 	"approve":     {text: approveUsage, valueFlags: []string{"--for", "--revoke", "--workspace", "--note", "--listen", "--reconcile", "--assets"}},
 	"access":      {text: accessUsage},

@@ -54,9 +54,9 @@ func TestMCPAuthStatusThroughMainHasNoEffectsOnMissingState(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "")
 	t.Setenv("YOLO_USER_LAYER", "")
 	t.Setenv("YOLO_VERSION", "")
-	writeUserConfig(t, `{"packs":[],"mcp_servers":{"slack":{"url":"https://mcp.slack.com/mcp","sign_in":"once"}}}`)
+	writeUserConfig(t, `{"packs":[],"mcp_servers":{"fixture":{"url":"https://mcp.fixture.invalid/mcp","sign_in":"once"}}}`)
 	before := managedMCPTreeSnapshot(t, home)
-	rc, out, errs := captureStd(t, func() int { return Main([]string{"yolo", "mcp-auth", "status", "slack", "--json"}) })
+	rc, out, errs := captureStd(t, func() int { return Main([]string{"yolo", "mcp-auth", "status", "fixture", "--json"}) })
 	if rc != 0 || !json.Valid([]byte(out)) {
 		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, out, errs)
 	}

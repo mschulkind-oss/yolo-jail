@@ -314,7 +314,8 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// THE SESSION INPUTS (sessioninputs.go, LA-D18). The capture-jail mark is Options.captureJail,
 	// read through subLaunch, which a hand-built Options with no CapturesDir answers as an
 	// ordinary launch rather than a nil call.
-	sessionInputs := composeSessionInputs(cfg, packs, o.Sealed, o.Sealed || o.subLaunch(), userEnv.PublicValues())
+	sessionInputs := composeSessionInputs(cfg, packs, o.Sealed, o.Sealed || o.subLaunch(), userEnv.PublicValues(),
+		o.toolSkillInputs())
 	c := &packChannel{
 		packs:                       packs,
 		scopedTokenVars:             scopedTokenVars,
@@ -549,7 +550,31 @@ func (c *packChannel) launchEnv(agent string) *jsonx.OrderedMap {
 	for _, k := range entrypoint.WireTables() {
 		env.Set(k, wire[k])
 	}
+	c.setToolSkillInputs(env)
 	return env
+}
+
+// setToolSkillInputs puts the two mise tool-skill session inputs (MS-D1, MS-D9) on the macos-user
+// launch env. The provisioning stage runs under `env -i` with a closed list and reads everything
+// else from the session env file, so without them the stage's tool-skills step finds no allowlist
+// and does nothing. They are the launch's to set: a composed value of either name (an env_sources
+// entry the workspace can write) is removed first, since the allowlist and the token are the
+// trust boundary of the snapshot. An empty allowlist writes neither, as on the container path.
+func (c *packChannel) setToolSkillInputs(env *jsonx.OrderedMap) {
+	names := []string{"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN", toolSkillsDeliveredEnv}
+	for _, k := range names {
+		env.Delete(k)
+	}
+	values := map[string]string{}
+	for _, in := range c.sessionInputs {
+		values[in.name] = in.value
+	}
+	if values["YOLO_TOOL_SKILLS_TOKEN"] == "" {
+		return
+	}
+	for _, k := range names {
+		env.Set(k, values[k])
+	}
 }
 
 // wireTableValues is this channel's three wire tables, serialized, keyed by the names in

@@ -29,7 +29,7 @@ func unreachableGit(t *testing.T) (git, offline string) {
 	dir := t.TempDir()
 	offline = filepath.Join(dir, "offline")
 	git = filepath.Join(dir, "git")
-	script := "#!/bin/sh\nif [ -e " + shquote.Quote(offline) + " ]; then for a in \"$@\"; do if [ \"$a\" = fetch ]; then " +
+	script := "#!/bin/sh\nif [ -e " + shquote.Quote(offline) + " ]; then for a in \"$@\"; do if [ \"$a\" = fetch ] || [ \"$a\" = ls-remote ]; then " +
 		"echo \"fatal: unable to access 'https://github.com/example/tool/': Could not resolve host: github.com\" >&2; " +
 		"exit 128; fi; done; fi\nexec " + shquote.Quote(real) + " \"$@\"\n"
 	if err := os.WriteFile(git, []byte(script), 0o755); err != nil {
@@ -43,17 +43,16 @@ func unreachableGit(t *testing.T) (git, offline string) {
 
 func (u *patchedUpstream) retryCheck(t *testing.T, w PatchedWant) CheckResult {
 	t.Helper()
-	res := u.store.CheckPatched(w, CheckOptions{RetryFailedFetch: true, Now: func() time.Time { return u.now }})
+	res := u.store.CheckPatched(w, CheckOptions{Now: func() time.Time { return u.now }})
 	if res.Err != nil {
 		t.Fatalf("CheckPatched: %v", res.Err)
 	}
 	return res
 }
 
-// A FAILED FETCH IS NOT THE UPSTREAM'S STATE for a caller with nothing to run: inside the hour the
-// attempt stamped, RetryFailedFetch checks again, and once the network is up finds the list. A
-// caller with a good build keeps the throttle (TestAFailedFetchStillStampsTheAttempt).
-func TestAFailedFetchIsRetriedByACallerWithNothingToRun(t *testing.T) {
+// A FAILED FETCH IS NOT THE UPSTREAM'S STATE: the next launch, whoever it is, checks again, and once
+// the network is up finds the list.
+func TestAFailedFetchIsRetriedByEveryLaunch(t *testing.T) {
 	u := newPatchedUpstream(t)
 	w := u.want(t, "main", "")
 	u.check(t, w, false)
@@ -65,22 +64,21 @@ func TestAFailedFetchIsRetriedByACallerWithNothingToRun(t *testing.T) {
 		t.Fatalf("an offline check = %+v, want its failed fetch recorded", res.Record.Check)
 	}
 	u.now = u.now.Add(10 * time.Minute)
-	if again := u.check(t, w, false); again.Ran {
-		t.Error("a caller with a good build re-checked inside the interval after a failed fetch")
+	if again := u.check(t, w, false); !again.Ran || again.Record.Check.FetchErr == "" {
+		t.Error("a launch did not check again after a failed fetch")
 	}
 	if err := os.Remove(offline); err != nil {
 		t.Fatal(err)
 	}
 	res := u.retryCheck(t, w)
-	if f := res.Record.Check; !res.Ran || f.FetchErr != "" || f.Problem != "" || listLabels(f.List) != "v1.1.0 v1.0.0" ||
-		!strings.Contains(res.Due, "could not reach the upstream") {
+	if f := res.Record.Check; !res.Ran || f.FetchErr != "" || f.Problem != "" || listLabels(f.List) != "v1.1.0 v1.0.0" {
 		t.Errorf("a retry inside the hour = %+v (due %q), want it run and the new version found", f, res.Due)
 	}
 }
 
-// AN ANSWER FROM THE UPSTREAM STILL HOLDS: a base the upstream lacks, found after a fetch that
-// worked, is the upstream's verdict, and RetryFailedFetch does not re-ask it inside the hour.
-func TestAnUpstreamsAnswerHoldsForTheIntervalEvenForARetry(t *testing.T) {
+// AN ANSWER FROM THE UPSTREAM IS ASKED AGAIN: a base the upstream lacks, found after a fetch that
+// worked, is the upstream's verdict, and the next launch asks again (one probe) like any other.
+func TestAnUpstreamsAnswerIsAskedAgainAtEveryLaunch(t *testing.T) {
 	u := newPatchedUpstream(t)
 	w := u.want(t, "main", "")
 	w.Base = strings.Repeat("b", 40)
@@ -89,8 +87,8 @@ func TestAnUpstreamsAnswerHoldsForTheIntervalEvenForARetry(t *testing.T) {
 		t.Fatalf("a missing base = %+v, want the upstream's verdict", f)
 	}
 	u.now = u.now.Add(10 * time.Minute)
-	if again := u.retryCheck(t, w); again.Ran {
-		t.Error("a retry re-asked an upstream that had answered, inside the interval")
+	if again := u.retryCheck(t, w); !again.Ran || !strings.Contains(again.Record.Check.Problem, "is not a commit of") {
+		t.Error("a launch did not ask the upstream again")
 	}
 }
 

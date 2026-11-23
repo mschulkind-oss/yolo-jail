@@ -115,6 +115,9 @@ func seedCodexReleases(t *testing.T, names []string, liveIdx int) *codexProbe {
 		t.Fatal(err)
 	}
 
+	if err := writeJailStart(home); err != nil { // the update check is once per jail start
+		t.Fatal(err)
+	}
 	launcher := nativeAgentLauncher("probe", shippedCodexInstall(t), filepath.Join(home, "stamps"),
 		filepath.Join(home, "ws", ".yolo", "receipts.jsonl"), "", true, launcherServers{}, nil)
 	if err := os.WriteFile(p.script, []byte(launcher), 0o755); err != nil {

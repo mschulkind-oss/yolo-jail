@@ -31,18 +31,36 @@ needs a ruling or a Mac sits in the others.
 
 ## Buildable now by an agent
 
-1. [Direct user-level scoped TOML pack imports](../design/toml-scoped-pack-imports-plan.md) —
-   first by the owner's explicit priority: selected upstream skills must reach every project
+1. [Tool skills](../design/mise-tool-skills.md) — the owner's current request (2026-11-23): deliver the skills
+   the user's own mise tools declare as one more skills layer. Every mechanism is decided; build its six slices in order.
+
+2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): the hourly
+   refresh throttle for packs and the patched-fork upstream check is dropped (a probe per remote, in parallel, under a
+   short deadline), and a pack's own clone can run, working tree included. Built, slices 1-7: the probe, the parallel
+   check, the patched-fork and `skill_imports` checks, the `local` key, the copy decision, working-tree staging, and the
+   launch lines with `pack status`, `pack update` and `yolo check`. Remaining: the Mac witnesses of
+   [§9](../design/local-pack-clones.md#9-backends), which need the owner's Mac.
+
+3. [Launcher updates once per jail start](../design/launcher-update-per-jail-start.md) — the owner's ruling
+   (2026-11-23) drops the in-jail launchers' hourly throttle: an unpinned program updates at its first invocation
+   after a jail start. Built, slices 0-6: the jail-start record, the npm, native and pnpm launchers, the server
+   and pre-launch refreshes, and the docs. Remaining: slice 7, the Mac witnesses (two macos-user sessions of one
+   home share the later id; `set -o noclobber` is exclusive under `/bin/bash` 3.2), which need the owner's Mac. Follow-up
+   under the same ruling, not yet designed: the host floor's evergreen poll (`hostfloor.DefaultUpdateInterval`,
+   `internal/hostfloor/floor.go:205`), since `yolo host` has no jail start.
+
+4. [Direct user-level scoped TOML pack imports](../design/toml-scoped-pack-imports-plan.md) —
+   next by the owner's explicit priority: selected upstream skills must reach every project
    without wrapper packs or workspace-only installation. The [behavioral design](../design/toml-scoped-pack-imports.md)
    owns the contract. Complete safe primary integration and the plan's remaining presentation
    and native verification work before retiring it; the [implemented reference](../reference/toml-scoped-pack-imports/README.md)
    describes the core mechanisms without claiming complete acceptance.
 
-2. Shorten [the `internal/cli/run` package's serial run](BACKLOG.md#landing-gate-flakes-2026-11-12) — about 7.5
+5. Shorten [the `internal/cli/run` package's serial run](BACKLOG.md#landing-gate-flakes-2026-11-12) — about 7.5
    minutes, with several tests waiting out 15 s production limits — which outgrows the landing gate's timeout under
    load; the classifier-deadline tests in the same entry still race a 1–2 s budget. Every other listed flake is fixed.
 
-3. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
+6. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
    the maintainer set its order on 2026-10-23: brokered sources with read and write sets, actionable toasts, a host
    CLI to view and approve, a web UI out of tree on that CLI, then a talk about merging it. The agent steps now:
    - [The approval queue's history](../design/approval-experience/request-history-and-privacy.md): build the opt-in
@@ -68,7 +86,7 @@ needs a ruling or a Mac sits in the others.
      and landing remain. Scoped-pack integration is serial at its effective-declaration seam, including custom
      handle/source identity compatibility, never evidence that skill directories load as native bundles.
 
-4. Smaller builds no ruling holds:
+7. Smaller builds no ruling holds:
    - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)
      follow Linux integration: first count repeated reads/peak retained bytes before any optimization.
    - [Readable pack model-row filtering](BACKLOG.md#readable-pack-model-row-filtering) follows the
@@ -80,6 +98,9 @@ needs a ruling or a Mac sits in the others.
      frozen run progress lines wait on [OQ-VP1](cli-visual-polish.md#OQ-VP1).
    - [Launch preparation](../design/launch-update-preparation-plan.md#runtime-2026-11-13)'s two status-wording
      leftovers in [the backlog](BACKLOG.md#launch-prep-runtime-leftovers).
+   - [One trace per launch](../design/startup-tracing.md), asked for on 2026-11-19 because launches with many
+     patched forks have become slow, and ruled the same day: complete [its plan sketch](../design/startup-tracing-plan.md)
+     against the tree, then build the trace directory and the text summary first, since they rank what to speed up.
 
 
 ## Independent design review

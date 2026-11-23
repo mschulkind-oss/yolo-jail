@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
@@ -119,7 +120,7 @@ func TestAPathPackRegistersItsCloneForAnotherPacksPublishedURL(t *testing.T) {
 	want := packsrc.PatchedWant{Owner: "fetched/tool", Source: "git+file://" + upstream + "?ref=main",
 		PatchBranch: "git+ssh://git@example.com/o/r?ref=mine"} // the ssh:// spelling still matches the scp remote
 	now := time.Unix(1_800_000_000, 0)
-	res := store.CheckPatched(want, packsrc.CheckOptions{RefreshPatchBranch: true, Now: func() time.Time { return now }})
+	res := store.CheckPatched(want, packsrc.CheckOptions{Now: func() time.Time { return now }})
 	if res.Err != nil {
 		t.Fatal(res.Err)
 	}
@@ -187,6 +188,22 @@ func TestLocalClonesEntryRegistersAClone(t *testing.T) {
 	}
 	if len(got[0].Remotes) != 1 || got[0].Remotes[0].URL != "git@example.com:o/r.git" {
 		t.Errorf("remotes = %+v, want origin as the configuration writes it", got[0].Remotes)
+	}
+}
+
+// §6.5, LPC-D15: a `local` path is a path into a clone, so it registers that clone for patch branches as any pack
+// path does; `local_clones` is unchanged.
+func TestALocalKeyRegistersItsClone(t *testing.T) {
+	_, _, machine, _ := lcFixture(t, "git@example.com:o/r.git")
+	home := readablePackTestHome(t)
+	write(t, filepath.Join(home, ".config", "yolo-jail", paths.UserConfigTOMLName),
+		"packs = [{ git = \"https://github.com/owner/tillr\", ref = \"main\", local = \""+machine+"\" }]\n")
+	got, err := LocalClones()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Dir != machine || got[0].Explicit || got[0].From != "owner/tillr" {
+		t.Fatalf("LocalClones = %+v, want the pack's clone, registered by its pack", got)
 	}
 }
 

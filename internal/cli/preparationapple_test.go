@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 func allowAppleContainerBuild(t testing.TB) {
@@ -286,10 +287,24 @@ func TestAppleContainerCapabilityTreatsUnknownListingAsUnsafe(t *testing.T) {
 // Registration and the actual timer must check Linux inputs on Apple without
 // authorizing even a build against an apparently empty container listing.
 func TestPreparationAppleSchedulerChecksLinuxWithoutBuild(t *testing.T) {
+	checkAppleSchedulerWithoutBuild(t, false)
+}
+
+func TestPreparationAppleSchedulerChecksLinuxWithoutBuildAfterClockRollback(t *testing.T) {
+	checkAppleSchedulerWithoutBuild(t, true)
+}
+
+func checkAppleSchedulerWithoutBuild(t *testing.T, rollback bool) {
+	t.Helper()
 	pf := readyForABackgroundAdvance(t)
 	pf.agentUpdates(t, `{"treepool":"next-launch"}`)
 	stubPreparationWorkerStart(t)
 	before := patchedRecordOf(t, poolKeyA)
+	if rollback {
+		// A future check stamp is due after clock rollback. Completing the new check
+		// must not require its wall-clock stamp to exceed the prior attempt's.
+		pf.setNow(time.Unix(before.CheckedAt, 0).Add(-time.Second))
+	}
 	// The fixture's initial Podman launch registered its own runtime. This case
 	// exercises an Apple-only machine, retaining the admitted bytes but no Podman timer.
 	if err := withPreparationState(func(state *preparationState) error { state.Subscriptions = nil; return nil }); err != nil {
@@ -305,34 +320,55 @@ func TestPreparationAppleSchedulerChecksLinuxWithoutBuild(t *testing.T) {
 	if err != nil || i < 0 || !state.Subscriptions[i].Active {
 		t.Fatalf("Apple Linux checks not registered: %+v %v", state, err)
 	}
+	// Observe the recorded result, not the check's attempt stamp or an in-flight
+	// snapshot. The scheduler calls this before its next dispatch pass.
+	type settlement struct {
+		snapshot preparationSnapshot
+		err      error
+	}
+	settled := make(chan settlement, 1)
+	previousSettled := preparationTaskSettled
+	preparationTaskSettled = func(key string) {
+		if key == poolKeyA {
+			snapshot, err := readPreparationSnapshot(key)
+			settled <- settlement{snapshot, err}
+		}
+	}
+	t.Cleanup(func() { preparationTaskSettled = previousSettled })
 	ctx, cancel := context.WithCancel(context.Background())
 	ticks := make(chan time.Time, 1)
-	ticks <- time.Now()
+	ticks <- pf.clock()
 	done := make(chan error, 1)
 	go func() { done <- runPreparationScheduler(ctx, ticks, io.Discard) }()
+	stopped := false
 	defer func() {
 		cancel()
-		if err := <-done; err != nil && err != context.Canceled {
-			t.Error(err)
+		if !stopped {
+			if err := <-done; err != nil && err != context.Canceled {
+				t.Error(err)
+			}
 		}
 	}()
-	deadline := time.NewTimer(5 * time.Second)
-	defer deadline.Stop()
-	poll := time.NewTicker(10 * time.Millisecond)
-	defer poll.Stop()
-	for {
+	guard := time.NewTimer(testsupport.ReadinessBudget(t))
+	defer guard.Stop()
+	select {
+	case got := <-settled:
 		after := patchedRecordOf(t, poolKeyA)
+		if rollback && after.CheckedAt >= before.CheckedAt {
+			t.Fatalf("clock rollback did not reach the check: before stamp=%d after stamp=%d", before.CheckedAt, after.CheckedAt)
+		}
+		if after.Seq <= before.Seq || got.err != nil || !strings.Contains(got.snapshot.Reason, "left it pending") {
+			t.Fatalf("Apple timer did not finish a check-only result: before seq=%d after seq=%d snapshot=%+v err=%v",
+				before.Seq, after.Seq, got.snapshot, got.err)
+		}
+		if calls.Load() != 0 || after.Good == nil || before.Good == nil || after.Good.Entry != before.Good.Entry {
+			t.Fatalf("check-only work built or replaced Good: builds=%d before=%+v after=%+v", calls.Load(), before.Good, after.Good)
+		}
+	case err := <-done:
+		stopped = true
+		t.Fatalf("Apple scheduler stopped before recording its check-only result: %v", err)
+	case <-guard.C:
 		snapshot, err := readPreparationSnapshot(poolKeyA)
-		if after.CheckedAt > before.CheckedAt && err == nil && strings.Contains(snapshot.Reason, "left it pending") {
-			if calls.Load() != 0 || after.Good == nil || before.Good == nil || after.Good.Entry != before.Good.Entry {
-				t.Fatalf("check-only work built or replaced Good: builds=%d before=%+v after=%+v", calls.Load(), before.Good, after.Good)
-			}
-			return
-		}
-		select {
-		case <-deadline.C:
-			t.Fatalf("Apple timer did not check: snapshot=%+v err=%v", snapshot, err)
-		case <-poll.C:
-		}
+		t.Fatalf("Apple scheduler never settled its check-only result: snapshot=%+v err=%v", snapshot, err)
 	}
 }

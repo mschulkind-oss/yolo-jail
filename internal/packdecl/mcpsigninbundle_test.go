@@ -28,11 +28,11 @@ func TestNativeSignInFormatsUsesCanonicalMetadataTable(t *testing.T) {
 func TestManagedMCPSignInBundleThroughManifestDecode(t *testing.T) {
 	manifest, problems := DecodeTOML([]byte(`name = "fixture"
 [[mcp_sign_in_bundle]]
-bundle = "skills/slack"
+bundle = "skills/fixture"
 format = "claude-plugin"
-origin = "https://github.com/slackapi/slack-skills-plugin"
-revision = "5b8802105740b5c045c97247fded2e73b205e95e"
-license = "skills/slack/LICENSE"
+origin = "https://example.invalid/fixture-plugin"
+revision = "0123456789abcdef0123456789abcdef01234567"
+license = "skills/fixture/LICENSE"
 `))
 	if len(problems) != 0 || manifest == nil {
 		t.Fatalf("accepted sign-in declaration refused: %v", problems)

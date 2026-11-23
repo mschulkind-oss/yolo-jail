@@ -97,9 +97,10 @@ func TestAFailedNativeFirstInstallSaysRunningItAgainRetries(t *testing.T) {
 	}
 }
 
-// The pnpm launcher THROTTLES a failed install (RETRY_INTERVAL), so running it again within the
-// interval does not retry, and its line may not say it does. It says when a run retries, and
-// gives the command that retries now; following that command installs pnpm and runs it.
+// The pnpm launcher THROTTLES a failed install to the jail start (LU-D7), so running it again in
+// the same start does not retry, and its line may not say it does. It says when a run retries (the
+// next jail start), and gives the command that retries now; following that command installs pnpm
+// and runs it.
 func TestAFailedPackageManagerInstallSaysHowToRetry(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not found")
@@ -139,7 +140,14 @@ fi
 		return string(out), 0
 	}
 	launcher := []string{filepath.Join(e.LaunchDir(), "pnpm")}
-	stamp := filepath.Join(home, ".cache", "yolo-package-manager-stamps", "pnpm.stamp")
+	record := filepath.Join(home, filepath.FromSlash(JailStartRel))
+	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(record, []byte("start-1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stamp := filepath.Join(home, ".cache", "yolo-package-manager-stamps", "pnpm.failed.start-1")
 	// The launcher spells the path with bash's printf %q, so a path with a space pastes as one
 	// word; build the expectation the same way rather than assuming the path needs no quoting.
 	quoted, err := exec.Command("bash", "-c", `printf '%q' "$1"`, "_", stamp).Output()
@@ -152,12 +160,12 @@ fi
 	if rc == 0 {
 		t.Fatalf("a failed install reported success:\n%s", out)
 	}
-	if want := "  ⚠ pnpm not available: its install failed, above. A run of pnpm 60 minutes " +
-		"from now retries it.\n" + retryNow; !strings.HasSuffix(out, want) {
+	if want := "  ⚠ pnpm not available: its install failed, above. Relaunching the jail (yolo stop on the host, " +
+		"then launch) retries it.\n" + retryNow; !strings.HasSuffix(out, want) {
 		t.Errorf("the first run does not end with %q:\n%s", want, out)
 	}
 
-	// Within the interval the launcher does not try again, and says so rather than claiming it did.
+	// Within the same jail start the launcher does not try again, and says so rather than claiming it did.
 	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +173,8 @@ fi
 	if rc == 0 {
 		t.Fatalf("a throttled run with nothing installed reported success:\n%s", out)
 	}
-	if want := "  ⚠ pnpm not available: its install failed less than 60 minutes ago, so this run " +
-		"did not try again.\n" + retryNow; !strings.HasSuffix(out, want) {
+	if want := "  ⚠ pnpm not available: its install failed earlier in this jail start, so this run " +
+		"did not try again. Relaunching the jail (yolo stop on the host, then launch) retries it.\n" + retryNow; !strings.HasSuffix(out, want) {
 		t.Errorf("the throttled run does not end with %q:\n%s", want, out)
 	}
 	if log, _ := os.ReadFile(logPath); len(log) != 0 {

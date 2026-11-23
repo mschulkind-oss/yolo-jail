@@ -89,7 +89,7 @@ func (w *onStderrMark) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 
-// TestRefreshDueOnChangeFollowsContent: inside UPDATE_INTERVAL, a launch refreshes when and only
+// TestRefreshDueOnChangeFollowsContent: inside one jail start, a launch refreshes when and only
 // when the watched content is one no refresh has succeeded for — a rewrite with the same bytes
 // (what every boot does to a composed file) is not a change, new bytes are, and bytes already
 // refreshed with once are not again.
@@ -99,7 +99,7 @@ func TestRefreshDueOnChangeFollowsContent(t *testing.T) {
 	p.run(t, "")
 	p.run(t, "")
 	if n := countLine(p.logLines(t), "REFRESH"); n != 1 {
-		t.Fatalf("unchanged content inside the interval must not refresh again (ran %d)", n)
+		t.Fatalf("unchanged content inside the start must not refresh again (ran %d)", n)
 	}
 	p.setWatched(t, `{"packages":["git:a"]}`) // same bytes, new mtime
 	p.run(t, "")
@@ -110,7 +110,7 @@ func TestRefreshDueOnChangeFollowsContent(t *testing.T) {
 	_, stderr := p.run(t, "")
 	log := p.logLines(t)
 	if n := countLine(log, "REFRESH"); n != 2 {
-		t.Fatalf("changed content must make the refresh due inside the interval (ran %d)\n%s", n, stderr)
+		t.Fatalf("changed content must make the refresh due inside the start (ran %d)\n%s", n, stderr)
 	}
 	if countLine(log, "LOCKED") != 2 {
 		t.Errorf("the change-triggered refresh must run under the lock: %v", log)
@@ -142,7 +142,7 @@ func TestRefreshDueOnChangeCountsAbsentToPresent(t *testing.T) {
 // so its content stays due and a later launch retries the install under the lock instead of
 // leaving it to the program — but it records WHEN it failed (XB-D26 of
 // docs/design/pi-extension-store-builds.md), so that content is due again only once the failure
-// is older than the interval, never at every launch an offline hour makes. A success then
+// is from an earlier jail start, never at every launch an offline start makes. A success then
 // records the key and drops the failure. The failure is an OFFLINE one, the registry unreachable:
 // one whose registry answered stops the launch instead (PD-NF1, updaterefusal_test.go).
 func TestRefreshDueOnChangeFailureIsThrottled(t *testing.T) {
@@ -150,20 +150,19 @@ func TestRefreshDueOnChangeFailureIsThrottled(t *testing.T) {
 	p.setWatched(t, `{"packages":["git:a"]}`)
 	p.run(t, "", "FAKE_REFRESH_RC=1", registryDownEnv)
 	entries, _ := os.ReadDir(p.seenDir())
-	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".failed") {
+	if len(entries) != 1 || !strings.HasSuffix(entries[0].Name(), ".failed."+p.startID) {
 		t.Fatalf("a failed refresh must record its failure and no content key, found %v", entries)
 	}
 	p.run(t, "")
 	if n := countLine(p.logLines(t), "REFRESH"); n != 1 {
-		t.Fatalf("a launch inside the interval retried a refresh that failed on this content (ran %d)", n)
+		t.Fatalf("a launch of the same start retried a refresh that failed on this content (ran %d)", n)
 	}
 	failed := filepath.Join(p.seenDir(), entries[0].Name())
-	backdatePath(t, failed, 2*time.Hour)
-	backdatePath(t, p.stampPath(), 2*time.Hour)
+	p.newStart(t)
 	p.run(t, "")
 	p.run(t, "")
 	if n := countLine(p.logLines(t), "REFRESH"); n != 2 {
-		t.Errorf("want the failure retried once past the interval and then settled (ran %d)", n)
+		t.Errorf("want the failure retried once at the next start and then settled (ran %d)", n)
 	}
 	if _, err := os.Stat(failed); !os.IsNotExist(err) {
 		t.Errorf("a refresh that succeeded left the failure behind (err=%v)", err)
@@ -224,7 +223,7 @@ func TestRefreshDoesNotWaitForContentAlreadyRefreshed(t *testing.T) {
 	p := newDueProbe(t)
 	p.setWatched(t, `{"packages":["git:a"]}`)
 	p.run(t, "")
-	backdatePath(t, p.stampPath(), 2*time.Hour)
+	p.newStart(t)
 	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
 		t.Fatal(err)
 	}

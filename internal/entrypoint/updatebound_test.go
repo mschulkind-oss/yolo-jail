@@ -120,6 +120,10 @@ func newBoundProbe(t *testing.T, o boundProbeOpts) *boundProbe {
 		p.realBin = filepath.Join(home, ".local", "bin", "probetool")
 		body = nativeAgentLauncher("probe", inst, stamps, receipts, "", true, launcherServers{}, nil)
 	}
+	// The check is once per jail start: the boot's record makes the program's update due.
+	if err := writeJailStart(home); err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(body, "\nUPDATE_TIMEOUT=60") {
 		t.Fatal("the launcher no longer bakes UPDATE_TIMEOUT=60, so this cell cannot shorten it")
 	}
@@ -148,6 +152,7 @@ func newBoundProbe(t *testing.T, o boundProbeOpts) *boundProbe {
 	if o.refresh != nil {
 		// Only the refresh is due: the program's own stamp is fresh, and the store exists.
 		seedFreshStamp(t, stamps, "probetool")
+		claimCheck(t, home, "probetool") // the launcher's own check is already claimed
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(home, o.refresh.Lock)), 0o755); err != nil {
 			t.Fatal(err)
 		}

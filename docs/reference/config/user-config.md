@@ -91,6 +91,10 @@ packs = [
 - **A git source or pack** takes an optional `ref`. With none, the remote's default branch is
   read and the commit is pinned in `packs.lock.json` at first fetch; it moves only on
   `yolo pack update`. A remote that does not answer is refused naming the `ref` to write.
+- **A direct git entry takes `local`**, the path of the user's own clone (`~` is the home directory), so that
+  launches run its working tree. It needs an explicit branch `ref` (a tag or a commit is refused), is not valid on a
+  `pack_sources` entry, a `{ pack = … }` entry or with `skills`, and a missing clone is not an error. Which copy
+  runs, and the lines and checks that say so, are in [the pack system](../pack-system.md#fetch-refresh-lock).
 - **Two entries that resolve to one directory are refused**, naming both lines.
 - **The name** (`acme/tools`) is how yolo names the pack back: the launch's pack line,
   `yolo pack ls`, `explain`, `footprint` and `lint`, and a login pack's settings table, which TOML

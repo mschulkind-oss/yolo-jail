@@ -541,6 +541,9 @@ func provisionThisSession(e *Env, gate *sessionGate, run func(*Env, string) int)
 	return rc
 }
 
+// provisionStageSpan is the jail-half span over the provisioning stage.
+const provisionStageSpan = "provision.stage"
+
 // runProvisionStage runs the provisioning stage as its own shell, on this session's
 // terminal, with the activation every session's shell gets (activationPrefix) and the PATH it
 // gets (BootPath) — the environment the stage had when it was the first clause of the
@@ -563,7 +566,13 @@ func runProvisionStage(e *Env, stage string) int {
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
 	defer signal.Stop(interrupts)
+	// THE STAGE IS A SPAN OF THE SESSION'S TRACE, written as it starts and ends
+	// (docs/design/startup-tracing.md §5.6). The bootstrap inside it writes its own span
+	// (provision.bootstrap, from the generated script), so the stage's remainder is the mise
+	// install and the steps around it.
+	e.trace.Start(provisionStageSpan)
 	err = cmd.Run()
+	e.trace.End(provisionStageSpan)
 	if err == nil {
 		return 0
 	}

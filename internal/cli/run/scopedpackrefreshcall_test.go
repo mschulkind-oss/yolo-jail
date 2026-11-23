@@ -44,6 +44,7 @@ func TestRunRefreshesDirectScopedHandleOnceBeforeStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", user.Root)
+	t.Cleanup(func() { _ = packsrc.RemoveSealedSkillTree(user.Root, paths.PacksDir()) })
 	t.Setenv("YOLO_VERSION", "")
 	t.Setenv("YOLO_PACK_ROOT", "")
 	var out, errw bytes.Buffer

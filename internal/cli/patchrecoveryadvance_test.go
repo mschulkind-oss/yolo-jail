@@ -90,14 +90,15 @@ func TestARecordedConflictFollowsANewerReleaseAtALaunch(t *testing.T) {
 	}
 }
 
-// INSIDE THE THROTTLE the recorded failure stands: no check ran, so the newer release is not known.
-func TestARecordedConflictStandsInsideTheThrottle(t *testing.T) {
+// THE NEXT LAUNCH PROBES (LPC-D6): a newer release published after the recorded conflict is found at once, not
+// after an hour, and builds.
+func TestANewerReleaseOvertakesARecordedConflictAtTheNextLaunch(t *testing.T) {
 	fx, _ := conflictAtV14(t)
 	fx.commit(t, "v1.5.0", fitting)
 	fx.later(time.Minute)
 	held, out, _ := fx.launch(t, "podman")
-	if held.patchFailure == nil || held.patchFailure.Target.Tag != "v1.4.0" || held.built {
-		t.Fatalf("inside the throttle the recorded failure did not stand: %+v\n%s", held, out)
+	if held.patchFailure != nil || !held.built {
+		t.Fatalf("the next launch did not find the newer release past the recorded conflict: %+v\n%s", held, out)
 	}
 }
 

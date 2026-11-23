@@ -29,7 +29,7 @@ func useClones(t *testing.T, clones ...LocalClone) {
 
 func (f *checkoutFixture) cloneLaunch(t *testing.T) CheckResult {
 	t.Helper()
-	res := f.store.CheckPatched(f.cloneWant(), CheckOptions{RefreshPatchBranch: true, Now: func() time.Time { return f.now }})
+	res := f.store.CheckPatched(f.cloneWant(), CheckOptions{Now: func() time.Time { return f.now }})
 	if res.Err != nil {
 		t.Fatalf("CheckPatched: %v", res.Err)
 	}

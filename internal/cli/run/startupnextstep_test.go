@@ -52,13 +52,62 @@ func TestLoopholeSettingsFixStepNamesTheKeyItsFileAndThePreflight(t *testing.T) 
 			t.Errorf("settings fix step lacks %q: %s", want, step)
 		}
 	}
-	if strings.Contains(step, "workspace") {
-		t.Errorf("a user-scope setting's fix step names the workspace file, where it is refused: %s", step)
+	if !userScopeSettingsStepMatches(step, "`loopholes.aws-auth.settings`", paths.UserConfigDisplayPath()) {
+		t.Errorf("a user-scope setting's fix step names the wrong scope or lacks its required advice: %s", step)
 	}
 	workspace := &loopholes.Loophole{Name: "svc", Settings: []loopholes.Setting{
 		{Key: "mode", Scope: loopholes.SettingScopeWorkspace}}}
 	if step := LoopholeSettingsFixStep(workspace); !strings.Contains(step, "the workspace's legacy config") {
 		t.Errorf("a workspace-scope setting's fix step does not name the workspace file: %s", step)
+	}
+}
+
+// Path data can contain "workspace"; only the verified user path is removed
+// before checking the instruction's scope, after all required advice is present.
+func userScopeSettingsStepMatches(step, key, userConfigPath string) bool {
+	for _, want := range []string{key, userConfigPath, "`yolo check --no-build`"} {
+		if !strings.Contains(step, want) {
+			return false
+		}
+	}
+	return !strings.Contains(strings.ReplaceAll(step, userConfigPath, "<user-config>"), "workspace")
+}
+
+func TestUserScopeSettingsAdviceSeparatesWorkspacePathDataFromInstructions(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(base, "workspace-home")
+	cfg := filepath.Join(home, ".config", "yolo-jail", "config.jsonc")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte("{}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	user := &loopholes.Loophole{Name: "aws-auth", Settings: []loopholes.Setting{
+		{Key: "profile", Scope: loopholes.SettingScopeUser}}}
+	step := LoopholeSettingsFixStep(user)
+	const key = "`loopholes.aws-auth.settings`"
+	path := paths.UserConfigDisplayPath()
+	if path != cfg || !strings.Contains(path, "workspace") || !userScopeSettingsStepMatches(step, key, path) {
+		t.Fatalf("correct user advice rejected path data: path=%q step=%q", path, step)
+	}
+	for name, wrong := range map[string]string{
+		"workspace instruction alongside correct path": step + " Also correct the workspace config.",
+		"wrong workspace config instead of user path":  strings.ReplaceAll(step, path, "the workspace config"),
+		"unverified workspace path":                    strings.ReplaceAll(step, path, filepath.Join(home, "another-workspace", "config.jsonc")),
+		"missing user path":                            strings.ReplaceAll(step, path, "/other/user/config.jsonc"),
+		"missing key":                                  strings.ReplaceAll(step, key, "`another.settings`"),
+		"missing preflight":                            strings.ReplaceAll(step, "`yolo check --no-build`", "retry"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if userScopeSettingsStepMatches(wrong, key, path) {
+				t.Fatalf("wrong scope or incomplete advice accepted: %q", wrong)
+			}
+		})
 	}
 }
 
