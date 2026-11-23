@@ -8,7 +8,7 @@ description: "Change applied host environment settings."
 
 ## Apply a host configuration change
 
-1. Change the user TOML at `/home/test/.config/yolo-jail/config.jsonc`, or, when that file is generated from a source of the user's config (a dotfiles repository, say), edit that source, not the installed host config; if the source is absent, ask the human. Use `yolo config-ref` for accepted keys and their scope.
+1. Change the user TOML at `/home/test/.config/yolo-jail/config.jsonc`. Use `yolo config-ref` for accepted keys and their scope.
 2. Run `yolo check` from `/home/test/project` and resolve every reported failure.
 3. Run `yolo host apply` from `/home/test/project`. Its output is the record of what changed.
 

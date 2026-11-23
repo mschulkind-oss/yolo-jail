@@ -103,10 +103,7 @@ reading first saves a slow, human-gated round-trip.
 on the host to inspect a raw selection, then omit `--dry-run` to write the user TOML
 entry:
 `{ pack = "local/corpus", skills = { dir = "skills/core-tools", only = ["skill-a"] } }`
-The entry applies across workspaces, not through this project's config. If the
-user's config is generated from a dotfiles repository or similar, the human should
-edit that source of the user's config, not the installed host config. If the
-source is absent, ask the human where the user's config lives. Omit `--skills-dir` for
+The entry applies across workspaces, not through this project's config. Omit `--skills-dir` for
 typed candidate-name selectors; `--subdir` alone still imports a whole pack.
 Scoped entries activate no programs, hooks, briefing, native plugins or host
 capabilities. `yolo pack explain local/corpus` inspects all matching tuples without
