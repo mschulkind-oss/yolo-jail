@@ -47,7 +47,20 @@ func TestRunStepChangedSnapshotNamesTheToolAndVersion(t *testing.T) {
 	_ = m1
 	m2, _ := miseListing(t, f.skill(t, "tool-a", "1.3", "sa", "a2"))
 	got := runStepOut(t, f, stepEnv(f, first.Digest, "tool-a"), m2)
-	want := "yolo: mise skills changed (tool-a 1.3); they reach the agent with the next session: relaunch or attach.\n"
+	want := "yolo: mise skills changed (tool-a 1.2 -> 1.3); they reach the agent with the next session: relaunch or attach.\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+// A tool that is new in the snapshot is marked new, and one that left is marked removed, beside
+// the one whose version moved.
+func TestRunStepChangedSnapshotMarksNewAndRemovedTools(t *testing.T) {
+	f := newFixture(t)
+	first := mustPublish(t, f.opts(), f.skill(t, "tool-a", "1.2", "sa", "a"), f.skill(t, "tool-b", "2.0", "sb", "b"))
+	m, _ := miseListing(t, f.skill(t, "tool-a", "1.3", "sa", "a2"), f.skill(t, "tool-c", "0.1", "sc", "c"))
+	got := runStepOut(t, f, stepEnv(f, first.Digest, "tool-a", "tool-b", "tool-c"), m)
+	want := "yolo: mise skills changed (tool-a 1.2 -> 1.3, tool-c 0.1 (new), tool-b 2.0 (removed)); they reach the agent with the next session: relaunch or attach.\n"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}

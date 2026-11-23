@@ -87,8 +87,11 @@ type Snapshot struct {
 	// read under the publish lock, so of two sessions publishing the same content only the first
 	// sees a Previous that differs from Digest.
 	Previous string
-	Skills   []Skill // delivered, in the order given
-	Skipped  []SkippedSkill
+	// PreviousSkills are the tools and versions the Previous snapshot's index recorded (Name,
+	// Tool and Version only), nil when there was none or its index is unreadable.
+	PreviousSkills []Skill
+	Skills         []Skill // delivered, in the order given
+	Skipped        []SkippedSkill
 }
 
 // Test hooks, nil in production: before a file's bytes are opened, and just before `current`
@@ -237,6 +240,7 @@ func Publish(opts Options, skills []Skill) (Snapshot, error) {
 	}
 	prev := readCurrent(snapFD)
 	snap.Previous = prev
+	snap.PreviousSkills = readIndexSkills(snapFD, prev)
 	if err := writeFileAt(snapFD, "current", []byte(snap.Digest+"\n")); err != nil {
 		return Snapshot{}, fmt.Errorf("cannot replace current: %w", err)
 	}
@@ -356,6 +360,38 @@ func readCurrent(snapFD int) string {
 	defer f.Close()
 	b, _ := io.ReadAll(io.LimitReader(f, 256))
 	return strings.TrimSpace(string(b))
+}
+
+// readIndexSkills reads the skills the snapshot directory digest's index.json recorded, without
+// following a link. Any problem is nil: the caller only uses it to word a disclosure.
+func readIndexSkills(snapFD int, digest string) []Skill {
+	if !isDigestName(digest) {
+		return nil
+	}
+	dirFD, err := openDirAt(snapFD, digest, true)
+	if err != nil {
+		return nil
+	}
+	defer unix.Close(dirFD)
+	fd, err := unix.Openat(dirFD, "index.json", unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil
+	}
+	f := os.NewFile(uintptr(fd), "index.json")
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, 1<<20))
+	if err != nil {
+		return nil
+	}
+	var idx index
+	if json.Unmarshal(b, &idx) != nil {
+		return nil
+	}
+	var out []Skill
+	for _, s := range idx.Skills {
+		out = append(out, sanitized(Skill{Name: s.Name, Tool: s.Tool, Version: s.Version}))
+	}
+	return out
 }
 
 func listNames(dirFD int) []string {
@@ -901,19 +937,42 @@ func discloseRefresh(out io.Writer, rep Report, allowlist []string, delivered st
 		fmt.Fprintln(out, "yolo: mise skills changed (no tool skills remain); they leave the agent with the next session: relaunch or attach.")
 	default:
 		fmt.Fprintf(out, "yolo: mise skills changed (%s); they reach the agent with the next session: relaunch or attach.\n",
-			strings.Join(toolVersions(snap.Skills), ", "))
+			strings.Join(toolChanges(snap.PreviousSkills, snap.Skills), ", "))
 	}
 }
 
-// toolVersions is "TOOL VERSION" once per distinct pair, in delivery order.
-func toolVersions(skills []Skill) []string {
-	seen := map[string]bool{}
+// toolChanges words what moved between two snapshots, once per tool: "TOOL OLD -> NEW" for a
+// version change, "TOOL NEW (new)" for a tool that arrived, "TOOL OLD (removed)" for one that left,
+// and "TOOL VER (content changed)" when the version is the same but the digest is not (a
+// branch-named version). The new snapshot's tools come first, in delivery order, then the removed.
+func toolChanges(prev, cur []Skill) []string {
+	versions := func(skills []Skill) (order []string, ver map[string]string) {
+		ver = map[string]string{}
+		for _, s := range skills {
+			if _, ok := ver[s.Tool]; !ok {
+				order = append(order, s.Tool)
+				ver[s.Tool] = s.Version
+			}
+		}
+		return order, ver
+	}
+	porder, pv := versions(prev)
+	order, cv := versions(cur)
 	var out []string
-	for _, s := range skills {
-		k := s.Tool + " " + s.Version
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, k)
+	for _, t := range order {
+		old, had := pv[t]
+		switch {
+		case !had:
+			out = append(out, t+" "+cv[t]+" (new)")
+		case old != cv[t]:
+			out = append(out, t+" "+old+" -> "+cv[t])
+		default:
+			out = append(out, t+" "+old+" (content changed)")
+		}
+	}
+	for _, t := range porder {
+		if _, ok := cv[t]; !ok {
+			out = append(out, t+" "+pv[t]+" (removed)")
 		}
 	}
 	return out
