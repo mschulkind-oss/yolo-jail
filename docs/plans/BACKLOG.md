@@ -1332,3 +1332,20 @@ pack rows and are bounded below. No credential or live model call is needed to r
    `WithModelNotes`, then align the unscoped row-identity check with the existing
    readable lowerer's `readableModelID` rule. This is a baseline defect, not introduced
    by agent-scoped views; do not silently claim scoped/unscoped equality for this shape.
+
+## Carried from retired lab reports (2026-11-23)
+
+- **Unidentified temporary-directory survivors on the Mac.** The 2026-10-21 prior-session
+  inventory (row 53) records survivors with unknown owner and timing.
+  `integration/detachedwriters_test.go` covers detached writers, and
+  `integration/preparationworkers_test.go` says a host without `/proc` cannot identify or
+  stop them. Smallest next step: on the Mac, capture a bounded failure-time manifest
+  (relative paths, types, owners, active-writer evidence) tied to the exact source, test and
+  cleanup error before any deletion. Do not sleep, kill by name, or remove unknown or live
+  bytes.
+- **Two work-control defects in the owner's matt pack, unverified from this repository.** A
+  2026-10-21 reading of the installed Pi extension `work-control.ts` (not part of this
+  checkout) found that production feeds `after` edges to a diagnostic index that reads only
+  `blockedBy:` lines, and that a frozen `source: title` criterion still classifies as
+  "criterion is a topic" after a criterion is appended. Smallest next step: re-read the
+  current extension in the pack's own repository; fix there if still present.

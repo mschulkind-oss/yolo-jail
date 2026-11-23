@@ -156,9 +156,9 @@ These are follow-ups with their stated dependencies, not newly declared release 
 - **Native Pi/fork and remaining Mac launch evidence:** the
   [Linux fork report](2026-10-19-linux-fork-materialization-verification.md) and
   [roadmap](../plans/roadmap.md#immediate-continuation) retain the native Pi/fork runtime work and
-  the Mac launcher findings. The [Mac repair evidence record](2026-10-21-macos-repair-evidence.md)
-  maps the landed source/test repairs and records the unresolved row23 hosted receipt plus row53's
-  individual dependencies; it does not close hosted acceptance or the remaining native/owner gates.
+  the Mac launcher findings. The Mac repair evidence record (retired; recover it with
+  `git log --follow -- docs/lab-reports/2026-10-21-macos-repair-evidence.md`) mapped the landed
+  source/test repairs; its open dependencies now live in their owner docs and the backlog.
   The `.local` sidecar defect remains explicitly owner-deferred and unverified; do not silently
   promote it into a fix. Check each current disposition in the roadmap before taking it up.
 - **Watcher ownership:** a watcher that wakes an agent must be owned by the current live session;
