@@ -26,6 +26,7 @@ There is no switch to turn it off: a leak is a test bug, and the fix is in the t
 """
 import os
 import re
+import select
 import shutil
 import signal
 import stat
@@ -33,8 +34,6 @@ import subprocess
 import sys
 import tempfile
 import time
-
-PR_SET_CHILD_SUBREAPER = 36
 
 # How a leftover's name points at its maker. A t.TempDir is named after its test
 # (<TestName><digits>), and an os.MkdirTemp after the prefix its caller passed.
@@ -74,64 +73,79 @@ def remove_tree(path):
         shutil.rmtree(path, onerror=lambda f, p, e: on_error(f, p, e))
 
 
-def become_subreaper():
-    """Make every orphaned descendant of the command reparent to this process (Linux), so the
-    gate can see and reap what outlives the command. Returns whether it took effect."""
-    if not sys.platform.startswith("linux"):
-        return False
+def proc_state(pid):
+    """(state letter, session id) of a pid from /proc/<pid>/stat, or None when it is gone."""
     try:
-        import ctypes
-        libc = ctypes.CDLL(None, use_errno=True)
-        return libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) == 0
-    except (OSError, AttributeError):
+        with open(f"/proc/{pid}/stat") as f:
+            line = f.read()
+    except OSError:
+        return None
+    # "pid (comm) state ppid pgrp session ...": comm may hold spaces and parens.
+    fields = line.rsplit(")", 1)[1].split()
+    return fields[0], int(fields[3])
+
+
+def belongs_to_run(pid, private, session):
+    """Whether a live process is the command's: it sits in the command's session, its environment
+    names the private TMPDIR, or its cwd is inside it. Reads /proc only; adopts nothing."""
+    if pid == os.getpid():
+        return False
+    st = proc_state(pid)
+    if st is None or st[0] in ("Z", "X"):
+        return False  # already dead: a zombie is its parent's to collect, not a survivor
+    if st[1] == session:
+        return True
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            if f"TMPDIR={private}".encode() in f.read().split(b"\0"):
+                return True
+    except OSError:
+        pass
+    try:
+        cwd = os.readlink(f"/proc/{pid}/cwd")
+        return cwd == private or cwd.startswith(private + os.sep)
+    except OSError:
         return False
 
 
-def adopted_children():
-    """Pids of this process's live children, read from /proc (Linux)."""
-    me = os.getpid()
-    found = []
+def find_survivors(private, session):
+    """Pids of processes of this run still alive, found by a /proc scan (Linux)."""
     try:
         names = os.listdir("/proc")
     except OSError:
-        return found
-    for name in names:
-        if not name.isdigit():
-            continue
-        try:
-            with open(f"/proc/{name}/stat") as f:
-                stat_line = f.read()
-        except OSError:
-            continue
-        # "pid (comm) state ppid ...": comm may hold spaces and parens, so split after the last ")".
-        fields = stat_line.rsplit(")", 1)[1].split()
-        if len(fields) > 1 and int(fields[1]) == me and fields[0] != "Z":
-            found.append(int(name))
-    return found
+        return []
+    return sorted(int(n) for n in names if n.isdigit() and belongs_to_run(int(n), private, session))
 
 
-def reap_survivors(command_pid):
-    """Kill and reap every process the command left running after it exited. A test that leaves a
-    grandchild behind keeps writing into the private TMPDIR while the gate scans and removes it,
-    so the gate waits on each one's death (waitpid, not a sleep) before it looks at the directory.
-    Returns the pids it had to kill."""
-    killed = adopted_children()  # read BEFORE any kill: a killed child turns into a zombie
+def wait_dead(pid):
+    """Block until pid has died, on its pidfd (readable at exit, whoever reaps it): no sleep loop.
+    A pid that is already gone returns at once."""
     try:
-        os.killpg(command_pid, signal.SIGKILL)  # the command's own group, orphans included
-    except OSError:
-        pass
+        fd = os.pidfd_open(pid)
+    except (OSError, AttributeError):
+        return  # gone, or no pidfd here: SIGKILL was sent and the TMPDIR scan decides
+    try:
+        select.select([fd], [], [])
+    finally:
+        os.close(fd)
+
+
+def reap_survivors(private, session):
+    """Kill every process the command left running, without adopting it: the gate is NOT a
+    subreaper, so a process a test killed is collected by its real parent or init exactly as it
+    would be outside the gate (an adopted one stays a zombie that kill(pid, 0) calls alive). A
+    survivor keeps writing into the private TMPDIR while the gate scans and removes it, so the gate
+    waits for each death before it looks at the directory. Returns the pids it had to kill."""
+    if not sys.platform.startswith("linux"):
+        return []
+    killed = find_survivors(private, session)
     for pid in killed:
         try:
             os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
-    while True:  # blocks on each death; ECHILD means none is left
-        try:
-            os.waitpid(-1, 0)
-        except ChildProcessError:
-            break
-        except InterruptedError:
-            continue
+    for pid in killed:
+        wait_dead(pid)
     return killed
 
 
@@ -220,13 +234,12 @@ def main(argv):
         signal.signal(sig, forward)
     try:
         start = time.time()
-        reaper = become_subreaper()
         proc = subprocess.Popen(argv, env=env, start_new_session=True)
         rc = proc.wait()
         if rc < 0:  # killed by a signal: the shell's spelling of it
             rc = 128 - rc
         leaked = False
-        survivors = reap_survivors(proc.pid) if reaper else []
+        survivors = reap_survivors(private, proc.pid)
         if survivors:
             print(f"\nTMPDIR LEAK: the command exited but left {len(survivors)} process(es) of its own "
                   f"running (pids {', '.join(map(str, survivors))}), killed now. A process that outlives "

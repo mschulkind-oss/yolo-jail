@@ -114,6 +114,37 @@ class TmpLeakGateTest(unittest.TestCase):
         self._survivor_case(
             f"{sys.executable} -c 'import os; os.setsid(); os.execvp(\"sleep\", [\"sleep\", \"300\"])' &")
 
+    @unittest.skipUnless(sys.platform.startswith("linux"), "zombies are a Linux /proc matter")
+    def test_a_grandchild_the_command_orphans_and_kills_is_gone_not_a_zombie(self):
+        # The gate must not adopt orphans (a subreaper): an adopted, killed grandchild stays a
+        # zombie until the gate's end, and kill(pid, 0) calls it alive.
+        prog = "\n".join([
+            "import os, select, signal",
+            "r, w = os.pipe()",
+            "if os.fork() == 0:",
+            "    if os.fork() == 0:  # the grandchild: report its pid, then wait to be killed",
+            "        os.write(w, b'%d\\n' % os.getpid())",
+            "        signal.pause()",
+            "    os._exit(0)  # its parent exits at once, orphaning it",
+            "gc = int(os.read(r, 32))",
+            "os.kill(gc, signal.SIGKILL)",
+            "fd = os.pidfd_open(gc)",
+            "select.select([fd], [], [])  # readable at death, before init has reaped it",
+            "import time",
+            "end = time.monotonic() + 20  # a generous guard: init reaps within microseconds",
+            "while True:",
+            "    try:",
+            "        os.kill(gc, 0)",
+            "    except ProcessLookupError:",
+            "        print('verdict=gone'); break",
+            "    if time.monotonic() > end:",
+            "        print('verdict=alive'); break",
+            "    select.select([], [], [], 0.01)",
+        ])
+        r = run_gate(f'{sys.executable} -c "$PROG"', env={"PROG": prog})
+        self.assertIn("verdict=gone", r.stdout, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_test_fast_runs_under_the_gate(self):
         text = JUSTFILE.read_text()
         m = re.search(r"^test-fast:\n((?:    .*\n)+)", text, re.M)
