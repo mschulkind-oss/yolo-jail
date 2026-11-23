@@ -1395,6 +1395,16 @@ func (a *advance) run() advanceResult {
 			a.problem = "could not check its upstream: " + oneLineErr(res.Err)
 			return a.serveOr(fmt.Sprintf("%s's upstream could not be checked (%v)", f.Label(), res.Err))
 		}
+		if res.Unchecked != "" {
+			// THE LAUNCH'S DEADLINE ENDED ON THE MIRROR LOCK: nothing was asked of the upstream and the record
+			// still holds the last check's list, so what runs is what the held copy answers (§4.3 of
+			// docs/design/local-pack-clones.md). Never a refusal while something serves.
+			a.rec = res.Record
+			a.seq = a.rec.Seq
+			a.warn("%s", checkFailedLine(f.Label(), a.in.Ref, res.Unchecked, a.runsNow()))
+			a.problem = "could not check its upstream: " + res.Unchecked
+			return a.serveOr(fmt.Sprintf("%s's upstream could not be checked (%s)", f.Label(), res.Unchecked))
+		}
 		if a.o.freshCheck {
 			if res.Record == nil || !res.Record.Fresh.Qualifies(a.o.freshBoundary, a.o.freshIdentity) || res.Record.Check == nil || res.Record.Check.FetchErr != "" ||
 				res.Record.Check.Problem != "" {

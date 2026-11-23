@@ -147,6 +147,9 @@ type CheckResult struct {
 	Recovered error
 	// Inputs is what a check of the want reads, for Record.Candidates.
 	Inputs CheckInputs
+	// Unchecked is why a launch deadline ended the check before it asked the upstream anything (the mirror lock
+	// wait timed out): Record is the prior one, untouched, and the caller runs what it holds and says so.
+	Unchecked string
 	// Err is why no check could run or be recorded: an unparseable source, or a record that
 	// could not be locked or written.
 	Err error
@@ -238,6 +241,12 @@ func (s *Store) CheckPatched(w PatchedWant, opts CheckOptions) CheckResult {
 				patchBranch = &c
 			}
 			found = s.findCandidates(addr, follow, w.Base, patchBranch, clone, opts.Force || opts.FreshAfter != nil, now(), waiting, once, opts.Check)
+		}
+		if found.unchecked != "" {
+			// THE DEADLINE ENDED THE WAIT FOR THE MIRROR LOCK: nothing was fetched or listed, so the attempt's
+			// stamp goes back and the record says nothing of this call.
+			r.CheckedAt, res.Ran, res.Unchecked, res.Record = stamp, false, found.unchecked, r
+			return true, nil
 		}
 		if found.lockHeld != nil {
 			// A NoWait STORE MET A HELD MIRROR LOCK: nothing was fetched or listed, so the attempt's
@@ -344,7 +353,9 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, patchBran
 	unlock, err := lockStore.lockMirrors(mirrorsOf(a.Repo, patchBranch, plan), waiting)
 	if err != nil {
 		if held && check.Ctx.Err() != nil {
-			found.FetchErr = fmt.Sprintf("waiting for the mirror lock timed out after %s", check.Limit)
+			// NOTHING WAS ASKED OF THE UPSTREAM: like a NoWait store's held lock, the record keeps its prior
+			// list, and the caller runs the held copy with the warning (CheckResult.Unchecked).
+			found.unchecked = fmt.Sprintf("waiting for the mirror lock timed out after %s", check.Limit)
 			return found
 		}
 		if errors.Is(err, ErrLockHeld) {

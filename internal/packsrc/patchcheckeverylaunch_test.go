@@ -76,11 +76,12 @@ func TestAHungProbeRecordsAFailedCheckAndKeepsTheHeldList(t *testing.T) {
 	}
 }
 
-// A MIRROR LOCKED PAST THE DEADLINE is the same failed check.
-func TestAMirrorLockedPastTheDeadlineIsAFailedCheck(t *testing.T) {
+// A MIRROR LOCKED PAST THE DEADLINE ASKED THE UPSTREAM NOTHING: like a NoWait store's held lock, the record
+// keeps its prior list (and its sequence and stamp), and the result says why it did not check.
+func TestAMirrorLockedPastTheDeadlineLeavesThePriorList(t *testing.T) {
 	u := newPatchedUpstream(t)
 	w := u.want(t, "main", "")
-	u.check(t, w, false)
+	first := u.check(t, w, false)
 	a, err := Parse(u.source("main"))
 	if err != nil {
 		t.Fatal(err)
@@ -94,8 +95,17 @@ func TestAMirrorLockedPastTheDeadlineIsAFailedCheck(t *testing.T) {
 	defer cancel()
 	res := u.store.CheckPatched(w, CheckOptions{Check: checkOf(ctx), Now: func() time.Time { return u.now.Add(time.Minute) },
 		Begin: func() (func(string), func()) { return func(string) { cancel() }, func() {} }})
-	if res.Err != nil || !res.Ran || !strings.Contains(res.Record.Check.FetchErr, "waiting for the mirror lock timed out after 5s") {
-		t.Fatalf("a locked mirror = ran %v err %v check %+v", res.Ran, res.Err, res.Record.Check)
+	if res.Err != nil || res.Ran || !strings.Contains(res.Unchecked, "waiting for the mirror lock timed out after 5s") {
+		t.Fatalf("a locked mirror = ran %v err %v unchecked %q", res.Ran, res.Err, res.Unchecked)
+	}
+	rec := res.Record
+	if rec == nil || rec.Check == nil || listLabels(rec.Check.List) != listLabels(first.Record.Check.List) ||
+		rec.Seq != first.Record.Seq || rec.CheckedAt != first.Record.CheckedAt || rec.Check.FetchErr != "" {
+		t.Errorf("the record after a lock timeout = %+v, want the prior check untouched", rec)
+	}
+	if again, err := u.store.LoadCheckRecord(w.Owner); err != nil || again.Seq != first.Record.Seq ||
+		listLabels(again.Check.List) != listLabels(first.Record.Check.List) {
+		t.Errorf("the stored record changed: %+v (%v)", again, err)
 	}
 }
 
