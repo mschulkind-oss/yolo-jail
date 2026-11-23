@@ -1674,7 +1674,7 @@ pushes run only on Linux.
 `.#packages.<darwin system>.yoloNoncontainerProfile` with no `packages:`, and one entry of it, the
 mise built with rustls (`noncontainerFloorSubstitutes` in [`flake.nix`](../../flake.nix)), is in no
 public cache: built cold it takes about 27 minutes on an M-series Mac
-([lab report, section 3](../lab-reports/2026-10-24-mac-verification-after-gitbroker.md#3-the-rustls-mise-costs-27-minutes-cold-and-a-macos-user-test-has-30)).
+(1632 s with nothing else running, measured 2026-10-24).
 [`darwin-floor-cache.yml`](../../.github/workflows/darwin-floor-cache.yml) builds that profile on
 macOS runners, for aarch64-darwin and x86_64-darwin, and pushes its closure to this cache on every
 push to `main` that changes `flake.nix` or `flake.lock`, the profile's whole input set. It uses the

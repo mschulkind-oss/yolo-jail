@@ -191,8 +191,7 @@ Neither numeric target was reached, and the run cannot establish an idle-target 
 ### `internal/cli` on the maintainer's Mac is git-spawn-bound (2026-10-16)
 
 The maintainer's Mac (Apple Git 2.50.1, no Homebrew git) timed `internal/cli` out at the 20-minute
-package limit (the lab report `docs/lab-reports/2026-10-16-macos-user-pi-refusal.md`, written on
-the Mac), while CI's macOS runner passes under it.
+package limit (a lab report written on the Mac, filed in `4c7ecd1db`), while CI's macOS runner passes under it.
 
 **MEASURED on Linux, 2026-10-16**: `go test -short -count=1 ./internal/cli` takes 170 s for 2347
 tests. No test takes more than 4.1 s, and only 22 take 1 s or more (39 s together). With `git` on

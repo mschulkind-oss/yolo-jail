@@ -524,7 +524,7 @@ under the macos-user setup. Neither check starts an agent session or calls a mod
    yolo -- bash -lc 'printf "%s\n" "$YOLO_SESSION_HOMES"'
    ```
 
-   Witness: two tab-separated lines, `oh-omp` first. The third field of each is a directory under
+   Witness: two tab-separated lines, one for `oh-omp` and one for `pi`, in either order (the lines follow the selected packs' declaration order, not the program names). The third field of each is a directory under
    `~/.yolo-native-sessions/<workspace hash>/<16-hex id>/`: `…/.oh-omp/agent` for `oh-omp` and
    `…/.pi/agent` for `pi`. A second `yolo --` launch prints a different 16-hex id.
 
@@ -547,4 +547,4 @@ under the macos-user setup. Neither check starts an agent session or calls a mod
    Witness: `models.yml` and `config.yml` are regular files, and `agent.db` is a link to
    `~/.oh-omp/agent/agent.db`. pi's home has neither `models.yml` nor `config.yml`.
 
-*Run 2026-11-07 at `4b26d1dfc` under `seatbelt-self`* ([lab report](../lab-reports/2026-11-07-mac-session-homes-and-nightly-42372802408.md#1-the-per-session-profiles-checks)): all three pass, except that check 1 lists `pi` before `oh-omp`.
+*Run 2026-11-07 at `4b26d1dfc` under `seatbelt-self`, on the owner's Mac*: all three pass. Check 1 listed `pi` before `oh-omp`, which the witness now allows: the lines follow declaration order (`sessionHomeBindings`, `internal/entrypoint/sessionhome.go`).

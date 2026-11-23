@@ -10,8 +10,11 @@ summary: "On a Mac, podman runs in a VM that cannot follow the host's /tmp → /
 
 # A workspace reached through a symlink cannot be bound by podman on a Mac
 
-**Status:** 2026-11-06. Nothing built. Measured on a Mac on 2026-10-19
-([the lab report's §3](../lab-reports/2026-10-19-launch-diagnostics-on-a-mac.md#3-a-podman-launch-cannot-use-a-workspace-reached-through-a-symlink)).
+**Status:** 2026-11-06, re-read against main 2026-11-23: nothing built (`preparePodmanBindSources` still
+resolves nothing). Measured on a Mac on 2026-10-19: binding `/Users`, `/private/tmp` and
+`/Users/Shared/yolo` worked, `/tmp/jail_test` failed, and `/private/tmp/jail_test` bound; the error
+named whichever bind podman checked first (`.yolo/home/local`, `.yolo/home/npm-global`, once
+`.yolo/home/yolo-gitconfig`), so one cause covers them all.
 Any fix needs a podman launch on a Mac to verify; a Linux run cannot reproduce the VM's view.
 
 > **In short.** The paths yolo hands podman as bind sources are yolo's own arguments, not the user's
@@ -24,8 +27,7 @@ the link, so it reads as a yolo bug, which is the symptom `preparePodmanBindSour
 
 **Needs your ruling:** [OQ-SWB1](#OQ-SWB1).
 
-**Reads with:** [the 2026-10-19 lab report](../lab-reports/2026-10-19-launch-diagnostics-on-a-mac.md)
-(the measurement), [`no-symlink-guessing-principle.md`](../reference/no-symlink-guessing-principle.md)
+**Reads with:** [`no-symlink-guessing-principle.md`](../reference/no-symlink-guessing-principle.md)
 (the rule any answer must keep), [`jail-home.md`](../reference/jail-home.md) (the binds a launch
 makes).
 

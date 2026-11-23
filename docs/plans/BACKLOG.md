@@ -1059,6 +1059,91 @@ generated config into the real folder, and nothing warns ahead of time. The addr
 in [`pack-files-for-agent-state.md`](../design/pack-files-for-agent-state.md)
 ([evidence](../design/pack-files-for-agent-state.md#appendix-the-2026-10-30-mac-run)).
 
+### <a id="dns-under-vpn"></a>🔧 **Pants (a static musl binary) cannot resolve `github.com` in a podman jail on a coworker's Mac under the VPN**
+
+Measured 2026-10-19 on two arm64 Macs, both on the company VPN: pants' first run bootstraps on the
+maintainer's jail and fails on the coworker's with `Could not resolve host: github.com`, while `curl`
+and `ping` in the same shell reach it. scie-pants is a static musl binary, so its downloads resolve
+through musl's `getaddrinfo`. A stub DNS server in one container, misbehaving one way at a time,
+with `socket.getaddrinfo("github.com", 443)` run from `python:3.12-alpine` (musl) and
+`python:3.12-slim` (glibc): musl fails and glibc succeeds when the upstream answers the `AAAA` query
+with `NXDOMAIN` (at once), `SERVFAIL` or `REFUSED` (after 5 s), or when a second listed server answers
+everything `NXDOMAIN` at once; both fail when the first listed server does. Both jail nameservers
+(`169.254.1.1`, pasta's forwarder, and `192.168.127.1`, gvproxy) relay the Mac's own resolver, so the
+race between them cannot happen; every hop on the maintainer's Mac answers `NOERROR` for both
+record types. The remaining suspect is the coworker's internet resolver. **His output was never
+recorded.** It comes from, run outside any jail with the podman machine up:
+
+```bash
+scutil --dns | grep -E 'nameserver|search domain' | sort -u
+for s in $(scutil --dns | awk '/nameserver/{print $3}' | sort -u); do echo "$s: $(dig +time=3 +tries=1 @$s github.com AAAA | grep -o 'status: [A-Z]*')"; done
+podman run --rm docker.io/library/alpine:3.20 sh -c 'apk add -q bind-tools; dig @192.168.127.1 github.com AAAA | grep -o "status: [A-Z]*"'
+podman run --rm docker.io/library/python:3.12-alpine python3 -c 'import socket; print(socket.getaddrinfo("github.com", 443, 0, socket.SOCK_STREAM)[0][4])'
+```
+
+The maintainer's baseline is `10.19.0.2: status: NOERROR`, gvproxy `NOERROR` and
+`('140.82.114.3', 443)`. A `gaierror` on the last line reproduces the failure outside yolo; a
+non-`NOERROR` status names the bad server. A workaround measured on the maintainer's Mac: a musl
+container with `--dns 10.19.0.2` resolves both internal and outside names (in a running jail,
+`echo 'nameserver 10.19.0.2' > /etc/resolv.conf`, lost on restart). A failed fetch also leaves a
+zero-byte archive in pants' cache (`rm -rf ~/.cache/nce/5c8db1c2*`). **Next step:** get the output, then
+decide among a config key for a launch's nameservers (none exists: no `dns` key in `internal/config`,
+and the launcher passes podman no `--dns`), a launcher that writes the one nameserver it can tell
+works, or documenting the edit. Whether Apple Container's missing internet under the VPN is the same
+cause is part of that decision.
+
+### <a id="mac-claude-login-residue"></a>🔧 **Mac observations from the 2026-10-24 to 10-27 sessions that no fix or design covers**
+
+Each was seen once on the maintainer's Mac (macOS 26.5, arm64) and not reproduced since; re-check the
+first on main before acting. The Claude repairs the same sessions asked for are built
+([`mac-claude-lab-followups-plan.md`](../design/mac-claude-lab-followups-plan.md)); these are the rest.
+
+1. **The first interactive Claude run in a fresh sandbox home stops at "Select login method"** in both
+   macos-user modes even with a live view, while `claude -p` answers; Esc does not leave it. Setting
+   `hasCompletedOnboarding: true` and `theme` in the sandbox's `claude.json` let the session run.
+   (`internal/storage/claudejson.go` seeds `hasCompletedOnboarding` from the host's file.)
+2. **The canonical login lost metadata.** After a `/login` in a podman jail the canonical file held
+   only `accessToken, refreshToken, expiresAt, refreshTokenExpiresAt, scopes`, while the shared file
+   also held `subscriptionType`, `subscriptionTypeSource` and `rateLimitTier`. Views project from the
+   canonical file, so the plan type may be missing where Claude reads it from the view.
+3. **A host `/login`'s banner read `API Usage Billing`** before the login, with the store empty: some
+   other credential was found; which one was not traced.
+4. **`yolo claude-auth refresh` wrote views without a `view: wrote` line** (the broker's own writes log
+   it, `internal/oauthbroker/views.go`), so the runbook's witness line is absent after a CLI refresh.
+5. **A workspace macos-user has used cannot launch on Apple Container**: its `.yolo/home` keeps
+   `.claude-shared-credentials` as a symlink into `/Users/_yolojail`, and the mount fails with
+   `errno 17: failed to create directory '.claude-shared-credentials'`.
+6. **A `board` capture recorded for linux/arm64 was materialized on darwin** for `yolo host` and self
+   mode (`capture materialize: entry c5dafe0445128f70 is a linux/arm64 capture and this is
+   darwin/arm64`, `internal/capture/materialize.go`), blocking launches unless
+   `YOLO_ALLOW_MISSING_PROGRAMS=1`.
+7. **The CI runner's `apple-container.yml` leaves a `yolo-jail` image per commit** on the maintainer's
+   Mac and nothing prunes them (the data volume hit 99% on 2026-10-24).
+8. **Apple Container jails had no egress on 2026-10-24 and 10-27** (fresh `curlimages/curl` containers
+   timed out to `claude.ai`, `1.1.1.1` and the network's own gateway `192.168.64.1`, while podman reached
+   `claude.ai`); `sysctl net.inet.ip.forwarding` printed `0` and the application firewall was on. Untested
+   hypothesis: vmnet's NAT needs forwarding. The CI runner's jobs passed meanwhile, so whether they had
+   network is unknown. **Ask:** should the launch's egress probe on Apple Container name the sysctl?
+9. **`xcode_shim_make_runs`** (`integration/macosuserdenydefault_test.go`) skips on a Command-Line-Tools-only
+   Mac, so the profile's Xcode license allow (`seatbeltdeny.go`) is unmeasured on hardware with Xcode.
+   `macos_log_store_read_refused` skips on a managed Mac whose unified log is closed to a non-admin, so a
+   Seatbelt-deny witness through `log show` needs an admin.
+10. **Six orphaned `signal-nix` shell loops** (the stand-in nix in `internal/cli/check/signalcleanup_test.go`)
+    were left with ppid 1 after two 2026-10-23 runs; a later run left none. The test's own comment says a
+    failed case's deferred SIGKILL skips cleanup by design.
+
+### <a id="nightly-42372802408-residue"></a>🔧 **Two nightly failures that passed on the Mac, and two witnesses still open**
+
+From Nightly macOS Integration run 42372802408 at `4b26d1dfc` (2026-11-07): shard 5
+`TestAJailLaunchesOnTOMLFiles` hung for its 20-minute timeout on the runner (`podman run` still going)
+and passes in 16 s on the owner's Mac, the same `hello` image build trouble the CI-triage witnesses
+leave open; shard 18 `TestBedrockTakesTheRegionOfTheHostsAWSConfig` failed with only *"selected sealed
+npm producer failed (status 1)"* and passes in 25 s on the Mac (the producer log was not in the job
+output, so the cause is unknown). Triage witness W5 (the version stamp on a tag commit) passed only on the
+off-tag form `0.17.0+82`; the on-tag form needs a nightly on the tag commit. W6 (the 60-minute step cap)
+has one reading: the longest integration step was 59 minutes (shard 5, inflated by that 20-minute hang;
+about 39 without it, the next longest 37), and it asks for a second scheduled run.
+
 ### Settled, kept for the record
 
 | # | Item | Disposition |

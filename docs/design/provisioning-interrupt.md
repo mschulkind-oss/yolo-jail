@@ -10,9 +10,10 @@ summary: "When the provisioning stage is interrupted, the log writer is signalle
 
 # A Ctrl-C during provisioning is reported as an unwritable log
 
-**Status:** 2026-11-06. Nothing built. Measured on a Mac on 2026-10-19
-([the lab report's §2](../lab-reports/2026-10-19-launch-diagnostics-on-a-mac.md#2-an-interrupted-provisioning-stage-blames-permissions-and-disk));
-the code read at this document's date still behaves as measured.
+**Status:** 2026-11-06, re-read against main 2026-11-23: nothing built (`logFailure` in
+`internal/provision/provision.go` still names both causes). Measured on a Mac on 2026-10-19: the
+log was 6637 bytes, owned by the user, with 67 GiB free, and its last line was
+`PROVISIONING FAILED (exit 141)`.
 
 > **In short.** A log writer that stopped because the user interrupted the launch has not shown that
 > the log is unwritable, so the stage should not say it is, and should not send the user to fix
@@ -24,8 +25,7 @@ and the same run then wrote its failure line into the log it had just called unw
 
 **Needs your ruling:** [OQ-PLW1](#OQ-PLW1).
 
-**Reads with:** [the 2026-10-19 lab report](../lab-reports/2026-10-19-launch-diagnostics-on-a-mac.md)
-(the measurement and the evidence), [`storage-and-config.md`](../reference/storage-and-config.md)
+**Reads with:** [`storage-and-config.md`](../reference/storage-and-config.md)
 (where the provisioning log lives).
 
 ---

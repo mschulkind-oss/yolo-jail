@@ -172,7 +172,7 @@ func packRemove(args []string, out, errw io.Writer) int {
 		return 1
 	}
 	mutation := configedit.Mutation{Action: configedit.Remove, Path: []configdoc.Step{{Key: "packs"}, {Index: at, IsIndex: true}}}
-	target, err := configedit.ResolveTarget(workspace, mutation, config.EditTargetChoice{Kind: config.EditTargetUser})
+	target, err := configedit.ResolveTarget(workspace, mutation, config.EditTargetChoice{Kind: config.EditTargetAutomatic})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo pack remove: cannot edit the user config: %v\n", err)
 		return 1
