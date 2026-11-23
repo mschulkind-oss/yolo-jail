@@ -5,12 +5,12 @@ status: in-review
 tags: [packs, git, refresh, patched-forks, local-clones]
 summary: "Drop the hourly refresh throttle for branch-following git packs and the patched-fork upstream check: every fresh launch probes each remote with one git ls-remote, in parallel under a short deadline, and fetches only what moved. An optional `local` key on a git pack entry names a clone whose working tree runs when it is at least as new as origin."
 stage: DESIGN
-next: "Build slice 1 (the probe replaces the throttle for packs); slices 2 and 3 can follow in parallel"
+next: "The Mac witnesses of section 9, which need the owner's Mac; every code slice is built"
 ---
 
 # Every launch checks the latest, and a pack's own clone can be the copy that runs
 
-**Status:** 2026-11-23. Nothing built. Evidence read at `d2a831cd8` ([Appendix A](#appendix-a-evidence)). The macOS rows are
+**Status:** 2026-11-23. Slices 1-7 are built ([§12](#12-slices-smallest-first)). Evidence read at `d2a831cd8` ([Appendix A](#appendix-a-evidence)). The macOS rows are
 UNMEASURED and owed to the owner's Mac ([§9](#9-backends)).
 
 > **In short.** A launch that already spends 10 to 20 seconds starting can afford one git round trip per remote, so
@@ -264,14 +264,19 @@ same repository.
 Each ends with a step that works. One per `local` pack, every fresh launch (the first two are the owner's examples):
 
 ```text
-tillr  local ~/src/tillr (working tree, equal to origin)
+tillr  local ~/src/tillr (working tree, equal to origin; 41 files)
 tillr  origin main 4cd0bc6b (no local clone at ~/src/tillr — git clone https://github.com/owner/tillr ~/src/tillr)
-tillr  local ~/src/tillr (working tree, 2 files uncommitted, 1 unpushed commit; 41 files)
+tillr  local ~/src/tillr (working tree, 1 unpushed commit, 2 files uncommitted; 41 files)
 tillr  origin main 4cd0bc6b (clone is 3 behind origin and clean — git -C ~/src/tillr pull)
-Warning: tillr  local ~/src/tillr (working tree) is behind origin by 3 and has uncommitted changes — git -C ~/src/tillr pull
-Warning: tillr  local ~/src/tillr (working tree, not verified: fetch timed out, last fetched 3 hours ago) — yolo pack update when online
+Warning: tillr  local ~/src/tillr (working tree; 41 files) is behind origin by 3 and has uncommitted changes — git -C ~/src/tillr pull
+Warning: tillr  local ~/src/tillr (working tree, not verified: fetch timed out, last fetched 3 hours ago; 41 files) — yolo pack update when online
 Warning: tillr  origin main 4cd0bc6b (clone ~/src/tillr not used: its remote origin names github.com/o/other — fix the remote or the pack's git url)
 ```
+
+**The file-count rule** (the [§6.4](#64-what-is-staged) reading): every working-tree line ends its parenthetical with
+`; N files`, the pack's staged file set, whatever else it says; an origin line carries no count, because the clone's
+files are not what runs. Uncommitted files are a separate item, `N files uncommitted`, with `(M untracked)` after it
+when any are new. A path is written with `~` for the home directory, in prose and in the commands the line names.
 
 | Cause | Next step named |
 | :--- | :--- |
@@ -318,24 +323,27 @@ setup the launching account can read the owner's clone path. Neither is measured
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| LPC-D1 | Owner: drop the hourly throttle for packs. *"I'm thinking we skip the hour. We drop the hourly throttle entirely. There doesn't seem to be a good reason for it."* *"We want the updates when the updates come out as long as the check is not expensive."* Principle P4 and the "at most hourly" ruling are retired | 2026-11-23 | [§4](#4-the-check) | No |
+| LPC-D1 | Owner: drop the hourly throttle for packs. *"I'm thinking we skip the hour. We drop the hourly throttle entirely. There doesn't seem to be a good reason for it."* *"We want the updates when the updates come out as long as the check is not expensive."* Principle P4 and the "at most hourly" ruling are retired | 2026-11-23 | [§4](#4-the-check) | Built `f763457b3`: the probe replaces the hourly stamp |
 | LPC-D2 | A fresh launch probes (`ls-remote`) every branch pack and fetches only a moved branch; an explicit act fetches without probing | 2026-11-23 | [§4.1](#41-what-runs-at-every-fresh-launch) | Probe built `f763457b3`; the patched-fork check probes tags too, so a new release tag on an unmoved branch fetches |
-| LPC-D3 | Concurrent across mirrors, one 5 s deadline per phase covering lock wait, probe and fetch; a pack with no held copy keeps the 60 s first fetch | 2026-11-23 | [§4.2](#42-parallelism-and-the-deadline) | No |
-| LPC-D4 | Timeout or failure runs the held copy, never refuses, one warning per pack naming the next step | 2026-11-23 | [§4.3](#43-deadline-failure-and-what-runs) | No |
-| LPC-D5 | An unmoved pack prints nothing, a moved one the `Updated pack` line, a `local` pack always its provenance line | 2026-11-23 | [§4.4](#44-which-lines-a-launch-prints) | No |
-| LPC-D6 | The patched-fork upstream check is probed at every fresh launch; the stamp becomes last-attempt only; `RetryFailedFetch` and the in-throttle patch-branch refresh fold into the ordinary path; replay and build only on a new candidate; PF-D5's throttle, PF-D41 and PF-D88's retry are retired | 2026-11-23 | [§5](#5-the-patched-fork-check-and-its-records) | No |
-| LPC-D7 | `local` is a key of a `{ git = … }` entry with an explicit branch `ref`; user scope by construction; absolute after `~`; refused with `pack =`, tag or commit `ref`, and `skills` | 2026-11-23 | [§6.1](#61-the-key) | No |
-| LPC-D8 | A missing or unusable clone falls to origin and never refuses; only a malformed value is fatal. This differs from `local_clones` because `local` is conditional by design | 2026-11-23 | [§6.1](#61-the-key) | No |
-| LPC-D9 | The clone must match by repository identity (PF-D101, PF-D104) through `chooseClone` over a one-element list, and HEAD must be on the pack's branch | 2026-11-23 | [§6.2](#62-is-this-clone-usable-for-this-pack) | No |
-| LPC-D10 | The copy rule is `pickCopy`'s plus a dirty exception: a dirty clone behind origin runs its working tree and warns | 2026-11-23 | [§6.3](#63-the-rule) | No |
-| LPC-D11 | Origin's tip is always fetched from the address the pack names | 2026-11-23 | [§6.3](#63-the-rule) | No |
-| LPC-D12 | The working tree is `git ls-files` tracked plus untracked-not-ignored, no `.git`, no submodules, read once at staging | 2026-11-23 | [§6.4](#64-what-is-staged) | No |
-| LPC-D13 | Fetched-pack content and trust rules for every copy: links that leave the pack refuse, the pack is not `Local`, no host half | 2026-11-23 | [§6.4](#64-what-is-staged) | No |
-| LPC-D14 | A per-pack launch record is the one place the copy decision lives; `ResolvePack` reads it; the lockfile pins only origin's copy | 2026-11-23 | [§6.5](#65-where-the-decision-lives) | No |
-| LPC-D15 | A `local` path registers its clone in the local clone map | 2026-11-23 | [§6.5](#65-where-the-decision-lives) | No |
-| LPC-D16 | Owner's "drop the hourly throttle entirely" reaches scoped `skill_imports` and a pack's skill payload, both checked at every fresh launch under the same probe and deadline; the background retry delays are failure backoff and stay; the in-jail launchers are another design's | 2026-11-23 | [§10](#10-what-this-does-not-change) | No |
+| LPC-D3 | Concurrent across mirrors, one 5 s deadline per phase covering lock wait, probe and fetch; a pack with no held copy keeps the 60 s first fetch | 2026-11-23 | [§4.2](#42-parallelism-and-the-deadline) | Built `0bd3cec73` |
+| LPC-D4 | Timeout or failure runs the held copy, never refuses, one warning per pack naming the next step | 2026-11-23 | [§4.3](#43-deadline-failure-and-what-runs) | Built `0bd3cec73` |
+| LPC-D5 | An unmoved pack prints nothing, a moved one the `Updated pack` line, a `local` pack always its provenance line | 2026-11-23 | [§4.4](#44-which-lines-a-launch-prints) | Built `ff591e8fd` (the `local` line), `f131c6083` (its verbs) |
+| LPC-D6 | The patched-fork upstream check is probed at every fresh launch; the stamp becomes last-attempt only; `RetryFailedFetch` and the in-throttle patch-branch refresh fold into the ordinary path; replay and build only on a new candidate; PF-D5's throttle, PF-D41 and PF-D88's retry are retired | 2026-11-23 | [§5](#5-the-patched-fork-check-and-its-records) | Built `de4f47705` (patched fork), `752927669` (npm source) |
+| LPC-D7 | `local` is a key of a `{ git = … }` entry with an explicit branch `ref`; user scope by construction; absolute after `~`; refused with `pack =`, tag or commit `ref`, and `skills` | 2026-11-23 | [§6.1](#61-the-key) | Built `b88473f02` |
+| LPC-D8 | A missing or unusable clone falls to origin and never refuses; only a malformed value is fatal. This differs from `local_clones` because `local` is conditional by design | 2026-11-23 | [§6.1](#61-the-key) | Built `ff591e8fd`; the checks `f131c6083` |
+| LPC-D9 | The clone must match by repository identity (PF-D101, PF-D104) through `chooseClone` over a one-element list, and HEAD must be on the pack's branch | 2026-11-23 | [§6.2](#62-is-this-clone-usable-for-this-pack) | Built `ff591e8fd` |
+| LPC-D10 | The copy rule is `pickCopy`'s plus a dirty exception: a dirty clone behind origin runs its working tree and warns | 2026-11-23 | [§6.3](#63-the-rule) | Built `ff591e8fd` |
+| LPC-D11 | Origin's tip is always fetched from the address the pack names | 2026-11-23 | [§6.3](#63-the-rule) | Built `ff591e8fd` |
+| LPC-D12 | The working tree is `git ls-files` tracked plus untracked-not-ignored, no `.git`, no submodules, read once at staging | 2026-11-23 | [§6.4](#64-what-is-staged) | Built `371026c48` |
+| LPC-D13 | Fetched-pack content and trust rules for every copy: links that leave the pack refuse, the pack is not `Local`, no host half | 2026-11-23 | [§6.4](#64-what-is-staged) | Built `371026c48` |
+| LPC-D14 | A per-pack launch record is the one place the copy decision lives; `ResolvePack` reads it; the lockfile pins only origin's copy | 2026-11-23 | [§6.5](#65-where-the-decision-lives) | Built `ff591e8fd` (the record), `371026c48` (the pin) |
+| LPC-D15 | A `local` path registers its clone in the local clone map | 2026-11-23 | [§6.5](#65-where-the-decision-lives) | Built `f131c6083` |
+| LPC-D16 | Owner's "drop the hourly throttle entirely" reaches scoped `skill_imports` and a pack's skill payload, both checked at every fresh launch under the same probe and deadline; the background retry delays are failure backoff and stay; the in-jail launchers are another design's | 2026-11-23 | [§10](#10-what-this-does-not-change) | Built `c985aabc5` (`skill_imports`), `f763457b3` (the skill payload) |
 
 ## 12. Slices, smallest first
+
+**Built:** slices 1 `f763457b3`, 2 `0bd3cec73`, 3 `de4f47705` with `752927669`, 3b `c985aabc5`, 4 `b88473f02`,
+5 `ff591e8fd`, 6 `371026c48`, 7 `f131c6083`. The Mac witnesses of [§9](#9-backends) remain, and they need the owner's Mac.
 
 Tests are event-driven: fake remotes are local bare repositories, git is a recording shim, deadlines are injected
 contexts that a test cancels, and nothing sleeps or touches the network. Each row's tests must fail if its call site is

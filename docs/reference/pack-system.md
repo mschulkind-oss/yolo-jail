@@ -4387,6 +4387,34 @@ saying the next launch fetches it, and a commit the store holds but has not chec
 `[SKIP]` saying the next launch checks it out. A `[SKIP]` never fails `check`. A ref a fetch
 already came back without stays a `[FAIL]`, because every launch fails on it.
 
+**A pack's own clone (`local`).** A direct git entry with a branch `ref` may name the user's clone of its
+repository with `local` ([LPC-D7](../design/local-pack-clones.md)). The launch's check decides, per pack, which copy
+runs, and writes the decision as the pack's launch record, `checks/local-<slug>.json` in the pack store
+(`packsrc.LoadLocalCopyRecord`); `config.ResolvePack` reads that record, so every host surface agrees.
+
+| The clone | Runs | Line |
+| :--- | :--- | :--- |
+| level with origin, or ahead, clean or dirty | the working tree | `working tree, equal to origin` or `N unpushed commits` |
+| behind origin and clean | origin's tip | `clone is N behind origin and clean — git -C <clone> pull` |
+| behind origin and dirty, diverged, or origin unreachable or without the branch | the working tree, as a warning | what is wrong and the step |
+| absent, not a clone, on another branch, no remote naming the repository, no tracking ref, or the ref is a tag upstream | origin's tip, a warning except for an absent clone | the cause and the step |
+
+- **The line** is `<pack>  local ~/src/tillr (working tree, …; N files)` or `<pack>  origin main <short> (…)`. The path
+  is written with `~` for the home directory (`packsrc.TildePath`), also inside the commands the line names. **Every
+  working-tree line ends its parenthetical with `; N files`**, the pack's file set ([§6.4](../design/local-pack-clones.md#64-what-is-staged)), and a dirty tree
+  adds `N files uncommitted` and, when any are new, `(M untracked)`. A launch, `yolo pack update` and `yolo pack
+  install` print it, a warning to stderr with the `Warning:` prefix.
+- **`yolo pack update` never writes to the clone**, never pulls, and claims no pin for a working-tree copy: the lockfile
+  pins origin's copy only, and `yolo pack status` says `no pin` for a pack that has only run a clone. An update that
+  cannot reach origin still fails, and the line says the clone runs unverified.
+- **`yolo pack status`** reads the launch record and runs no git: the line, how long ago the last launch decided it, and
+  that the next launch decides again. It says so for a pack no launch has decided, and for a record made for another
+  `local` path.
+- **`yolo check` and `yolo config check`** read the clone alone (`packsrc.Store.InspectLocalClone`: the path, the remote that
+  names the repository, its tracking ref, HEAD's branch), with no network and no record written. A usable clone passes,
+  an absent one passes with a note naming the `git clone`, and an unusable one is a warning with its next step. Neither
+  runs in a jail, where the paths are the host's.
+
 **The lockfile.** It records the asked-for `source`, the resolved `commit`, and the `ref`, and
 nothing else. **There is no approval record in it, and the absence is a ruling rather than an
 omission**: a field asserting an approval nothing enforces is worse than no field, and

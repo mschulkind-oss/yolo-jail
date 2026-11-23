@@ -89,10 +89,48 @@ later depends on the `ref`:
 
 - **A tag or a commit** stays exactly where it is until you run `yolo pack install` or
   `yolo pack update`.
-- **A branch** is fetched again at most once an hour, at your next launch.
+- **A branch** is checked at every launch and fetched when it has moved. The check is one quick question
+  to the remote, so a launch stays fast; if the remote does not answer within a few seconds, the launch
+  runs the copy it already has and says so.
 
 The launch says so whenever a pack arrives or moves, for example
 `Updated pack team: main 1a2b3c4d → 5d6e7f80`.
+
+### Run your own clone of a pack
+
+If you are working on a pack, you can have every launch run your clone of it instead of the published copy.
+Add `local` to the pack's entry in your user config, with the path of your clone:
+
+```toml
+packs = [
+  { git = "https://github.com/owner/tillr", ref = "main", local = "~/src/tillr" },
+]
+```
+
+The entry needs a branch `ref`, because the clone follows that branch. A launch then prints one line for the pack
+saying which copy runs and why, for example:
+
+```text
+tillr  local ~/src/tillr (working tree, 1 unpushed commit, 2 files uncommitted; 41 files)
+tillr  origin main 4cd0bc6b (clone is 3 behind origin and clean — git -C ~/src/tillr pull)
+```
+
+- **Your working tree runs** when your clone is level with the branch on the remote, ahead of it, or has changes you
+  have not committed. Files you have not committed are included, and files git ignores are not. A new file you just
+  created reaches the jail; your `.env` does not.
+- **The remote's copy runs** when your clone is behind the branch and has no changes of its own, since nothing of yours
+  is lost and the remote is newer. The line gives the `git pull` that brings your clone up to date.
+- **A warning** is printed when the working tree runs but you may not mean it: the clone is behind and has changes,
+  or has diverged from the branch, or the remote could not be reached. Each warning ends with the command that fixes it.
+- **The remote's copy runs, with the reason**, when the clone is missing, is not a git clone, is on another branch, or
+  its remote names another repository. A missing clone is not an error, so one config can be shared by two machines.
+  `yolo check` and `yolo config check` report the same findings, each with its next step, without using the network.
+- **Yolo never changes your clone.** It reads it and copies the files; it does not pull, fetch into or write to it.
+  A pack read this way gets no more trust than a fetched pack: it cannot run host code. Use a `file://` pack for that.
+- **Edits show at the next launch.** A jail that is already running keeps the copy it started with.
+
+`yolo pack status` shows which copy the last launch ran and how long ago, and `yolo pack update` checks the remote
+now and prints the same line. `local` goes in your user config only, and it cannot be combined with `skills`.
 
 ### Run your own fork of a program
 

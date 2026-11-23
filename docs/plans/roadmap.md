@@ -34,9 +34,12 @@ needs a ruling or a Mac sits in the others.
 1. [Tool skills](../design/mise-tool-skills.md) — the owner's current request (2026-11-23): deliver the skills
    the user's own mise tools declare as one more skills layer. Every mechanism is decided; build its six slices in order.
 
-2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): drop the hourly
-   refresh throttle for packs and the patched-fork upstream check (a probe per remote, in parallel, under a short deadline), and let a
-   pack's own clone run, working tree included. Every choice is in the ledger; build its slices in order.
+2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): the hourly
+   refresh throttle for packs and the patched-fork upstream check is dropped (a probe per remote, in parallel, under a
+   short deadline), and a pack's own clone can run, working tree included. Built, slices 1-7: the probe, the parallel
+   check, the patched-fork and `skill_imports` checks, the `local` key, the copy decision, working-tree staging, and the
+   launch lines with `pack status`, `pack update` and `yolo check`. Remaining: the Mac witnesses of
+   [§9](../design/local-pack-clones.md#9-backends), which need the owner's Mac.
 
 3. [Launcher updates once per jail start](../design/launcher-update-per-jail-start.md) — the owner's ruling
    (2026-11-23) drops the in-jail launchers' hourly throttle: an unpinned program updates at its first invocation
