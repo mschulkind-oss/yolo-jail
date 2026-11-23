@@ -16,6 +16,15 @@ type sessionInput struct{ name, value string }
 // tables (configure_pack_surfaces, generate_mcp_wrappers).
 var sessionInputNames = []string{
 	"YOLO_BLOCK_CONFIG", "YOLO_MISE_TOOLS", "MISE_DISABLE_TOOLS", "YOLO_LSP_SERVERS", "YOLO_MCP_SERVERS",
+	"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN",
+}
+
+// toolSkillInputs are the two session inputs of mise tool skills (docs/design/mise-tool-skills.md
+// MS-D1, MS-D9): the allowlist of the user scope's mise tools, and the workspace's snapshot token.
+// The zero value is the sealed, capture and nested answer: an empty list and no token.
+type toolSkillInputs struct {
+	tools []string
+	token string
 }
 
 // composeSessionInputs is this entry's session inputs, from the config and the selected packs.
@@ -30,7 +39,7 @@ var sessionInputNames = []string{
 // them too. MISE_DISABLE_TOOLS merges the user's own env_sources value with the tools the jail
 // declares (config.MergeMiseDisabledTools: a declared mise pnpm lifts pnpm out of the list).
 func composeSessionInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, sealed, captureJail bool,
-	userEnv *jsonx.OrderedMap) []sessionInput {
+	userEnv *jsonx.OrderedMap, skills toolSkillInputs) []sessionInput {
 	blocked := config.NormalizeBlockedToolsWith(cfgMap(cfg, "security"), packload.BlockedTools(packs))
 	miseTools, _ := config.JailMiseTools(cfg, sealed || captureJail)
 	lsp, mcp := agentServerTables(cfg, sealed, packs)
@@ -44,10 +53,38 @@ func composeSessionInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, sealed,
 		"MISE_DISABLE_TOOLS": config.MergeMiseDisabledTools(userDisabled, miseTools),
 		"YOLO_LSP_SERVERS":   jsonDumpsOrEmptyObj(lsp),
 		"YOLO_MCP_SERVERS":   jsonDumpsOrEmptyObj(mcp),
+		// A JSON array, as YOLO_MISE_TOOLS is JSON: the allowlist in declaration order.
+		"YOLO_MISE_SKILL_TOOLS":  jsonDumps(append([]string{}, skills.tools...)),
+		"YOLO_TOOL_SKILLS_TOKEN": skills.token,
 	}
 	out := make([]sessionInput, 0, len(sessionInputNames))
 	for _, name := range sessionInputNames {
 		out = append(out, sessionInput{name: name, value: values[name]})
 	}
 	return out
+}
+
+// toolSkillInputs reads this launch's allowlist from the USER scope (config.UserScopeConfig, the
+// read launchinputmcp.go makes) and mints or reads the workspace's snapshot token. The token is
+// minted only for a non-empty allowlist, and an unreadable user scope or a token that cannot be
+// stored gives the empty answer: nothing is delivered rather than something unguarded. The
+// sealed, capture and nested answers never read the user scope.
+func (o *Options) toolSkillInputs() toolSkillInputs {
+	sealed, capture, nested := o.Sealed, o.Sealed || o.subLaunch(), config.InJail()
+	if sealed || capture || nested {
+		return toolSkillInputs{}
+	}
+	user, err := config.UserScopeConfig(false, func(string) {})
+	if err != nil {
+		return toolSkillInputs{}
+	}
+	tools := config.MiseSkillTools(user, sealed, capture, nested)
+	if len(tools) == 0 {
+		return toolSkillInputs{}
+	}
+	token, err := config.ToolSkillsToken(o.Workspace)
+	if err != nil {
+		return toolSkillInputs{}
+	}
+	return toolSkillInputs{tools: tools, token: token}
 }

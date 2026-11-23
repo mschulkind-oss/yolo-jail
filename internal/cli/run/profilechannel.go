@@ -314,7 +314,8 @@ func (o *Options) composePackChannelWith(cfg *jsonx.OrderedMap, packs []*packloa
 	// THE SESSION INPUTS (sessioninputs.go, LA-D18). The capture-jail mark is Options.captureJail,
 	// read through subLaunch, which a hand-built Options with no CapturesDir answers as an
 	// ordinary launch rather than a nil call.
-	sessionInputs := composeSessionInputs(cfg, packs, o.Sealed, o.Sealed || o.subLaunch(), userEnv.PublicValues())
+	sessionInputs := composeSessionInputs(cfg, packs, o.Sealed, o.Sealed || o.subLaunch(), userEnv.PublicValues(),
+		o.toolSkillInputs())
 	c := &packChannel{
 		packs:                       packs,
 		scopedTokenVars:             scopedTokenVars,

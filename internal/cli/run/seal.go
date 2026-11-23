@@ -140,7 +140,7 @@ func sealedChannel(cfg *jsonx.OrderedMap, packs []*packload.Pack) *packChannel {
 		scope:         scope,
 		userEnv:       config.NewHydratedEnv(),
 		served:        served,
-		sessionInputs: composeSessionInputs(cfg, packs, true, true, nil),
+		sessionInputs: composeSessionInputs(cfg, packs, true, true, nil, toolSkillInputs{}),
 	}
 }
 
