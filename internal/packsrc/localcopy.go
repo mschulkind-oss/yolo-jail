@@ -108,11 +108,53 @@ type localFacts struct {
 	Files  int
 	Scope  string
 	Subdir string
+	// Home is the home directory a line writes as ~ ("" writes every path out).
+	Home string
 	// Verified is a check that reached origin; FetchCause says why not, LastFetched when it last did.
 	Verified    bool
 	FetchCause  string
 	LastFetched time.Time
 	Now         time.Time
+}
+
+// shown is the clone's path as a line prints it: ~ for the home directory (§7).
+func (f localFacts) shown() string { return TildePath(f.Path, f.Home) }
+
+// word is the clone's path as one shell word in a command a line names. A ~ stays outside the quotes so the
+// command works pasted, as §7's examples show.
+func (f localFacts) word() string {
+	shown := f.shown()
+	if shown == "~" {
+		return shown
+	}
+	if rest, ok := strings.CutPrefix(shown, "~/"); ok {
+		return "~/" + shquote.QuoteDisplay(rest)
+	}
+	return shquote.QuoteDisplay(shown)
+}
+
+// fileCount is the one rule for the pack's file count (§6.4): every working-tree line ends its parenthetical
+// with "; N files", so the count rides every line the same way; nothing when the set could not be read.
+func (f localFacts) fileCount() string {
+	if f.Files <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("; %d %s", f.Files, plural(f.Files, "file", "files"))
+}
+
+// TildePath writes path with a leading home directory as ~. Only a whole path component matches, so
+// /home/me-other is not under /home/me.
+func TildePath(path, home string) string {
+	home = strings.TrimRight(home, "/")
+	switch {
+	case home == "" || path == "":
+		return path
+	case path == home:
+		return "~"
+	case strings.HasPrefix(path, home+"/"):
+		return "~" + path[len(home):]
+	}
+	return path
 }
 
 // decideLocalCopy is the §6.3 rule, pure. It never errors: every input has an answer.
@@ -127,7 +169,7 @@ func decideLocalCopy(f localFacts) LocalCopyDecision {
 		remote = "origin"
 	}
 	git := func(args ...string) string {
-		return shquote.JoinDisplay(append([]string{"git", "-C", f.Path}, args...))
+		return "git -C " + f.word() + " " + shquote.JoinDisplay(args)
 	}
 	origin := func(rel, why string, warn bool) LocalCopyDecision {
 		d.Copy, d.Relation, d.Warn = CopyOrigin, rel, warn
@@ -152,11 +194,7 @@ func decideLocalCopy(f localFacts) LocalCopyDecision {
 				out = append(out, p)
 			}
 		}
-		counted := strings.Join(out, ", ")
-		if f.Files > 0 {
-			counted += fmt.Sprintf("; %d %s", f.Files, plural(f.Files, "file", "files"))
-		}
-		return "local " + f.Path + " (" + counted + ")"
+		return "local " + f.shown() + " (" + strings.Join(out, ", ") + f.fileCount() + ")"
 	}
 	push := func(args ...string) string {
 		return git(append([]string{"push"}, append(args, "--", remote, f.Ref)...)...)
@@ -164,11 +202,11 @@ func decideLocalCopy(f localFacts) LocalCopyDecision {
 
 	switch {
 	case f.Tag:
-		return origin(relUnusable, "clone "+f.Path+" not used: "+f.Ref+" is a tag upstream — name the branch the pack follows", true)
+		return origin(relUnusable, "clone "+f.shown()+" not used: "+f.Ref+" is a tag upstream — name the branch the pack follows", true)
 	case f.Absent:
-		return origin(relAbsent, "no local clone at "+f.Path+" — git clone "+f.Repo+" "+f.Path, false)
+		return origin(relAbsent, "no local clone at "+f.shown()+" — git clone "+f.Repo+" "+f.word(), false)
 	case f.NotUsed != "":
-		return origin(relUnusable, "clone "+f.Path+" not used: "+f.NotUsed, true)
+		return origin(relUnusable, "clone "+f.shown()+" not used: "+f.NotUsed, true)
 	case f.OriginCommit == "":
 		// Origin has no such branch (a fetch that succeeded and shows it gone), or the held copy is missing and
 		// the check could not say: the clone's work is all there is.
@@ -181,13 +219,13 @@ func decideLocalCopy(f localFacts) LocalCopyDecision {
 	case f.CloneCommit == f.OriginCommit:
 		return working(relEqual, false, describe("equal to origin"))
 	case f.Ahead > 0 && f.Behind > 0:
-		return working(relDiverged, true, fmt.Sprintf("local %s (working tree) has diverged from origin: %d unpushed, %d behind — %s (if you rebased)",
-			f.Path, f.Ahead, f.Behind, push("--force-with-lease")))
+		return working(relDiverged, true, fmt.Sprintf("local %s (working tree%s) has diverged from origin: %d unpushed, %d behind — %s (if you rebased)",
+			f.shown(), f.fileCount(), f.Ahead, f.Behind, push("--force-with-lease")))
 	case f.Ahead > 0:
 		return working(relAhead, false, describe(fmt.Sprintf("%d unpushed %s", f.Ahead, plural(f.Ahead, "commit", "commits"))))
 	case d.Dirty:
-		return working(relBehind, true, fmt.Sprintf("local %s (working tree) is behind origin by %d and has uncommitted changes — %s",
-			f.Path, f.Behind, git("pull")))
+		return working(relBehind, true, fmt.Sprintf("local %s (working tree%s) is behind origin by %d and has uncommitted changes — %s",
+			f.shown(), f.fileCount(), f.Behind, git("pull")))
 	}
 	return origin(relBehind, fmt.Sprintf("clone is %d behind origin and clean — %s", f.Behind, git("pull")), false)
 }
@@ -224,7 +262,7 @@ func (s *Store) localCopyFor(it refreshItem, originCommit string, fetchErr error
 	f := localFacts{
 		Name: it.name, Ref: strings.TrimPrefix(it.addr.Ref, "refs/heads/"), Repo: it.addr.Repo, Path: it.local,
 		OriginCommit: originCommit, Verified: fetchErr == nil, Now: now,
-		Scope: scopeOf(it.addr.Path, it.subdir), Subdir: it.subdir,
+		Scope: scopeOf(it.addr.Path, it.subdir), Subdir: it.subdir, Home: s.getenv("HOME"),
 	}
 	if fetchErr != nil {
 		f.FetchCause = checkCause(fetchErr)
@@ -243,29 +281,35 @@ func (s *Store) localCopyFor(it refreshItem, originCommit string, fetchErr error
 	return &d
 }
 
-// readLocalClone fills f with what the clone says, or why it cannot answer: no directory, no repository, no
-// remote naming the pack's repository, no tracking ref, HEAD off the branch, a read git could not finish.
-func (s *Store) readLocalClone(b budget, a Addr, f *localFacts) {
+// cloneReader is a read-only git run against the clone: -C, never --git-dir, because this is a work tree,
+// which the store's own runs (bare mirrors) do not read.
+func (s *Store) cloneReader(b budget, path string) func(args ...string) (string, error) {
+	return func(args ...string) (string, error) {
+		return s.runEnv(b, "", []string{"GIT_OPTIONAL_LOCKS=0"}, append([]string{"-C", path, "-c", "core.fsmonitor=false"}, args...)...)
+	}
+}
+
+// inspectClone fills f with what the clone alone says (§6.2), or why it cannot answer: no directory, no
+// repository, no remote naming the pack's repository, no tracking ref, HEAD off the branch. It reports whether
+// the clone answered. It reads no origin.
+func (s *Store) inspectClone(b budget, a Addr, f *localFacts) bool {
 	fi, err := os.Stat(f.Path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		f.Absent = true
-		return
+		return false
 	case err != nil:
 		f.NotUsed = "it cannot be read (" + oneLine(err) + ") — fix its permissions, or remove local"
-		return
+		return false
 	case !fi.IsDir():
 		f.NotUsed = "it is not a directory — git clone " + a.Repo + " <path>, or remove local"
-		return
+		return false
 	}
-	// -C, never --git-dir: this is a work tree, which the store's own runs (bare mirrors) do not read.
-	read := func(args ...string) (string, error) {
-		return s.runEnv(b, "", []string{"GIT_OPTIONAL_LOCKS=0"}, append([]string{"-C", f.Path, "-c", "core.fsmonitor=false"}, args...)...)
-	}
+	read := s.cloneReader(b, f.Path)
 	top, err := read("rev-parse", "--show-toplevel")
 	if top = strings.TrimSpace(top); err != nil || top == "" {
-		f.NotUsed = "it is not a git clone — git clone " + a.Repo + " " + f.Path + ", or remove local"
-		return
+		f.NotUsed = "it is not a git clone — git clone " + a.Repo + " " + f.word() + ", or remove local"
+		return false
 	}
 	clone := LocalClone{Dir: filepath.Clean(top)}
 	if out, err := read("config", "--get-regexp", `^remote\..*\.url$`); err == nil {
@@ -280,11 +324,12 @@ func (s *Store) readLocalClone(b budget, a Addr, f *localFacts) {
 	ch := s.chooseCloneFrom(Addr{Kind: KindGit, Repo: a.Repo, Ref: f.Ref}, []LocalClone{clone})
 	switch {
 	case ch.match == nil && ch.why != "":
-		f.NotUsed = ch.why
-		return
+		// The reason names the clone by its path; a line shows it as ~ (§7).
+		f.NotUsed = strings.ReplaceAll(strings.ReplaceAll(ch.why, f.Path, f.word()), clone.Dir, f.word())
+		return false
 	case ch.match == nil:
 		f.NotUsed = "no remote of the clone names " + a.Repo + " — fix the remote, or the pack's git url"
-		return
+		return false
 	}
 	f.Remote = ch.match.Remote.Name
 	head, err := read("symbolic-ref", "-q", "HEAD")
@@ -293,10 +338,19 @@ func (s *Store) readLocalClone(b budget, a Addr, f *localFacts) {
 		if err == nil {
 			on = "branch " + strings.TrimPrefix(head, "refs/heads/")
 		}
-		f.NotUsed = "it is on " + on + ", not " + f.Ref + " — " +
-			shquote.JoinDisplay([]string{"git", "-C", f.Path, "switch", f.Ref})
+		f.NotUsed = "it is on " + on + ", not " + f.Ref + " — git -C " + f.word() + " switch " + shquote.QuoteDisplay(f.Ref)
+		return false
+	}
+	return true
+}
+
+// readLocalClone fills f with what the clone says, or why it cannot answer, and, for one that answers, its
+// branch against origin's tip and its working tree's state.
+func (s *Store) readLocalClone(b budget, a Addr, f *localFacts) {
+	if !s.inspectClone(b, a, f) {
 		return
 	}
+	read := s.cloneReader(b, f.Path)
 	tip, err := read("rev-parse", "--verify", "--quiet", "refs/heads/"+f.Ref+"^{commit}")
 	if f.CloneCommit = strings.TrimSpace(tip); err != nil || f.CloneCommit == "" {
 		f.NotUsed = "its branch " + f.Ref + " has no commit yet"
@@ -400,4 +454,33 @@ func (s *Store) LoadLocalCopyRecord(name string) (*LocalCopyDecision, error) {
 		return nil, fmt.Errorf("the launch record of pack %s is unreadable (%w) — the next launch rewrites it", name, err)
 	}
 	return &d, nil
+}
+
+// StatusLine is the record's line as `yolo pack status` shows it: the last launch's decision, said to be the
+// last launch's, since the clone may have moved since (§8).
+func (d LocalCopyDecision) StatusLine(now time.Time) string {
+	return d.Line + " — decided at the last launch, " + agoWords(now.Sub(time.Unix(d.At, 0))) +
+		"; the next launch decides again"
+}
+
+// LocalCloneState is what a clone says on its own, with no network and no origin to compare against (§8):
+// the conditions of §6.2 that the clone alone decides.
+type LocalCloneState struct {
+	// Absent is no directory at the path: the pack runs origin's copy, which is not a fault.
+	Absent bool
+	// NotUsed is why a clone that is there cannot answer, with the next step; "" for a usable one.
+	NotUsed string
+	// Remote is the clone's remote that names the pack's repository, when one does.
+	Remote string
+}
+
+// InspectLocalClone reads the clone at local for the git pack a, as the launch would, up to and including
+// the branch HEAD is on. It runs only read-only git against the clone, in LocalCopyDeadline, and writes
+// nothing: no record, no mirror, no clone state. It is what `yolo check` and `yolo config check` report.
+func (s *Store) InspectLocalClone(a Addr, local string) LocalCloneState {
+	ctx, cancel := context.WithTimeout(s.parentCtx(), LocalCopyDeadline)
+	defer cancel()
+	f := localFacts{Ref: strings.TrimPrefix(a.Ref, "refs/heads/"), Repo: a.Repo, Path: local, Home: s.getenv("HOME")}
+	s.inspectClone(budget{ctx: ctx, d: LocalCopyDeadline}, a, &f)
+	return LocalCloneState{Absent: f.Absent, NotUsed: f.NotUsed, Remote: f.Remote}
 }

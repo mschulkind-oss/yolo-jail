@@ -115,6 +115,13 @@ func ConfigCheck(opts Options) int {
 		r.fail(finding.message, finding.note)
 	}
 	configPackCoverage(r, selection, packErr)
+	// A `local` clone is read by git, read-only and without the network; a jail's snapshot names host paths
+	// this process cannot see.
+	if packErr == nil && !opts.inJail() {
+		if entries, err := config.LoadPacks(nil); err == nil {
+			reportLocalClones(r, entries)
+		}
+	}
 
 	r.sectionHeader("Scope")
 	r.setScopeNotChecked(configCheckScopeEntries(opts.inJail()))

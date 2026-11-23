@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
@@ -1895,6 +1896,10 @@ func packInstall(out, errw io.Writer, color bool) int {
 	return packInstallPins(out, errw, color, false)
 }
 
+// packInstallStore is the pack store install and update fetch through. A var only so a test can hand it a git
+// that answers for a host with no network; nothing in production assigns it.
+var packInstallStore = func() *packsrc.Store { return &packsrc.Store{Dir: paths.PacksDir()} }
+
 // packInstallPins is packInstall with the fork half's mode: repinForks re-resolves every fork's
 // pin (`yolo pack update`), and without it install pins only a fork the lock does not pin yet for
 // its declared source (pinForks).
@@ -1929,7 +1934,7 @@ func packInstallPins(out, errw io.Writer, color, repinForks bool) int {
 		fmt.Fprintf(errw, "yolo pack install: %v\n", err)
 		return 1
 	}
-	store := &packsrc.Store{Dir: paths.PacksDir()}
+	store := packInstallStore()
 
 	rc := 0
 	var names []string
@@ -2008,8 +2013,25 @@ func packInstallPins(out, errw io.Writer, color, repinForks bool) int {
 		if o.FetchErr != nil {
 			// The explicit fetch failed, so this is a failed install even though the cached
 			// commit stays usable — the user asked for the network and did not get it.
-			fmt.Fprintf(errw, "yolo pack install: %s\n", o.Warning())
+			msg := o.Warning()
+			if msg == "" {
+				// A clone's working tree runs, so the held-copy warning would be untrue; the failed act is
+				// still said, and the local line below says what runs.
+				msg = fmt.Sprintf("pack %s: could not fetch %s (%s)", o.Name, o.Ref, packsrc.CheckCause(o.FetchErr.Error()))
+			}
+			fmt.Fprintf(errw, "yolo pack install: %s\n", msg)
 			rc = 1
+		}
+		// A `local` pack says which copy runs, in the launch's own words and grade (LPC-D5, §8). A working
+		// tree is no commit: the pin did not move, so no pin is claimed for it.
+		line, loud := o.LocalLine()
+		if loud {
+			fmt.Fprintf(errw, "Warning: %s\n", line)
+		} else if line != "" {
+			pr.Printf("%s", line)
+		}
+		if o.Local != nil && o.Local.Copy == packsrc.CopyWorkingTree {
+			continue
 		}
 		// Report whether the pin MOVED, which is the thing a user actually wants to
 		// know from an update — not merely that it succeeded.
@@ -2125,7 +2147,12 @@ func packStatus(out, errw io.Writer, color bool) int {
 			continue
 		}
 		locked, ok := lock.Get(e.Name)
+		rec := localCopyRecord(e)
 		switch {
+		case !ok && rec != nil && rec.Copy == packsrc.CopyWorkingTree:
+			// The lockfile pins only origin's copy (LPC-D14), so a pack that has only ever run a clone has no
+			// pin, and "not installed" would be untrue.
+			pr.Printf("%-20s [dim]no pin: the lockfile pins only origin's copy[/dim]", e.Name)
 		case !ok && e.IsLocal():
 			// A launch never records a local pack (nothing is fetched for it), so "the next
 			// launch" is no remedy here: install is what writes its entry.
@@ -2139,6 +2166,7 @@ func packStatus(out, errw io.Writer, color bool) int {
 		default:
 			pr.Printf("%-20s %s [dim]%s[/dim]", e.Name, shortSHA(locked.Commit), locked.Ref)
 		}
+		printLocalCopyStatus(pr, e)
 	}
 	drift := lock.DriftFrom(configured)
 	for _, d := range drift {
@@ -2168,6 +2196,41 @@ func packStatus(out, errw io.Writer, color bool) int {
 		return 1
 	}
 	return 0
+}
+
+// localCopyRecord is the last launch's decision for a pack with a `local` key, or nil: no key, never decided,
+// or a record that cannot be read (status then says so, printLocalCopyStatus).
+func localCopyRecord(e config.PackEntry) *packsrc.LocalCopyDecision {
+	if e.Local == "" {
+		return nil
+	}
+	rec, err := (&packsrc.Store{Dir: paths.PacksDir()}).LoadLocalCopyRecord(e.Name)
+	if err != nil {
+		return nil
+	}
+	return rec
+}
+
+// printLocalCopyStatus is `pack status`'s line for a `local` pack (docs/design/local-pack-clones.md §8): which
+// copy the last launch ran and why, how long ago, and that the next launch decides again. It reads the launch
+// record and runs no git, so it is what the last launch saw, not what the clone is now.
+func printLocalCopyStatus(pr richtext.Printer, e config.PackEntry) {
+	if e.Local == "" {
+		return
+	}
+	store := &packsrc.Store{Dir: paths.PacksDir()}
+	rec, err := store.LoadLocalCopyRecord(e.Name)
+	switch {
+	case err != nil:
+		pr.Printf("    [yellow]copy: %s[/yellow]", err.Error())
+	case rec == nil:
+		pr.Printf("    [dim]copy: no launch has decided which copy runs yet — the next launch does, or run `yolo pack update`[/dim]")
+	case rec.Clone != e.Local:
+		pr.Printf("    [dim]copy: the last launch decided for %s, not %s — the next launch decides again[/dim]",
+			packsrc.TildePath(rec.Clone, paths.Home()), packsrc.TildePath(e.Local, paths.Home()))
+	default:
+		pr.Printf("    [dim]copy: %s[/dim]", rec.StatusLine(time.Now()))
+	}
 }
 
 // driftRemedy is what repairs a lock entry whose source no longer matches the config. A git

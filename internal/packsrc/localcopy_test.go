@@ -114,7 +114,7 @@ func TestTheCopyDecisionOverRealClones(t *testing.T) {
 				write(t, filepath.Join(f.clone, "wip.md"), "wip")
 				return f.source, f.clone
 			},
-			lines: []string{"local %C (working tree) is behind origin by 1 and has uncommitted changes — git -C %C pull"}},
+			lines: []string{"local %C (working tree; 2 files) is behind origin by 1 and has uncommitted changes — git -C %C pull"}},
 		{name: "diverged", copy: CopyWorkingTree, warn: true, rel: "diverged",
 			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
 				f.push(t, "theirs.md")
