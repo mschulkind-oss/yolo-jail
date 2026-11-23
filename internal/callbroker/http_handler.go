@@ -154,6 +154,10 @@ func (h *HTTPHandler) serveHTTP(ctx context.Context, op, jail string, original H
 		return Verdict{Verdict: "refused", Rule: "HTTP read ancestry is unverified", Next: err.Error(), Digest: digest}, response, nil
 	}
 	verdict = Verdict{Verdict: "runs", Rule: "current standing read", Digest: digest}
+	if refused, ok := neverReadVerdict(h.input.Source, Classification{Reads: classified.Reads, Operations: classified.Operations}); ok {
+		refused.Digest = digest
+		return refused, response, nil
+	}
 	if op != "act" {
 		reason = "evaluation-only"
 		return verdict, response, nil

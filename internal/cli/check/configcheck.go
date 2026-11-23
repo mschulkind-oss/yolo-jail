@@ -3,12 +3,15 @@ package check
 // configcheck.go is `yolo config check`: docs/reference/config/validation.md.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/outfmt"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -103,6 +106,14 @@ func ConfigCheck(opts Options) int {
 	for _, msg := range errors {
 		r.fail(termsafe.VisibleLines(msg), configNote(msg, opts.Workspace, configRecheck(r.mode)))
 	}
+	if !opts.inJail() {
+		for _, source := range config.SourcesNamingNever(userConfig) {
+			for _, launch := range brokersIgnoringNeverSeam(source) {
+				r.fail("allow."+source+".never is not seen by the running "+source+" broker (launch "+termsafe.Visible(launch)+"): it was started by a yolo that predates never, so the jail would keep running what the line forbids",
+					"stop the jail with `yolo stop`, then launch it again so its broker reads never")
+			}
+		}
+	}
 	inheritFailed := false
 	if len(errors) == 0 {
 		inheritFailed = opts.reportInheritedScope(r, opts.Workspace, "")
@@ -128,6 +139,16 @@ func ConfigCheck(opts Options) int {
 	r.renderScopeNotChecked()
 	r.blank()
 	return finishConfigCheck(opts, r)
+}
+
+// brokersIgnoringNeverSeam names the launches of the running brokers of source that predate `never`.
+// A seam so the finding is tested without a live broker.
+var brokersIgnoringNeverSeam = func(source string) []string {
+	files, err := brokerscope.EveryLiveFile(context.Background(), source)
+	if err != nil {
+		return nil
+	}
+	return callbrokerinput.BrokersIgnoringNever(files)
 }
 
 func finishConfigCheck(opts Options, r *reporter) int {

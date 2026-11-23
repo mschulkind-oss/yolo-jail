@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -30,6 +31,9 @@ func (o *Options) olderSourcePrecheck(run *applyRun, source string) func(brokers
 	for _, lp := range loopholes.NewHostSet(loopholes.LaunchBlock(run.cfg)).All() {
 		if lp.CallBroker != nil && lp.CallBroker.Source == source {
 			return func(sf brokerscope.File) error {
+				if err := brokerBlindToNever(sf); err != nil {
+					return &olderAskRefusal{err}
+				}
 				if err := o.checkOlderAsksLocked(lp, sf); err != nil {
 					return &olderAskRefusal{fmt.Errorf("old policy not replaced: %w; no source write performed; stop this jail with `yolo stop`, then relaunch with `yolo`", err)}
 				}
@@ -38,6 +42,20 @@ func (o *Options) olderSourcePrecheck(run *applyRun, source string) func(brokers
 		}
 	}
 	return nil
+}
+
+// brokerBlindToNever refuses an apply for a source whose running broker was started by a yolo that
+// predates `never` while the user's config holds one: that broker reads only always and on_request,
+// so what the apply would leave in place keeps running what the line forbids. The step is a restart.
+func brokerBlindToNever(sf brokerscope.File) error {
+	user, err := config.UserScopeConfig(true, func(string) {})
+	if err != nil || !slices.Contains(config.SourcesNamingNever(user), sf.Source) {
+		return nil
+	}
+	if len(callbrokerinput.BrokersIgnoringNever([]brokerscope.LiveFile{{File: sf}})) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the running %s broker was started by a yolo that predates `never`, so it ignores allow.%s.never; no write performed: stop this jail with `yolo stop`, then relaunch with `yolo`", sf.Source, sf.Source)
 }
 
 func privateOlderInput(path string) ([]byte, error) {

@@ -888,10 +888,10 @@ func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, inde
 			if kind == "" {
 				continue
 			}
-			admitted, neverRefused := false, false
+			admitted, neverRefused, neverLine := false, false, ""
 			for _, placed := range readableRequestGrants(kind, request.Value, placeOn) {
-				if narrowerNeverRefuses(&plan, policy.Source, placed.Target, request.Capability, policy.ReadCapability) {
-					neverRefused = true
+				if line, refused := narrowerNeverLine(&plan, policy.Source, placed.Target, request.Capability, policy.ReadCapability); refused {
+					neverRefused, neverLine = true, line
 					continue
 				}
 				origin, files := ceilingOrigin, cloneOrigins(ceilingFiles)
@@ -912,7 +912,7 @@ func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, inde
 			}
 			if neverRefused && !admitted {
 				input.Requests[i].Status = ReadableRequestSkipped
-				input.Requests[i].Reason = "a narrower never refuses " + request.Capability + " on this repository; remove that line with yolo config unset repos.<name>.allow." + policy.Source + ".never, or drop the request"
+				input.Requests[i].Reason = "a narrower never refuses " + request.Capability + " on this repository; remove that line with `yolo config unset " + neverLine + "`, or drop the request"
 			} else if !broad && !admitted {
 				// Skipped and reported, never fatal: no ceiling admits any identity this request lands on.
 				input.Requests[i].Status = ReadableRequestSkipped
@@ -1245,6 +1245,10 @@ func BrokeredGrantKindsForRepo(source, repo string) (kinds []string, canonical b
 	if broadCanonical {
 		kinds = append(kinds, broad...)
 	}
+	// The user's repository lines as the gate sees them, so a narrower `never` governs here exactly
+	// as it does at launch (narrowerNeverRefuses): the live answer never outlasts a never added later.
+	var lines ReadableAllowancePlan
+	var policy ReadableBrokerPolicy
 	for _, t := range tables {
 		plan, err := ResolveReadableAllowance(ReadableAllowanceInput{User: scopedAllowOnly(source, t.table),
 			SelectedPacks: selected, Declarations: declarations, PackSettings: settings})
@@ -1259,11 +1263,22 @@ func BrokeredGrantKindsForRepo(source, repo string) (kinds []string, canonical b
 		if err != nil {
 			return nil, true, err
 		}
+		policy = plan.Sources[i]
+		lineHost := namedRepoHost(t.line)
+		lines.NativeCeilings = append(lines.NativeCeilings, ReadableScopedCeiling{Name: t.name, Source: source, Host: lineHost,
+			Repository: strings.TrimPrefix(t.line, lineHost+"/"), Always: plan.Sources[i].Always, OnRequest: plan.Sources[i].OnRequest, Never: plan.Sources[i].Never})
 		if pHost, pattern, _ := strings.Cut(t.line, "/"); pHost == host && brokerscope.Admits(pattern, owned) {
 			kinds = append(kinds, scopedKinds...)
 		}
 	}
-	return kinds, true, nil
+	target := ReadableRepository{RemoteHost: host, Repository: owned}
+	kept := kinds[:0:0]
+	for _, kind := range kinds {
+		if capability := policy.KindCapabilities[kind]; capability == "" || !narrowerNeverRefuses(&lines, source, target, capability, policy.ReadCapability) {
+			kept = append(kept, kind)
+		}
+	}
+	return kept, true, nil
 }
 
 // scopedCeiling is one user `[repos.<name>]` table's `allow.<source>`, with its repo line.

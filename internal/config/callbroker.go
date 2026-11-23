@@ -356,6 +356,9 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 			}
 		}
 	}
+	for _, path := range callBrokerScopedReadAsks(ws, source) {
+		add(errs, path+": a scoped read that asks or refuses is not enforced yet, so the broker would run it unasked; remove the line with `yolo config unset "+path+"`, or set it true to keep the source's standing read")
+	}
 	if requestSource == nil {
 		requestSource = jsonx.NewOrderedMap()
 	}
@@ -387,4 +390,38 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 			}
 		}
 	}
+}
+
+// callBrokerScopedReadAsks are the workspace `[scopes.<alias>.requests.read]` lines of source that
+// ask or refuse, as config paths. The live broker has no scoped read decision (plan U3), so it would
+// run such a read; the config is refused until it can be enforced rather than accepted and ignored.
+func callBrokerScopedReadAsks(ws *jsonx.OrderedMap, source string) []string {
+	scopes, _ := asMap(getOr(ws, "scopes", nil))
+	if scopes == nil {
+		return nil
+	}
+	stricter := func(v any) bool { return v == "ask" || v == false }
+	var out []string
+	for _, alias := range scopes.Keys() {
+		scope, _ := asMap(getOr(scopes, alias, nil))
+		if scope == nil || getOr(scope, "source", nil) != any(source) {
+			continue
+		}
+		requests, _ := asMap(getOr(scope, "requests", nil))
+		if requests == nil {
+			continue
+		}
+		raw := getOr(requests, "read", nil)
+		path := "scopes." + alias + ".requests.read"
+		if cells, ok := asMap(raw); ok {
+			for _, cell := range cells.Keys() {
+				if v, _ := cells.Get(cell); stricter(v) {
+					out = append(out, path+"."+cell)
+				}
+			}
+		} else if stricter(raw) {
+			out = append(out, path)
+		}
+	}
+	return out
 }

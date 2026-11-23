@@ -127,3 +127,50 @@ func TestApplyStepReprovesDeliveredAsksUnderTheSourceLock(t *testing.T) {
 		t.Fatalf("a refused replacement changed the scope file: %v", readErr)
 	}
 }
+
+// A running broker started before `never` existed ignores a source never, so an apply for its
+// source refuses with the restart step rather than leave it running what the line forbids; a broker
+// whose input carries the NeverAware marker is not refused for it.
+func TestApplyRefusesASourceWhoseRunningBrokerPredatesNever(t *testing.T) {
+	cfg := callBrokerApplyFixture(t)
+	dir := filepath.Join(os.Getenv("HOME"), ".config", "yolo-jail")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[allow.tasks]\nnever = [\"all.update\"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		input   string
+		refused bool
+	}{
+		"predates never": {`{"version":"yolo.call-broker-launch/2","source":"tasks"}`, true},
+		"honors never":   {`{"version":"yolo.call-broker-launch/2","source":"tasks","never_aware":true}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			workspace := t.TempDir()
+			input := filepath.Join(t.TempDir(), "input.json")
+			if err := os.WriteFile(input, []byte(tc.input), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, file := writeTasksScope(t, workspace, nil)
+			file.CallInput = input
+			err := brokerBlindToNever(file)
+			if tc.refused != (err != nil) || tc.refused && (!strings.Contains(err.Error(), "yolo stop") || !strings.Contains(err.Error(), "predates `never`")) {
+				t.Fatalf("refused=%v want %v: %v", err != nil, tc.refused, err)
+			}
+			if tc.refused {
+				o := &Options{Workspace: workspace}
+				o.recordApprovedScopes(map[string][]config.ScopeRepo{"tasks": {{Repo: "team:beta"}}}, nil, nil)
+				path, written := writeTasksScope(t, workspace, nil)
+				written.CallInput = input
+				delta := scopeDelta{label: "tasks", source: "tasks", desired: []string{"team:beta"}, files: []liveScopeFile{{Path: path, File: written, LiveScope: true}}}
+				run := &applyRun{cfg: cfg, rt: "podman", cname: "fixture-container", mode: applyMode{running: true}}
+				err := o.applyStep(run, &applyChange{kind: changeScope, scope: delta}, time.Now().Add(30*time.Second))
+				if err == nil || !strings.Contains(err.Error(), "predates `never`") {
+					t.Fatalf("the apply did not reach the fence: %v", err)
+				}
+			}
+		})
+	}
+}

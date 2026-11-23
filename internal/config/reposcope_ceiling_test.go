@@ -142,3 +142,35 @@ func TestScopedReadMetadataLeavesNativeWriteKindsUnchanged(t *testing.T) {
 		t.Fatalf("kinds %v, canonical %t, err %v: scoped read changed the existing write kinds", kinds, canonical, err)
 	}
 }
+
+// Design 3.2 and section 8: a narrower never on one repository removes that kind from the live
+// answer at the next call, with no apply or relaunch. A never on another repository, and a narrower
+// always that outranks a broader never, leave it alone.
+func TestANarrowerNeverRemovesALiveKindOnItsRepositoryOnly(t *testing.T) {
+	broad := "on_request = ['runs', 'create_pr']\n"
+	table := func(repo, lists string) string {
+		return "[repos.jail]\nrepo = 'github.com/" + repo + "'\n\n[repos.jail.allow.github]\n" + lists
+	}
+	for name, c := range map[string]struct {
+		repos, repo string
+		wantRuns    bool
+		wantPR      bool
+	}{
+		"control, no table":                     {"", "o/r", true, true},
+		"never runs on this repository":         {table("o/r", "never = ['runs']\n"), "o/r", false, true},
+		"never runs on another repository":      {table("o/r", "never = ['runs']\n"), "o/other", true, true},
+		"pattern never":                         {table("o/*", "never = ['runs']\n"), "o/r", false, true},
+		"exact always outranks a pattern never": {table("o/*", "never = ['runs']\n") + "\n[repos.exact]\nrepo = 'github.com/o/r'\n\n[repos.exact.allow.github]\nalways = ['runs']\n", "o/r", true, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			writeScopedCeilingUser(t, broad, c.repos)
+			kinds, _, err := BrokeredGrantKindsForRepo("github", "github.com/"+c.repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slices.Contains(kinds, "runs") != c.wantRuns || slices.Contains(kinds, "create-pr") != c.wantPR {
+				t.Fatalf("kinds %v, want runs=%v create-pr=%v", kinds, c.wantRuns, c.wantPR)
+			}
+		})
+	}
+}

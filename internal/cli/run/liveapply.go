@@ -589,6 +589,9 @@ func (o *Options) applyStep(run *applyRun, c *applyChange, deadline time.Time) e
 						if err != nil {
 							return &olderAskRefusal{err}
 						}
+						if err := brokerBlindToNever(sf); err != nil {
+							return &olderAskRefusal{err}
+						}
 						if err := o.checkOlderAsksLocked(c.grant.lp, sf); err != nil {
 							return &olderAskRefusal{fmt.Errorf("old policy not replaced: %w; no grant write performed; run `yolo stop`, then `yolo`", err)}
 						}

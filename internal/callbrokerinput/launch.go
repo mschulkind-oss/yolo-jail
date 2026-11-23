@@ -37,6 +37,9 @@ type Launch struct {
 	ReadGrantStanding   string                                            `json:"read_grant_standing,omitempty"`
 	ReadWithheld        bool                                              `json:"read_withheld,omitempty"`
 	Lookups             []loopholedecl.CallBrokerLookup                   `json:"lookups"`
+	// NeverAware marks a launch made by a yolo whose broker honors a source `never`. A running
+	// broker whose input lacks it predates that and cannot be told about one (BrokersIgnoringNever).
+	NeverAware bool `json:"never_aware,omitempty"`
 }
 
 const SnapshotLaunchVersion = "yolo.call-broker-launch/3"

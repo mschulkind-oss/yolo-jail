@@ -194,6 +194,9 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 		return Verdict{Verdict: "refused", Next: err.Error()}, CLIResult{}, err
 	}
 	verdict = decideCall(call, cells, working, h.workspace, h.input.Source, now)
+	if refused, ok := neverReadVerdict(h.input.Source, call); ok && verdict.Verdict == "runs" {
+		verdict = refused
+	}
 	verdict.Digest = q.Digest
 	if len(call.Writes) != 0 && h.start != "" {
 		verdict, result, err = h.boundWrite(ctx, op, q, call, verdict, stdin)

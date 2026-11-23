@@ -78,22 +78,31 @@ func scopedCeilingAdmitting(ceilings []ReadableScopedCeiling, source string, tar
 // governs over a less specific `never`, so the answer is false there. An unqualified source line
 // is not narrower than itself and never reaches here.
 func narrowerNeverRefuses(plan *ReadableAllowancePlan, source string, target ReadableRepository, capability, readWord string) bool {
-	best, refused := -1, false
-	consider := func(c ReadableScopedCeiling, never, grants bool) {
+	_, refused := narrowerNeverLine(plan, source, target, capability, readWord)
+	return refused
+}
+
+// narrowerNeverLine is narrowerNeverRefuses with the config path of the `never` list that refuses,
+// so a refusal can name the one verb that removes it: `repos.<name>.allow.<source>.never` for a
+// broker's own table and `repos.<name>.allow.never` for a native read list.
+func narrowerNeverLine(plan *ReadableAllowancePlan, source string, target ReadableRepository, capability, readWord string) (path string, refused bool) {
+	best := -1
+	var bestPath string
+	consider := func(c ReadableScopedCeiling, never, grants bool, neverPath string) {
 		if (!never && !grants) || !scopedCeilingAdmits(c, target) {
 			return
 		}
 		wild := strings.Count(c.Repository, "*")
 		if best < 0 || wild < best {
-			best, refused = wild, false
+			best, refused, bestPath = wild, false, ""
 		}
 		if wild == best && never {
-			refused = true
+			refused, bestPath = true, neverPath
 		}
 	}
 	for _, c := range plan.NativeCeilings {
 		if c.Source == source {
-			consider(c, slices.Contains(c.Never, capability), slices.Contains(c.Always, capability) || slices.Contains(c.OnRequest, capability))
+			consider(c, slices.Contains(c.Never, capability), slices.Contains(c.Always, capability) || slices.Contains(c.OnRequest, capability), "repos."+c.Name+".allow."+source+".never")
 		}
 	}
 	if capability == readWord {
@@ -102,10 +111,10 @@ func narrowerNeverRefuses(plan *ReadableAllowancePlan, source string, target Rea
 				continue
 			}
 			host := namedRepoHost(r.Repository)
-			consider(ReadableScopedCeiling{Host: host, Repository: strings.TrimPrefix(r.Repository, host+"/")}, r.Never, r.Always || r.OnRequest)
+			consider(ReadableScopedCeiling{Host: host, Repository: strings.TrimPrefix(r.Repository, host+"/")}, r.Never, r.Always || r.OnRequest, "repos."+r.Name+".allow.never")
 		}
 	}
-	return best >= 0 && refused
+	return bestPath, best >= 0 && refused
 }
 
 // scopedCeilingHolds reports whether any user `[repos.<name>.allow.<source>]` table lists capability,

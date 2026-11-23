@@ -68,7 +68,43 @@ func CallBrokerCurrentCeiling(user *jsonx.OrderedMap, source, table, cell string
 	if callBrokerNeverRefuses(user, source, table, cell) {
 		return "off"
 	}
-	return callBrokerLegacyCeiling(user, source, table, cell)
+	ceiling := callBrokerLegacyCeiling(user, source, table, cell)
+	if ceiling == "always" && callBrokerScopedOnRequest(user, source, table, cell) {
+		// A narrower on_request under a broad always governs (design 3.2); applied source-wide.
+		return "on_request"
+	}
+	return ceiling
+}
+
+// CallBrokerReadNeverRefuses reports whether the user's config names a read of source in `never`:
+// `read`, `read.<cell>` (cell "" is a read whose pack declares no read cell), at the source or in any
+// scope of it. The live broker has no scoped decision engine yet, so a scoped never refuses the read
+// for the whole source (it may over-refuse, never run).
+func CallBrokerReadNeverRefuses(user *jsonx.OrderedMap, source, cell string) bool {
+	return callBrokerNeverRefuses(user, source, "read", cell)
+}
+
+// callBrokerScopedOnRequest reports a `[scopes.<alias>.allow]` of the source that holds the cell
+// only on request, which lowers a broad always for the whole source until the scoped decision
+// engine is wired.
+func callBrokerScopedOnRequest(user *jsonx.OrderedMap, source, table, cell string) bool {
+	if user == nil {
+		return false
+	}
+	scopes, _ := asMap(getOr(user, "scopes", nil))
+	if scopes == nil {
+		return false
+	}
+	for _, alias := range scopes.Keys() {
+		scope, _ := asMap(getOr(scopes, alias, nil))
+		if scope == nil || getOr(scope, "source", nil) != any(source) {
+			continue
+		}
+		if allow, _ := asMap(getOr(scope, "allow", nil)); allow != nil && ScopedBrokerCeilingValue(allow, table, cell) == "on_request" {
+			return true
+		}
+	}
+	return false
 }
 
 // callBrokerNeverRefuses reports a `never` in the user's `[allow.<source>]` or in
@@ -103,6 +139,16 @@ func callBrokerNeverRefuses(user *jsonx.OrderedMap, source, table, cell string) 
 // of the source that asks `false` for this table and cell. Without the scoped
 // decision engine it refuses the cell for the whole source.
 func callBrokerScopedAskFalse(workspace *jsonx.OrderedMap, source, table, cell string) bool {
+	return callBrokerScopedRequestIs(workspace, source, table, cell, false)
+}
+
+// callBrokerScopedAsk reports a workspace `[scopes.<alias>.requests]` line of the source that asks
+// "ask" for this table and cell, which makes the whole source ask until the scoped engine is wired.
+func callBrokerScopedAsk(workspace *jsonx.OrderedMap, source, table, cell string) bool {
+	return callBrokerScopedRequestIs(workspace, source, table, cell, "ask")
+}
+
+func callBrokerScopedRequestIs(workspace *jsonx.OrderedMap, source, table, cell string, want any) bool {
 	scopes, _ := asMap(getOr(workspace, "scopes", nil))
 	if scopes == nil {
 		return false
@@ -113,11 +159,14 @@ func callBrokerScopedAskFalse(workspace *jsonx.OrderedMap, source, table, cell s
 			continue
 		}
 		requests, _ := asMap(getOr(scope, "requests", nil))
+		if requests == nil {
+			continue // a scope with no request lines (getOr on a nil map panics)
+		}
 		values, _ := asMap(getOr(requests, table, nil))
 		if values == nil {
 			continue
 		}
-		if raw, has := values.Get(cell); has && raw == false {
+		if raw, has := values.Get(cell); has && raw == want {
 			return true
 		}
 	}
@@ -184,12 +233,19 @@ func EffectiveCallBrokerCells(source string, b *loopholedecl.CallBroker, user, w
 		policy := CallBrokerCellPolicy{Tables: make(map[string]CallBrokerTablePolicy, len(cell.Tables))}
 		for _, table := range cell.Tables {
 			request, _ := callBrokerRequested(cell, sourceRequests, table)
+			if request != "false" && callBrokerScopedAsk(workspace, source, table, cell.Name) {
+				// A narrower ask of "ask" governs a broader true or absent line (design 3.2), applied source-wide.
+				request = "ask"
+			}
 			ceiling := "off"
 			for _, candidate := range []string{"on_request", "always"} {
 				if callBrokerCeilingField(sourceAllow, candidate, table, cell.Name) ||
 					(table == "working_set" && callBrokerCeilingField(sourceAllow, candidate, "all", cell.Name)) {
 					ceiling = candidate
 				}
+			}
+			if ceiling == "always" && callBrokerScopedOnRequest(user, source, table, cell.Name) {
+				ceiling = "on_request"
 			}
 			decision := "ask"
 			switch {
@@ -209,4 +265,28 @@ func EffectiveCallBrokerCells(source string, b *loopholedecl.CallBroker, user, w
 		out[cell.Name] = policy
 	}
 	return out, nil
+}
+
+// SourcesNamingNever are the `[allow.<source>]` tables of user whose `never` list is not empty, in
+// the config's order. A broker started before `never` existed ignores such a list, so a caller that
+// can see a running broker names the stop-and-relaunch step for each (BrokersIgnoringNever).
+func SourcesNamingNever(user *jsonx.OrderedMap) []string {
+	if user == nil {
+		return nil
+	}
+	allows, _ := asMap(getOr(user, "allow", nil))
+	if allows == nil {
+		return nil
+	}
+	var out []string
+	for _, source := range allows.Keys() {
+		table, _ := asMap(getOr(allows, source, nil))
+		if table == nil {
+			continue
+		}
+		if never, _ := getOr(table, "never", nil).([]any); len(never) != 0 {
+			out = append(out, source)
+		}
+	}
+	return out
 }

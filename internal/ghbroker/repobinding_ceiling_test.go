@@ -129,3 +129,19 @@ func TestAScopedCeilingWithdrawnBetweenLookAndTransactionRefuses(t *testing.T) {
 		t.Fatalf("code %d, writes %d: %s", code, gh.writes(), msg)
 	}
 }
+
+// A narrower never added while the jail runs, with its scope grant already delivered, refuses the
+// next write: the broker re-reads the user config at every write (design section 8, BB-D96).
+func TestANarrowerNeverAddedWhileTheJailRunsRefusesTheNextWrite(t *testing.T) {
+	const scoped = "\n[repos.jail]\nrepo = 'github.com/o/r'\n\n[repos.jail.allow.github]\nnever = ['runs']\n"
+	b, gh := scopedCeilingBroker(t)
+	writeScopedCeilingUser(t, "on_request = ['runs']\n", scoped)
+	if code, msg := serveRepo(b, "o/r", "run", "cancel", "42228358413"); code == 0 || gh.writes() != 0 {
+		t.Fatalf("code %d, writes %d: %s", code, gh.writes(), msg)
+	}
+	other, ghOther := scopedCeilingBroker(t)
+	writeScopedCeilingUser(t, "on_request = ['runs']\n", scoped)
+	if code, msg := serveRepo(other, "o/other", "run", "cancel", "42228358414"); code != 0 || ghOther.writes() != 1 {
+		t.Fatalf("a never on o/r stopped o/other: code %d, writes %d: %s", code, ghOther.writes(), msg)
+	}
+}

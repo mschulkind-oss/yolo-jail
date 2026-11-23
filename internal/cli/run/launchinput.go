@@ -144,7 +144,7 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 		Cells:     declaredCells, EffectiveCells: cloneCellPolicy(policy),
 		ReadStanding:      readDeclared && readGrant.Standing == config.LoopholeGrantGranted,
 		ReadGrantStanding: readGrant.Standing, ReadWithheld: readGrant.Withheld,
-		Lookups: lookups}
+		Lookups: lookups, NeverAware: true}
 	for _, root := range roots {
 		input.Roots = append(input.Roots, root.Repo)
 	}

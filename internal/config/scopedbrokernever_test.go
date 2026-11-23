@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
@@ -207,4 +208,49 @@ func TestRecordApprovalPublishesThePolicyModelMarker(t *testing.T) {
 		record, _, _, _ := readScopeRecords(h.ws)
 		t.Fatalf("approval recorded without the policy-model marker: %+v", record)
 	}
+}
+
+// The projection pairs with the check by identity: a source at the same position under another
+// name, or past the end, is no pair (review minor: the guard in readablescope.go was unpinned).
+func TestAProjectionPairsWithTheCheckByIdentity(t *testing.T) {
+	projection := []ScopeSource{{Source: "git"}, {Source: "github"}}
+	if got, ok := pairedProjection(projection, 1, "github"); !ok || got.Source != "github" {
+		t.Fatalf("matching identity not paired: %+v %v", got, ok)
+	}
+	if _, ok := pairedProjection(projection, 0, "github"); ok {
+		t.Fatal("a source of another name was paired by position")
+	}
+	if _, ok := pairedProjection(projection, 2, "github"); ok {
+		t.Fatal("a position past the projection was paired")
+	}
+}
+
+// B2's skip reason names the real verb and path: the table the refusing line is in, not a placeholder.
+func TestANarrowerNeverSkipReasonNamesTheRealLine(t *testing.T) {
+	user := "packs=[\"github\"]\n[allow.github]\nalways=[\"read\",\"create_pr\"]\n[repos.one]\nrepo=\"github.com/acme/app\"\n[repos.one.allow.github]\nnever=[\"create_pr\"]\n"
+	input, _ := scopedPolicyFixture(t, user, neverRepoProject)
+	plan, err := ResolveReadableAllowance(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".git", "config"), []byte("[remote \"origin\"]\n\turl = https://github.com/acme/app.git\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := ProduceReadableGateInput(ws, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range gate.Requests {
+		if r.Capability == "create_pr" {
+			if r.Status != ReadableRequestSkipped || !strings.Contains(r.Reason, "`yolo config unset repos.one.allow.github.never`") || strings.Contains(r.Reason, "<name>") {
+				t.Fatalf("status %v reason %q", r.Status, r.Reason)
+			}
+			return
+		}
+	}
+	t.Fatal("no create_pr request in the gate")
 }

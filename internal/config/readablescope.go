@@ -119,10 +119,10 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 	}
 	for i := range check.Sources {
 		source := &check.Sources[i]
-		if i >= len(projection.Sources) || projection.Sources[i].Source != source.Source {
-			continue // the projection pairs with the check by identity, never by position alone
+		pending, paired := pairedProjection(projection.Sources, i, source.Source)
+		if !paired {
+			continue
 		}
-		pending := projection.Sources[i]
 		if !pending.NativeDeclaration || !pending.concrete() || brokerscope.HoldsRead(source.Grants) {
 			continue
 		}
@@ -170,6 +170,16 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 	}
 	markCarriedBrokerRead(check, carriedRead)
 	return check, true
+}
+
+// pairedProjection is the projection source that pairs with check source i: by identity, never by
+// position alone, so a projection built over a different broker list cannot lend its writes to the
+// wrong source.
+func pairedProjection(projection []ScopeSource, i int, source string) (ScopeSource, bool) {
+	if i >= len(projection) || projection[i].Source != source {
+		return ScopeSource{}, false
+	}
+	return projection[i], true
 }
 
 // resolveGateReadableAllowance is the readable resolution the launch's config-change gate runs
