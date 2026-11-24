@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,11 +48,16 @@ type CLIInput struct {
 	Facts       []LookupFact `json:"facts,omitempty"`
 }
 
+// LookupFact is one fact the classifier is given. A /2 fact carries exactly one of a value
+// and the status "withheld", which names a lookup core did not send and has no data for.
 type LookupFact struct {
 	Name      string          `json:"name"`
 	Arguments []string        `json:"arguments"`
-	Value     json.RawMessage `json:"value"`
+	Value     json.RawMessage `json:"value,omitempty"`
+	Status    string          `json:"status,omitempty"`
 }
+
+const withheldFactStatus = "withheld"
 
 type LookupRequest struct {
 	Name      string   `json:"name"`
@@ -64,8 +70,11 @@ type Resource struct {
 }
 
 type Write struct {
-	Kind        string     `json:"kind,omitempty"`
-	Cell        string     `json:"cell"`
+	Kind string `json:"kind,omitempty"`
+	Cell string `json:"cell"`
+	// Candidates are the declared write cells a withheld fact would have chosen between: at
+	// least two, unique, in place of Cell, and legal only after core withheld a lookup.
+	Candidates  []string   `json:"candidates,omitempty"`
 	Chain       []Resource `json:"chain"`
 	Description string     `json:"description"`
 	kindPresent bool
@@ -78,6 +87,9 @@ type Classification struct {
 	Writes          []Write                  `json:"writes,omitempty"`
 	ReadDescriptors []Read                   `json:"-"`
 	Operations      []brokerpolicy.Operation `json:"-"`
+	// Withheld are the lookups core did not send because read policy withheld them, in the
+	// order the classifier asked. Never decoded: core records them.
+	Withheld []WithheldLookup `json:"-"`
 }
 
 type Refusal struct {
@@ -159,6 +171,7 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 	input := CLIInput{Version: "yolo.call-broker-classifier/1", Front: "cli", Argv: append([]string(nil), argv...),
 		StdinSHA256: stdinSHA256, Roots: append([]string(nil), c.Roots...)}
 	var negotiation classifierNegotiation
+	var withheld []WithheldLookup
 	round := 0
 	for process := 0; process < maxLookupRounds+2; process++ {
 		answer, err := c.invoke(ctx, input)
@@ -178,6 +191,9 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 			continue
 		}
 		if len(answer.Lookups) == 0 {
+			if answer.Classification != nil {
+				answer.Classification.Withheld = withheld
+			}
 			return answer, nil
 		}
 		if round == maxLookupRounds {
@@ -202,6 +218,16 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 				return Answer{}, fmt.Errorf("call broker %s classifier requested an undeclared lookup; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source)
 			}
 			fact, err := read(ctx, *declared, lookup.Arguments)
+			var held *WithheldLookup
+			if errors.As(err, &held) {
+				if negotiation.legacyLabel != typedClassifierVersion {
+					return Answer{}, &WithheldFactError{Lookup: *held, Source: c.Source}
+				}
+				input.Version = typedClassifierVersion
+				input.Facts = append(input.Facts, LookupFact{Name: lookup.Name, Arguments: lookup.Arguments, Status: withheldFactStatus})
+				withheld = append(withheld, *held)
+				continue
+			}
 			if err != nil {
 				return Answer{}, fmt.Errorf("call broker %s lookup failed: %w; check read access and retry", c.Source, err)
 			}
@@ -376,7 +402,8 @@ func (c Classifier) validateMode(a Answer, input CLIInput, provisional bool) err
 			return errors.New("canonical argv contains NUL")
 		}
 	}
-	return c.normalizeOperations(call, input.Version, provisional)
+	withheldFact := slices.ContainsFunc(input.Facts, func(f LookupFact) bool { return f.Status == withheldFactStatus })
+	return c.normalizeOperations(call, input.Version, provisional, withheldFact)
 }
 
 func (c Classifier) validateChain(chain []Resource) error {

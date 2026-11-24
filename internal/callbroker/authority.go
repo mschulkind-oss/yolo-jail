@@ -189,47 +189,62 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 // revalidate runs under the store's transaction, including from yolo approve.
 // The classifier sees only the recorded hash, never retained stdin or facts.
 func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
-	if q.HasScopedRoles() || q.ContextDigest != "" || q.ContextName != "" {
+	// A context has no execution path yet; reads and withheld candidates are replayed below.
+	if q.ContextDigest != "" || q.ContextName != "" {
 		return brokerstore.Policy{}, errors.New("scoped operation execution is not active; retry the supported selected write path")
 	}
 	sf, user, err := h.currentAuthority()
 	if err != nil {
 		return brokerstore.Policy{}, err
 	}
-	if q.Set != h.input.Source || q.Repo != h.input.Source || q.Start != h.start || q.LaunchID != sf.LaunchID || q.Workspace != sf.Workspace || q.Jail != h.input.FrontJailID || len(q.CallWrites) == 0 || len(q.Argv) == 0 || len(q.OriginalArgv) == 0 || strings.ContainsAny(q.StdinDigest, "\r\n") {
+	if q.Set != h.input.Source || q.Repo != h.input.Source || q.Start != h.start || q.LaunchID != sf.LaunchID || q.Workspace != sf.Workspace || q.Jail != h.input.FrontJailID || len(q.CallWrites)+len(q.CallReads) == 0 || len(q.Argv) == 0 || len(q.OriginalArgv) == 0 || strings.ContainsAny(q.StdinDigest, "\r\n") {
 		return brokerstore.Policy{}, errors.New("request does not match the live host launch; retry the original call")
 	}
 	classifier := h.classifier
 	classifier.Roots = slices.Clone(sf.Repos)
-	answer, err := classifier.ClassifyCLIDigest(snapshotTransactionContext(q.ExecutionContext()), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
+	held, heldAt, _ := q.WorkingState()
+	answer, err := classifier.ClassifyCLIDigest(snapshotTransactionContext(withWorkingState(q.ExecutionContext(), held, heldAt)), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
 	if err != nil {
 		return brokerstore.Policy{}, fmt.Errorf("current classifier refused this call (%v); retry the original call", err)
 	}
-	if answer.Classification == nil || len(answer.Classification.Writes) == 0 {
+	if answer.Classification == nil || len(answer.Classification.Operations) == 0 {
 		return brokerstore.Policy{}, errors.New("current classifier refused this call; retry the original call")
 	}
-	expected := callRequest(h.input.Source, q.Workspace, q.Jail, q.Start, q.LaunchID, *answer.Classification, nil)
+	call := *answer.Classification
+	working, now, _ := q.WorkingState()
+	policy, err := h.operationPolicy(len(call.Reads) != 0)
+	if err != nil {
+		return brokerstore.Policy{}, err
+	}
+	decided := decideBundle(policy, call, working, q.Workspace, h.input.Source, now)
+	if decided.Verdict.Verdict == "refused" {
+		return brokerstore.Policy{}, errors.New("one operation's host ceiling or approved request was withdrawn; use yolo allow and yolo config apply before retrying")
+	}
+	expected := callRequest(h.input.Source, q.Workspace, q.Jail, q.Start, q.LaunchID, call, nil)
 	expected.StdinDigest = q.StdinDigest
 	expected.OriginalArgv = slices.Clone(q.OriginalArgv)
-	expected.Digest = brokerstore.CommandDigest(expected)
-	if expected.Digest != q.Digest || !reflect.DeepEqual(expected.Argv, q.Argv) || !reflect.DeepEqual(expected.OriginalArgv, q.OriginalArgv) || !reflect.DeepEqual(expected.CallWrites, q.CallWrites) {
-		return brokerstore.Policy{}, errors.New("current canonical command, ordered writes or resources changed; retry the original call")
+	expected = bundleSubjects(expected, call, decided)
+	if expected.Digest != q.Digest || !reflect.DeepEqual(expected.Argv, q.Argv) || !reflect.DeepEqual(expected.OriginalArgv, q.OriginalArgv) || !reflect.DeepEqual(expected.CallWrites, q.CallWrites) || !reflect.DeepEqual(expected.CallReads, q.CallReads) {
+		return brokerstore.Policy{}, errors.New("current canonical command, ordered operations or resources changed; retry the original call")
 	}
 	cells, err := h.cellsFromAuthority(sf, user)
 	if err != nil {
 		return brokerstore.Policy{}, err
 	}
-	for _, w := range answer.Classification.Writes {
-		if len(w.Chain) == 0 || !slices.Contains(sf.Repos, w.Chain[len(w.Chain)-1].ID) {
-			return brokerstore.Policy{}, errors.New("write left the approved root; retry after yolo config apply")
+	for _, op := range call.Operations {
+		if len(op.Chain) == 0 || !slices.Contains(sf.Repos, op.Chain[len(op.Chain)-1].ID) {
+			return brokerstore.Policy{}, errors.New("operation left the approved root; retry after yolo config apply")
 		}
-		working, now, _ := q.WorkingState()
+	}
+	for _, w := range call.Writes {
+		if len(w.Candidates) != 0 {
+			continue // judged with the lookup that left them, by decideBundle
+		}
 		table := selectedWriteTable(w, working, q.Workspace, h.input.Source, now)
-		p := cells[w.Cell]
-		frozen, exists := p.Tables[table]
+		frozen, exists := cells[w.Cell].Tables[table]
 		current := config.CallBrokerCurrentCeiling(user, h.input.Source, table, w.Cell)
-		if !exists || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" ||
-			current == "off" || frozen.Ceiling == "always" && current != "always" {
+		if h.livePolicy == nil && (!exists || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" ||
+			current == "off" || frozen.Ceiling == "always" && current != "always") {
 			return brokerstore.Policy{}, errors.New("one write's host ceiling or approved request was withdrawn; use yolo allow and yolo config apply before retrying")
 		}
 	}

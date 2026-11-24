@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
@@ -41,6 +42,10 @@ type CLIHandler struct {
 	httpClient httpExecutor
 	store      *brokerstore.Store
 	audit      *brokeraudit.Log
+	// livePolicy substitutes the decision leaf. Nothing in a launch publishes
+	// scoped asks to a daemon yet, so only a test sets it; the frozen launch
+	// authority is otherwise expressed as the same leaf (operationPolicy).
+	livePolicy func() (brokerpolicy.Policy, error)
 }
 
 // newCLIHandler consumes the private selected launch input, not a jail frame or
@@ -156,6 +161,11 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 	}
 	answer, err := classifier.ClassifyCLI(ctx, argv, stdin, h.lookupWithClassifier(jail, classifier))
 	if err != nil {
+		var withheld *WithheldFactError
+		if errors.As(err, &withheld) {
+			auditReason = "read-withheld"
+			return Verdict{Verdict: "refused", Rule: "a lookup is withheld", Next: err.Error()}, CLIResult{}, nil
+		}
 		auditReason = "classifier-failed"
 		return Verdict{Verdict: "refused", Next: "This is a bug in the selected pack's classifier, so running the call again fails the same way: report it to the pack's author"}, CLIResult{}, err
 	}
@@ -177,29 +187,29 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 		return Verdict{Verdict: "refused", Next: "This is a bug in the selected pack's classifier, so running the call again fails the same way: report it to the pack's author"}, CLIResult{}, errors.New("call broker classifier returned no operation")
 	}
 	q := callRequest(h.input.Source, h.workspace, jail, h.start, h.bound.LaunchID, call, stdin)
-	if len(call.Writes) != 0 && h.start != "" {
-		q.OriginalArgv = slices.Clone(argv)
-		q.Policy = oncePolicy
-		q.Digest = brokerstore.CommandDigest(q)
-	}
 	auditDigest = q.Digest
 	_, _, working, now, err := h.store.InspectContext(ctx)
 	if err != nil {
 		auditReason = "decision-store-failed"
 		return Verdict{Verdict: "refused", Next: "Check the host broker store and retry"}, CLIResult{}, err
 	}
-	q = q.WithWorkingState(working, now).WithExecutionContext(ctx)
-	cells, err := h.currentCellPolicies()
+	policy, err := h.operationPolicy(len(call.Reads) != 0)
 	if err != nil {
 		return Verdict{Verdict: "refused", Next: err.Error()}, CLIResult{}, err
 	}
-	verdict = decideCall(call, cells, working, h.workspace, h.input.Source, now)
-	if refused, ok := neverReadVerdict(h.input.Source, call); ok && verdict.Verdict == "runs" {
-		verdict = refused
+	decided := decideBundle(policy, call, working, h.workspace, h.input.Source, now)
+	verdict = decided.Verdict
+	bound := h.start != "" && (len(call.Writes) != 0 || len(decided.AskReads) != 0)
+	if bound {
+		q.OriginalArgv = slices.Clone(argv)
+		q.Policy = oncePolicy
+		q = bundleSubjects(q, call, decided)
 	}
+	auditDigest = q.Digest
+	q = q.WithWorkingState(working, now).WithExecutionContext(ctx)
 	verdict.Digest = q.Digest
-	if len(call.Writes) != 0 && h.start != "" {
-		verdict, result, err = h.boundWrite(ctx, op, q, call, verdict, stdin)
+	if bound {
+		verdict, result, err = h.boundWrite(ctx, op, q, call, verdict, decided, stdin)
 		auditReason = "decision-refused"
 		if completedWriteResponse(err) {
 			auditOutcome, auditReason = "ran", "host-cli-response-rejected"
@@ -277,9 +287,24 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 }
 
 func (h *CLIHandler) lookupWithClassifier(jail string, classifier Classifier) LookupReader {
+	return h.lookupReader(jail, classifier, false)
+}
+
+// lookupReader reads a declared lookup. Unless force is set it first decides the lookup's own
+// read under the current policy and withholds the send when that read refuses or asks and no
+// live answer covers it; force is for a spend whose request already names that read.
+func (h *CLIHandler) lookupReader(jail string, classifier Classifier, force bool) LookupReader {
 	return func(ctx context.Context, declared loopholedecl.CallBrokerLookup, args []string) (json.RawMessage, error) {
 		if h.input.Version == callbrokerinput.SnapshotLaunchVersion && !snapshotTransactionHeld(ctx) {
 			var data json.RawMessage
+			if _, held := ctx.Value(workingStateKey{}).(workingState); !held && !force {
+				// The transaction below holds the source lock, which the store snapshot also takes.
+				working, now, err := h.workingFor(ctx)
+				if err != nil {
+					return nil, err
+				}
+				ctx = withWorkingState(ctx, working, now)
+			}
 			err := h.snapshotReadTransaction(ctx, func(ctx context.Context) error {
 				sf, _, err := h.currentAuthority()
 				if err != nil {
@@ -287,7 +312,7 @@ func (h *CLIHandler) lookupWithClassifier(jail string, classifier Classifier) Lo
 				}
 				current := classifier
 				current.Roots = slices.Clone(sf.Repos)
-				data, err = h.lookupWithClassifier(jail, current)(ctx, declared, args)
+				data, err = h.lookupReader(jail, current, force)(ctx, declared, args)
 				return err
 			})
 			return data, err
@@ -338,6 +363,16 @@ func (h *CLIHandler) lookupWithClassifier(jail string, classifier Classifier) Lo
 		if answer.Classification == nil || len(answer.Classification.Writes) != 0 || len(answer.Classification.Reads) == 0 || !reflect.DeepEqual(answer.Classification.Argv, argv) {
 			reason = "classifier-failed"
 			return nil, errors.New("lookup did not classify as its exact declared standing read; check the selected pack")
+		}
+		if !force {
+			held, err := h.gateLookup(ctx, declared.Name, args, *answer.Classification)
+			if err != nil {
+				return nil, err
+			}
+			if held != nil {
+				reason = "read-withheld"
+				return nil, held
+			}
 		}
 		if err := h.live(); err != nil {
 			reason = selectedInputAuditReason(err)

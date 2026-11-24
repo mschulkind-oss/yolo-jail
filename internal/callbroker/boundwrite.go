@@ -12,7 +12,7 @@ import (
 // boundWrite keeps Evaluate read-only and puts filing, standing coverage,
 // exact-once spending and the original host CLI invocation behind one store
 // transaction. There is no external CLI rollback guarantee after dispatch.
-func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Request, call Classification, predicted Verdict, stdin []byte) (Verdict, CLIResult, error) {
+func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Request, call Classification, predicted Verdict, decided bundleDecision, stdin []byte) (Verdict, CLIResult, error) {
 	refused := func(err error) (Verdict, CLIResult, error) {
 		if executionCompleted(err) {
 			return Verdict{Verdict: "refused", Rule: "host CLI response rejected after completed write",
@@ -59,26 +59,35 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 	}
 	var result CLIResult
 	didRun := false
+	var resolvedRefusal *Verdict
+	set := "write"
+	if len(call.Writes) == 0 {
+		set = "read"
+	}
 	run := func() error {
 		if err := h.audit.RequiredContext(ctx, brokeraudit.Event{Event: "call-authorization", Service: h.input.Source, Jail: q.Jail,
-			Set: "write", Outcome: "authorized-before-dispatch", CommandDigest: q.Digest}); err != nil {
+			Set: set, Outcome: "authorized-before-dispatch", CommandDigest: q.Digest}); err != nil {
 			return err
 		}
 		var err error
-		result, err = h.program.run(ctx, call, stdin)
-		if err == nil {
+		if decided.resolving() {
+			result, resolvedRefusal, err = h.resolveAndRun(ctx, q, call, stdin)
+		} else {
+			result, err = h.program.run(ctx, call, stdin)
+		}
+		if err == nil && resolvedRefusal == nil {
 			didRun = true
 		}
 		return err
 	}
 	coverage := func(working []brokerstore.WorkingEntry, now time.Time) (bool, error) {
-		cells, err := h.currentCellPolicies()
+		policy, err := h.operationPolicy(len(call.Reads) != 0)
 		if err != nil {
 			return false, err
 		}
-		current := decideCall(call, cells, working, q.Workspace, h.input.Source, now)
+		current := decideBundle(policy, call, working, q.Workspace, h.input.Source, now).Verdict
 		if current.Verdict == "refused" {
-			return false, errors.New("one write was refused by the current working-set table; change the request and retry")
+			return false, errors.New("one operation was refused by the current policy; change the request and retry")
 		}
 		if current.Verdict != "runs" {
 			return false, nil
@@ -110,6 +119,11 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		}
 		if spent && didRun {
 			return Verdict{Verdict: "runs", Rule: "exact Allow once spent", Digest: q.Digest}, result, nil
+		}
+		if spent && resolvedRefusal != nil {
+			// The answer was spent at the lookup's first send and is not refunded.
+			resolvedRefusal.Digest = q.Digest
+			return *resolvedRefusal, CLIResult{}, nil
 		}
 		filed = next
 	}

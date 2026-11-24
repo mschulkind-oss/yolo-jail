@@ -682,7 +682,7 @@ func digest(q Request) string {
 	input := []any{q.Argv, q.Repo, q.StdinDigest}
 	if q.HTTPOriginalDigest != "" {
 		input = append(input, "http", q.HTTPOriginalDigest, q.HTTPCanonicalDigest, q.HTTPDeclarationHash, q.CallWrites)
-	} else if len(q.CallWrites) != 0 {
+	} else if len(q.CallWrites) != 0 || len(q.CallReads) != 0 {
 		input = append(input, q.CallWrites, q.OriginalArgv)
 	}
 	if len(q.CallReads) != 0 || q.ContextDigest != "" || q.ContextName != "" {
