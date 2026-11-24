@@ -582,6 +582,11 @@ var configKeys = map[string]Entry{
 			"install_home_overlay (buildMacosHomeOverlay) and write-protected by the profile"),
 		Guide: []string{"`agents_md_extra`"},
 	},
+	"repo_instructions": everywhere(honored("the launch hands the resolved mode to every loaded pack "+
+		"(packload.ApplyInstructions); the pack's `instructions` declaration renders its agent's own "+
+		"setting or flag through the same composition at the jail's boot and macos-user's, and an "+
+		"agent with no setting is named in a launch line (repoinstr.Disclosure)"),
+		"`repo_instructions`"),
 	"briefing_provenance": everywhere(honored("prepare.go reads config.BriefingProvenance when "+
 		"it composes the briefing, above the backend's delivery of it"), "`agents_md_extra`"),
 	"include_if_found": everywhere(honored("resolved by the config loader (config load.go) "+

@@ -112,6 +112,12 @@ type Pack struct {
 	// KeepNamesStep; BareStep is the one command that lists this entry bare, set whenever Namespace
 	// is (packsrc.PackReference).
 	AcceptNamesStep, BareStep string
+	// Instructions is what this launch resolved about repo_instructions
+	// (docs/design/workspace-instruction-files.md), handed to every loaded pack by whoever loads
+	// the set (ApplyInstructions). nil, like the mode "keep", means the launch does nothing about
+	// the repository's instruction files; the pack's `instructions` declaration is then inert.
+	// It is per launch state like LaunchName, never read from a manifest.
+	Instructions *packdecl.InstructionsSelection
 	// Root is the directory its files live in. For an embedded pack this is the
 	// materialized copy, so every consumer sees a real path either way.
 	Root string
@@ -1689,6 +1695,25 @@ func launchFlagClaims(packs []*Pack, autonomy bool) map[string]launchFlagClaim {
 			}
 			claim.rows = append(claim.rows, row)
 			out[launch.Bin] = claim
+		}
+	}
+	// THE REPO-INSTRUCTIONS FLAGS (IF-D7) join the same claim as the postures', AFTER every
+	// posture row so a `replace` posture row cannot drop them, and so every spelling of the
+	// launch flags (the host argv rewrite, the in-jail alias and the generated launchers)
+	// carries them from this one fold. They are not notch-gated: the mode is what gates them,
+	// and the pack's declaration says which flags and for which program.
+	for _, p := range packs {
+		if p == nil || p.Decl == nil {
+			continue
+		}
+		for _, decl := range p.Decl.InstructionsContributions() {
+			bin, flags := decl.LaunchFor(p.Instructions)
+			if bin == "" || len(flags) == 0 {
+				continue
+			}
+			claim := out[bin]
+			claim.rows = append(claim.rows, launchFlagClaimRow{pack: p.Name, flags: flags, origin: p.Decl.Origin})
+			out[bin] = claim
 		}
 	}
 	return out

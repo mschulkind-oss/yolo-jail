@@ -272,6 +272,13 @@ after = "host:.config/opencode/AGENTS.md"
 agent = "opencode"
 into = ".config/opencode/AGENTS.md"
 
+# UNSUPPORTED: the one switch, OPENCODE_DISABLE_PROJECT_CONFIG, also drops the project's
+# opencode.json, .opencode and TUI config, which is too broad to be a setting for these files.
+[[instructions]]
+agent = "opencode"
+bin = "opencode"
+reads = ["AGENTS.md", "CLAUDE.md", "CONTEXT.md"]
+
 [[skills]]
 agent = "opencode"
 into = ".config/opencode/skills"

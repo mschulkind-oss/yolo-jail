@@ -74,6 +74,14 @@ after = "host:.codex/AGENTS.md"
 agent = "codex"
 into = ".codex/AGENTS.md"
 
+# `project_doc_max_bytes = 0` stops codex loading a project's AGENTS.md; its global
+# ~/.codex/AGENTS.md, the briefing, loads separately (docs/design/workspace-instruction-files.md).
+[[instructions]]
+agent = "codex"
+bin = "codex"
+reads = ["AGENTS.override.md", "AGENTS.md"]
+ignore = { set = { surface = "codex/config", config = { project_doc_max_bytes = 0 } }, host_launch = ["-c", "project_doc_max_bytes=0"] }
+
 [[skills]]
 agent = "codex"
 into = ".codex/skills"

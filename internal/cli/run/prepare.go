@@ -267,6 +267,12 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 	// Under the seal (seal.go, FP-D23) the briefing describes only what crosses, and carries none
 	// of the user's own text: it is staged where the build reads it.
 	extra := cfgStr(cfg, "agents_md_extra")
+	// The replacement text of repo_instructions joins the user block as one titled section, the way
+	// agents_md_extra does, so it lands in every destination a selected pack declares. Resolved once
+	// above the dispatch (applyRepoInstructions); nothing under the seal, which carries no user text.
+	if !o.Sealed {
+		extra = o.repoInstr.WithExtra(extra)
+	}
 	if preserveLegacyMechanics {
 		extra = ""
 	}

@@ -27,7 +27,7 @@ var approvalAreaLabels = map[string]string{
 	"install": "Nix packages and mise tools", "kvm": "KVM device access", "lsp_servers": "Language servers",
 	"machine": "GPU, resources, ports and forwarding", "mcp_servers": "MCP servers", "model_facts": "Model metadata",
 	"mounts": "Paths outside the workspace", "network": "Network mode", "per_side_paths": "Per-side workspace subpaths",
-	"providers": "Provider routes", "provisioners": "Program installation order", "prune": "Disk-usage warning",
+	"providers": "Provider routes", "provisioners": "Program installation order", "prune": "Disk-usage warning", "repo_instructions": "Repository instruction files",
 	"repos": "Named repositories", "requests": "Permission requests", "required_capabilities": "Required capabilities",
 	"security": "Blocked-tool shims", "skill_imports": "Workspace Git skill imports",
 	"workspace_readonly": "Read-only workspace", "writable_home_dirs": "Writable home directories",

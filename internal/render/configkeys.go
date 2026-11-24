@@ -129,6 +129,9 @@ var hostConfigKeys = map[string]keyCensusEntry{
 	"agent_updates": {KeyHonored, "the host floor's update policy, as it is a jail launcher's"},
 	"agents_md_extra": {KeyHonored, "prose `yolo host apply` appends to the briefing it writes " +
 		"(applyhostbriefings.go)"},
+	"repo_instructions": {KeyHonored, "`yolo host -- <agent>` hands each agent its own flag for the " +
+		"user-scope mode; `yolo host apply` writes the user-scope `replace` text into the briefing it " +
+		"writes and no per-workspace setting into the shared real home (IF-D13)"},
 	"briefing_provenance": {KeyHonored, "shapes the text of the briefing `yolo host apply` writes"},
 	"include_if_found":    {KeyHonored, "resolved by the loader into the user scope every host verb reads"},
 	"update_check":        {KeyHonored, "gates this machine's own update check (UpdateCheckEnabled)"},

@@ -36,6 +36,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
+	"github.com/mschulkind-oss/yolo-jail/internal/repoinstr"
 	"github.com/mschulkind-oss/yolo-jail/internal/reporoot"
 	"github.com/mschulkind-oss/yolo-jail/internal/resourcegroups"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
@@ -428,6 +429,10 @@ type Options struct {
 	// and, where no gate runs (an attach), only the ones the approval record already holds
 	// (config.ApprovedWorkspaceMounts). configCtxMounts binds each at that destination (WW-P2).
 	workspaceMounts []config.WorkspaceMount
+	// repoInstr is this launch's repo_instructions, resolved once above the dispatch
+	// (applyRepoInstructions): the mode, and the replacement text the briefing composes. nil before
+	// that, and for a launch that never ran it (a seal), which both read as keep.
+	repoInstr *repoinstr.Resolved
 	// unapprovedCeiling is the user-config edit the migration offer's conversion made for a
 	// converted workspace's ceiling lines, until this launch's config-change gate passes; a
 	// launch that stops before then takes it back (takeBackUnapprovedCeiling).

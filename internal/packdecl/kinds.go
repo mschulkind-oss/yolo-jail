@@ -158,6 +158,12 @@ const (
 	// does not declare, OQ-3), which fold at config-overlay's slot below the owner's managed,
 	// where later wins by pack order as it does for every overlay (AutonomyPosture.Config).
 	KindAutonomy Kind = "autonomy"
+	// KindInstructions: which instruction files an agent reads from the repository, and the ONE
+	// mechanism that stops it (instructions.go; docs/design/workspace-instruction-files.md IF-D7).
+	// It is a declaration the `repo_instructions` mode selects over, so it does nothing in a launch
+	// that keeps the files. One per agent per pack; never origin-gated, since it reads nothing on the
+	// host and mounts nothing: yolo never masks a workspace file (IF-D14).
+	KindInstructions Kind = "instructions"
 	// KindProfile: a NAMED SELECTION OVER A PROVIDER
 	// (docs/reference/providers.md#declaring-and-selecting-a-profile) — `name` is the selector `-p` sets and
 	// `provider` is what it selects.
@@ -533,6 +539,13 @@ var footprints = map[Kind]Footprint{
 	KindAutonomy: {
 		Kind: KindAutonomy, Combine: CombineExclusive,
 		Claims: "the agent's autonomous/guarded permission postures (notch-selected)",
+	},
+	KindInstructions: {
+		// CombineShared: two packs may each declare an agent; one agent in one pack is the
+		// single-declaration rule (validateSingleInstructions). Not review-worthy: it renders a
+		// setting inside the agent's own config or hands a flag to the agent's own program.
+		Kind: KindInstructions, Combine: CombineShared,
+		Claims: "which repository instruction files the agent reads, and the setting or flag that stops it",
 	},
 	KindProfile: {
 		// Exclusive by (pack, name), and the target carries both — the pack prefix is what

@@ -40,6 +40,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packoverlay"
+	"github.com/mschulkind-oss/yolo-jail/internal/repoinstr"
 )
 
 // LoadJailPacks reads the pack trees the launch delivered at YOLO_PACK_ROOT.
@@ -83,7 +84,17 @@ func LoadJailPacks(e *Env) ([]*packload.Pack, error) {
 		// on that backend means the same thing it means everywhere else — no packs.
 		return nil, nil
 	}
-	return loadPackRoot(e, root)
+	packs, err := loadPackRoot(e, root)
+	if err != nil {
+		return nil, err
+	}
+	// THE LAUNCH'S repo_instructions MODE (YOLO_REPO_INSTRUCTIONS, a session input), handed to every
+	// pack so its `instructions` declaration renders this agent's own setting through the surface
+	// fold and its launch flags through the one launch-flag fold, at the jail's boot and macos-user's
+	// alike. Unset, which is the common case, leaves the declaration inert. Applied here and not in
+	// loadPackRoot, which host-side readers of a staged tree share.
+	packload.ApplyInstructions(packs, repoinstr.FromWire(e.Getenv(repoinstr.EnvName), e.WorkspaceDir(), e.Home))
+	return packs, nil
 }
 
 // loadPackRoot reads the staged pack tree at root, in the launch's order. It is LoadJailPacks

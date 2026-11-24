@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/repoinstr"
 	"github.com/mschulkind-oss/yolo-jail/internal/selfupdate"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 )
@@ -75,7 +76,7 @@ func knownLaunchYOLOEnvNames(packs []*packload.Pack, channel *packChannel) []str
 		paths.HTTPFrontGenerationsEnv,
 		"YOLO_MISE_TOOLS", "YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN", "YOLO_TOOL_SKILLS_DELIVERED", "YOLO_PATCHED_TREES", "YOLO_PROVIDERS", "YOLO_PROFILES",
 		"YOLO_PUBLISHED_PORTS", "YOLO_FORWARD_HOST_PORTS", "YOLO_PROGRAMS_AUTOPRUNE",
-		"YOLO_USE_PROFILES", "YOLO_PROVISION_MS", "YOLO_SESSION_ID", "YOLO_USER_LAYER",
+		"YOLO_USE_PROFILES", "YOLO_PROVISION_MS", "YOLO_SESSION_ID", "YOLO_USER_LAYER", repoinstr.EnvName,
 		"YOLO_SERVICE_AWS_AUTH_ENDPOINT", "YOLO_SERVICE_CLAUDE_OAUTH_BROKER_ENDPOINT",
 		"YOLO_SERVICE_MCP_AUTH_BROKER_ENDPOINT",
 		"YOLO_SERVICE_GITHUB_BROKER_ENDPOINT", "YOLO_SERVICE_WIRE_BRIDGE_ENDPOINT",

@@ -155,6 +155,12 @@ into = ".config/muse/skills"
 agent = "muse"
 into = ".config/muse/AGENTS.md"
 
+# UNSUPPORTED: only workspace trust gates these files; muse has no setting that stops them.
+[[instructions]]
+agent = "muse"
+bin = "muse"
+reads = ["AGENTS.md", "CLAUDE.md", ".agents/AGENTS.md", ".claude/CLAUDE.md"]
+
 # AUTONOMY — MUSE'S OWN YOLO MODE IN A JAIL, PROMPTS AT THE HOST. The two postures are the
 # §4.2 notch pair — the confinement notch's AgentAutonomy bit selects `autonomous` at
 # jail/guest/preview and `guarded` at the host (render.ProfileFor).

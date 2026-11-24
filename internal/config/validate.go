@@ -182,6 +182,7 @@ func validateConfigWithEditContext(config *jsonx.OrderedMap, workspace string, r
 	validateResources(config, errs)
 	validateIncludeIfFound(config, errs)
 	validateAgentsMdExtra(config, errs)
+	validateRepoInstructions(config, errs)
 	validateBriefingProvenance(config, errs)
 	validateResourceGroupErrors := ValidateResourceGroups(config)
 	for _, message := range validateResourceGroupErrors {

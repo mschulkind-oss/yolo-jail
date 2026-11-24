@@ -499,6 +499,20 @@ func Collect(packs []*packload.Pack, autonomy bool, activeProfiles map[string][]
 		}
 	}
 
+	// Pass 4: the REPO-INSTRUCTIONS mechanisms (packdecl.KindInstructions), placed last so the
+	// entry lands after every other contributor to its array and the body wins every other
+	// overlay's key (IF-D9: the user's own entries survive, and the mode's setting is the last
+	// word on its own key). Only a pack handed an ignoring selection places anything, so a
+	// launch that keeps the files composes byte-identically to before the kind existed.
+	for _, p := range packs {
+		if p == nil || p.Decl == nil || !p.Instructions.Ignoring() {
+			continue
+		}
+		for _, decl := range p.Decl.InstructionsContributions() {
+			placeInstructions(set, p, decl, owners, autonomy)
+		}
+	}
+
 	sort.SliceStable(set.Orphans, func(i, j int) bool {
 		if set.Orphans[i].Target != set.Orphans[j].Target {
 			return set.Orphans[i].Target < set.Orphans[j].Target

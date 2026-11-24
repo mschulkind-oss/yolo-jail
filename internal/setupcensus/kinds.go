@@ -26,6 +26,11 @@ var kinds = map[packdecl.Kind]Entry{
 		"its surface (surfaceloop.go)"),
 	packdecl.KindAutonomy: renderedEverywhere("the jail notch's posture folds into the pack's " +
 		"surfaces and launch flags (configure_pack_surfaces, deliver_launch_flags)"),
+	packdecl.KindInstructions: renderedEverywhere("the launch's repo_instructions mode, handed to " +
+		"every pack (packload.ApplyInstructions), folds the declared setting into the pack's own " +
+		"surface (packoverlay placeInstructions) and the declared flags into the launch flags " +
+		"(packload.LaunchFlagsFor); an agent that declares no mechanism is named in a launch line, " +
+		"never masked"),
 	packdecl.KindHook: renderedEverywhere("RunPackHooks runs each named hook inside " +
 		"configure_pack_surfaces, and run_pack_boot_checks each boot_check in a container jail " +
 		"(on macos-user it records the skip, the bootstrap running no pack script)"),

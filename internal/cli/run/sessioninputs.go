@@ -5,6 +5,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/repoinstr"
 )
 
 // sessionInput is one SESSION INPUT: a value every session's boot reads from its environment
@@ -17,7 +18,7 @@ type sessionInput struct{ name, value string }
 // tables (configure_pack_surfaces, generate_mcp_wrappers).
 var sessionInputNames = []string{
 	"YOLO_BLOCK_CONFIG", "YOLO_MISE_TOOLS", "MISE_DISABLE_TOOLS", "YOLO_LSP_SERVERS", "YOLO_MCP_SERVERS",
-	"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN", toolSkillsDeliveredEnv,
+	"YOLO_MISE_SKILL_TOOLS", "YOLO_TOOL_SKILLS_TOKEN", toolSkillsDeliveredEnv, repoinstr.EnvName,
 }
 
 // toolSkillsDeliveredEnv is YOLO_TOOL_SKILLS_DELIVERED (design MS-D7): the content digest of the
@@ -69,6 +70,9 @@ func composeSessionInputs(cfg *jsonx.OrderedMap, packs []*packload.Pack, sealed,
 		"YOLO_MISE_SKILL_TOOLS":  jsonDumps(append([]string{}, skills.tools...)),
 		"YOLO_TOOL_SKILLS_TOKEN": skills.token,
 		toolSkillsDeliveredEnv:   skills.delivered,
+		// The repo_instructions mode, so the jail's boot hands its packs the selection the host
+		// handed its own; "" keeps the files, and a sealed build carries none of the user's config.
+		repoinstr.EnvName: repoInstructionsWireFor(cfg, sealed || captureJail),
 	}
 	out := make([]sessionInput, 0, len(sessionInputNames))
 	for _, name := range sessionInputNames {
@@ -117,4 +121,13 @@ func (o *Options) toolSkillsLayerInput() *jailcontent.ToolSkillsInput {
 		return nil
 	}
 	return &jailcontent.ToolSkillsInput{Workspace: o.Workspace, Token: in.token, Tools: in.tools}
+}
+
+// repoInstructionsWireFor is the repo_instructions session input: the mode for an ordinary launch,
+// "" for a sealed build or a capture jail, which carry none of the user's own settings.
+func repoInstructionsWireFor(cfg *jsonx.OrderedMap, sealedOrCapture bool) string {
+	if sealedOrCapture {
+		return ""
+	}
+	return repoinstr.WireFromConfig(cfg)
 }

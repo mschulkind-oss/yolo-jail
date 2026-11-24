@@ -102,7 +102,7 @@ var schemaRows = map[string]Outcome{
 	"gpu": AtNextRestart, "resources": AtNextRestart, "env_sources": AtNextRestart,
 	"loopholes": AtNextRestart, "brokered": AtNextRestart, "kvm": AtNextRestart,
 	"prune": AtNextRestart, "programs": AtNextRestart, "ephemeral_storage": AtNextRestart,
-	"include_if_found": AtNextRestart, "agents_md_extra": AtNextRestart,
+	"include_if_found": AtNextRestart, "agents_md_extra": AtNextRestart, "repo_instructions": AtNextRestart,
 	"briefing_provenance": AtNextRestart, "cache_relocations": AtNextRestart,
 	"writable_home_dirs": AtNextRestart, "host_files": AtNextRestart,
 	"host_wrappers": AtNextRestart, "share_host_fonts": AtNextRestart,
@@ -143,7 +143,7 @@ var sessionInputKeys = map[string]bool{
 var hostApplyConsumedKeys = map[string]bool{
 	"packs": true, "providers": true, "model_facts": true, "profiles": true,
 	"profile": true, "adapters": true, "mcp_servers": true, "lsp_servers": true,
-	"agents_md_extra": true, "briefing_provenance": true,
+	"agents_md_extra": true, "briefing_provenance": true, "repo_instructions": true,
 }
 
 // Classify returns the expected timing for key. User-scope, host-switch and

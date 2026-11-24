@@ -111,6 +111,8 @@ one file's audience never stops another file from shipping:
   env              set static env vars in the jail
   hook             a named capability (shared_credentials, …)
   autonomy         the agent's autonomous/guarded permission postures (notch-selected)
+  instructions     which repository instruction files an agent reads, and the one
+                   setting or flag that stops it (chosen by the repo_instructions key)
   profile          a named selection over a provider — name plus provider, and the
                    provider is required — selected at launch with -p <name> (or
                    -p <cli>=<name>); a profile nothing selects does nothing
