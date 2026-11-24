@@ -80,6 +80,15 @@ func sameDeliveredJSON(a, b json.RawMessage) bool {
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
 
+// olderGrantMatchesLaunch reports whether the grant file the delivered input names is the one this
+// launch wrote. The grant block's LaunchID is drawn on its own (loopholeGrantBlock), apart from the
+// scope file's, so the two never agree and are not compared; the daemon's own live check keys on
+// pack, workspace, container and pid (callbroker.currentAuthority).
+func olderGrantMatchesLaunch(grant *loopholegrant.Block, input callbrokerinput.Launch, sf brokerscope.File) bool {
+	return grant != nil && grant.Pack == input.Pack && grant.Workspace == sf.Workspace && grant.Container == sf.Container &&
+		grant.PID == sf.PID && grant.Kinds["read"].Standing == loopholegrant.Standing(input.ReadGrantStanding)
+}
+
 // checkOlderAsksLocked reads delivered launch provenance, never the latest approval
 // or writable boot record. No consumed-snapshot proof is inferred from any version.
 func (o *Options) checkOlderAsksLocked(lp *loopholes.Loophole, sf brokerscope.File) error {
@@ -108,7 +117,7 @@ func (o *Options) checkOlderAsksLocked(lp *loopholes.Loophole, sf brokerscope.Fi
 		return errors.New("delivered source-read origin disagrees with frozen input")
 	}
 	_, grant, err := loopholegrant.Read(input.GrantFile)
-	if err != nil || grant == nil || grant.Pack != input.Pack || grant.Workspace != sf.Workspace || grant.Container != sf.Container || grant.LaunchID != sf.LaunchID || grant.PID != sf.PID || grant.Kinds["read"].Standing != loopholegrant.Standing(input.ReadGrantStanding) {
+	if err != nil || !olderGrantMatchesLaunch(grant, input, sf) {
 		return errors.New("old source-read grant is unknown or changed")
 	}
 	// Reconcile every frozen table slot against the complete raw delivered source

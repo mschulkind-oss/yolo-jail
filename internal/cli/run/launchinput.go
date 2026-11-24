@@ -117,9 +117,13 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 	for i, cell := range b.Cells {
 		declaredCells[i] = cell
 		declaredCells[i].Tables = append([]string(nil), cell.Tables...)
-		declaredCells[i].Default = make(map[string]bool, len(cell.Default))
-		for table, value := range cell.Default {
-			declaredCells[i].Default[table] = value
+		// A read cell declares no default table: keep nil, not an empty map, so the
+		// host daemon's deep comparison with the declaration still holds after JSON.
+		if cell.Default != nil {
+			declaredCells[i].Default = make(map[string]bool, len(cell.Default))
+			for table, value := range cell.Default {
+				declaredCells[i].Default[table] = value
+			}
 		}
 	}
 	lookups := append([]loopholedecl.CallBrokerLookup(nil), b.Lookups...)
