@@ -47,8 +47,9 @@ func (o *Options) resourceGroupIOPaths(selection config.ResourceGroupSelection) 
 
 // placeOrRefuseResourceGroup is the mapped launch's required placement, reported as whether the
 // launch must stop. The unselected path returns without manager, controller, device, or path
-// probes (OQ-RG3). A selected mapping on a Linux host observes the group, reconciles its two
-// shared children, moves this launcher into the agent child and reads the membership back, all
+// probes (OQ-RG3). A selected mapping on a Linux host observes the group, creates or reuses its two
+// child slices through the user manager, moves this launcher into the agent child (by re-running
+// under systemd-run) and reads the membership back, all
 // before the launch's expensive work. Every condition it cannot observe refuses naming the next
 // step; there is no unplaced fallback. It claims placement and a policy readback, never
 // enforcement: only the owner's host witness establishes that.
@@ -63,11 +64,14 @@ func (o *Options) placeOrRefuseResourceGroup(cfg *jsonx.OrderedMap) bool {
 		return false
 	}
 	outcome := resourceGroupPlacement{
-		InJail:  o.inJail(),
-		IsLinux: o.IsLinux,
-		Observe: o.resourceGroupIOPaths,
-		Place:   o.ResourceGroupPlace,
-		Pid:     os.Getpid(),
+		InJail:   o.inJail(),
+		IsLinux:  o.IsLinux,
+		Observe:  o.resourceGroupIOPaths,
+		Children: o.ResourceGroupChildren,
+		Query:    userManagerQuery(o.Exec),
+		Member:   o.ResourceGroupMember,
+		Move:     o.ResourceGroupMove,
+		Pid:      os.Getpid(),
 	}.place(selection)
 	if len(outcome.PlanLines) > 0 {
 		o.pr(o.Stderr).print("I/O child plan for the selected group:")
@@ -81,7 +85,7 @@ func (o *Options) placeOrRefuseResourceGroup(cfg *jsonx.OrderedMap) bool {
 		return true
 	}
 	o.resourceGroupPlaced = outcome.Placed
-	o.pr(o.Stderr).printf("Resource group %q selected via %s: this launch is in %s and its child I/O ceilings were written and read back. Enforcement is unverified until the host witness passes.",
+	o.pr(o.Stderr).printf("Resource group %q selected via %s: this launch is in %s, a systemd child slice whose I/O ceiling was set through your user manager and read back. Enforcement is unverified until the host witness passes.",
 		richtext.Escape(termsafe.Visible(selection.Unit)), richtext.Escape(termsafe.Visible(selection.Source)), richtext.Escape(termsafe.Visible(outcome.Placed.Child)))
 	return false
 }
@@ -127,7 +131,7 @@ func RefuseHostResourceGroup(errw io.Writer, cfg *jsonx.OrderedMap) bool {
 		fmt.Fprintln(errw, "To run without a resource group, remove the mapping with `yolo config unset --user resource_groups`.")
 		return true
 	}
-	fmt.Fprintf(errw, "yolo host: resource group %q selected via %s: this command runs in %s and its child I/O ceilings were written and read back. Enforcement is unverified until the host witness passes.\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source), termsafe.Visible(outcome.Placed.Child))
+	fmt.Fprintf(errw, "yolo host: resource group %q selected via %s: this command runs in %s, a systemd child slice whose I/O ceiling was set through your user manager and read back. Enforcement is unverified until the host witness passes.\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source), termsafe.Visible(outcome.Placed.Child))
 	return false
 }
 
@@ -155,6 +159,7 @@ var hostResourceGroupPlacement = func() resourceGroupPlacement {
 		InJail:  os.Getenv("YOLO_VERSION") != "",
 		IsLinux: runtime.GOOS == "linux",
 		Observe: hostResourceGroupIOPaths,
+		Query:   userManagerQuery(realExec),
 		Pid:     os.Getpid(),
 	}
 }

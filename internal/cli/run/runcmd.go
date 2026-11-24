@@ -599,10 +599,13 @@ type Options struct {
 	// ResourceGroupIOPaths observes only the selected unit's read-only io.max policy.
 	// nil uses the bounded systemd/cgroup-v2 resolver; the off path never invokes it.
 	ResourceGroupIOPaths func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error)
-	// ResourceGroupPlace reconciles the selected group's children and moves pid into the
-	// agent child, returning its cgroup path. nil is the real descriptor-relative writer
-	// (placeResourceGroupNative); only a test supplies another.
-	ResourceGroupPlace func(ctx context.Context, sel config.ResourceGroupSelection, iopaths resourcegroups.IOPaths, lockDir string, pid int) (string, error)
+	// ResourceGroupChildren creates or reuses the selected slice's two child slices and reads
+	// their limits back; ResourceGroupMember reads which cgroup directory a pid is in; and
+	// ResourceGroupMove asks the user manager to put the launcher in the agent child. nil is the
+	// real user-manager call and /proc read; only a test supplies another.
+	ResourceGroupChildren func(ctx context.Context, sel config.ResourceGroupSelection, iopaths resourcegroups.IOPaths) (*resourcegroups.ChildSlices, error)
+	ResourceGroupMember   func(pid int) (string, error)
+	ResourceGroupMove     func(ctx context.Context, agentUnit string, pid int) error
 	// resourceGroupPlaced is what this launch's placement established, nil when no mapping
 	// selected a group. assembleRunCmd reads it to ask the runtime for the same group.
 	resourceGroupPlaced *placedResourceGroup
