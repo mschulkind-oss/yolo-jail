@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -32,6 +33,33 @@ func TestOpenRootCreateRetriesALostCreateRace(t *testing.T) {
 	f.Close()
 	if calls != 2 {
 		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
+// A removed root stays open and stats as a directory; only its name tells it from a live one,
+// and it must not be retried.
+func TestOpenRootCreateDoesNotRetryARemovedDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gone")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	real := rootOpenFile
+	rootOpenFile = func(r *os.Root, name string, flag int, perm fs.FileMode) (*os.File, error) {
+		calls++
+		return real(r, name, flag, perm)
+	}
+	t.Cleanup(func() { rootOpenFile = real })
+	if _, err := OpenRootCreate(root, "x.lock", os.O_RDWR|os.O_CREATE, 0o600); !errors.Is(err, fs.ErrNotExist) || calls != 1 {
+		t.Fatalf("err=%v calls=%d, want ErrNotExist after one call", err, calls)
 	}
 }
 
