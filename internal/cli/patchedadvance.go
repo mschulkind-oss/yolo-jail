@@ -729,6 +729,34 @@ func (a *advance) recordReplay(snapshot packsrc.ReplaySnapshot, walk packsrc.Wal
 
 // deliveryPatchFailure consumes classified authority and, only when requested, locally retries one
 // selected opaque legacy apply diagnosis. It never infers failure from legacy text.
+// sourceReplay is the options for b's source replay, under the walk's bound snapshot. When ANOTHER
+// YOLO PROCESS CHANGED THE CHECK AUTHORITY while the build waited for its lock or the source was
+// replayed, recordSourceReplay has already reread the record into a.rec, and Rebind binds a fresh
+// snapshot of it so replayIntoSource replays again, as walk does: nothing stale is trusted.
+func (a *advance) sourceReplay(b forkBuild) sourceReplayOptions {
+	snapshot := *a.replayBinding
+	return sourceReplayOptions{Snapshot: &snapshot,
+		Record: func(w packsrc.WalkResult) packsrc.RecordReplayResult {
+			if replayRecordHook != nil {
+				replayRecordHook()
+			}
+			return a.recordSourceReplay(snapshot, w)
+		},
+		Rebind: func() error {
+			// What the build replays must still be an entry of the reread check, under the same series.
+			if a.rec == nil || a.rec.Check == nil || a.series == nil || !onList(a.rec.Check.List, b.Entry.Commit) {
+				return packsrc.ErrStaleReplay
+			}
+			next, err := a.replaySnapshot()
+			if err != nil {
+				return fmt.Errorf("rebinding the source replay to its reread check: %w", err)
+			}
+			snapshot = next
+			a.replayBinding = &next
+			return nil
+		}}
+}
+
 func (a *advance) recordSourceReplay(snapshot packsrc.ReplaySnapshot, walk packsrc.WalkResult) packsrc.RecordReplayResult {
 	if a.replayBinding == nil || !reflect.DeepEqual(*a.replayBinding, snapshot) {
 		a.replayRecordAuthorized = false
@@ -2527,10 +2555,7 @@ func (a *advance) build(b forkBuild, base baseWhy, edited bool) advanceResult {
 	mode := buildMode{force: a.o.force, packs: a.packs, lock: pidlock.NoWait, replaySpent: a.replaySpent,
 		runtime: a.o.runtime, admitCtx: a.ctx, preRunErr: &preRunErr, admitGuard: a.capturePublicationGuard()}
 	if a.replayBinding != nil {
-		snapshot := *a.replayBinding
-		mode.sourceReplay = sourceReplayOptions{Snapshot: &snapshot, Record: func(w packsrc.WalkResult) packsrc.RecordReplayResult {
-			return a.recordSourceReplay(snapshot, w)
-		}}
+		mode.sourceReplay = a.sourceReplay(b)
 	}
 	if a.o.report != nil {
 		// THE BUILD'S START LINE (PF-D79): what the lines above say without a report, before the build
@@ -3733,6 +3758,9 @@ func onList(list []packsrc.ListEntry, commit string) bool {
 type sourceReplayOptions struct {
 	Snapshot *packsrc.ReplaySnapshot
 	Record   func(packsrc.WalkResult) packsrc.RecordReplayResult
+	// Rebind, when set, rebinds Snapshot to the reread check authority after a stale record, so the
+	// replay runs again (at most maxReplayRereads times); an error stops it.
+	Rebind func() error
 }
 
 // replayIntoSource replays b's series onto b.Entry in a scratch repository outside the build's
@@ -3749,12 +3777,27 @@ func replayIntoSource(packs *packsrc.Store, b forkBuild, dst string, spent time.
 	if repo == "" {
 		return "", fmt.Errorf("%s names no upstream to check out", b.Fork.Source)
 	}
-	w := packs.WalkSeries(repo, subdirOf(b.Fork.Source), b.Series, []packsrc.ListEntry{b.Entry}, packsrc.WalkOptions{
-		Snapshot: options.Snapshot, Spent: spent, StopOnPatchFailure: true,
-		OnFit: func(tree string) error { return copySourceTree(tree, dst) }})
+	var w packsrc.WalkResult
 	var record packsrc.RecordReplayResult
-	if options.Record != nil {
-		record = options.Record(w)
+	for reread := 0; ; reread++ {
+		w = packs.WalkSeries(repo, subdirOf(b.Fork.Source), b.Series, []packsrc.ListEntry{b.Entry}, packsrc.WalkOptions{
+			Snapshot: options.Snapshot, Spent: spent, StopOnPatchFailure: true,
+			OnFit: func(tree string) error { return copySourceTree(tree, dst) }})
+		record = packsrc.RecordReplayResult{}
+		if options.Record != nil {
+			record = options.Record(w)
+		}
+		if !errors.Is(record.Err, packsrc.ErrStaleReplay) || options.Rebind == nil || reread >= maxReplayRereads {
+			break
+		}
+		// The check authority changed under this replay: nothing it produced is trusted. Drop the copied
+		// source, rebind to the reread record and replay again.
+		if err := options.Rebind(); err != nil {
+			return "", errors.Join(record.Err, err)
+		}
+		if err := os.RemoveAll(dst); err != nil {
+			return "", err
+		}
 	}
 	if errors.Is(record.Err, packsrc.ErrStaleReplay) {
 		return "", record.Err
