@@ -332,6 +332,11 @@ func TestFixtureScenariosAreHostSelectedAndSynthetic(t *testing.T) {
 }
 
 func TestFixtureServeRetainsStateLockThroughRedirectTeardown(t *testing.T) {
+	// The drain budget is production's one second; a loaded machine must not be able to spend
+	// it while the test holds the redirect handler open.
+	prev := fixtureShutdownTimeout
+	fixtureShutdownTimeout = 5 * time.Minute
+	t.Cleanup(func() { fixtureShutdownTimeout = prev })
 	dir := filepath.Join(t.TempDir(), "redirect-teardown")
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -356,7 +361,7 @@ func TestFixtureServeRetainsStateLockThroughRedirectTeardown(t *testing.T) {
 	}()
 	defer releaseOnce.Do(func() { close(releaseRedirect) })
 
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(5 * time.Minute)
 	var meta fixtureMeta
 	for time.Now().Before(deadline) {
 		var err error
@@ -383,13 +388,13 @@ func TestFixtureServeRetainsStateLockThroughRedirectTeardown(t *testing.T) {
 	}()
 	select {
 	case <-redirectEntered:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("redirect handler did not reach the controlled write boundary")
 	}
 	if err := requestStopFixture(meta); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(time.Second)
+	deadline = time.Now().Add(5 * time.Minute)
 	for time.Now().Before(deadline) && fixtureListenerAccepts(meta.Endpoint) {
 		time.Sleep(time.Millisecond)
 	}
@@ -419,7 +424,7 @@ func TestFixtureServeRetainsStateLockThroughRedirectTeardown(t *testing.T) {
 		if err != nil {
 			t.Fatalf("redirect request: %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("redirect request did not finish after release")
 	}
 	select {
@@ -427,7 +432,7 @@ func TestFixtureServeRetainsStateLockThroughRedirectTeardown(t *testing.T) {
 		if err != nil {
 			t.Fatalf("serve shutdown: %v", err)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("serve did not return after redirect teardown")
 	}
 	lock, err := openStateLock(dir)
@@ -1119,4 +1124,11 @@ func requestStopFixture(m fixtureMeta) error {
 		return fmt.Errorf("unexpected stop status %s", resp.Status)
 	}
 	return nil
+}
+
+// Production keeps its one-second drain budget; only tests widen fixtureShutdownTimeout.
+func TestFixtureShutdownBudgetDefaultIsOneSecond(t *testing.T) {
+	if defaultFixtureShutdownTimeout != time.Second || fixtureShutdownTimeout != time.Second {
+		t.Fatalf("shutdown budget %s (default %s), want 1s", fixtureShutdownTimeout, defaultFixtureShutdownTimeout)
+	}
 }

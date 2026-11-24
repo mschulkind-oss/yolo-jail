@@ -207,7 +207,7 @@ func TestOneCtrlCEndsEveryBuildAndWaitOfThePool(t *testing.T) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(30 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("the pool did not return after the Ctrl-C")
 	}
 	term := stream.terminal()

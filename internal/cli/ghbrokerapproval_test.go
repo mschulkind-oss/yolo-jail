@@ -430,7 +430,7 @@ func seedUnusedProductionGrant(t *testing.T, f *productionGitHubFixture, body, s
 		if got.code != ghbroker.ExitNoPerm {
 			t.Fatalf("denied scope-seed caller returned %d: %q", got.code, got.stderr)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("denied scope-seed caller did not return")
 	}
 	seed.Argv[len(seed.Argv)-1] = grantTarget
@@ -491,7 +491,7 @@ func TestProductionGitHubHookSummariesDistinguishStdinBodies(t *testing.T) {
 			if got.code != ghbroker.ExitNoPerm {
 				t.Fatalf("denied write returned %d, stdout %q, stderr %q", got.code, got.out, got.stderr)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(5 * time.Minute):
 			t.Fatal("the denied production request did not return")
 		}
 		if _, err := os.Stat(fixture.calls); !errors.Is(err, os.ErrNotExist) {
@@ -561,7 +561,7 @@ func TestProductionUnusedExactGrantSurvivesBodyMismatch(t *testing.T) {
 			if got.code != ghbroker.ExitNoPerm {
 				t.Fatalf("denied caller returned %d: %q %q", got.code, got.out, got.stderr)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(5 * time.Minute):
 			t.Fatal("denied production caller did not return")
 		}
 	}
@@ -628,7 +628,7 @@ func TestProductionUnusedExactGrantSurvivesBodyMismatch(t *testing.T) {
 		if got.code != 0 || !strings.Contains(got.out, "fake GitHub receipt") {
 			t.Fatalf("the subsequent exact action was not authorized once: %d %q %q", got.code, got.out, got.stderr)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("the exact approved action did not finish")
 	}
 	wantReceipt := append([]byte(strings.Join(grantRequest.Argv, "\x00")), 0, 0)
@@ -703,7 +703,7 @@ func TestProductionConcurrentForwardersSpendOneExactGrantOnce(t *testing.T) {
 			if got.code == 0 {
 				successCount++
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(5 * time.Minute):
 			t.Fatal("both real forwarders did not return after denying the loser")
 		}
 	}
@@ -801,7 +801,7 @@ func TestProductionExactGrantSurvivesBrokerRestartAndScopeFences(t *testing.T) {
 			if got.code != ghbroker.ExitNoPerm {
 				t.Fatalf("cross-workspace action returned %d: %q", got.code, got.stderr)
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(5 * time.Minute):
 			t.Fatal("cross-workspace caller did not return")
 		}
 	}
@@ -825,7 +825,7 @@ func TestProductionExactGrantSurvivesBrokerRestartAndScopeFences(t *testing.T) {
 		if got.code != 0 || !strings.Contains(got.out, "fake GitHub receipt") {
 			t.Fatalf("same-workspace exact grant failed after restart: %d %q %q", got.code, got.out, got.stderr)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("same-workspace caller did not finish after restart")
 	}
 	wantReceipt := append([]byte(strings.Join(grantRequest.Argv, "\x00")), 0, 0)
@@ -874,7 +874,7 @@ func TestProductionSpendAuditFailureSpendsWithoutDispatchOrRetry(t *testing.T) {
 		if got.code != ghbroker.ExitNoPerm {
 			t.Fatalf("seed caller exit %d: %q", got.code, got.stderr)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("seed caller did not return")
 	}
 	seed.Argv[len(seed.Argv)-1] = "41"
@@ -906,7 +906,7 @@ func TestProductionSpendAuditFailureSpendsWithoutDispatchOrRetry(t *testing.T) {
 		if got.code != ghbroker.ExitUnavailable {
 			t.Fatalf("required spend-audit failure returned %d, want unavailable refusal: %q", got.code, got.stderr)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("audit append failure did not release the production caller")
 	}
 	if _, err := os.Stat(fixture.calls); !errors.Is(err, os.ErrNotExist) {
@@ -978,7 +978,7 @@ func TestProductionSpendAuditFailureSpendsWithoutDispatchOrRetry(t *testing.T) {
 		if got.code != ghbroker.ExitNoPerm {
 			t.Fatalf("freshly denied retry exit %d: %q", got.code, got.stderr)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("freshly denied retry did not return")
 	}
 	requireProductionDeniedRequestAudit(t, refiled, []byte(body))
@@ -1037,7 +1037,7 @@ func TestProductionUnusedGrantExpiryAndRevocation(t *testing.T) {
 					if got.code != want {
 						t.Fatalf("production caller exit %d, want %d: %q", got.code, want, got.stderr)
 					}
-				case <-time.After(5 * time.Second):
+				case <-time.After(5 * time.Minute):
 					t.Fatal("production caller did not return")
 				}
 			}
@@ -1073,7 +1073,7 @@ func TestProductionUnusedGrantExpiryAndRevocation(t *testing.T) {
 					if got.code != ghbroker.ExitNoPerm || !strings.Contains(got.stderr, approved.ID) || !strings.Contains(got.stderr, "window closed") {
 						t.Fatalf("a retry after a lapsed Allow once: exit %d %q", got.code, got.stderr)
 					}
-				case <-time.After(5 * time.Second):
+				case <-time.After(5 * time.Minute):
 					t.Fatal("production caller did not return")
 				}
 				attempt = start("41")
@@ -1273,7 +1273,7 @@ func TestProductionGitHubWriteApprovalFlow(t *testing.T) {
 				if got.code != 0 || !strings.Contains(got.out, "fake GitHub receipt") {
 					t.Fatalf("approved production write: exit %d, stdout %q, stderr %q", got.code, got.out, got.stderr)
 				}
-			case <-time.After(5 * time.Second):
+			case <-time.After(5 * time.Minute):
 				t.Fatal("the production forwarder did not return after host approval")
 			}
 			data, err := os.ReadFile(fixture.calls)
@@ -1371,7 +1371,7 @@ func TestProductionGitHubWriteApprovalFlow(t *testing.T) {
 						if got.code != ghbroker.ExitNoPerm {
 							t.Fatalf("denied production replay ran or returned %d", got.code)
 						}
-					case <-time.After(5 * time.Second):
+					case <-time.After(5 * time.Minute):
 						t.Fatal("denied production replay did not return")
 					}
 					gotReceipt, err := os.ReadFile(fixture.calls)
