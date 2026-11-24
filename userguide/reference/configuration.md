@@ -228,7 +228,21 @@ Edits to your user config do not ask, because only you can make them.
 
 Resource groups are off unless your user config explicitly maps the workspace or sets a `default`. The owner-only `[resource_groups]` table can select a default unit, exact workspace paths, nearest project roots, a separate `maintenance` unit and an `agent_percent` integer from 1 through 99 (default 5). Path keys are quoted canonical absolute paths; project files cannot choose or override these host-owned groups.
 
-Selection is not placement or enforcement. This build does not yet verify group authority or place a process: a selected launch is refused, and `yolo check --no-build` reports the selection as `unsupported/unknown`. With no matching mapping, the launch path does not inspect resource managers, controllers, devices or group policy. See `yolo config-ref` for the exact fields and current support status.
+A selected group is required placement, and it is Linux-only. When a launch matches a mapping, it observes that unit in your systemd user manager, creates or reuses two shared children under it (`yolo-agent` and `yolo-batch`), writes each child's `io.max` from the unit's finite allowance (the agent child gets `agent_percent` of each controlled device and dimension, the batch child the rest), reads the values back, moves the launcher into the agent child and reads `/proc/<pid>/cgroup` back. All of that happens before any other launch work, and descendants, including a `yolo host` command, inherit the group. With rootless podman's systemd cgroup manager the container is also asked to run under the mapped slice with `--cgroup-parent`; that request is not read back. A launch with no matching mapping inspects no resource manager, controller, device or group policy.
+
+**Enforcement is unverified.** The writer and the placement are built, but no one has yet shown on a real host that the kernel throttles a launch under them. Treat a mapped launch as an experiment until the owner's host witness passes: `yolo check --no-build` shows the selection and the child plan and says a launch will place itself, never that anything is enforced.
+
+### Setting up the host
+
+A launch refuses, naming the step, while any of these is missing. Run them as your own user, not root:
+
+1. Delegate the `io` controller to your user manager. Create a drop-in with `systemctl edit user@.service` containing `[Service]` and `Delegate=cpu memory pids io`, then log out and back in (or reboot) so your manager restarts. Rootless podman's own cgroup setup already needs the manager to hold `cpu`, `memory` and `pids`.
+2. Define a slice with a finite allowance in your user manager, for example `~/.config/systemd/user/batch-yolo.slice` with `[Slice]`, `IOReadBandwidthMax=/dev/nvme0n1 600M` and `IOWriteBandwidthMax=/dev/nvme0n1 300M` (use your device). A group with `max`, no record or only an ancestor's limit has no allowance to split, so the launch refuses.
+3. Start the slice with `systemctl --user start batch-yolo.slice`. An empty slice has no cgroup until it is started, and the launch refuses naming this command.
+4. Map the workspace in your user config, for example `yolo config set --user resource_groups.default '"batch-yolo.slice"'`.
+5. Start the launch from your user manager: a desktop terminal, or `systemd-run --user --scope yolo`. A login-session scope is outside your user manager, and the kernel refuses to move a process out of it into your slice.
+
+Whether the slice lists `io` in its `cgroup.subtree_control` (the launch checks this) depends on systemd enabling it for the slice's children; if the launch says it does not, `yolo check --no-build` shows what it read.
 
 **Scripts, CI and editor tasks cannot answer.** A launch with no terminal to ask on stops instead,
 printing the difference and the files involved. Pass `--accept-config-changes` to approve it for
