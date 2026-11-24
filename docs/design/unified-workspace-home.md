@@ -612,6 +612,9 @@ forward. Setup for all: a fresh workspace under `/Users/Shared/yolo/uh`, the ins
 
   Expected: names derived from the real path. Report them with the output of `yolo --setup seatbelt-self -- pwd -P`, and
   one Copilot `workspace.yaml` and one agy `projects.json` if present.
+
+  *Tried 2026-11-24 at `042a00ab2`* (lab report, retired): no `seatbelt-self` home on the Mac held agent sessions, so
+  there was nothing to list. It waits until the owner has used an agent under `seatbelt-self`.
 - **W-UH3 (before the alias slice), whether an agent follows an alias.** By hand, not an automated test: with an alias
   laid for the guest, start `claude` once in `seatbelt-self`, run `/resume`, and report whether a container's session
   shows; clear a project and report whether the link survived. Settles the gate of [OQ-UH4](#OQ-UH4) and the `plugins`

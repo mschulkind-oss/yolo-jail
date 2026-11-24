@@ -776,8 +776,12 @@ table instead of the live one would remove the race. Found 2026-10-18.
 The Mac run of 2026-11-24 at `6551bbc6f` failed `TestOutcomeTwoBrokersAdoptOneSingleUseToken` 8 of 10 times as
 separate processes, always with `slack: openat records.lock: no such file or directory`. The shared-clock data race
 was fixed, but the failure stayed at `042a00ab2`: macOS 26.5 APFS returns ENOENT to one of two concurrent
-`openat(dirfd, name, O_CREAT)` of a new name, `os.Root` included
-([lab report, section 1](../lab-reports/2026-11-24-mac-openat-create-race-and-ac-stopped-halves.md#1-the-mcpauth-two-broker-failure-is-a-darwin-openat-race)).
+`openat(dirfd, name, O_CREAT)` of a new name, `os.Root` included. Measured on the owner's Mac (macOS 26.5, APFS) by a
+standalone probe with no yolo code: in 2,000 trials, each a fresh directory with two goroutines opening one new name
+together, one of the two got ENOENT in 1968 to 1999 pairs, whatever the other flags; one opener alone, and two racing
+`open(2)` calls by absolute path, got 0. At the failing open the directory was intact and the file already existed,
+created by the other opener. Evidence: `/Users/Shared/yolo/evidence/2026-11-24b/` on that Mac (`creatprobe/`,
+`creatprobe.txt`, `mcpauth-diag.log`).
 
 **Fix built, unconfirmed on a Mac.** `openNoFollowLeaf` (`internal/paths/statefile_open_unix.go`) repeats a creating
 `openat` that reports ENOENT, at most `createRetries` times and only while the directory descriptor is still a linked
@@ -786,7 +790,10 @@ callers (the approval-wait lock, the trace-store admission file, the launch-inpu
 and `internal/toolskills`' snapshot lock has its own bounded loop. Linux cannot show the race, so the tests inject it.
 
 Next step, on a Mac, to confirm: run `go test -count=1 -run TestOutcomeTwoBrokersAdoptOneSingleUseToken ./internal/mcpauth`
-as 10 separate processes. Delete this entry only after all 10 pass.
+as 10 separate processes. Delete this entry only after all 10 pass. Also still open: fixed-name `O_EXCL` claims made
+through a directory descriptor (the MCP teardown and retire claims, `wsstatebeneath`, `storage/ensure.go`,
+`stateguard/rescue.go`) are not retried, since a retry would turn the ENOENT into EEXIST and read as losing the claim.
+Whether the race reaches an `O_EXCL` create needs the same probe with `O_EXCL` on the Mac.
 
 ### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
 
