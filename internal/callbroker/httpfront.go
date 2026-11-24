@@ -180,10 +180,7 @@ func (f HTTPFront) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	timeout := f.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
+	timeout := f.requestTimeout()
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 	presence, _ := r.Context().Value(httpFrontConnContextKey{}).(*httpFrontConn)
@@ -432,6 +429,15 @@ func validHTTPFrontFieldName(name string) bool {
 	return true
 }
 
+// requestTimeout is how long one served request may take end to end: the fixed generic
+// connection budget unless a test configured a shorter one. The seal exchange keeps its own.
+func (f HTTPFront) requestTimeout() time.Duration {
+	if f.Timeout <= 0 {
+		return connectionBudget
+	}
+	return f.Timeout
+}
+
 func (f HTTPFront) exchange(ctx context.Context, payload []byte) (httpFrontHostResult, error) {
 	var conn net.Conn
 	var err error
@@ -446,7 +452,7 @@ func (f HTTPFront) exchange(ctx context.Context, payload []byte) (httpFrontHostR
 	defer conn.Close()
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopClose()
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	_ = conn.SetDeadline(connectionDeadline(time.Now()))
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
@@ -755,7 +761,7 @@ func serveHTTPFront(ctx context.Context, endpoint, loophole, generation string, 
 	}
 	front := HTTPFront{Endpoint: endpoint, Timeout: timeout, Generation: generation}
 	if front.Timeout <= 0 {
-		front.Timeout = 30 * time.Second
+		front.Timeout = connectionBudget
 	}
 	sealCtx, cancelSeal := context.WithTimeout(ctx, httpFrontSealTimeout)
 	reply, err := front.seal(sealCtx, listener.Addr().String(), der)

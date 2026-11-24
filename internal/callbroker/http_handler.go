@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -281,9 +280,22 @@ func (h *HTTPHandler) Handle(s *hostservice.Session) {
 		s.Exit(64)
 		return
 	}
-	ctx, cancel := context.WithTimeout(h.shutdown, 30*time.Second)
+	h.lifetimes.Track(s.JailID)
+	ctx, cancel := h.budget(h.shutdown, decideBudget)
 	defer cancel()
 	verdict, reply, err := h.serveHTTP(ctx, op, s.JailID, original)
+	if err == nil && op == "act" && verdict.Verdict == "asks" && verdict.RequestID != "" {
+		// An asking act holds in place for its answer; the source lock is not held meanwhile.
+		gone, stopWatch := watchDisconnect(s.Conn())
+		held := h.holdOutcome(gone, s.JailID, verdict)
+		stopWatch()
+		verdict = held.Verdict
+		if held.Run {
+			exec, cancelExec := h.budget(withResume(h.shutdown, held.Resume), executeBudget)
+			verdict, reply, err = h.serveHTTP(exec, op, s.JailID, original)
+			cancelExec()
+		}
+	}
 	if err != nil {
 		s.Stderr("HTTP broker refused: " + verdict.Next + "\n")
 		s.Exit(64)
@@ -293,11 +305,7 @@ func (h *HTTPHandler) Handle(s *hostservice.Session) {
 		encoded, _ := json.Marshal(verdict)
 		s.Stdout(string(encoded) + "\n")
 		if op == "act" && verdict.Verdict != "runs" {
-			if verdict.Verdict == "asks" {
-				s.Exit(75)
-			} else {
-				s.Exit(64)
-			}
+			s.Exit(verdictExit(verdict.Verdict))
 		} else {
 			s.Exit(0)
 		}

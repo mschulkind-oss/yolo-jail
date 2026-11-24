@@ -1280,6 +1280,30 @@ func (s *Store) ConsumeExactDispatchContext(ctx context.Context, workspace, jail
 	return s.consumeDispatchContext(ctx, workspace, jail, set, commandDigest, revalidate, dispatch, true)
 }
 
+// SpendExactPreparedContext is SpendExactOrFilePreparedContext without the filing: a call that
+// waited for its own request's answer spends that answer or learns it is gone, and never files
+// a second request (the loser of two calls that joined one request finds its answer used). The
+// prepare and dispatch rules are the same as SpendExactOrFilePreparedContext's.
+func (s *Store) SpendExactPreparedContext(ctx context.Context, input Request, revalidate Revalidate, prepare, dispatch func() error) (Grant, bool, error) {
+	var (
+		g     Grant
+		spent bool
+	)
+	if input.Workspace == "" || input.Jail == "" {
+		return g, false, errors.New("spending a grant needs the host workspace and the jail spending it")
+	}
+	input.Digest = digest(input)
+	err := s.transactionContext(ctx, func(r *records, now time.Time) error {
+		var err error
+		g, spent, err = s.spendInPrepared(ctx, r, now, input.Workspace, input.Jail, input.Set, input.Digest, revalidate, true, prepare)
+		if err != nil || !spent {
+			return err
+		}
+		return afterSpend(ctx, spent, err, dispatch)
+	})
+	return g, spent, err
+}
+
 func (s *Store) consumeDispatchContext(ctx context.Context, workspace, jail, set, commandDigest string, revalidate Revalidate, dispatch func() error, exactOnly bool) (Grant, bool, error) {
 	var out Grant
 	found := false

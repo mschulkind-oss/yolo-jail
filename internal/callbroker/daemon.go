@@ -10,12 +10,15 @@ import (
 	"os/signal"
 	"slices"
 	"syscall"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerhook"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -127,9 +130,16 @@ func Main(args []string) int {
 	}
 	store.PublishRecords = true
 	store.Audit = StoreAudit(log, h.input.Source)
+	// A record the jail's `yolo wait` could not be given is reported, never authoritative.
+	store.PublishFailed = func(q brokerstore.Request, err error) {
+		fmt.Fprintln(os.Stderr, daemonName(h.input.Source)+": could not write the jail's record of request", q.ID+" (`yolo wait` there will not see its answer):", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	h.shutdown = ctx
+	// The user's on_request hook runs once per request this broker lifetime files, as for the
+	// native brokers (brokercore.StartOnRequest); a join notifies nobody.
+	hookDone := brokercore.StartOnRequest(ctx, daemonName(h.input.Source), store, start, config.OnRequest(), os.Stderr)
 	stop := make(chan struct{})
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
@@ -155,12 +165,26 @@ func Main(args []string) int {
 		}
 		handle = httpHandler.Handle
 	}
-	if err := serve(handle, *socket, stop); err != nil && !errors.Is(err, context.Canceled) {
+	err = serve(handle, *socket, stop)
+	cancel()
+	// The jails this broker served have no call waiting on their pending requests any more:
+	// close them, so a waiter wakes with "closed". No grant ends; a workspace holds its own.
+	h.lifetimes.EndAll(brokercore.LifetimeOwner{Name: daemonName(h.input.Source), Start: start, Store: store, Log: os.Stderr})
+	// A hook runs in its own process group, which the launcher's stop signal does not reach, so
+	// wait for the runner to stop what it started.
+	select {
+	case <-hookDone:
+	case <-time.After(brokerhook.StopGrace + brokerhook.KillWait + time.Second):
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintln(os.Stderr, "call-broker: host service failed; inspect the host service and retry")
 		return 1
 	}
 	return 0
 }
+
+// daemonName is the name this daemon's log lines and hook notices carry.
+func daemonName(source string) string { return source + "-broker" }
 
 // lifetimeStart is the broker lifetime start: the one the launch's delivered baseline
 // binds when one exists, otherwise a fresh random one.

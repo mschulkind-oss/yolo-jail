@@ -129,3 +129,31 @@ func TestSpendExactOrFileTypesFilingFailures(t *testing.T) {
 		t.Fatalf("a spend failure: spent %v, err %v", spent, err)
 	}
 }
+
+// A call that waited for its own answer spends it or finds it gone; it never files a second
+// request, which is what the loser of two calls on one joined request would otherwise do.
+func TestSpendExactPreparedSpendsOnceAndNeverFiles(t *testing.T) {
+	s := &Store{Dir: t.TempDir(), Source: "github", Revalidate: unchangedPolicy}
+	q, err := s.File(spendOrFileRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Decide(q.ID, "pending", Decision{}); err != nil {
+		t.Fatal(err)
+	}
+	prepared, dispatched := 0, 0
+	spend := func() (bool, error) {
+		_, spent, err := s.SpendExactPreparedContext(context.Background(), spendOrFileRequest(), s.Revalidate,
+			func() error { prepared++; return nil }, func() error { dispatched++; return nil })
+		return spent, err
+	}
+	if spent, err := spend(); err != nil || !spent || prepared != 1 || dispatched != 1 {
+		t.Fatalf("first: spent=%v prepared=%d dispatched=%d err=%v", spent, prepared, dispatched, err)
+	}
+	if spent, err := spend(); err != nil || spent || prepared != 1 || dispatched != 1 {
+		t.Fatalf("second spent the used answer or ran: spent=%v prepared=%d dispatched=%d err=%v", spent, prepared, dispatched, err)
+	}
+	if reqs, _, err := s.List(); err != nil || len(reqs) != 1 {
+		t.Fatalf("the loser filed a request: %+v %v", reqs, err)
+	}
+}

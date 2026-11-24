@@ -46,6 +46,10 @@ type CLIHandler struct {
 	// scoped asks to a daemon yet, so only a test sets it; the frozen launch
 	// authority is otherwise expressed as the same leaf (operationPolicy).
 	livePolicy func() (brokerpolicy.Policy, error)
+	// timers are the hold's clocks; the zero value is real time (hold.go). Tests inject.
+	timers holdTimers
+	// lifetimes are the jails this broker served, whose pending requests Main closes at stop.
+	lifetimes brokercore.Lifetimes
 }
 
 // newCLIHandler consumes the private selected launch input, not a jail frame or
@@ -485,9 +489,22 @@ func (h *CLIHandler) Handle(s *hostservice.Session) {
 			return
 		}
 	}
-	ctx, cancel := context.WithTimeout(h.shutdown, cliHandlerCallBudget)
+	h.lifetimes.Track(s.JailID)
+	ctx, cancel := h.budget(h.shutdown, decideBudget)
 	defer cancel()
 	verdict, result, err := h.serveCLI(ctx, mode, s.JailID, argv, stdin)
+	if err == nil && mode == "act" && verdict.Verdict == "asks" && verdict.RequestID != "" {
+		// An asking act holds in place for its answer; the source lock is not held meanwhile.
+		gone, stopWatch := watchDisconnect(s.Conn())
+		held := h.holdOutcome(gone, s.JailID, verdict)
+		stopWatch()
+		verdict = held.Verdict
+		if held.Run {
+			exec, cancelExec := h.budget(withResume(h.shutdown, held.Resume), executeBudget)
+			verdict, result, err = h.serveCLI(exec, mode, s.JailID, argv, stdin)
+			cancelExec()
+		}
+	}
 	if err != nil {
 		if completedWriteResponse(err) {
 			s.Stderr("Call broker host CLI response rejected after execution: " + verdict.Next + "\n")
@@ -515,11 +532,7 @@ func (h *CLIHandler) Handle(s *hostservice.Session) {
 	}
 	if verdict.Verdict != "runs" {
 		s.Stderr("Call broker " + verdict.Verdict + ": " + verdict.Next + "\n")
-		if verdict.Verdict == "asks" {
-			s.Exit(75)
-		} else {
-			s.Exit(64)
-		}
+		s.Exit(verdictExit(verdict.Verdict))
 		return
 	}
 	s.StdoutBytes(result.Stdout)

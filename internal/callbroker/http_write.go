@@ -302,6 +302,18 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		}
 		return true, nil
 	}
+	if resumed, ok := resumeOf(ctx); ok && resumed.Once && op == "act" {
+		// This call waited for its own Allow once: it spends that answer or learns it is used,
+		// and never files a second request.
+		_, spent, spendErr := h.store.SpendExactPreparedContext(ctx, q, gate, prepare, dispatch)
+		if spendErr != nil {
+			return h.httpWriteFailure(q.Digest, attempted, preflightFailed, spendErr), reply, spendErr
+		}
+		if spent || reply.PossibleTransmission {
+			return Verdict{Verdict: "runs", Rule: "exact Allow once spent", Digest: q.Digest}, reply, nil
+		}
+		return usedVerdict(q.Digest, resumed.ID), reply, nil
+	}
 	filed, _, covered, err := h.store.FileIfStillAsksWithCoverageContext(ctx, q, gate, coverage)
 	if err != nil {
 		return h.httpWriteFailure(q.Digest, attempted, preflightFailed, err), reply, err

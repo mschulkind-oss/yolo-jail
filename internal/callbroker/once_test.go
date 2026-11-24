@@ -60,6 +60,9 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 	return selectedOnceFixtureForApply(t, standing, initialRead, timed, false)
 }
 
+// skipFixtureBind leaves the launch unbound, for a test whose real daemon process binds it.
+var skipFixtureBind bool
+
 func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liveApply bool, beforeBind ...func(*onceFixture)) *onceFixture {
 	t.Helper()
 	old, inputPath, marker, _ := testCallHandler(t)
@@ -223,6 +226,9 @@ func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liv
 	f := &onceFixture{h: h, home: home, marker: marker, inputPath: inputPath, scopePath: scopePath, grantPath: grantPath, userPath: userPath, store: store, scope: scope}
 	for _, prepare := range beforeBind {
 		prepare(f)
+	}
+	if skipFixtureBind {
+		return f
 	}
 	start, err := brokerstore.NewStartID()
 	if err != nil {

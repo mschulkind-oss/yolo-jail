@@ -102,6 +102,22 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		}
 		return true, nil
 	}
+	if resumed, ok := resumeOf(ctx); ok && resumed.Once && op == "act" {
+		// This call waited for its own Allow once: it spends that answer or learns it is used,
+		// and never files a second request.
+		_, spent, err := h.store.SpendExactPreparedContext(ctx, q, gate, nil, run)
+		if err != nil {
+			return refused(err)
+		}
+		switch {
+		case spent && didRun:
+			return Verdict{Verdict: "runs", Rule: "exact Allow once spent", Digest: q.Digest}, result, nil
+		case spent && resolvedRefusal != nil:
+			resolvedRefusal.Digest = q.Digest
+			return *resolvedRefusal, CLIResult{}, nil
+		}
+		return usedVerdict(q.Digest, resumed.ID), CLIResult{}, nil
+	}
 	filed, _, covered, err := h.store.FileIfStillAsksWithCoverageContext(ctx, q, gate, coverage)
 	if err != nil {
 		return refused(err)
@@ -130,6 +146,6 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 	if filed.ID == "" {
 		return refused(errors.New("call broker neither filed nor covered the call; retry"))
 	}
-	return Verdict{Verdict: "asks", Rule: "host approval required", Digest: q.Digest,
+	return Verdict{Verdict: "asks", Rule: "host approval required", Digest: q.Digest, RequestID: filed.ID,
 		Next: timedApprovalNext(filed, "retry the same call")}, CLIResult{}, nil
 }

@@ -32,6 +32,21 @@ var testClassifierPath string
 var callBrokerBuildEnv []string
 
 func TestMain(m *testing.M) {
+	// A lifecycle test starts the real daemon Main as a child of this test binary.
+	if os.Getenv(realMainEnv) == "1" {
+		os.Exit(Main(os.Args[1:]))
+	}
+	// Tests that are not about the hold see a hold whose 30 seconds have already passed.
+	defaultHoldTimers = func() holdTimers {
+		return holdTimers{
+			Expire: func(time.Duration) (<-chan time.Time, func()) {
+				spent := make(chan time.Time, 1)
+				spent <- time.Time{}
+				return spent, func() {}
+			},
+			Poll: func() (<-chan time.Time, func()) { return make(chan time.Time), func() {} },
+		}
+	}
 	// Fixture HOME changes belong to the executed CLI, not its compiler. Keep the
 	// owner's effective Go environment, including HOME-derived caches and GOENV.
 	callBrokerBuildEnv = os.Environ()

@@ -13,6 +13,12 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
+// dialForward and forwardNow are the forwarder's dial and clock; tests observe the deadline it sets.
+var (
+	dialForward = svcendpoint.Dial
+	forwardNow  = time.Now
+)
+
 // ForwardCLI is the confined side of a selected pack's intercept. The name only
 // selects the launch-published endpoint; it cannot assert a host identity or grant.
 func ForwardCLI(name, op string, argv []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
@@ -42,12 +48,12 @@ func ForwardCLI(name, op string, argv []string, stdin io.Reader, stdout, stderr 
 	if err != nil {
 		return refuse()
 	}
-	conn, err := svcendpoint.Dial(endpoint, 5*time.Second)
+	conn, err := dialForward(endpoint, forwardDialBudget)
 	if err != nil {
 		return refuse()
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(40 * time.Second))
+	_ = conn.SetDeadline(connectionDeadline(forwardNow()))
 	if err := frameproto.WriteRequest(conn, payload); err != nil {
 		return refuse()
 	}
