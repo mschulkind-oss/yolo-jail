@@ -3,7 +3,7 @@ title: "One home per workspace, shared by every setup, with a small slice for wh
 date: 2026-11-23
 status: accepted
 stage: DECIDED
-next: "The planner writes the implementation plan for slice 1 (container setups); the Mac agent runs W-UH2 and W-UH3 (how each agent keys and follows its session directories) before the alias slice is built"
+next: "Build slice 1 from unified-workspace-home-plan.md (units U1 to U8); the Mac agent runs W-UH1, W-UH5 and W-UH6 after it lands, and W-UH2 and W-UH3 before the alias slice is built"
 tags: [design, setups, home, sessions, concurrency, migration, macos-user]
 summary: "Every setup of a workspace shares one unified home under .yolo for sessions, history, plugins and every other state an agent keeps; each setup keeps a small slice (installs, the files yolo generates at boot, yolo's own state) at the path it has today. A setup's state directory becomes a real directory in its slice whose children link into the unified home. One container setup plus one guest may run together; two container setups are refused; stranded and legacy homes are merged, never lost. Sessions are never shared with the host, nor across workspaces unless the owner declares a set."
 vantage:
@@ -542,8 +542,8 @@ Smallest finished first; each lands alone.
 4. **Workspace sets** ([§11](#11-workspace-sets-a-later-slice)).
 5. **Retire the stale prose** of [§12](#12-rulings-this-amends); graduate this document to a reference.
 
-Generated settings files stay per setup ([OQ-UH5](#OQ-UH5)); no slice moves them. No companion implementation plan
-exists yet; the planner writes it next.
+Generated settings files stay per setup ([OQ-UH5](#OQ-UH5)); no slice moves them. The build hand-off for slice 1 is
+[`unified-workspace-home-plan.md`](unified-workspace-home-plan.md); slices 2 to 5 have no plan yet.
 
 ## Decision Ledger
 
