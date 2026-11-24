@@ -258,7 +258,7 @@ func (g *Registry) open(create bool) (*session, error) {
 			return nil, err
 		}
 	}
-	if s.lock, err = s.dir.OpenFile(registryLock, os.O_RDWR|os.O_CREATE, 0o644); err != nil {
+	if s.lock, err = paths.OpenRootCreate(s.dir, registryLock, os.O_RDWR|os.O_CREATE, 0o644); err != nil {
 		s.close()
 		return nil, err
 	}

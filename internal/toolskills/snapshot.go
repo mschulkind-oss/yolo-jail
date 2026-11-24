@@ -300,7 +300,17 @@ func statAt(parent int, name string) (unix.Stat_t, error) {
 func lockFile(snapFD int, path string) (func(), error) {
 	var f *os.File
 	if path == "" {
-		fd, err := unix.Openat(snapFD, ".lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+		// A creating openat racing another creator of the same name has returned ENOENT on
+		// macOS although the file now exists (paths.OpenRootCreate); try again a few times.
+		var fd int
+		var err error
+		for tries := 0; ; tries++ {
+			fd, err = unix.Openat(snapFD, ".lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+			if err == unix.EINTR || (err == unix.ENOENT && tries < 8) {
+				continue
+			}
+			break
+		}
 		if err != nil {
 			return nil, err
 		}

@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 const (
@@ -521,7 +523,7 @@ func OpenTraceStore(root, private string) (*TraceStore, error) {
 		return nil, err
 	}
 	s := &TraceStore{root: r, private: p, rootInfo: ri, privateInfo: pi}
-	f, err := r.OpenFile(".admission", os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	f, err := paths.OpenRootCreate(r, ".admission", os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		s.Close()
 		return nil, traceDeclined()
