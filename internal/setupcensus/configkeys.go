@@ -245,14 +245,20 @@ var configKeys = map[string]Entry{
 
 	// ---- Resources, devices and networking ---------------------------------------------
 	// A matching owner mapping is a required-placement request, not an enforced resource limit.
-	"resource_groups": everywhere(refused("run.Run calls refuseUnsupportedResourceGroup (resourcegroups.go) "+
-		"after config validation and before setup dispatch: a selected mapping gets a read-only, "+
-		"finite I/O policy observation where available, then always refuses because placement "+
-		"is unsupported/unknown. SelectResourceGroup returns without host-policy probes when "+
-		"unselected; config.Load refuses workspace-scope mappings before merge. "+
-		"check.sectionResourceGroups reports disabled or selected-but-unsupported, and "+
-		"run.RefuseHostResourceGroup separately refuses selected yolo host launches"),
-		"`resource_groups` — owner-only placement selection"),
+	"resource_groups": {
+		PodmanLinux: honored("run.Run calls placeOrRefuseResourceGroup (resourcegroups.go) after config " +
+			"validation and before setup dispatch: a selected mapping observes the user-manager unit, " +
+			"creates or reuses the two shared children through pinned descriptors, writes and reads " +
+			"back their io.max, moves the launcher into the agent child and reads /proc/<pid>/cgroup " +
+			"back, then assembleRunCmd passes --cgroup-parent for rootless podman's systemd manager. " +
+			"Every condition it cannot observe refuses. Unselected, nothing is probed. Enforcement is " +
+			"unverified until the owner's host witness"),
+		PodmanMac: refused("the same gate refuses a selected mapping: placement is Linux-only (OQ-RG1)"),
+		AppleContainer: refused("the same gate refuses a selected mapping: placement is Linux-only " +
+			"(OQ-RG1)"),
+		MacosUser: refused("the same gate refuses a selected mapping: placement is Linux-only (OQ-RG1)"),
+		Guide:     []string{"`resource_groups` — owner-only placement selection"},
+	},
 	"resources": {
 		PodmanLinux: honored("appliedResourceLimits (backendcaps.go) → resourceArgs " +
 			"(assemble_parts.go) passes --memory, --cpus and --pids-limit"),

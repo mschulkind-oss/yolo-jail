@@ -594,6 +594,13 @@ type Options struct {
 	// ResourceGroupIOPaths observes only the selected unit's read-only io.max policy.
 	// nil uses the bounded systemd/cgroup-v2 resolver; the off path never invokes it.
 	ResourceGroupIOPaths func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error)
+	// ResourceGroupPlace reconciles the selected group's children and moves pid into the
+	// agent child, returning its cgroup path. nil is the real descriptor-relative writer
+	// (placeResourceGroupNative); only a test supplies another.
+	ResourceGroupPlace func(ctx context.Context, sel config.ResourceGroupSelection, iopaths resourcegroups.IOPaths, lockDir string, pid int) (string, error)
+	// resourceGroupPlaced is what this launch's placement established, nil when no mapping
+	// selected a group. assembleRunCmd reads it to ask the runtime for the same group.
+	resourceGroupPlaced *placedResourceGroup
 	// StartDetached starts argv in its own session with stdio on /dev/null and returns
 	// without waiting for it — the scratch remover's spawn (scratchremoval.go), which has
 	// to outlive the launcher and must never hold its exit. A non-nil inherit becomes

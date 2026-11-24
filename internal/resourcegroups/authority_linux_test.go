@@ -652,7 +652,8 @@ func TestReconcileUserIORejectsOrdinaryGroupBeforeCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := IOPaths{Assigned: assigned, Devices: []string{"8:0"}, UserManager: true}
-	err := ReconcileUserIO(context.Background(), p, 5, privateLock(t), func() (IOPaths, error) { return p, nil })
+	stubUnitObserver(t)
+	err := ReconcileUserIO(context.Background(), "fixture.slice", p, 5, privateLock(t))
 	if err == nil || !strings.Contains(err.Error(), "cgroup v2") {
 		t.Fatalf("ordinary group must fail cgroup-v2 filesystem gate: %v", err)
 	}
@@ -663,7 +664,7 @@ func TestReconcileUserIORejectsOrdinaryGroupBeforeCreation(t *testing.T) {
 	}
 }
 
-func TestReconcileUserIORefusesDirectMutationBeforeChildCreation(t *testing.T) {
+func TestReconcileUserIOLeavesOrdinaryBackingFileUntouchedAndCreatesNoChild(t *testing.T) {
 	root := t.TempDir()
 	assigned := filepath.Join(root, "io.max")
 	original := []byte("8:0 rbps=101\n")
@@ -671,7 +672,8 @@ func TestReconcileUserIORefusesDirectMutationBeforeChildCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := IOPaths{Assigned: assigned, Devices: []string{"8:0"}, UserManager: true}
-	err := ReconcileUserIO(context.Background(), p, 5, privateLock(t), func() (IOPaths, error) { return p, nil })
+	stubUnitObserver(t)
+	err := ReconcileUserIO(context.Background(), "fixture.slice", p, 5, privateLock(t))
 	if err == nil || !strings.Contains(err.Error(), "not on cgroup v2") {
 		t.Fatalf("ordinary backing file must fail filesystem gate before child creation: %v", err)
 	}

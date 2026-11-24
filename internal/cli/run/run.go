@@ -212,7 +212,7 @@ func Run(opts Options) (rc int) {
 	if !ok {
 		return 1
 	}
-	if o.refuseUnsupportedResourceGroup(cfg) {
+	if o.placeOrRefuseResourceGroup(cfg) {
 		return 1
 	}
 	// Load the exclusion policy directly from user scope before either backend stages or
