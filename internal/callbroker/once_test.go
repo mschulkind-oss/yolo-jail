@@ -127,7 +127,7 @@ func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liv
 	if err != nil {
 		t.Fatal(err)
 	}
-	program := "#!/bin/sh\ncase \"$1\" in lookup) printf 'LOOKUP\\n' >> '" + filepath.Join(home, "lookup-effects") + "'; printf '{\"project\":\"team:alpha\"}';; update-pr|update) cat > '" + filepath.Join(home, "stdin-received") + "'; printf 'WRITE\\n' >> '" + marker + "'; if grep -q 'oversized-response' '" + filepath.Join(home, "stdin-received") + "'; then printf 'OVER_CAP_PRIVATE_SENTINEL'; head -c 33554433 /dev/zero | tr '\\000' x; fi;; read) printf '{\"ok\":true}';; error) exit 13;; *) exit 13;; esac\n"
+	program := "#!/bin/sh\ncase \"$1\" in lookup) printf 'LOOKUP\\n' >> '" + filepath.Join(home, "lookup-effects") + "'; printf '{\"project\":\"team:alpha\"}';; update-pr|update) cat > '" + filepath.Join(home, "stdin-received") + "'; printf 'WRITE\\n' >> '" + marker + "'; if grep -q 'oversized-response' '" + filepath.Join(home, "stdin-received") + "'; then printf 'OVER_CAP_PRIVATE_SENTINEL'; head -c 33554433 /dev/zero | tr '\\000' x; fi;; read|read-beta) printf 'READ\\n' >> '" + filepath.Join(home, "read-effects") + "'; printf '{\"ok\":true}';; error) exit 13;; *) exit 13;; esac\n"
 	if err := os.WriteFile(old.program.path, []byte(program), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -284,6 +284,20 @@ func (f *onceFixture) pending(t *testing.T) []brokerstore.Request {
 	}
 	return snap.Requests
 }
+
+// reads counts the host program's executions of a read, apart from lookups and writes.
+func (f *onceFixture) reads(t *testing.T) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.home, "read-effects"))
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(data), "READ\n")
+}
+
 func (f *onceFixture) effects(t *testing.T) int {
 	t.Helper()
 	data, err := os.ReadFile(f.marker)

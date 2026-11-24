@@ -16,6 +16,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
@@ -41,6 +42,10 @@ type CLIHandler struct {
 	httpClient httpExecutor
 	store      *brokerstore.Store
 	audit      *brokeraudit.Log
+	// livePolicy substitutes the decision leaf. Nothing in a launch publishes
+	// scoped asks to a daemon yet, so only a test sets it; the frozen launch
+	// authority is otherwise expressed as the same leaf (operationPolicy).
+	livePolicy func() (brokerpolicy.Policy, error)
 }
 
 // newCLIHandler consumes the private selected launch input, not a jail frame or
@@ -177,28 +182,28 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 		return Verdict{Verdict: "refused", Next: "This is a bug in the selected pack's classifier, so running the call again fails the same way: report it to the pack's author"}, CLIResult{}, errors.New("call broker classifier returned no operation")
 	}
 	q := callRequest(h.input.Source, h.workspace, jail, h.start, h.bound.LaunchID, call, stdin)
-	if len(call.Writes) != 0 && h.start != "" {
-		q.OriginalArgv = slices.Clone(argv)
-		q.Policy = oncePolicy
-		q.Digest = brokerstore.CommandDigest(q)
-	}
 	auditDigest = q.Digest
 	_, _, working, now, err := h.store.InspectContext(ctx)
 	if err != nil {
 		auditReason = "decision-store-failed"
 		return Verdict{Verdict: "refused", Next: "Check the host broker store and retry"}, CLIResult{}, err
 	}
-	q = q.WithWorkingState(working, now).WithExecutionContext(ctx)
-	cells, err := h.currentCellPolicies()
+	policy, err := h.operationPolicy(len(call.Reads) != 0)
 	if err != nil {
 		return Verdict{Verdict: "refused", Next: err.Error()}, CLIResult{}, err
 	}
-	verdict = decideCall(call, cells, working, h.workspace, h.input.Source, now)
-	if refused, ok := neverReadVerdict(h.input.Source, call); ok && verdict.Verdict == "runs" {
-		verdict = refused
+	decided := decideBundle(policy, call, working, h.workspace, h.input.Source, now)
+	verdict = decided.Verdict
+	bound := h.start != "" && (len(call.Writes) != 0 || len(decided.AskReads) != 0)
+	if bound {
+		q.OriginalArgv = slices.Clone(argv)
+		q.Policy = oncePolicy
+		q = bundleSubjects(q, call, decided.AskReads)
 	}
+	auditDigest = q.Digest
+	q = q.WithWorkingState(working, now).WithExecutionContext(ctx)
 	verdict.Digest = q.Digest
-	if len(call.Writes) != 0 && h.start != "" {
+	if bound {
 		verdict, result, err = h.boundWrite(ctx, op, q, call, verdict, stdin)
 		auditReason = "decision-refused"
 		if completedWriteResponse(err) {

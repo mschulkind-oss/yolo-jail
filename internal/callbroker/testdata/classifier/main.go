@@ -64,6 +64,8 @@ func main() {
 	switch req.Argv[0] {
 	case "lookup", "read", "error":
 		out.Classification = &classification{Argv: req.Argv, StdinSHA256: req.StdinSHA256, Reads: read}
+	case "read-beta":
+		out.Classification = &classification{Argv: req.Argv, StdinSHA256: req.StdinSHA256, Reads: [][]resource{{{Type: "project", ID: "team:beta"}}}}
 	case "update-pr":
 		out.Classification = &classification{Argv: req.Argv, StdinSHA256: req.StdinSHA256,
 			Writes: []writeRequest{{Cell: "change", Chain: []resource{{Type: "pr", ID: "#1"}, {Type: "project", ID: "team:alpha"}}, Description: "update test PR"}}}

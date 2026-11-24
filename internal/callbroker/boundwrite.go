@@ -59,9 +59,13 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 	}
 	var result CLIResult
 	didRun := false
+	set := "write"
+	if len(call.Writes) == 0 {
+		set = "read"
+	}
 	run := func() error {
 		if err := h.audit.RequiredContext(ctx, brokeraudit.Event{Event: "call-authorization", Service: h.input.Source, Jail: q.Jail,
-			Set: "write", Outcome: "authorized-before-dispatch", CommandDigest: q.Digest}); err != nil {
+			Set: set, Outcome: "authorized-before-dispatch", CommandDigest: q.Digest}); err != nil {
 			return err
 		}
 		var err error
@@ -72,13 +76,13 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		return err
 	}
 	coverage := func(working []brokerstore.WorkingEntry, now time.Time) (bool, error) {
-		cells, err := h.currentCellPolicies()
+		policy, err := h.operationPolicy(len(call.Reads) != 0)
 		if err != nil {
 			return false, err
 		}
-		current := decideCall(call, cells, working, q.Workspace, h.input.Source, now)
+		current := decideBundle(policy, call, working, q.Workspace, h.input.Source, now).Verdict
 		if current.Verdict == "refused" {
-			return false, errors.New("one write was refused by the current working-set table; change the request and retry")
+			return false, errors.New("one operation was refused by the current policy; change the request and retry")
 		}
 		if current.Verdict != "runs" {
 			return false, nil
