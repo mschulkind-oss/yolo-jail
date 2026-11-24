@@ -139,7 +139,7 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	if !write {
 		// A QUESTION THE --assert WILL ASK (confirmDroppedPackRetire), recorded for the launch
 		// hook (hostApplySurvey.PendingDecisions).
-		survey.noteDecision(fmt.Sprintf("%d path(s) and %d config key(s) a dropped pack left "+
+		survey.noteRetireDecision(fmt.Sprintf("%d path(s) and %d config key(s) a dropped pack left "+
 			"behind would be retired", len(present), len(keys.Orphans)))
 		// AND THE WORK, for the verdict (rule 5): a dry run that lists these as `would archive`
 		// ended "this home is up to date". Counted apart from Changed, which the launch gate reads
@@ -156,6 +156,13 @@ func pruneDroppedPackOutput(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		return rc
 	}
 
+	if survey != nil && survey.deferRetire {
+		// THE LAUNCH GATE'S APPLY does not ask this question: nobody can see it, and the retire
+		// is no reason to leave the rest of the render undone. The home keeps everything, and
+		// the gate says so after it writes (reportGateDeferredRetire).
+		survey.noteDeclinedRetire(len(present), len(keys.Orphans))
+		return rc
+	}
 	if !confirmDroppedPackRetire(pr, out, stdin, present, keys.Orphans) {
 		// Declining is a legitimate answer, not a failure: nothing the user asked for was
 		// skipped — the files simply stay, and this run reports it the same way the next one

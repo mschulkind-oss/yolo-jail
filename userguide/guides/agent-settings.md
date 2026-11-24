@@ -104,8 +104,12 @@ or set the mode back to `keep`, which silences the notice.
 
 `yolo host -- <agent>` reads your **user** config only. For Claude Code and Codex it hands the agent
 the same setting as a command-line flag for that one run, and for pi its flag, and prints the same
-line. `yolo host apply` writes your user config's `replace` text into the briefing it writes, and
-nothing about one project into your real home, which every project shares.
+line. Your user config's `replace` text reaches the agent through the briefing the launch itself
+writes into your real home (the same automatic update that keeps the rest of your host setup
+current), so you do not run `yolo host apply` for it; `yolo host apply` writes the same text. Neither
+writes anything about one project into your real home, which every project shares. If the launch says
+a dropped pack's leftovers are still waiting, that does not hold the update back: answer it with
+`yolo host apply --assert` when you like.
 
 ## Codex's background copy
 
