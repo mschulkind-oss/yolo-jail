@@ -22,12 +22,17 @@ type rgFakeManager struct {
 	cg      string
 	calls   [][]string
 	started map[string]string // unit -> control group
-	// movedTo is the cgroup a busctl StartTransientUnit moves the launcher into, after
-	// `landAfter` membership reads (the scope start is asynchronous).
+	// member is where the launcher is until a transient scope's start job completes. The job
+	// is asynchronous: busctl only queues it, and `systemctl --user start <scope>` returns when
+	// it is done. jobRelease, when set, holds that wait until the test closes it, and
+	// jobWaiting is closed when the wait begins.
 	member     string
-	landAfter  int
-	reads      int
 	failBusctl error
+	jobRelease chan struct{}
+	jobWaiting chan struct{}
+	neverMoves bool // the job completes but the pid stays where it was
+	jobDone    bool
+	readEarly  bool // the membership was read before the job completed
 }
 
 func newRGFakeManager(t *testing.T) *rgFakeManager {
@@ -63,6 +68,15 @@ func (f *rgFakeManager) query(argv []string) (string, error) {
 		return f.started[argv[len(argv)-1]] + "\n", nil
 	case argv[0] == "systemctl" && argv[2] == "set-property":
 		return "", nil
+	case argv[0] == "systemctl" && argv[2] == "start" && strings.HasPrefix(argv[3], "yolo-jail-launcher-"):
+		if f.jobWaiting != nil {
+			close(f.jobWaiting)
+		}
+		if f.jobRelease != nil {
+			<-f.jobRelease
+		}
+		f.jobDone = true
+		return "", nil
 	case argv[0] == "systemctl" && argv[2] == "start":
 		for _, unit := range argv[3:] {
 			cg := f.cg + "/" + unit
@@ -88,17 +102,18 @@ func (f *rgFakeManager) query(argv []string) (string, error) {
 
 func (f *rgFakeManager) memberOf(int) (string, error) {
 	if f.member == "pending" {
-		f.reads++
-		if f.reads > f.landAfter {
-			return filepath.Join(f.root, f.cg, "batch-yolo-agent.slice", "run-p77.scope"), nil
+		if !f.jobDone {
+			f.readEarly = true
 		}
-		return filepath.Join(f.root, f.cg, "session-3.scope"), nil
+		if f.neverMoves {
+			return filepath.Join(f.root, f.cg, "session-3.scope"), nil
+		}
+		return filepath.Join(f.root, f.cg, "batch-yolo-agent.slice", "run-p77.scope"), nil
 	}
 	return filepath.Join(f.root, f.member), nil
 }
 
-func (f *rgFakeManager) placement() (resourceGroupPlacement, *int) {
-	pauses := 0
+func (f *rgFakeManager) placement() resourceGroupPlacement {
 	return resourceGroupPlacement{
 		IsLinux: true,
 		Pid:     77,
@@ -108,8 +123,7 @@ func (f *rgFakeManager) placement() (resourceGroupPlacement, *int) {
 		Query:     f.query,
 		MountInfo: f.mountInfo(),
 		Member:    f.memberOf,
-		Pause:     func() { pauses++ },
-	}, &pauses
+	}
 }
 
 var rgSelection = config.ResourceGroupSelection{Unit: "batch-yolo.slice", AgentPercent: 5, Source: "default"}
@@ -125,8 +139,7 @@ func (f *rgFakeManager) call(name string) []string {
 
 func TestPlacementCreatesChildSlicesAndMovesTheLauncherIntoTheAgentChild(t *testing.T) {
 	f := newRGFakeManager(t)
-	f.landAfter = 3 // the scope start has not moved the pid for the first three reads
-	d, pauses := f.placement()
+	d := f.placement()
 	out := d.place(rgSelection)
 	if out.Err != nil {
 		t.Fatal(out.Err)
@@ -144,23 +157,48 @@ func TestPlacementCreatesChildSlicesAndMovesTheLauncherIntoTheAgentChild(t *test
 			t.Errorf("the placement call lacks %q: %s", want, bus)
 		}
 	}
-	if *pauses != 3 {
-		t.Fatalf("the membership was read until it landed: %d pauses, want 3", *pauses)
+	if f.call("start") == nil || f.readEarly {
+		t.Fatalf("the membership was read before the scope's start job completed (early=%v): %v", f.readEarly, f.calls)
 	}
 	if !strings.HasSuffix(out.Placed.ChildDir, "batch-yolo-agent.slice") {
 		t.Fatalf("child dir = %q", out.Placed.ChildDir)
 	}
 }
 
+// The scope's start job completes late, released by the test; the launch waits for that event
+// and still succeeds, and the membership is read only after it. No read count or timer decides.
+func TestPlacementWaitsForTheStartJobToCompleteThenReadsMembershipOnce(t *testing.T) {
+	f := newRGFakeManager(t)
+	f.jobRelease = make(chan struct{})
+	f.jobWaiting = make(chan struct{})
+	d := f.placement()
+	done := make(chan resourceGroupOutcome, 1)
+	go func() { done <- d.place(rgSelection) }()
+	<-f.jobWaiting // the launch is now blocked on the job, not polling
+	select {
+	case out := <-done:
+		t.Fatalf("placement finished before the job completed: %+v", out)
+	default:
+	}
+	close(f.jobRelease)
+	out := <-done
+	if out.Err != nil || out.Placed == nil {
+		t.Fatalf("a late job completion refused a launch where nothing was wrong: %+v", out)
+	}
+	if f.readEarly {
+		t.Fatal("the membership was read before the job completed")
+	}
+}
+
 func TestPlacementOfAnAttachReusesThePairAndMovesNothingWhenAlreadyInsideIt(t *testing.T) {
 	f := newRGFakeManager(t)
-	d, _ := f.placement()
+	d := f.placement()
 	if out := d.place(rgSelection); out.Err != nil { // the first launch makes the pair
 		t.Fatal(out.Err)
 	}
 	f.calls = nil
 	f.member = f.cg + "/batch-yolo-agent.slice/run-p9.scope" // the attacher is already in the agent share
-	d, _ = f.placement()
+	d = f.placement()
 	out := d.place(rgSelection)
 	if out.Err != nil || out.Placed == nil {
 		t.Fatalf("an attach inside the agent child refused: %+v", out)
@@ -177,7 +215,7 @@ func TestPlacementRefusalsNameTheirStep(t *testing.T) {
 	t.Run("the user manager refuses the move", func(t *testing.T) {
 		f := newRGFakeManager(t)
 		f.failBusctl = errors.New("Failed to connect to bus")
-		d, _ := f.placement()
+		d := f.placement()
 		out := d.place(rgSelection)
 		if out.Err == nil || out.Placed != nil || !strings.Contains(out.Err.Error(), "busctl --user status") || !strings.Contains(out.Err.Error(), "yolo check --no-build") {
 			t.Fatalf("outcome = %+v", out)
@@ -185,19 +223,16 @@ func TestPlacementRefusalsNameTheirStep(t *testing.T) {
 	})
 	t.Run("membership never lands", func(t *testing.T) {
 		f := newRGFakeManager(t)
-		f.landAfter = 1 << 30
-		d, pauses := f.placement()
+		f.neverMoves = true
+		d := f.placement()
 		out := d.place(rgSelection)
-		if out.Err == nil || out.Placed != nil || !strings.Contains(out.Err.Error(), "still in") || !strings.Contains(out.Err.Error(), "systemctl --user status batch-yolo-agent.slice") {
+		if out.Err == nil || out.Placed != nil || !strings.Contains(out.Err.Error(), "not inside batch-yolo-agent.slice") || !strings.Contains(out.Err.Error(), "systemctl --user status batch-yolo-agent.slice") {
 			t.Fatalf("outcome = %+v", out)
-		}
-		if *pauses != placementReads-1 {
-			t.Fatalf("the guard stopped after %d pauses, want %d", *pauses, placementReads-1)
 		}
 	})
 	t.Run("a non-slice unit", func(t *testing.T) {
 		f := newRGFakeManager(t)
-		d, _ := f.placement()
+		d := f.placement()
 		out := d.place(config.ResourceGroupSelection{Unit: "work.service", AgentPercent: 5})
 		if out.Err == nil || !strings.Contains(out.Err.Error(), "not a slice") || len(f.calls) != 0 {
 			t.Fatalf("outcome = %+v, calls = %v", out, f.calls)
@@ -208,7 +243,7 @@ func TestPlacementRefusalsNameTheirStep(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(f.root, f.cg, "cgroup.controllers"), []byte("memory pids\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		d, _ := f.placement()
+		d := f.placement()
 		out := d.place(rgSelection)
 		if out.Err == nil || !strings.Contains(out.Err.Error(), "Delegate=") || f.call("set-property") != nil || f.call("busctl") != nil {
 			t.Fatalf("outcome = %+v, calls = %v", out, f.calls)
@@ -216,7 +251,7 @@ func TestPlacementRefusalsNameTheirStep(t *testing.T) {
 	})
 	t.Run("the launcher cgroup cannot be read", func(t *testing.T) {
 		f := newRGFakeManager(t)
-		d, _ := f.placement()
+		d := f.placement()
 		d.Member = func(int) (string, error) { return "", errors.New("no such process") }
 		out := d.place(rgSelection)
 		if out.Err == nil || !strings.Contains(out.Err.Error(), "yolo check --no-build") {
@@ -225,7 +260,7 @@ func TestPlacementRefusalsNameTheirStep(t *testing.T) {
 	})
 	t.Run("in a jail", func(t *testing.T) {
 		f := newRGFakeManager(t)
-		d, _ := f.placement()
+		d := f.placement()
 		d.InJail = true
 		if out := d.place(rgSelection); out.Err == nil || len(f.calls) != 0 {
 			t.Fatalf("outcome = %+v, calls = %v", out, f.calls)

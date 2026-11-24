@@ -45,8 +45,6 @@ type resourceGroupPlacement struct {
 	// Move asks the user manager to put pid into a transient scope inside the named agent
 	// child slice. nil is the real busctl StartTransientUnit call over Query.
 	Move func(ctx context.Context, agentUnit string, pid int) error
-	// Pause waits between membership reads; nil sleeps. A test supplies a recorder.
-	Pause func()
 	// MountInfo is the cgroup mount table; nil reads /proc/self/mountinfo.
 	MountInfo []byte
 	Pid       int
@@ -73,7 +71,7 @@ type resourceGroupOutcome struct {
 // carries the command's stderr, so a refusal can say what systemd said.
 func userManagerQuery(run func(argv []string, dir string, env []string, timeout time.Duration) ExecResult) resourcegroups.ManagerQuery {
 	return func(argv []string) (string, error) {
-		result := run(argv, "", nil, 15*time.Second)
+		result := run(argv, "", nil, 60*time.Second)
 		switch {
 		case !result.Ran:
 			return "", fmt.Errorf("%s could not be run", argv[0])
@@ -102,7 +100,11 @@ func (d resourceGroupPlacement) children(ctx context.Context, sel config.Resourc
 
 // moveIntoAgentSlice is the real Move: busctl's StartTransientUnit with this pid in the new
 // scope's PIDs and the agent child as its Slice. The call returns when the job is queued, not
-// when the pid has moved; the caller reads /proc/<pid>/cgroup back.
+// when the pid has moved. It then waits for that job's completion with `systemctl --user
+// start` on the scope, which joins the pending start job and blocks until the manager reports
+// it done (systemctl waits on the manager's own JobRemoved signal), so no loop or timer decides
+// success; the caller reads /proc/<pid>/cgroup once afterwards. Query's timeout is only the
+// generous failure guard.
 func (d resourceGroupPlacement) moveIntoAgentSlice(ctx context.Context, agentUnit string, pid int) error {
 	if d.Move != nil {
 		return d.Move(ctx, agentUnit, pid)
@@ -111,20 +113,20 @@ func (d resourceGroupPlacement) moveIntoAgentSlice(ctx context.Context, agentUni
 		return errors.New("the user manager cannot be queried")
 	}
 	p := strconv.Itoa(pid)
+	scope := "yolo-jail-launcher-" + p + ".scope"
 	_, err := d.Query([]string{"busctl", "--user", "call", "org.freedesktop.systemd1",
 		"/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "StartTransientUnit",
-		"ssa(sv)a(sa(sv))", "yolo-jail-launcher-" + p + ".scope", "fail", "3",
+		"ssa(sv)a(sa(sv))", scope, "fail", "3",
 		"PIDs", "au", "1", p,
 		"Slice", "s", agentUnit,
 		"Description", "s", "yolo jail launcher in " + agentUnit,
 		"0"})
+	if err != nil {
+		return err
+	}
+	_, err = d.Query([]string{"systemctl", "--user", "start", scope})
 	return err
 }
-
-// placementReads bounds how often the membership is read while the scope start moves the pid
-// (about ten seconds at 50 ms); it is a failure guard, and the pass condition is the observed
-// membership, never the elapsed time.
-const placementReads = 200
 
 func (d resourceGroupPlacement) place(sel config.ResourceGroupSelection) resourceGroupOutcome {
 	switch {
@@ -174,24 +176,16 @@ func (d resourceGroupPlacement) place(sel config.ResourceGroupSelection) resourc
 			out.Err = fmt.Errorf("your user manager would not move this launcher into %s: %w; check that `busctl --user status` works in this terminal (start yolo from a terminal inside your user manager), then run yolo check --no-build", children.Agent, err)
 			return out
 		}
-		pause := d.Pause
-		if pause == nil {
-			pause = func() { time.Sleep(50 * time.Millisecond) }
+		// The move is finished when the scope's start job is, which moveIntoAgentSlice waited
+		// for, so one read decides: a launcher still outside the agent child is a refusal.
+		dir, err = member(d.Pid)
+		if err != nil {
+			out.Err = fmt.Errorf("cannot read which cgroup this launcher is in after asking for the move: %w; run yolo check --no-build", err)
+			return out
 		}
-		for reads := 1; ; reads++ {
-			dir, err = member(d.Pid)
-			if err != nil {
-				out.Err = fmt.Errorf("cannot read which cgroup this launcher is in after asking for the move: %w; run yolo check --no-build", err)
-				return out
-			}
-			if resourcegroups.InsideGroup(dir, children.AgentDir) {
-				break
-			}
-			if reads >= placementReads || ctx.Err() != nil {
-				out.Err = fmt.Errorf("this launcher is still in %s after your user manager was asked to move it into %s; check `systemctl --user status %s` and that this terminal belongs to your user manager, then run yolo check --no-build", dir, children.Agent, children.Agent)
-				return out
-			}
-			pause()
+		if !resourcegroups.InsideGroup(dir, children.AgentDir) {
+			out.Err = fmt.Errorf("this launcher is in %s after your user manager moved it, not inside %s; check `systemctl --user status %s` and that this terminal belongs to your user manager, then run yolo check --no-build", dir, children.Agent, children.Agent)
+			return out
 		}
 	}
 	out.Placed = &placedResourceGroup{Unit: sel.Unit, Child: children.Agent, ChildDir: children.AgentDir}

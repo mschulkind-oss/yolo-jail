@@ -575,7 +575,6 @@ func TestHostResourceGroupPlacesTheHostCommandBeforeItRuns(t *testing.T) {
 			}
 			return "/cg/batch-agent.slice/run-p4242.scope", nil
 		},
-		Pause: func() {},
 		Move: func(_ context.Context, agent string, pid int) error {
 			placed = append(placed, pid)
 			if agent != "batch-agent.slice" {
