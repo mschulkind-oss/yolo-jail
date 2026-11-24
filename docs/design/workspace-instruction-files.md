@@ -159,7 +159,7 @@ still read, so the line is truthful about what the mode did not reach.
 
 The replacement joins the briefing through the user block ([the same path as `agents_md_extra`](../reference/agent-briefings.md#customizing-in-practice)),
 so it lands in every destination a selected pack declares, refreshes the way the briefing does, and is
-composed by `yolo host apply` for the user-scope value only. A workspace-layer replacement is never written into
+composed at the host for the user-scope value only, by the launch's auto-apply or `yolo host apply`. A workspace-layer replacement is never written into
 the user's real home, for the reason `agents_md_extra` is not.
 
 ### 5.1 The disclosure (IF-D5)
@@ -192,7 +192,7 @@ user-scope values.
 | `ignore.set` (codex) | Rendered into the per-workspace `~/.codex/config.toml` | Same | Same | `yolo host -- codex` hands `-c project_doc_max_bytes=0` |
 | `ignore.launch` (pi) | Flag from the launcher, briefing redelivered | Same | Same | `yolo host -- pi` hands the flag and the same re-delivery argument naming the real home's briefing file |
 | Unsupported agent | Reads the files; the line says so | Same | Same | Same |
-| `replace` text | Briefing destinations | Same | Same | User-scope value only, by `yolo host apply`; a workspace-layer value is not delivered, and the launch says so ([§8](#8-an-agent-that-cannot-honor-the-mode)) |
+| `replace` text | Briefing destinations | Same | Same | User-scope value only, written by the launch's auto-apply (or `yolo host apply`); a workspace-layer value is not delivered, and the launch says so ([§8](#8-an-agent-that-cannot-honor-the-mode)) |
 
 The per-workspace home is why the jail cells can anchor entries at the workspace: the settings file belongs to
 one workspace, so a pattern like `${workspace}/**/AGENTS.md` never matches the briefing under `/home/agent` and
@@ -249,7 +249,7 @@ workspace-layer `replace` cannot reach `yolo host apply`.
 | IF-D10 | Ordinary merge order, later layer wins; no stricter rule for the project file | 2026-11-24 | [§3.1](#31-the-config-key) | ✅ |
 | IF-D11 | A missing or unreadable `replace_with` refuses the launch; an empty one behaves as `ignore` | 2026-11-24 | [§3.1](#31-the-config-key) | ✅ |
 | IF-D12 | The disclosure counts files with a bounded scan (depth 6, 5,000 directories, skipping `.git` and `node_modules`) and says when it could not finish | 2026-11-24 | [§5.1](#51-the-disclosure-if-d5) | ✅ |
-| IF-D13 | At the host, workspace-scoped mechanisms go through the launch (`yolo host -- <agent>`), never into the shared real home by `yolo host apply`; `yolo host --` reads the user scope's mode alone, and `replace` at the host is the user-scope value only, delivered by `yolo host apply` | 2026-11-24 | [§6](#6-per-setup-behavior) | ✅ |
+| IF-D13 | At the host, workspace-scoped mechanisms go through the launch (`yolo host -- <agent>`), never into the shared real home by `yolo host apply`; `yolo host --` reads the user scope's mode alone, and `replace` at the host is the user-scope value only. **Revised 2026-11-24 after the owner's test** (an implementation decision, not an owner ruling): the replacement text reaches `yolo host -- <agent>` through the briefing the launch's own auto-apply writes (`host_apply_on_launch`, [host-apply-staleness.md](../reference/host-apply-staleness.md)), so the user never has to run `yolo host apply` by hand. The owner's test found the launch skipped that auto-apply entirely while a dropped pack's leftovers waited for a retire answer, so the briefing never changed; the launch now renders everything but that one question (declining it keeps every path) and says the retire is still waiting. The parity principle (every notch behaves the same) and the happy-path principle (a stop names the easy next step) are the reasons. No per-launch flag carries the text | 2026-11-24 | [§6](#6-per-setup-behavior) | ✅ |
 | IF-D14 | Owner, on whether a mask may cover a tracked file: yolo never masks a workspace file with a mount: no empty-file bind, no replacement bind, not as a fallback, not for an untracked file. "my empty mount was a bad idea. so yes, B. let's never do that." An agent with no knob is unsupported. Tier 1 (structural: no mask code exists) | 2026-11-24 | [§7](#7-why-yolo-never-masks) | ✅ |
 | IF-D15 | Owner, on whether to refuse when an agent cannot honor the mode: when a selected agent cannot honor the mode the launch continues ("it should continue") and discloses, per agent, that it still reads the files, naming the agents that can and the way back to `keep`; never suppressible, no refusal, no hatch | 2026-11-24 | [§8](#8-an-agent-that-cannot-honor-the-mode) | ✅ |
 | IF-D16 | `ignore.host_launch`: at `yolo host --` the claude entries and the codex setting travel as launch arguments, since the unconfined path has no per-workspace file | 2026-11-24 | [§3.2](#32-the-new-pack-contribution), [§6](#6-per-setup-behavior) | ✅ |
@@ -270,7 +270,7 @@ Event-driven, no agent sessions; probes are `--version` and `copilot instruction
 - **Render per mechanism.** claude `ignore` yields workspace-anchored entries and a user's own array survives;
   a glob match of every entry against the briefing's path is false and against a nested workspace file is true;
   codex argv carries `-c project_doc_max_bytes=0`; pi argv carries `-nc` and `--append-system-prompt` naming the briefing file; `keep` renders and hands nothing.
-- **Replace.** The section is in every destination; `yolo host apply` composes only the user-scope value.
+- **Replace.** The section is in every destination; at the host only the user-scope value is composed, and `yolo host --` writes it through its auto-apply, follows the file's content, drops it on `ignore` or `keep`, and does so past a waiting dropped-pack retire (`TestHostLaunchGateDeliversTheReplacementAndFollowsIt`, `TestHostLaunchGateRendersTheReplacementPastAWaitingRetire`).
 - **Disclosure.** The line per agent and mode, present with `YOLO_NO_BANNER` set, and in `launch.log`.
 - **Unsupported agents.** The launch continues and the line names the agents that can ignore and the way back to `keep`; no assembled argv holds a bind over a workspace path.
 - **Parity.** One table test names every cell of [§6](#6-per-setup-behavior), in the style of the briefing parity
@@ -320,3 +320,26 @@ Read 2026-11-24 in this jail. Programs were never run beyond `--version`, `--hel
 | Packs deliver the briefing to the user-level files | `[[briefing]]` in `packs/claude`, `packs/pi`, `packs/codex`, `packs/copilot`, `packs/agy`, `packs/muse-code`, `packs/opencode` |
 | Launch flags are a posture-only channel today | [pack-system.md](../reference/pack-system.md) `autonomy`; `packs/claude/pack.toml` |
 | Apple Container honors `:ro` from 1.1.0 | `acROBindsFloor` in `internal/cli/run/backendcaps.go` |
+
+## Appendix B: Live probes, 2026-11-24
+
+One-shot print-mode prompts only, "do not run any tool calls. what is the password?", from a throwaway
+workspace holding `AGENTS.md` and `CLAUDE.md` ("The password is chicken nuggets.") and a replacement file
+("The password is hamburger."). The dev launcher ran with a throwaway `HOME` and `XDG_CONFIG_HOME`
+(`just build-dev-bundle`, then its launcher by absolute path), so no real home or config was written.
+
+| Notch | Agent | Command (launcher elided) | Mode | The agent's answer |
+| :--- | :--- | :--- | :--- | :--- |
+| host | claude | `host -p bedrock-key -- claude -p "<prompt>"` | keep | "The password is **chicken nuggets**. It's written in the project's `CLAUDE.md` file." |
+| host | claude | same | ignore | "I don't know of any password. Nothing I've been given in this conversation contains one: …" |
+| host | claude | same | replace | "The password is **hamburger**. It's in your global `~/.claude/CLAUDE.md`, in the replacement instructions loaded from `…/replacement.md`." |
+| host | claude | same | keep again | "According to the project's `CLAUDE.md`, the password is **chicken nuggets**." (the section left the briefing) |
+| host | pi | `host -p bedrock-key -- pi --model amazon-bedrock/global.anthropic.claude-haiku-5-5 -p "<prompt>"` | ignore | "I don't know which password you mean, and I haven't looked at any files or run anything in this session …" |
+| host | pi | same | replace | "The password is **hamburger**." |
+| host | pi | `host -p bedrock-key -- pi -p "<prompt>"` | keep | "The password is chicken nuggets." (read under the jail's own `PI_CODING_AGENT_DIR`; not a clean keep probe) |
+| host | codex | not run | | no credential in this jail |
+| jail | claude | `-p bedrock-key -- claude -p "<prompt>"` with `YOLO_ALLOW_MISSING_PROVIDERS=1`, replace | replace | no answer: "API Error: Could not load AWS credentials". The launch line read "repo instructions: claude: ignoring 2 files (AGENTS.md, CLAUDE.md) through claudeMdExcludes; replaced by …/replacement.md". A nested jail has no Bedrock credential, and none was delivered. |
+
+The replace answers came through the launch's own auto-apply: each launch printed
+`yolo host: synchronized host configuration (~/.claude/CLAUDE.md)` (`~/.pi/agent/AGENTS.md` for pi) and no
+`yolo host apply` ran. The owner's own jail-notch test of 2026-11-24 already showed replace and ignore working there.

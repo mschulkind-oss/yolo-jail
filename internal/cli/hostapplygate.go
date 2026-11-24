@@ -278,7 +278,13 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 	//
 	// The patched extensions this program loads are linked even so (PPX-D44): a link asks nothing,
 	// takes no path the user owns, and is the delivery of what this launch built.
-	if decisions := survey.PendingDecisions(); len(decisions) > 0 && !surveyOnlyNeedsLossPrompt(survey) {
+	//
+	// THE DROPPED-PACK RETIRE IS THE ONE QUESTION THAT DOES NOT STOP THE RENDER: declining it
+	// keeps every path and key where it is, so the rest of the render goes ahead and the launch
+	// says the retire is still waiting (reportGateDeferredRetire). Measured on the maintainer's
+	// machine: one dropped pack's leftovers made every launch skip the render, so a
+	// repo_instructions replacement never reached the briefing `yolo host -- claude` reads.
+	if decisions := survey.BlockingDecisions(); len(decisions) > 0 && !surveyOnlyNeedsLossPrompt(survey) {
 		linkHostLaunchTrees(errw, treeBin, home)
 		reportHostApplyGateDecisions(errw, bin, decisions)
 		reportGateMisses(errw, survey, bin)
@@ -466,7 +472,7 @@ func hostApplyGateApplyInteractive(errw io.Writer, stdin io.Reader, bin string) 
 func hostApplyGateApply(errw io.Writer, bin, home string) bool {
 	var buf bytes.Buffer
 	stdin := &noPromptStdin{}
-	wrote := &hostApplySurvey{}
+	wrote := &hostApplySurvey{deferRetire: true}
 	rc := hostApplyGateWrite(&buf, &buf, false, true, stdin, wrote)
 	if stdin.asked {
 		// The pre-check missed a question: a bug, and reported as one rather than hidden.
@@ -504,7 +510,19 @@ func hostApplyGateApply(errw io.Writer, bin, home string) bool {
 	}
 	reportHostApplyGateSynchronized(errw, home, wrote)
 	reportGateFilesRetires(errw, home, wrote)
+	reportGateDeferredRetire(errw, wrote)
 	return true
+}
+
+// reportGateDeferredRetire says the dropped-pack retire this launch's apply did not ask is still
+// waiting, with the command that asks it. Silent when nothing is waiting.
+func reportGateDeferredRetire(errw io.Writer, wrote *hostApplySurvey) {
+	paths, keys := wrote.DeclinedRetires()
+	if paths == 0 && keys == 0 {
+		return
+	}
+	fmt.Fprintf(errw, "yolo host: %d path(s) and %d config key(s) a dropped pack left behind are still "+
+		"in your home — `yolo host apply --assert` asks before retiring them.\n", paths, keys)
 }
 
 // reportGateFilesRetires prints, one line each, what the `files` retire did or declined to do

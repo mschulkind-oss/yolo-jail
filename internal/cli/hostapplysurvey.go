@@ -213,6 +213,13 @@ type hostApplySurvey struct {
 	// would prompt, so the launch hook can know BEFORE writing that an apply is not one it may
 	// run unattended (PendingDecisions).
 	decisions []string
+	// retireDecision is the one entry of decisions that is the dropped-pack retire. Declining it
+	// changes nothing in the home, so it is the one question the launch gate does not let stop the
+	// rest of a render (BlockingDecisions).
+	retireDecision string
+	// deferRetire is set on the survey the launch gate's WRITING apply fills: that apply does not
+	// ask the dropped-pack retire, it leaves it for `yolo host apply --assert`.
+	deferRetire bool
 	// retirePaths and retireKeys are the dropped-pack retire still waiting in a dry run: the paths
 	// and config keys a pack no longer in `packs` left in the home, each listed as `would archive`
 	// or `would remove key`, that an --assert asks before retiring (pruneDroppedPackOutput). The
@@ -695,6 +702,29 @@ func (s *hostApplySurvey) noteDecision(what string) {
 		return
 	}
 	s.decisions = append(s.decisions, what)
+}
+
+// noteRetireDecision records the dropped-pack retire question (see retireDecision).
+func (s *hostApplySurvey) noteRetireDecision(what string) {
+	if s == nil {
+		return
+	}
+	s.retireDecision = what
+	s.decisions = append(s.decisions, what)
+}
+
+// BlockingDecisions is PendingDecisions without the dropped-pack retire: the questions whose blind
+// answer could move or lose something, so an unattended apply must not run past them. The retire
+// is left out because its decline keeps every path and key where it is.
+func (s *hostApplySurvey) BlockingDecisions() []string {
+	var out []string
+	for _, d := range s.PendingDecisions() {
+		if s != nil && s.retireDecision != "" && d == s.retireDecision {
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // PendingDecisions is every question an --assert of this apply would put to a human, as one
