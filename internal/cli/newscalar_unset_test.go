@@ -27,7 +27,7 @@ func TestConfigRegistryUnsetScalarRemovesNamedLocalValueInBothFormats(t *testing
 			localName: paths.WorkspaceLocalConfigTOMLName,
 			userText:  "[machine.resources]\ncpus = 1\n", projectText: "[machine.resources]\ncpus = 2\n", localText: "[machine.resources]\ncpus = 3\n",
 			// cpus is the table's only key, so its header goes with it (editing.md).
-			wantLower: int64(2), wantHunk: "-[machine.resources]\ncpus = 3",
+			wantLower: int64(2), wantHunk: "-[machine.resources]\n-cpus = 3",
 		},
 		{
 			name: "JSONC canonical integer", key: "machine.resources.cpus", format: configdoc.JSONC,
@@ -357,8 +357,8 @@ func TestConfigRegistryUnsetScalarDryRunInvalidInputAbsentAndNonScalarPreserveFi
 			t.Errorf("invalid/non-scalar unset %q rc=%d stdout=%q stderr=%q", args, rc, out.String(), errw.String())
 		}
 		if args[1] == "env.set.FOO" && (!strings.Contains(errw.String(), workspace.Path) ||
-			!strings.Contains(errw.String(), "env.set.FOO") || !strings.Contains(errw.String(), "edit the value manually") ||
-			!strings.Contains(errw.String(), "yolo check")) {
+			!strings.Contains(errw.String(), "env.set.FOO") || !strings.Contains(errw.String(), "yolo config add env.unset") ||
+			strings.Contains(errw.String(), "edit the value manually")) {
 			t.Errorf("non-scalar refusal lacks selected path, canonical key, or next step: %q", errw.String())
 		}
 		if got := mustReadScalarUnset(t, workspace.Path); !bytes.Equal(got, before) {
@@ -401,8 +401,7 @@ func TestConfigRegistryUnsetScalarRefusalQuotesSelectedFileAndGivesNextStep(t *t
 
 	rc, out, errw := dispatchConfigCapture(t, []string{"unset", "env.set.FOO", "--project"})
 	if rc == 0 || out != "" || !strings.Contains(errw, `"`+project+`"`) ||
-		!strings.Contains(errw, `"env.set.FOO"`) || !strings.Contains(errw, "edit the value manually") ||
-		!strings.Contains(errw, "yolo check") || !strings.Contains(errw, "yolo config apply") {
+		!strings.Contains(errw, `"env.set.FOO"`) || !strings.Contains(errw, "yolo config add env.unset") || strings.Contains(errw, "edit the value manually") || !strings.Contains(errw, "yolo config apply") {
 		t.Fatalf("non-scalar refusal is not quoted/actionable: rc=%d stdout=%q stderr=%q", rc, out, errw)
 	}
 	if got, err := os.ReadFile(project); err != nil || string(got) != "[env.set]\nFOO = \"x\"\n" {
