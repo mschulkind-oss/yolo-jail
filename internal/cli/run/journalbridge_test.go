@@ -94,6 +94,10 @@ func TestMain(m *testing.M) {
 	// from os.Environ would select the outer jail's setup instead of a host's
 	// (TestThisPackageClearsTheSetupSelectionEnv).
 	testsupport.ClearSetupSelectionEnv()
+	// THE CALLER'S YOLO_* DIALS ARE NOT THIS SUITE'S (testsupport.ScrubYoloEnv): a shell under
+	// `yolo host` or in a jail exports hatches such as YOLO_ALLOW_MISSING_PROGRAMS that turn an
+	// expected refusal into a launch. Past every child dispatch above, which reads its mode variables.
+	testsupport.ScrubYoloEnv()
 	// Past every daemon dispatch above, so a re-exec'd child neither redirects nor stops
 	// anything: this package's launches spawn real host singletons, which get a private
 	// directory instead of the machine-wide /tmp/yolo-<name>.* (testsupport says why), and

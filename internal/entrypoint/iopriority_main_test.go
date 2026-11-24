@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
 
@@ -28,6 +29,10 @@ func TestMain(m *testing.M) {
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	}
+	// THE CALLER'S YOLO_* DIALS ARE NOT THIS SUITE'S (testsupport.ScrubYoloEnv): a shell under
+	// `yolo host` or in a jail exports hatches such as YOLO_ALLOW_MISSING_PROGRAMS that turn an
+	// expected refusal into a launch. Past every child dispatch above, which reads its mode variables.
+	testsupport.ScrubYoloEnv()
 	// A CHILD OF THIS BINARY LEAVES NOTHING BEHIND (testtmp.Isolate): a helper re-exec runs this
 	// TestMain again and exits, execs away or is killed before its own removals run, so its
 	// directories and t.TempDirs go in a private TMPDIR this process removes.

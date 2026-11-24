@@ -117,6 +117,10 @@ func TestMain(m *testing.M) {
 	// from os.Environ would select the outer jail's setup instead of a host's
 	// (TestThisPackageClearsTheSetupSelectionEnv).
 	testsupport.ClearSetupSelectionEnv()
+	// THE CALLER'S YOLO_* DIALS ARE NOT THIS SUITE'S (testsupport.ScrubYoloEnv): a shell under
+	// `yolo host` or in a jail exports hatches such as YOLO_ALLOW_MISSING_PROGRAMS that turn an
+	// expected refusal into a launch. Past every child dispatch above, which reads its mode variables.
+	testsupport.ScrubYoloEnv()
 	// A fixture's git reads no machine configuration (testsupport.HermeticGitEnv), and the
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()
