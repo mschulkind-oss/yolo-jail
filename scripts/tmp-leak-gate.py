@@ -130,21 +130,32 @@ def wait_dead(pid):
         os.close(fd)
 
 
+def cmdline(pid):
+    """The process's command line, space-joined, or a placeholder when it cannot be read."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            raw = f.read()
+    except OSError:
+        return "(command line unreadable)"
+    return " ".join(a.decode(errors="replace") for a in raw.split(b"\0") if a) or "(no command line)"
+
+
 def reap_survivors(private, session):
     """Kill every process the command left running, without adopting it: the gate is NOT a
     subreaper, so a process a test killed is collected by its real parent or init exactly as it
     would be outside the gate (an adopted one stays a zombie that kill(pid, 0) calls alive). A
     survivor keeps writing into the private TMPDIR while the gate scans and removes it, so the gate
-    waits for each death before it looks at the directory. Returns the pids it had to kill."""
+    waits for each death before it looks at the directory. Returns (pid, command line) for each
+    process it had to kill, the command line read before the kill so the report can name it."""
     if not sys.platform.startswith("linux"):
         return []
-    killed = find_survivors(private, session)
-    for pid in killed:
+    killed = [(pid, cmdline(pid)) for pid in find_survivors(private, session)]
+    for pid, _ in killed:
         try:
             os.kill(pid, signal.SIGKILL)
         except OSError:
             pass
-    for pid in killed:
+    for pid, _ in killed:
         wait_dead(pid)
     return killed
 
@@ -242,11 +253,13 @@ def main(argv):
         survivors = reap_survivors(private, proc.pid)
         if survivors:
             print(f"\nTMPDIR LEAK: the command exited but left {len(survivors)} process(es) of its own "
-                  f"running (pids {', '.join(map(str, survivors))}), killed now. A process that outlives "
+                  f"running (pids {', '.join(str(p) for p, _ in survivors)}), killed now. A process that outlives "
                   "go test (a self-exec'd daemon, a helper re-exec, or a test binary orphaned when go "
                   "test was killed) keeps writing into TMPDIR, so what is left there is not a verdict "
                   "on the tests. Find the test that starts it and make it wait for the child's exit "
                   "before it returns.", file=sys.stderr)
+            for pid, line in survivors:
+                print(f"  {pid}: {line}", file=sys.stderr)
             leaked = True
         found = session_leftovers(proc.pid, start)
         if found:
