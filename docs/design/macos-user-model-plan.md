@@ -16,7 +16,7 @@ vantage:
 failed; its fixes were re-run by witness W1b on 2026-11-03, and W1c, the one W1b left failing (an
 unchanged relaunch keeps its delivered files), passed on 2026-11-04
 ([Mac checks](#mac-checks)). The account mode's shared `/tmp` is now closed, with the same hatch as
-self mode ([MMP-D29](#MMP-D29), [MMP-D36](#MMP-D36)); Mac check [W-TMP1](#W-TMP1) ran on 2026-11-13: the closed `/tmp` holds, and its hatch half waits on [W-PATH1](#W-PATH1).
+self mode ([MMP-D29](#MMP-D29), [MMP-D36](#MMP-D36)); Mac check [W-TMP1](#W-TMP1) ran on 2026-11-13: the closed `/tmp` holds, and its hatch half passed 2026-11-24 ([W-TMP1](#W-TMP1)).
 Next are slices 11 ([OQ-MM10](macos-user-model.md#OQ-MM10), ruled 2026-11-03), 12b and 13. Loopback and the shared `/tmp` are ruled and
 built ([MMP-D14](#MMP-D14), [MMP-D18](#MMP-D18)); Homebrew's visibility is the one profile
 parameter still at the prototype's value ([Blockers](#blockers)). With 12a the production default,
@@ -1340,10 +1340,10 @@ the colleague who reported the refusal):
   `log show --last 5m --predicate 'sender == "Sandbox"'` lines naming `/private/tmp` if any tool
   you use failed. It decides whether [MMP-D29](#MMP-D29)'s closing stands for the account mode.
   *Run 2026-11-13 at `b1d255ded`* (lab report): the closed `/tmp` holds (the four outputs as expected). The closed-`/tmp` line is in `jail-mechanics/topics/limits.md`, not `CLAUDE.md`. The `tmp:` line prints. `yolo config unset macos_user_shared_tmp --user` was refused (*"no scalar removal policy"*); the Mac run of 2026-11-23 at `fe37424b3` found that fixed (it removes the line and leaves the file's starting bytes). The hatch's `touch` and the tests did not run: account-mode launches intermittently stopped with `yolo: command not found` (section 3).
+  *Re-run 2026-11-24 at `93608f56b`* (lab report, retired), through the dev bundle: **both halves pass.** The closed `/tmp` printed the four expected outputs (`touch /tmp/x` failed with `Operation not permitted`) and the limits-topic line is there. With the hatch set, the launch printed its `tmp:` line, `touch /tmp/x` printed `OK`, and `yolo config unset macos_user_shared_tmp --user` left the user config byte-identical. `TestMacosUserSerialClientDrivesAHostPtyFromTheSandbox`, `TestMacosUserCopiesAPackFileMountIntoTheContextDir` and `TestMacosUserHostFloorIsTheHostUsersAlone` pass; `TestMacosUserMacosLogBridgeScopesToTheSandbox` skips because that Mac's unified log store is closed to the invoking user. Satisfied.
 - <a id="W-PATH1"></a>**W-PATH1 (account-mode provisioning finds no `yolo`,
-  the 2026-11-13 Mac run's section 3):** **owed: re-run at main `b640bd144` or later.** The Mac run of
-  2026-11-23 at `fe37424b3` did not run it (the session's permission classifier refused the launch), so
-  nothing yet says whether the stop now names the staged command directory.
+  the 2026-11-13 Mac run's section 3):** **passed once, no stop to read.** The Mac run of 2026-11-23 at `fe37424b3` did not run it. The run of
+  2026-11-24 at `93608f56b` (dev bundle, fresh `/Users/Shared/yolo/path1`) made 10 of 10 launches, none stopped, and none printed `not on the provisioning stage's PATH`, `Provisioning found no yolo` or `repair workspace .yolo permissions`; `ls -le` of the staged bin showed no ACL entries and no `session-*` directories. It does not say which of the two causes the 11-13 stop had, because it never stopped, and it differs from 11-13 in one way: that workspace set `mise_tools`, and this run's had none (the owner's user config's `install.mise` still made provisioning run). A run with a workspace `mise_tools` needs a human to approve the workspace config first (`--accept-config-changes` was refused by the session's permission classifier). Treat the stop as unreproduced; re-run it, with the workspace config approved, only if it recurs.
   At the first main commit that contains `StageYoloMissingStatus` (`git log -1 --format=%h -S
   StageYoloMissingStatus -- internal/provision/provision.go`) or later, run through the dev bundle
   (`just build-dev-bundle`), as the lab report's launches were. Setup: a fresh workspace `/Users/Shared/yolo/path1` whose config sets

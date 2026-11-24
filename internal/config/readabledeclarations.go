@@ -37,7 +37,7 @@ func ReadableDeclarationsForPacks(packs []*packload.Pack) ([]ReadableBrokerDecla
 			}
 			moduleSettings := cloneReadableSettingDecls(module.Decl.Settings)
 			settings = append(settings, ReadablePackDeclaration{Pack: pack.Name, Settings: moduleSettings,
-				Loophole: module.Name, Access: module.Decl.Access, Grants: append([]loopholedecl.Grant(nil), module.Decl.Grants...)})
+				Loophole: module.Name, Access: module.Decl.Access, Grants: append([]loopholedecl.Grant(nil), module.Decl.Grants...), CallBroker: cloneReadableCallBroker(module.Decl.CallBroker)})
 			if module.Decl.CallBroker != nil {
 				brokers = append(brokers, readableCallBrokerDeclaration(pack.Name, module.Name, module.Decl.CallBroker, moduleSettings))
 			} else if module.Decl.Brokered != nil {
@@ -73,6 +73,14 @@ func cloneReadableCallBroker(broker *loopholedecl.CallBroker) *loopholedecl.Call
 	cloned.Classifier = append([]string(nil), broker.Classifier...)
 	cloned.CredentialPaths = append([]string(nil), broker.CredentialPaths...)
 	cloned.EnvFromHost = append([]string(nil), broker.EnvFromHost...)
+	cloned.Scope.Anchors = slices.Clone(broker.Scope.Anchors)
+	if broker.Context != nil {
+		context := *broker.Context
+		context.Fields = cloneStringMap(broker.Context.Fields)
+		context.Unset = slices.Clone(broker.Context.Unset)
+		context.RouteAnchors = slices.Clone(broker.Context.RouteAnchors)
+		cloned.Context = &context
+	}
 	cloned.Resources = append([]loopholedecl.CallBrokerResource(nil), broker.Resources...)
 	cloned.Cells = append([]loopholedecl.CallBrokerCell(nil), broker.Cells...)
 	for i := range cloned.Cells {

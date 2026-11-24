@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
@@ -33,16 +34,18 @@ type ReadableBrokerDeclaration struct {
 // `.on_request` are then its ceiling and its `requests.<pack>.<kind>` its requests
 // (loopholegrants.go), while every other key stays a setting.
 type ReadablePackDeclaration struct {
-	Pack     string
-	Settings []loopholedecl.Setting
-	Loophole string
-	Access   string
-	Grants   []loopholedecl.Grant
+	Pack       string
+	Settings   []loopholedecl.Setting
+	Loophole   string
+	Access     string
+	Grants     []loopholedecl.Grant
+	CallBroker *loopholedecl.CallBroker
 }
 
 // clone is a detached copy: the settings' defaults and the grants are copied, not shared.
 func (d ReadablePackDeclaration) clone() ReadablePackDeclaration {
 	d.Settings = cloneReadableSettingDecls(d.Settings)
+	d.CallBroker = cloneReadableCallBroker(d.CallBroker)
 	if d.Grants != nil {
 		d.Grants = append([]loopholedecl.Grant(nil), d.Grants...)
 	}
@@ -116,6 +119,13 @@ type ReadableAllowancePlan struct {
 	// before the record (ResolveLoopholeGrants).
 	LoopholeGrants LoopholeGrantPlan
 	Diagnostics    []string
+	// Authored scoped metadata is not passed to the shipped gate projection.
+	Scopes            []ScopedBrokerScope
+	Contexts          []BrokerExecutionContext
+	NativeReads       []NativeReadScope
+	NativeCeilings    []ReadableScopedCeiling
+	ScopedRequests    []ReadableRequestResult
+	OperationPolicies map[string]brokerpolicy.Policy
 }
 
 // ReadableBrokerPolicy retains ceiling lists separately; neither list itself is a grant.
@@ -137,6 +147,11 @@ type ReadableBrokerPolicy struct {
 	Repos               []ReadableRepoRequest
 	AlwaysOrigins       []string
 	OnRequestOrigins    []string
+	Never               []string
+	NeverOrigins        []string
+	ReadAvailable       bool
+	ReadMaxFor          string
+	ReadRequests        map[string]string
 }
 
 // ReadableRepoRequest is a requested concrete OWNER/REPO in the declared source's namespace.
@@ -287,7 +302,7 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			for _, key := range table.Keys() {
 				value := readableValue(table, key)
 				switch key {
-				case "always", "on_request":
+				case "always", "on_request", "never":
 					if name == policy.Pack {
 						if _, found, _ := readableSettingByKey(settings[policy.Pack], key); found {
 							return plan, fmt.Errorf("allow.%s.%s ambiguously names both an allowance field and a pack setting", name, key)
@@ -304,14 +319,22 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 							grants = grantPacks[name].Grants
 						}
 						validated, e = validateReadableCallBrokerCeiling(name, key, values, policy.CallBroker, grants)
+						if e != nil && policy.ReadAvailable && (key == "always" || key == "on_request" || key == "never") {
+							validated, e = validateScopedTokens("allow."+name+"."+key, values, policy)
+						}
 					} else {
 						validated, e = validateReadableCapabilities(name, key, values, policy)
+						if key != "never" && policy.ReadCapability != "read" && slices.Contains(values, "read") {
+							validated = slices.DeleteFunc(validated, func(token string) bool { return token == policy.ReadCapability })
+						}
 					}
 					if e != nil {
 						return plan, e
 					}
 					if key == "always" {
 						policy.Always, policy.AlwaysOrigins = validated, cloneOrigins(input.UserOrigins["allow."+name+".always"])
+					} else if key == "never" {
+						policy.Never, policy.NeverOrigins = validated, cloneOrigins(input.UserOrigins["allow."+name+".never"])
 					} else {
 						policy.OnRequest, policy.OnRequestOrigins = validated, cloneOrigins(input.UserOrigins["allow."+name+".on_request"])
 					}
@@ -351,6 +374,10 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 					}
 				}
 			}
+			if err := validateScopedCeilingLists("allow."+name, table, policy, input.UserOrigins); err != nil {
+				return plan, err
+			}
+			retainNativeSourceReadCeiling(&plan, policy, table, "allow."+name, input.UserOrigins)
 			if isSelected {
 				if i := readableBrokerIndex(plan.Sources, name); i >= 0 {
 					plan.Sources[i] = policy
@@ -525,6 +552,16 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			if err := validateReadableCallBrokerRequests(name, policy, table, selected[policy.Pack], input.WorkspaceOrigins, &plan); err != nil {
 				return plan, err
 			}
+			if raw, has := table.Get("read"); has {
+				policy.ReadRequests = map[string]string{}
+				if cells, ok := asMap(raw); ok {
+					for _, cell := range cells.Keys() {
+						policy.ReadRequests[cell], _ = requestWord(readableValue(cells, cell))
+					}
+				} else {
+					policy.ReadRequests[""], _ = requestWord(raw)
+				}
+			}
 			if selected[policy.Pack] {
 				if i := readableBrokerIndex(plan.Sources, name); i >= 0 {
 					plan.Sources[i] = policy
@@ -532,9 +569,18 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			}
 			continue
 		}
+		if err := validateNativeReadAliases("requests."+name, table, policy, input.WorkspaceOrigins, false); err != nil {
+			return plan, err
+		}
 		for _, key := range table.Keys() {
 			path := "requests." + name + "." + key
 			value := readableValue(table, key)
+			if key == "read" && policy.ReadCapability != "read" || key == policy.ReadCapability && value == "ask" {
+				if err := nativeReadRequest(&plan, "", "", path, value, policy, input.WorkspaceOrigins); err != nil {
+					return plan, err
+				}
+				continue
+			}
 			if key == "repos" {
 				if policy.RemoteHost == brokerscope.AnyRemoteHost {
 					return plan, fmt.Errorf("%s: declared remote_host %q cannot accept OWNER/REPO additions; request repositories through a selected named-host source", path, brokerscope.AnyRemoteHost)
@@ -603,7 +649,13 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 			}
 		}
 	}
+	if err := readScopedBrokerPolicy(&plan, input, brokers, selected); err != nil {
+		return plan, err
+	}
 	if err := readableNamedRepos(&plan, input, brokers, selected); err != nil {
+		return plan, err
+	}
+	if err := scopedOperationPolicies(&plan, input); err != nil {
 		return plan, err
 	}
 	plan.LoopholeGrants, err = ResolveLoopholeGrants(LoopholeGrantInput{User: input.User, Workspace: input.Workspace,
@@ -617,6 +669,12 @@ func ResolveReadableAllowance(input ReadableAllowanceInput) (ReadableAllowancePl
 // ProduceReadableGateInput resolves actual remotes and selected named-host additions before
 // materializing any per-consumer grant. It never fabricates an exact URL from OWNER/REPO.
 func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (ReadableGateInput, error) {
+	return produceReadableGateInput(workspace, plan, false)
+}
+
+// The independent projection is approval data only. The scope collector keeps
+// it pending under a legacy record; runtime readers retain the public read floor.
+func produceReadableGateInput(workspace string, plan ReadableAllowancePlan, independentWrites bool) (ReadableGateInput, error) {
 	input := ReadableGateInput{Requests: cloneReadableRequests(plan.Requests), PackSettings: cloneReadableSettings(plan.PackSettings),
 		PackSettingOrigins: cloneReadableSettingOrigins(plan.PackSettingOrigins), TableTombstones: append([]ReadableTableTombstone(nil), plan.TableTombstones...)}
 	for i := range input.TableTombstones {
@@ -724,13 +782,13 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 		if originErr != nil && readAllowed && readableLowersAnUnqualifiedGrant(policy, input.Requests) {
 			return ReadableGateInput{}, originErr
 		}
-		if !readAllowed || len(readTargets) == 0 || len(targets) == 0 {
+		if !readAllowed && !independentWrites || len(readTargets) == 0 || len(targets) == 0 {
 			for i := range input.Requests {
 				request := &input.Requests[i]
 				if request.Status != ReadableRequestGranted || request.Capability == "repos" || request.Capability == policy.ReadCapability || !readableRequestOfSource(*request, policy.Source) {
 					continue
 				}
-				if request.Table != "" && readAllowed && len(readTargets) > 0 {
+				if request.Table != "" && (readAllowed || independentWrites) && len(readTargets) > 0 {
 					continue // a named table's request lands on its own repository, in readTargets
 				}
 				request.Status = ReadableRequestSkipped
@@ -740,7 +798,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 					request.Reason = "the workspace has no concrete repository target for this request"
 				}
 			}
-			if !readAllowed || len(readTargets) == 0 {
+			if !readAllowed && !independentWrites || len(readTargets) == 0 {
 				continue
 			}
 		}
@@ -762,6 +820,9 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			}
 		}
 		for _, target := range readTargets {
+			if narrowerNeverRefuses(&plan, policy.Source, target, policy.ReadCapability, policy.ReadCapability) {
+				continue // a narrower never on this repository refuses its read (design 3.2)
+			}
 			files := append(cloneOrigins(readFiles), target.Files...)
 			origins := readOrigins
 			if strings.HasPrefix(target.Origin, "repos.") {
@@ -780,6 +841,9 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 				continue
 			}
 			for _, target := range targets {
+				if narrowerNeverRefuses(&plan, policy.Source, target, capability, policy.ReadCapability) {
+					continue
+				}
 				decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository}, "allow."+policy.Source+".always."+capability, append(cloneOrigins(policy.AlwaysOrigins), target.Files...))
 			}
 		}
@@ -798,7 +862,7 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 					continue
 				}
 				for _, target := range targets {
-					if scopedCeilingAdmits(c, target) {
+					if scopedCeilingAdmits(c, target) && !narrowerNeverRefuses(&plan, policy.Source, target, capability, policy.ReadCapability) {
 						decisions = appendReadableGrant(decisions, brokerscope.Grant{Kind: kind, Repo: target.RemoteHost + "/" + target.Repository, RepoPattern: target.Pattern},
 							"repos."+c.Name+".allow."+policy.Source+".always", cloneOrigins(target.Files))
 					}
@@ -824,8 +888,12 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 			if kind == "" {
 				continue
 			}
-			admitted := false
+			admitted, neverRefused, neverLine := false, false, ""
 			for _, placed := range readableRequestGrants(kind, request.Value, placeOn) {
+				if line, refused := narrowerNeverLine(&plan, policy.Source, placed.Target, request.Capability, policy.ReadCapability); refused {
+					neverRefused, neverLine = true, line
+					continue
+				}
 				origin, files := ceilingOrigin, cloneOrigins(ceilingFiles)
 				if !broad {
 					// The broad ceiling does not hold the token: only a user table that admits this
@@ -842,7 +910,10 @@ func ProduceReadableGateInput(workspace string, plan ReadableAllowancePlan) (Rea
 				decisions = appendReadableGrant(decisions, placed.Grant, origin, files)
 				decisions = appendReadableGrant(decisions, placed.Grant, request.Path, files)
 			}
-			if !broad && !admitted {
+			if neverRefused && !admitted {
+				input.Requests[i].Status = ReadableRequestSkipped
+				input.Requests[i].Reason = "a narrower never refuses " + request.Capability + " on this repository; remove that line with `yolo config unset " + neverLine + "`, or drop the request"
+			} else if !broad && !admitted {
 				// Skipped and reported, never fatal: no ceiling admits any identity this request lands on.
 				input.Requests[i].Status = ReadableRequestSkipped
 				input.Requests[i].Reason = outsideCeilingReason(policy.Source)
@@ -1174,6 +1245,10 @@ func BrokeredGrantKindsForRepo(source, repo string) (kinds []string, canonical b
 	if broadCanonical {
 		kinds = append(kinds, broad...)
 	}
+	// The user's repository lines as the gate sees them, so a narrower `never` governs here exactly
+	// as it does at launch (narrowerNeverRefuses): the live answer never outlasts a never added later.
+	var lines ReadableAllowancePlan
+	var policy ReadableBrokerPolicy
 	for _, t := range tables {
 		plan, err := ResolveReadableAllowance(ReadableAllowanceInput{User: scopedAllowOnly(source, t.table),
 			SelectedPacks: selected, Declarations: declarations, PackSettings: settings})
@@ -1184,18 +1259,26 @@ func BrokeredGrantKindsForRepo(source, repo string) (kinds []string, canonical b
 		if i < 0 {
 			continue
 		}
-		if err := scopedCeilingReadProblem(t.name, plan.Sources[i]); err != nil {
-			return nil, true, err
-		}
 		scopedKinds, err := readablePolicyGrantKinds(plan.Sources[i], declarations)
 		if err != nil {
 			return nil, true, err
 		}
+		policy = plan.Sources[i]
+		lineHost := namedRepoHost(t.line)
+		lines.NativeCeilings = append(lines.NativeCeilings, ReadableScopedCeiling{Name: t.name, Source: source, Host: lineHost,
+			Repository: strings.TrimPrefix(t.line, lineHost+"/"), Always: plan.Sources[i].Always, OnRequest: plan.Sources[i].OnRequest, Never: plan.Sources[i].Never})
 		if pHost, pattern, _ := strings.Cut(t.line, "/"); pHost == host && brokerscope.Admits(pattern, owned) {
 			kinds = append(kinds, scopedKinds...)
 		}
 	}
-	return kinds, true, nil
+	target := ReadableRepository{RemoteHost: host, Repository: owned}
+	kept := kinds[:0:0]
+	for _, kind := range kinds {
+		if capability := policy.KindCapabilities[kind]; capability == "" || !narrowerNeverRefuses(&lines, source, target, capability, policy.ReadCapability) {
+			kept = append(kept, kind)
+		}
+	}
+	return kept, true, nil
 }
 
 // scopedCeiling is one user `[repos.<name>]` table's `allow.<source>`, with its repo line.
@@ -1385,7 +1468,7 @@ func readableDeclarations(input ReadableAllowanceInput) (map[string][]loopholede
 				return nil, nil, fmt.Errorf("pack %q call-broker declaration needs a pack handle, label and source, and must not contain legacy broker metadata", declaration.Pack)
 			}
 			policy := ReadableBrokerPolicy{Pack: declaration.Pack, Label: declaration.Label, Source: callBroker.Source,
-				CallBroker: cloneReadableCallBroker(callBroker)}
+				CallBroker: cloneReadableCallBroker(callBroker), ReadAvailable: readableCallBrokerHasReads(callBroker, scopedDeclarationGrants(input.PackSettings, declaration.Pack, declaration.Label))}
 			if previous, found := brokers[callBroker.Source]; found {
 				previousSelected, currentSelected := selected[previous.Pack], selected[declaration.Pack]
 				switch {
@@ -1452,7 +1535,7 @@ func readableDeclarations(input ReadableAllowanceInput) (map[string][]loopholede
 		settings[declaration.Pack] = append(settings[declaration.Pack], declaration.Settings...)
 		policy := ReadableBrokerPolicy{Pack: declaration.Pack, Label: declaration.Label, Source: b.Source, RemoteHost: b.RemoteHost,
 			ReadCapability: declaration.ReadCapability, KindCapabilities: mapping, PendingCapabilities: pending,
-			UnqualifiedRequests: b.UnqualifiedRequests}
+			UnqualifiedRequests: b.UnqualifiedRequests, ReadAvailable: true, ReadMaxFor: b.ReadMaxFor}
 		if previous, found := brokers[b.Source]; found {
 			previousSelected, currentSelected := selected[previous.Pack], selected[declaration.Pack]
 			switch {
@@ -1522,11 +1605,15 @@ func validateReadableCallBrokerCeiling(source, field string, values []string, br
 		// A source named like its pack shares these lists with declared grant kinds.
 		// ResolveLoopholeGrants reads those from the original input below; never turn
 		// a standing grant into a table/cell ceiling in this reader.
-		if _, declared := loopholeGrantByKind(grants, token); declared {
+		if _, declared := loopholeGrantByKind(grants, token); declared && field != "never" {
 			continue
 		}
-		valid := false
+		valid := token == "read" && readableCallBrokerHasReads(broker, grants)
 		for _, cell := range broker.Cells {
+			if cell.IsRead() && (token == "read" || token == "read."+cell.Name) {
+				valid = true
+			}
+
 			for _, table := range cell.Tables {
 				if token == table || token == table+"."+cell.Name {
 					valid = true
@@ -1558,6 +1645,18 @@ func validateReadableCallBrokerRequests(source string, policy ReadableBrokerPoli
 		}
 	}
 	for _, table := range requests.Keys() {
+		if table == "read" {
+			raw := readableValue(requests, table)
+			if _, ok := asMap(raw); ok || raw == "ask" {
+				if err := refuseLegacyBrokerPolicyLine("requests."+source+".read", origins); err != nil {
+					return err
+				}
+			}
+			if err := validateScopedReadRequest("requests."+source+".read", readableValue(requests, table), policy); err != nil {
+				return err
+			}
+			continue
+		}
 		path := "requests." + source + "." + table
 		if table != "working_set" && table != "all" {
 			return fmt.Errorf("%s: not a declared call-broker table; use working_set or all", path)
@@ -1630,6 +1729,12 @@ func readableCallBrokerCeilingAllows(policy ReadableBrokerPolicy, table, cell st
 func validateReadableCapabilities(source, field string, values []string, policy ReadableBrokerPolicy) ([]string, error) {
 	out, seen := make([]string, 0, len(values)), map[string]bool{}
 	for i, capability := range values {
+		if capability == "read" && policy.ReadCapability != "read" {
+			capability = policy.ReadCapability
+		}
+		if strings.HasPrefix(capability, "read.") {
+			return nil, fmt.Errorf("allow.%s.%s[%d]: use the native read word %s, not %s", source, field, i, policy.ReadCapability, capability)
+		}
 		if !readableHasCapability(policy, capability) {
 			return nil, fmt.Errorf("allow.%s.%s[%d]: %q is not declared; declared capabilities: %s", source, field, i, capability, strings.Join(readableCapabilities(policy), ", "))
 		}

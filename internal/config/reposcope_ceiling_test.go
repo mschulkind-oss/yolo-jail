@@ -119,29 +119,58 @@ func TestAScopedCeilingIsRefusedDirectlyUnderAllow(t *testing.T) {
 	}
 }
 
-// A repository's ceiling lists write capabilities only: the read capability is every workspace's,
-// so a scoped list that holds it is refused where it is written, and the message names the broad
-// list that gives it (GW-D64, GW-D80).
-func TestAScopedCeilingRefusesTheReadCapability(t *testing.T) {
+// Scoped reads are retained as TOML policy metadata, not projected into native write grants.
+func TestAScopedCeilingRetainsReadMetadata(t *testing.T) {
 	for _, list := range []string{"always", "on_request"} {
 		t.Run(list, func(t *testing.T) {
 			user := repoScopeUserAll + "[repos.jail]\nrepo = \"github.com/acme/app\"\n[repos.jail.allow.github]\n" + list + " = [\"read\"]\n"
 			workspace := repoScopeWorkspace(t, user, repoScopeOrigin, repoScopeOriginLines, "")
 			check, _ := repoScopeCheck(t, workspace)
-			if check.Fatal == nil || !strings.Contains(check.Fatal.Error(), "repos.jail.allow.github."+list) || !strings.Contains(check.Fatal.Error(), "yolo allow github always read") {
-				t.Fatalf("fatal %v, want a refusal naming repos.jail.allow.github.%s and yolo allow github always read", check.Fatal, list)
+			if check.Fatal != nil {
+				t.Fatalf("scoped read metadata refused: %v", check.Fatal)
 			}
 		})
 	}
 }
 
-// The same refusal holds where the runtime reads a ceiling: BrokeredGrantKindsForRepo gives no kinds
-// for the identity and names the same next step, so no write is made under a read the ceiling holds.
-func TestAScopedCeilingRefusesTheReadCapabilityAtRunTime(t *testing.T) {
+// Adding read metadata does not invent a native write kind or remove existing write ceilings.
+func TestScopedReadMetadataLeavesNativeWriteKindsUnchanged(t *testing.T) {
 	writeScopedCeilingUser(t, "on_request = ['create_pr']\n",
 		"[repos.jail]\nrepo = 'github.com/o/r'\n\n[repos.jail.allow.github]\nalways = ['read']\non_request = ['runs']\n")
 	kinds, canonical, err := BrokeredGrantKindsForRepo("github", "github.com/o/r")
-	if err == nil || !canonical || len(kinds) != 0 || !strings.Contains(err.Error(), "yolo allow github always read") {
-		t.Fatalf("kinds %v, canonical %t, err %v: want no kinds and an error naming yolo allow github always read", kinds, canonical, err)
+	if err != nil || !canonical || !slices.Equal(kinds, []string{"create-pr", "runs"}) {
+		t.Fatalf("kinds %v, canonical %t, err %v: scoped read changed the existing write kinds", kinds, canonical, err)
+	}
+}
+
+// Design 3.2 and section 8: a narrower never on one repository removes that kind from the live
+// answer at the next call, with no apply or relaunch. A never on another repository, and a narrower
+// always that outranks a broader never, leave it alone.
+func TestANarrowerNeverRemovesALiveKindOnItsRepositoryOnly(t *testing.T) {
+	broad := "on_request = ['runs', 'create_pr']\n"
+	table := func(repo, lists string) string {
+		return "[repos.jail]\nrepo = 'github.com/" + repo + "'\n\n[repos.jail.allow.github]\n" + lists
+	}
+	for name, c := range map[string]struct {
+		repos, repo string
+		wantRuns    bool
+		wantPR      bool
+	}{
+		"control, no table":                     {"", "o/r", true, true},
+		"never runs on this repository":         {table("o/r", "never = ['runs']\n"), "o/r", false, true},
+		"never runs on another repository":      {table("o/r", "never = ['runs']\n"), "o/other", true, true},
+		"pattern never":                         {table("o/*", "never = ['runs']\n"), "o/r", false, true},
+		"exact always outranks a pattern never": {table("o/*", "never = ['runs']\n") + "\n[repos.exact]\nrepo = 'github.com/o/r'\n\n[repos.exact.allow.github]\nalways = ['runs']\n", "o/r", true, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			writeScopedCeilingUser(t, broad, c.repos)
+			kinds, _, err := BrokeredGrantKindsForRepo("github", "github.com/"+c.repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if slices.Contains(kinds, "runs") != c.wantRuns || slices.Contains(kinds, "create-pr") != c.wantPR {
+				t.Fatalf("kinds %v, want runs=%v create-pr=%v", kinds, c.wantRuns, c.wantPR)
+			}
+		})
 	}
 }

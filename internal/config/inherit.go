@@ -411,6 +411,8 @@ type readableInheritDisposition struct {
 // config.jsonc it was converted from give a jail the same user scope.
 var readableInheritCensus = map[string]readableInheritDisposition{
 	"call_roots": {keyDisposition: keyDisposition{reason: "workspace-only source context lowered to brokered roots; like brokered, never inherited as authority for an inner launch's workspaces"}},
+	"contexts":   {keyDisposition: keyDisposition{reason: "user-only host execution selectors; field values and host environment routing never enter either inherited jail scope"}},
+	"scopes":     {keyDisposition: keyDisposition{reason: "user ceilings and host routes are not inherited authority; workspace scope asks remain in their own mounted project config, not an inner user scope"}},
 	// install / machine / env gather legacy keys whose dispositions differ (packages is
 	// nested-only, mise_tools both; gpu neither, resources nested), so they are split per
 	// field to keep each field where its legacy key went.

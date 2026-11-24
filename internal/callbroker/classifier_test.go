@@ -38,7 +38,7 @@ func fixtureClassifier(t *testing.T, body string) Classifier {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Classifier{Source: "local-tasks", Argv: []string{"{program:classifier}"},
+	return Classifier{Source: "local-tasks", Argv: []string{"{program:classifier}"}, ReadGrant: true,
 		Identities: map[string]loopholedecl.CallBrokerProgramIdentity{"classifier": {
 			Bin: "classifier", Path: path, SHA256: fmt.Sprintf("%x", sha256.Sum256(raw))}},
 		Roots: []string{"team:alpha"}, Resources: []loopholedecl.CallBrokerResource{{Type: "project"}, {Type: "task", Parent: "project"}},

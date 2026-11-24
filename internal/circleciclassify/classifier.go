@@ -13,6 +13,7 @@ import (
 )
 
 const protocolVersion = "yolo.call-broker-classifier/1"
+const typedProtocolVersion = "yolo.call-broker-classifier/2"
 
 var circleCIProjectSlug = regexp.MustCompile(`^gh/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)$`)
 
@@ -34,7 +35,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "CircleCI classifier input has trailing data; retry the selected circleci command")
 		return 2
 	}
-	if input.Version != protocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
+	if input.Version != protocolVersion && input.Version != typedProtocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
 		fmt.Fprintln(stderr, "CircleCI classifier protocol is unsupported; rebuild yolo and retry")
 		return 2
 	}
@@ -50,8 +51,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // project slug is one of the gate-approved workspace roots. Other upstream verbs
 // remain refused until their resource lookups and canonical calls are implemented.
 func Classify(input callbroker.CLIInput) callbroker.Answer {
-	answer := callbroker.Answer{Version: input.Version}
-	if input.Version != protocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
+	answer := callbroker.Answer{Version: typedProtocolVersion}
+	if input.Version != protocolVersion && input.Version != typedProtocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
 		return refused(answer, "unsupported", "unsupported CircleCI classifier input", "Use a selected yolo build and retry the CircleCI command")
 	}
 	if len(input.Argv) == 1 && (input.Argv[0] == "--help" || input.Argv[0] == "--version" || input.Argv[0] == "version") {
@@ -83,6 +84,9 @@ func Classify(input callbroker.CLIInput) callbroker.Answer {
 		Argv:        append([]string(nil), argv...),
 		StdinSHA256: input.StdinSHA256,
 		Reads:       [][]callbroker.Resource{{{Type: "project", ID: project}}},
+	}
+	if input.Version == typedProtocolVersion {
+		answer.Classification = callbroker.NewReadClassification(argv, input.StdinSHA256, callbroker.Read{Cell: "list_runs", Chain: answer.Classification.Reads[0]})
 	}
 	return answer
 }

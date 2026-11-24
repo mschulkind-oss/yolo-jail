@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -65,6 +66,16 @@ type ScopeSource struct {
 	// Disclosure is selected call-broker declaration metadata recorded and shown with this gate.
 	// It carries no runtime authority.
 	Disclosure []string
+	// NativeDeclaration uses the same selected-source declaration gate; a legacy
+	// record without native metadata is seeded only by an explicit approval.
+	NativeDeclaration           bool
+	DeclarationRequiresApproval bool
+	// policyPending retains the projection held back by a legacy read on-switch.
+	// Only an actual approval gate may disclose and publish it.
+	policyPending    *ScopeSource
+	policyWriteLines []string
+	// executable is the legacy-floor projection until native scoped dispatch is connected.
+	executable *ScopeSource
 	// HTTPBinding is selected nonsecret metadata; only a successful gate caller may copy it
 	// into the private launch snapshot, after the disclosure and scope comparison pass.
 	HTTPBinding *ApprovedCallBrokerHTTP
@@ -137,6 +148,52 @@ type ScopeCheck struct {
 }
 
 func (s *ScopeCheck) inPlay() bool { return s != nil && len(s.Sources) > 0 }
+
+// ExecutableSources preserves the shipped read floor independently of approval metadata.
+func (s *ScopeCheck) ExecutableSources() []ScopeSource {
+	if s == nil {
+		return nil
+	}
+	out := slices.Clone(s.Sources)
+	for i, source := range out {
+		if source.executable != nil {
+			out[i] = *source.executable
+		}
+	}
+	return out
+}
+
+// MetadataOnlySources names approved or pending native additions with no dispatch consumer yet.
+func (s *ScopeCheck) MetadataOnlySources() []ScopeSource {
+	if s == nil {
+		return nil
+	}
+	var out []ScopeSource
+	for _, source := range s.Sources {
+		if source.policyPending != nil {
+			source = *source.policyPending
+		}
+		if source.executable != nil && sourceHasWrites(source) {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+
+// ExecutableApprovedScopes removes approval-only additions from the successful gate handoff.
+func (s *ScopeCheck) ExecutableApprovedScopes(approved map[string][]ScopeRepo) map[string][]ScopeRepo {
+	out := maps.Clone(approved)
+	for _, original := range s.Sources {
+		if original.executable != nil {
+			source := *original.executable
+			out[source.Label] = nil
+			for _, row := range source.current() {
+				out[source.Label] = append(out[source.Label], ScopeRepo{Repo: row.repo, Sources: row.labels()})
+			}
+		}
+	}
+	return out
+}
 
 // HTTPBindings copies the metadata presented by this check. Call only after the gate succeeds;
 // the check itself is not an approval or an independent credential channel.
@@ -448,15 +505,6 @@ func sortedScopeKeys(rec scopeRecord) []string {
 	return keys
 }
 
-// sameCallBrokerDisclosure treats only display order as irrelevant, preserving exact bytes and multiplicity.
-func sameCallBrokerDisclosure(previous, current []string) bool {
-	previous = slices.Clone(previous)
-	current = slices.Clone(current)
-	slices.Sort(previous)
-	slices.Sort(current)
-	return slices.Equal(previous, current)
-}
-
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -483,7 +531,8 @@ type EntryEdit struct {
 
 // scopeOutcome is what comparing the in-play sources against the record found.
 type scopeOutcome struct {
-	changed bool
+	changed              bool
+	inactiveDeclarations bool
 	// next and nextSources are the records to write: the old ones with every in-play source
 	// replaced by what was read. Sources not in play keep their entries.
 	next        scopeRecord
@@ -505,7 +554,12 @@ type scopeOutcome struct {
 }
 
 func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) scopeOutcome {
-	out := scopeOutcome{next: scopeRecord{}, nextSources: sourcesRecord{}, approved: map[string][]ScopeRepo{}}
+	out := scopeOutcome{next: scopeRecord{}, nextSources: sourcesRecord{}, approved: map[string][]ScopeRepo{}, inactiveDeclarations: len(check.Sources) > 0}
+	for _, source := range check.Sources {
+		if len(source.Disclosure) == 0 || source.concrete() {
+			out.inactiveDeclarations = false
+		}
+	}
 	for k, v := range old {
 		out.next[k] = append([]string(nil), v...)
 	}
@@ -513,16 +567,16 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 		out.nextSources[k] = v
 	}
 	for _, s := range check.Sources {
-		declarationKey := callBrokerScopeRecordKey(s.Source)
-		declarationChanged := len(s.Disclosure) > 0 && !sameCallBrokerDisclosure(old[declarationKey], s.Disclosure)
-		if len(s.Disclosure) > 0 {
-			out.next[declarationKey] = append([]string(nil), s.Disclosure...)
-		}
-		if s.Dormant {
+		declarationKey := selectedDeclarationRecordKey(s)
+		declarationChanged := selectedDeclarationChanged(s, old[declarationKey])
+		if s.Dormant || len(s.Disclosure) > 0 && !s.concrete() && len(old[s.Source]) == 0 {
 			out.approved[s.Label] = []ScopeRepo{}
 			// BB-D110 preserves inert historical records while keeping them out of current
 			// launch authority. FirstRead still presents all scope and grants as added.
 			continue
+		}
+		if declarationChanged {
+			out.next[declarationKey] = append([]string(nil), s.Disclosure...)
 		}
 		cur := s.current()
 		prev, had := old[s.Source]
@@ -543,6 +597,8 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 			out.nextSources[s.Source] = srcs
 		} else {
 			delete(out.next, s.Source)
+			delete(out.next, declarationKey)
+			delete(out.next, policyModelRecordKey(s.Source))
 			delete(out.nextSources, s.Source)
 		}
 		out.approved[s.Label] = approved
@@ -566,6 +622,12 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 		block, count, edit, changed := scopeBlock(s, cur, prev, had, recorded)
 		gBlock, gCount, gChanged := grantBlock(s, prevGrants)
 		block = append(block, gBlock...)
+		if s.FirstRead && len(s.policyWriteLines) > 0 {
+			for _, line := range s.policyWriteLines {
+				block = append(block, "  + "+termsafe.Visible(line)+"  added")
+			}
+			changed = true
+		}
 		if gChanged {
 			count += "; grants: " + gCount
 			if len(s.GrantPaths) > 0 {
@@ -582,22 +644,39 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 					Files: append([]string(nil), s.GrantFiles...)})
 			}
 		}
-		changed = changed || gChanged || declarationChanged
+		scopeChanged := changed || gChanged
+		changed = scopeChanged || declarationChanged
+		if !scopeChanged {
+			block, count, edit = nil, "", EntryEdit{}
+		}
 		if declarationChanged {
-			block = append(block, "selected call-broker declaration for "+termsafe.Visible(s.Source)+":")
+			kind := "call-broker"
+			if s.NativeDeclaration {
+				kind = "native broker"
+			}
+			block = append(block, "selected "+kind+" declaration for "+termsafe.Visible(s.Source)+":")
+			for _, line := range old[declarationKey] {
+				if !inList(s.Disclosure, line) {
+					block = append(block, "  - "+termsafe.Visible(line)+"  removed")
+				}
+			}
 			for _, line := range s.Disclosure {
-				block = append(block, termsafe.Visible(line))
+				if !inList(old[declarationKey], line) {
+					block = append(block, "  + "+termsafe.Visible(line)+"  added")
+				}
 			}
 		}
-		if !changed {
+		if !changed || len(block) == 0 {
 			continue
 		}
 		out.changed = true
 		out.labels = append(out.labels, s.Label)
 		out.packs = append(out.packs, s.Pack)
 		out.block = append(out.block, block...)
-		out.counts = append(out.counts, count)
-		if s.Read.GitConfig != "" {
+		if count != "" {
+			out.counts = append(out.counts, count)
+		}
+		if scopeChanged && s.Read.GitConfig != "" {
 			out.gitConfigs = append(out.gitConfigs, s.Read.GitConfig)
 		}
 		if len(edit.Files) > 0 {
@@ -618,16 +697,21 @@ func compareScope(check *ScopeCheck, old scopeRecord, oldSources sourcesRecord) 
 // source it has now is a remote, the only kind there was before; one an entry lists asks.
 func scopeBlock(s ScopeSource, cur []scopeRepo, prev []string, had bool,
 	recorded map[string][]string) (block []string, count string, edit EntryEdit, changed bool) {
-	from := "this workspace's .git/config"
+	from := ""
 	if s.Read.GitConfig != "" {
 		from = s.Read.GitConfig
+	} else if s.ScopeKind == "" || s.RemoteHost != "" {
+		from = "this workspace's .git/config"
 	}
 	if files := s.EntryFiles(); len(files) > 0 {
 		shown := make([]string, len(files))
 		for i, f := range files {
 			shown[i] = termsafe.Visible(f)
 		}
-		from += " and " + strings.Join(shown, ", ")
+		if from != "" {
+			from += " and "
+		}
+		from += strings.Join(shown, ", ")
 	}
 	kind := s.ScopeKind
 	if kind == "" {
@@ -828,6 +912,9 @@ func ScopeChanges(workspace string, scope *ScopeCheck) (ChangeReport, error) {
 			return ChangeReport{}, err
 		}
 		sc := compareScope(scope, old, oldSources)
+		if sc.changed {
+			sc = compareScope(policyApprovalCheck(scope), old, oldSources)
+		}
 		rep = ChangeReport{ScopeChanged: sc.changed, ScopeBlock: sc.block, ScopeCounts: sc.counts,
 			ScopeLabels: sc.labels, ScopePacks: sc.packs, EntryEdits: sc.entryEdits, Workspace: workspaceOrCwd(workspace)}
 	}
@@ -866,7 +953,10 @@ func recordApproval(workspace string, wsConfig *jsonx.OrderedMap, resolved map[s
 		if err != nil {
 			return err
 		}
-		if err := writeScopeRecords(workspace, compareScope(scope, old, oldSources)); err != nil {
+		approved := policyApprovalCheck(scope)
+		out := compareScope(approved, old, oldSources)
+		out.publishPolicyApproval(approved)
+		if err := writeScopeRecords(workspace, out); err != nil {
 			return err
 		}
 	}
@@ -883,6 +973,13 @@ func recordApproval(workspace string, wsConfig *jsonx.OrderedMap, resolved map[s
 // writeScopeRecords writes the sources record, then the scope part. A crash between the two
 // leaves a scope part with its sources unrecorded, or none, both of which fail safe.
 func writeScopeRecords(workspace string, sc scopeOutcome) error {
+	if sc.inactiveDeclarations && len(sc.next) == 0 && len(sc.nextSources) == 0 {
+		_, scopeErr := os.Stat(ApprovalScopePath(workspace))
+		_, sourcesErr := os.Stat(ApprovalScopeSourcesPath(workspace))
+		if os.IsNotExist(scopeErr) && os.IsNotExist(sourcesErr) {
+			return nil
+		}
+	}
 	srcJSON, err := sourcesRecordJSON(sc.nextSources)
 	if err != nil {
 		return err

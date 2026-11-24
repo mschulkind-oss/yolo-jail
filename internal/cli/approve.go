@@ -187,6 +187,10 @@ func approveWeb(args []string, inJail bool, start func([]string) int, errs io.Wr
 // approveFailure maps a store error to its stable exit code and the next step its message
 // names.
 func approveFailure(err error, errs io.Writer) int {
+	if errors.Is(err, brokerstore.ErrInvalidDuration) {
+		fmt.Fprintf(errs, "yolo approve: %v. See `yolo approve --help`; run `yolo approve` on the host to list requests, grants and working sets.\n", err)
+		return approveExitUsage
+	}
 	code, next := approveExitFailed, "check that the host store under "+paths.BrokerDir()+" is readable and writable, then retry"
 	switch {
 	case errors.Is(err, brokerstore.ErrAlreadyDecided):
@@ -276,9 +280,10 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 			} else {
 				duration, err := time.ParseDuration(value)
 				if err != nil || duration <= 0 {
-					return fail(fmt.Errorf("give --for a positive duration or session"))
+					d.InvalidDuration = true
+				} else {
+					d.For = duration
 				}
-				d.For = duration
 			}
 		case "--add", "--remember":
 			if removed == "" {
@@ -424,6 +429,7 @@ func approveAllWithDiagnostics(ctx context.Context, args []string, inJail bool, 
 	for i, s := range stores {
 		printApprovalSource(out, s)
 		printApproveList(out, snaps[i])
+		printTimedOffers(out, s, snaps[i])
 		printWorkingSet(out, s, snaps[i])
 		declared := storeConfigBranches(ctx, s)
 		printConfigBranches(out, declared)
@@ -835,6 +841,23 @@ func printApprovalSource(out io.Writer, s *brokerstore.Store) {
 func printApprovalDiagnostics(out io.Writer, diagnostics []string) {
 	for _, diagnostic := range diagnostics {
 		fmt.Fprintf(out, "%s\n", termsafe.Visible(diagnostic))
+	}
+}
+
+func printTimedOffers(out io.Writer, store *brokerstore.Store, snap brokerstore.Snapshot) {
+	if store.TimedLimit == nil {
+		return
+	}
+	for _, q := range snap.Requests {
+		if q.State != "pending" || store.NativeTimedPolicy && !q.HasScopedRoles() {
+			continue
+		}
+		bound, err := store.TimedMaximum(q)
+		if err != nil {
+			fmt.Fprintf(out, "    %s timed offer unavailable: %s; run yolo check before answering.\n", termsafe.Visible(q.ID), termsafe.Visible(err.Error()))
+			continue
+		}
+		fmt.Fprintf(out, "    %s timed maximum %s (cell %s role %s); use `yolo approve %s --for %s` or Allow once.\n", termsafe.Visible(q.ID), brokerstore.FormatTimedDuration(bound.Maximum), termsafe.Visible(bound.Cell), termsafe.Visible(bound.Role), termsafe.Visible(q.ID), brokerstore.FormatTimedDuration(bound.Maximum))
 	}
 }
 

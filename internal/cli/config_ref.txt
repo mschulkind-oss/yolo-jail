@@ -83,6 +83,29 @@
     safely refuses declared roots before touching originals because approval
     binds declaring filenames too; it never drops roots silently.
 
+  [bold]scopes[/bold] — (table, [bold]TOML ONLY[/bold]): authored broker policy metadata,
+    keyed by a local bare alias. Each scope names source and resource; duplicate
+    source/resource identities in the same layer refuse. A selected declaration
+    validates resource bytes with its exact or segment matcher. An unselected
+    source's scope remains inert and is reported without source-specific validation.
+    User scopes may carry allow.always, allow.on_request, allow.never and a context
+    name. Workspace scopes may carry requests.read (true, false or "ask", or named
+    read cells) and declared requests.all / requests.working_set write cells.
+    This vocabulary is retained for inspection and editing only: it does not
+    activate execution policy, admit resources, or grant host access. Native git
+    and github use repos rather than scopes. Use `yolo config set` or
+    `yolo config add` with the scoped path, then `yolo config check`.
+
+  [bold]contexts[/bold] — (table, [bold]USER SCOPE ONLY[/bold], [bold]TOML ONLY[/bold]):
+    declaration-owned, nonsecret execution-selector metadata. Each context has
+    source and exactly the fields declared by that source's CLI-front context
+    block. Names and fields may be quoted TOML identities; values are kept exactly
+    as written, nonempty valid UTF-8 of at most 1024 bytes with no control characters.
+    Context names may be referenced by user scopes. Fields and host routes are not
+    inherited into either jail user scope. These declarations are inactive metadata,
+    not an execution switch. Use `yolo config set` with the exact quoted context
+    field path, then `yolo config check`; never store a credential in a field.
+
   [bold]allow[/bold] — (table, [bold]USER SCOPE ONLY[/bold]): what a project's jail may do with your
     logins and your host's loopholes.  `[allow.<pack>]` takes `always = [...]`
     (every project's jail gets it, each project's next prompt showing it once)

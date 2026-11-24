@@ -31,3 +31,7 @@ type = "project"
 name = "rerun_workflows"
 tables = ["working_set", "all"]
 default = { working_set = false, all = false }
+
+[[call_broker.cell]]
+name = "list_runs"
+kind = "read"

@@ -28,16 +28,21 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 	if predicted.Verdict == "refused" {
 		return predicted, CLIResult{}, nil
 	}
-	if _, err := h.revalidate(q); err != nil {
+	if _, err := h.prevalidate(q); err != nil {
 		return refused(err)
 	}
 	// The exact grant's stored parent is not the invocation. Revalidate both,
 	// even when the digest matches but the authenticated caller changed.
 	gate := func(held brokerstore.Request) (brokerstore.Policy, error) {
-		if _, err := h.revalidate(q); err != nil {
+		current := q.WithWorkingStateFrom(held)
+		if _, err := h.revalidate(current); err != nil {
 			return brokerstore.Policy{}, err
 		}
-		return h.revalidate(held)
+		rebound, err := reboundRequest(held, current)
+		if err != nil {
+			return brokerstore.Policy{}, err
+		}
+		return h.revalidate(rebound)
 	}
 	inspection, err := h.store.InspectExactGrantContext(ctx, q, gate)
 	if err != nil {
@@ -67,14 +72,18 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		return err
 	}
 	coverage := func(working []brokerstore.WorkingEntry, now time.Time) (bool, error) {
-		current := decideCall(call, h.input.EffectiveCells, working, q.Workspace, h.input.Source, now)
+		cells, err := h.currentCellPolicies()
+		if err != nil {
+			return false, err
+		}
+		current := decideCall(call, cells, working, q.Workspace, h.input.Source, now)
 		if current.Verdict == "refused" {
 			return false, errors.New("one write was refused by the current working-set table; change the request and retry")
 		}
 		if current.Verdict != "runs" {
 			return false, nil
 		}
-		if _, err := h.revalidate(q); err != nil {
+		if _, err := h.revalidate(q.WithWorkingState(working, now)); err != nil {
 			return false, err
 		}
 		if op == "act" {
@@ -84,7 +93,7 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		}
 		return true, nil
 	}
-	filed, _, covered, err := h.store.FileIfStillAsksWithCoverageContext(ctx, q, h.revalidate, coverage)
+	filed, _, covered, err := h.store.FileIfStillAsksWithCoverageContext(ctx, q, gate, coverage)
 	if err != nil {
 		return refused(err)
 	}
@@ -108,6 +117,5 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		return refused(errors.New("call broker neither filed nor covered the call; retry"))
 	}
 	return Verdict{Verdict: "asks", Rule: "host approval required", Digest: q.Digest,
-		Next: "Ask the human to run `yolo approve " + filed.ID + "` (Allow once) or `yolo approve " + filed.ID +
-			" --for 15m` (a while, up to the smallest max_for of its cells) on the host, then retry the same call"}, CLIResult{}, nil
+		Next: timedApprovalNext(filed, "retry the same call")}, CLIResult{}, nil
 }

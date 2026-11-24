@@ -40,7 +40,8 @@ var (
 	// ErrNotConfirmed is a pending request the host can no longer vouch for: its jail's
 	// launch is gone without having ended it (a broker killed outright), its scope file is
 	// missing, or its set or classification changed. No decision can allow it.
-	ErrNotConfirmed = errors.New("not confirmed by the host")
+	ErrNotConfirmed    = errors.New("not confirmed by the host")
+	ErrInvalidDuration = errors.New("give --for a positive duration or session")
 )
 
 // kindError carries its full message and one of the kinds above.
@@ -83,7 +84,14 @@ type CallResource struct {
 // CallWrite records each classified write's complete chain for an exact pack
 // command digest. Legacy git/GitHub requests leave CallWrites empty.
 type CallWrite struct {
-	Cell  string
+	Cell       string
+	Chain      []CallResource
+	Role       string   `json:",omitempty"`
+	Candidates []string `json:",omitempty"`
+}
+
+type CallRead struct {
+	Cell  string `json:",omitempty"`
 	Chain []CallResource
 }
 
@@ -99,6 +107,8 @@ type Request struct {
 	// selected declaration identity; the original body is resubmitted at act.
 	HTTPOriginalDigest, HTTPCanonicalDigest, HTTPDeclarationHash string      `json:",omitempty"`
 	CallWrites                                                   []CallWrite `json:",omitempty"`
+	CallReads                                                    []CallRead  `json:",omitempty"`
+	ContextName, ContextDigest                                   string      `json:",omitempty"`
 	Repo, StdinDigest, Digest, Set                               string
 	Policy                                                       Policy
 	Filed, Decided                                               time.Time
@@ -137,7 +147,11 @@ type Request struct {
 	// DenialNote is optional human feedback, present only when denied; it never changes authority.
 	DenialNote string `json:"denial_note,omitempty"`
 	// Store-private authority committed with the answer in one request-record rename.
-	workingEntries []WorkingEntry
+	workingEntries   []WorkingEntry
+	currentWorking   []WorkingEntry
+	currentTime      time.Time
+	hasWorkingState  bool
+	executionContext context.Context
 }
 
 // How a request was answered (Request.Answer): the jail-readable record's own spellings
@@ -201,10 +215,12 @@ func (g Grant) EndedBy() string {
 
 // Decision cannot change the holder, set or command. Zero For means Allow once.
 type Decision struct {
-	Deny    bool
-	For     time.Duration
-	Session bool
-	Uses    int
+	Deny bool
+	For  time.Duration
+	// InvalidDuration defers CLI parsing failure until the locked request state is checked.
+	InvalidDuration bool
+	Session         bool
+	Uses            int
 	// Add (DecideWorking only) puts the request's resources into the working set for good, as
 	// `yolo approve --add` did before GB-D28 removed it. No answer sets it now: it stays so the
 	// lasting entries those answers left are still read, and so a test can record one.
@@ -242,7 +258,10 @@ type Store struct {
 	// of the request's policy window: a pack call's smallest cell max_for (pack-brokers.md
 	// BX-D17). It runs inside the decision's transaction, after Revalidate. Nil keeps the
 	// policy window, as git and GitHub use.
-	TimedLimit func(q Request) (time.Duration, error)
+	TimedLimit func(q Request) (TimedBound, error)
+	// NativeTimedPolicy keeps known-write-only native answers on the shipped
+	// policy/message branch even when a role-cap hook is installed.
+	NativeTimedPolicy bool
 	// AfterTransaction, when set, runs after each transaction on this Store value releases
 	// the store's lock, with that transaction's error. It is a test seam: a test lands
 	// another process's write (a host decision) exactly between two transactions of a caller,
@@ -272,6 +291,11 @@ type Store struct {
 type Revalidate func(Request) (Policy, error)
 
 func currentPolicy(q Request, gate Revalidate) (Policy, error) {
+	if q.HasOperationMetadata() {
+		if err := ValidateOperationBinding(q); err != nil {
+			return Policy{}, err
+		}
+	}
 	if gate == nil {
 		return Policy{}, errors.New("current authority gate unavailable; retry after the host broker policy adapter is installed")
 	}
@@ -661,6 +685,9 @@ func digest(q Request) string {
 	} else if len(q.CallWrites) != 0 {
 		input = append(input, q.CallWrites, q.OriginalArgv)
 	}
+	if len(q.CallReads) != 0 || q.ContextDigest != "" || q.ContextName != "" {
+		input = append(input, "broker-operation/1", q.CallReads, q.ContextName, q.ContextDigest)
+	}
 	b, _ := json.Marshal(input)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
@@ -691,13 +718,18 @@ func (s *Store) FileContext(ctx context.Context, input Request) (Request, error)
 
 // checkFiling refuses a request that lacks what filing it needs.
 func checkFiling(input Request) error {
+	if input.HasOperationMetadata() {
+		if err := ValidateOperationBinding(input); err != nil {
+			return err
+		}
+	}
 	if input.Jail == "" || input.Start == "" || input.Workspace == "" || input.Set == "" || input.Repo == "" || len(input.Argv) == 0 || input.StdinDigest == "" {
 		return errors.New("request needs host holder, workspace, set, command, repository and stdin digest")
 	}
 	if input.HTTPOriginalDigest == "" && (input.HTTPCanonicalDigest != "" || input.HTTPDeclarationHash != "") {
 		return errors.New("incomplete HTTP approval metadata")
 	}
-	if input.HTTPOriginalDigest != "" && (len(input.CallWrites) == 0 || len(input.OriginalArgv) != 0 || len(input.Argv) != 1 || input.Argv[0] != "http" || input.StdinDigest != input.HTTPOriginalDigest || !validHTTPDigest(input.HTTPOriginalDigest) || !validHTTPDigest(input.HTTPCanonicalDigest) || !validHTTPDigest(input.HTTPDeclarationHash)) {
+	if input.HTTPOriginalDigest != "" && (len(input.CallWrites)+len(input.CallReads) == 0 || len(input.OriginalArgv) != 0 || len(input.Argv) != 1 || input.Argv[0] != "http" || input.StdinDigest != input.HTTPOriginalDigest || !validHTTPDigest(input.HTTPOriginalDigest) || !validHTTPDigest(input.HTTPCanonicalDigest) || !validHTTPDigest(input.HTTPDeclarationHash)) {
 		return errors.New("HTTP approval needs only exact digests, cells and non-replayable metadata")
 	}
 	return validatePolicy(input.Policy)
@@ -719,7 +751,7 @@ func validHTTPDigest(value string) bool {
 // files it new, inside the caller's transaction.
 func (s *Store) fileIn(ctx context.Context, r *records, now time.Time, input Request) (Request, error) {
 	if s.Revalidate != nil {
-		if _, err := currentPolicy(input, s.Revalidate); err != nil {
+		if _, err := currentPolicy(revalidationRequest(input, r, now), s.Revalidate); err != nil {
 			return Request{}, err
 		}
 	}
@@ -837,7 +869,7 @@ func (s *Store) FileIfStillAsksWithCoverageContext(ctx context.Context, input Re
 		if revalidate == nil {
 			return errors.New("request filing needs current host authority")
 		}
-		if _, err := currentPolicy(input, revalidate); err != nil {
+		if _, err := currentPolicy(revalidationRequest(input, r, now), revalidate); err != nil {
 			return err
 		}
 		if coverage != nil {
@@ -993,6 +1025,9 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 			if q.State != expected || q.State != "pending" {
 				return refusal(ErrAlreadyDecided, "request %s is already %s", id, q.State)
 			}
+			if d.InvalidDuration {
+				return ErrInvalidDuration
+			}
 			if err := validatePolicy(q.Policy); err != nil {
 				return refusal(ErrNotConfirmed, "%v", err)
 			}
@@ -1010,7 +1045,7 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 				q.DenialNote = d.DenialNote
 				return s.write("requests", q.ID, q)
 			}
-			current, err := currentPolicy(*q, s.Revalidate)
+			current, err := currentPolicy(revalidationRequest(*q, r, now), s.Revalidate)
 			if err != nil {
 				return refusal(ErrNotConfirmed, "%v", err)
 			}
@@ -1077,8 +1112,8 @@ func (s *Store) Decide(id, expected string, d Decision) (Grant, error) {
 	return out, err
 }
 
-// shortDuration is d as `yolo approve --for` takes it: 1h, not 1h0m0s.
-func shortDuration(d time.Duration) string {
+// FormatTimedDuration is d as `yolo approve --for` takes it: 1h, not 1h0m0s.
+func FormatTimedDuration(d time.Duration) string {
 	out := d.String()
 	if strings.HasSuffix(out, "m0s") {
 		out = strings.TrimSuffix(out, "0s")
@@ -1118,6 +1153,9 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			if q.State != "pending" {
 				return refusal(ErrAlreadyDecided, "request %s is already %s", id, q.State)
 			}
+			if d.InvalidDuration {
+				return ErrInvalidDuration
+			}
 			if err := validatePolicy(q.Policy); err != nil {
 				return refusal(ErrNotConfirmed, "%v", err)
 			}
@@ -1125,7 +1163,7 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 				return refusal(ErrRefusedByPolicy, "a per-resource answer is a positive duration alone. Next: run "+
 					"`yolo approve %s --for <duration>`, `yolo approve %s` to Allow once, or `yolo approve %s --deny`", id, id, id)
 			}
-			current, err := currentPolicy(*q, s.Revalidate)
+			current, err := currentPolicy(revalidationRequest(*q, r, now), s.Revalidate)
 			if err != nil {
 				return refusal(ErrNotConfirmed, "%v", err)
 			}
@@ -1133,18 +1171,17 @@ func (s *Store) DecideWorking(id string, d Decision) ([]WorkingEntry, error) {
 			if duration == 0 {
 				duration = TimedGrantDefault
 			}
-			if !d.Add && s.TimedLimit != nil {
-				limit, err := s.TimedLimit(*q)
+			if !d.Add {
+				bound, err := s.timedMaximum(revalidationRequest(*q, r, now), current)
 				if err != nil {
 					return refusal(ErrNotConfirmed, "%v", err)
 				}
-				if duration > limit {
-					return refusal(ErrRefusedByPolicy, "duration exceeds %s, the longest timed answer every cell this call writes allows "+
-						"(the smallest max_for among them). Next: run `yolo approve %s --for %s`, or `yolo approve %s` to Allow once",
-						shortDuration(limit), id, shortDuration(limit), id)
+				if duration > bound.Maximum {
+					if s.TimedLimit == nil || s.NativeTimedPolicy && !q.HasScopedRoles() {
+						return refusal(ErrRefusedByPolicy, "duration exceeds this set's policy ceiling of %s", bound.Maximum)
+					}
+					return refusal(ErrRefusedByPolicy, "duration exceeds %s, limited by cell %s role %s. Next: run `yolo approve %s --for %s`, or `yolo approve %s` to Allow once", FormatTimedDuration(bound.Maximum), bound.Cell, bound.Role, id, FormatTimedDuration(bound.Maximum), id)
 				}
-			} else if !d.Add && duration > min(q.Policy.MaxWindow, current.MaxWindow) {
-				return refusal(ErrRefusedByPolicy, "duration exceeds this set's policy ceiling of %s", min(q.Policy.MaxWindow, current.MaxWindow))
 			}
 			entries, err := s.Entries(*q)
 			if err != nil {
@@ -1328,7 +1365,7 @@ func eligibleGrantIn(r *records, now time.Time, workspace, set, commandDigest st
 				(exactOnly && (q.Digest != commandDigest || q.Digest != g.Digest)) {
 				continue
 			}
-			current, err := currentPolicy(q, revalidate)
+			current, err := currentPolicy(revalidationRequest(q, r, now), revalidate)
 			if err != nil {
 				return Grant{}, Request{}, 0, 0, false, err
 			}
@@ -1348,13 +1385,17 @@ func (s *Store) ExactGrantEligibleContext(ctx context.Context, input Request, re
 		return Grant{}, false, errors.New("checking a grant needs the host workspace and jail identity")
 	}
 	input.Digest = digest(input)
-	requests, grants, _, now, err := s.InspectContext(ctx)
+	var grant Grant
+	var eligible bool
+	var eligibilityErr error
+	_, _, err := s.inspectContext(ctx, func(r *records, now time.Time) error {
+		grant, _, _, _, eligible, eligibilityErr = eligibleGrantIn(r, now, input.Workspace, input.Set, input.Digest, revalidate, true)
+		return nil
+	})
 	if err != nil {
 		return Grant{}, false, err
 	}
-	r := records{requests: requests, grants: grants}
-	g, _, _, _, found, err := eligibleGrantIn(&r, now, input.Workspace, input.Set, input.Digest, revalidate, true)
-	return g, found, err
+	return grant, eligible, eligibilityErr
 }
 
 // Revoke ends one grant or working-set entry by its id, or with "all" every live grant

@@ -880,6 +880,9 @@ func unknownToReadableSchema(values *jsonx.OrderedMap, scope Scope) []string {
 	var walk func(v any, path []string)
 	walk = func(v any, path []string) {
 		if len(path) > 0 {
+			if brokerDeclaredCell(path) {
+				return
+			}
 			if !schemaNames(keys, path) {
 				out = append(out, dotted(path))
 				return
@@ -905,6 +908,14 @@ func unknownToReadableSchema(values *jsonx.OrderedMap, scope Scope) []string {
 	walk(values, nil)
 	_ = scope
 	return dedupe(out)
+}
+
+// brokerDeclaredCell reports a path under a named repository's broker table
+// (repos.<n>.requests.<broker>.<cell>...). The schema deliberately types none of these: a named
+// repository's write capabilities are typed by the broker's declaration, so a legacy cell there
+// converts as written and the converted config's own load and equivalence check judge it.
+func brokerDeclaredCell(path []string) bool {
+	return len(path) >= 5 && path[0] == "repos" && path[2] == "requests"
 }
 
 func schemaNames(keys []config.SchemaKey, path []string) bool {

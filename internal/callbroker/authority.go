@@ -1,7 +1,6 @@
 package callbroker
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +26,8 @@ import (
 // command/use/15m, never a pack's timed-resource or Add policy.
 var oncePolicy = brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: 15 * time.Minute, Uses: 1}
 
+var readSourceGrant = loopholegrant.Read
+
 // ApprovalAuthority is the standalone host yolo approve adapter. A recorded
 // request only locates its original launch; the selected declaration, current
 // host ceiling, live scope/grant, classifier and canonical bytes are checked anew.
@@ -44,9 +45,12 @@ func ApprovalAuthority(q brokerstore.Request) (brokerstore.Policy, error) {
 		return brokerstore.Policy{}, err
 	}
 	var in callbrokerinput.Launch
-	if json.Unmarshal(data, &in) != nil || in.ScopeFile != path || in.Source != q.Set || (in.Front != "cli" && in.Front != "http") || !slices.Equal(in.Roots, sf.Repos) {
+	if json.Unmarshal(data, &in) != nil || in.ScopeFile != path || in.Source != q.Set || (in.Front != "cli" && in.Front != "http") {
 		return brokerstore.Policy{}, errors.New("selected call broker input changed; relaunch and retry")
 	}
+	// The immutable input pins the declaration/program, not the current roots:
+	// root-only apply replaces the live scope. revalidate checks that scope and
+	// its lease under the caller's source transaction before approving anything.
 	store := &brokerstore.Store{Dir: paths.BrokerSourceDir(q.Set), Source: q.Set}
 	if in.Front == "http" {
 		if q.HTTPOriginalDigest == "" {
@@ -152,11 +156,27 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 	}
 	// The exact private grant snapshot this launch published is replaced by
 	// config apply. Never scan the state directory for another launch's grant.
-	_, grant, err := loopholegrant.Read(h.input.GrantFile)
-	if err != nil || grant == nil || grant.PID != sf.PID || grant.Pack != h.input.Pack ||
-		grant.Workspace != sf.Workspace || grant.Container != sf.Container ||
-		grant.Kinds["read"].Standing != loopholegrant.Granted {
-		return brokerscope.File{}, nil, errors.New("read grant withdrawn or unavailable; run yolo request and yolo config apply before retrying")
+	if h.input.Version == callbrokerinput.SnapshotLaunchVersion {
+		if err := h.legacySnapshotHostBundle(user); err != nil {
+			return brokerscope.File{}, nil, err
+		}
+		policy, err := h.currentLegacySnapshot(sf)
+		if err != nil {
+			return brokerscope.File{}, nil, err
+		}
+		if policy.Asks.SourceRead != "true" {
+			return brokerscope.File{}, nil, errors.New("snapshot source read floor is withdrawn; run yolo request and approve a complete policy replacement before retrying")
+		}
+	} else {
+		if sf.PolicySnapshot != nil {
+			return brokerscope.File{}, nil, errors.New("legacy reader cannot adopt snapshot authority; stop this jail and relaunch after the complete reader is installed")
+		}
+		_, grant, err := readSourceGrant(h.input.GrantFile)
+		if err != nil || grant == nil || grant.PID != sf.PID || grant.Pack != h.input.Pack ||
+			grant.Workspace != sf.Workspace || grant.Container != sf.Container ||
+			grant.Kinds["read"].Standing != loopholegrant.Granted {
+			return brokerscope.File{}, nil, errors.New("read grant withdrawn or unavailable; run yolo request and yolo config apply before retrying")
+		}
 	}
 	if h.input.Front == "cli" {
 		if err := h.program.unchanged(); err != nil {
@@ -169,6 +189,9 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 // revalidate runs under the store's transaction, including from yolo approve.
 // The classifier sees only the recorded hash, never retained stdin or facts.
 func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
+	if q.HasScopedRoles() || q.ContextDigest != "" || q.ContextName != "" {
+		return brokerstore.Policy{}, errors.New("scoped operation execution is not active; retry the supported selected write path")
+	}
 	sf, user, err := h.currentAuthority()
 	if err != nil {
 		return brokerstore.Policy{}, err
@@ -178,7 +201,7 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 	}
 	classifier := h.classifier
 	classifier.Roots = slices.Clone(sf.Repos)
-	answer, err := classifier.ClassifyCLIDigest(context.Background(), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
+	answer, err := classifier.ClassifyCLIDigest(snapshotTransactionContext(q.ExecutionContext()), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
 	if err != nil {
 		return brokerstore.Policy{}, fmt.Errorf("current classifier refused this call (%v); retry the original call", err)
 	}
@@ -192,13 +215,19 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 	if expected.Digest != q.Digest || !reflect.DeepEqual(expected.Argv, q.Argv) || !reflect.DeepEqual(expected.OriginalArgv, q.OriginalArgv) || !reflect.DeepEqual(expected.CallWrites, q.CallWrites) {
 		return brokerstore.Policy{}, errors.New("current canonical command, ordered writes or resources changed; retry the original call")
 	}
+	cells, err := h.cellsFromAuthority(sf, user)
+	if err != nil {
+		return brokerstore.Policy{}, err
+	}
 	for _, w := range answer.Classification.Writes {
 		if len(w.Chain) == 0 || !slices.Contains(sf.Repos, w.Chain[len(w.Chain)-1].ID) {
 			return brokerstore.Policy{}, errors.New("write left the approved root; retry after yolo config apply")
 		}
-		p := h.input.EffectiveCells[w.Cell]
-		frozen, exists := p.Tables["all"]
-		current := config.CallBrokerCurrentCeiling(user, h.input.Source, "all", w.Cell)
+		working, now, _ := q.WorkingState()
+		table := selectedWriteTable(w, working, q.Workspace, h.input.Source, now)
+		p := cells[w.Cell]
+		frozen, exists := p.Tables[table]
+		current := config.CallBrokerCurrentCeiling(user, h.input.Source, table, w.Cell)
 		if !exists || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" ||
 			current == "off" || frozen.Ceiling == "always" && current != "always" {
 			return brokerstore.Policy{}, errors.New("one write's host ceiling or approved request was withdrawn; use yolo allow and yolo config apply before retrying")

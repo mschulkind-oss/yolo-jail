@@ -45,9 +45,11 @@ func decodeMap(t *testing.T, name string, data map[string]any) (*loopholedecl.Ma
 // yolo-jail`; this is the same assertion without a subprocess.
 func TestPackageImportsOnlyMeasuredLeaves(t *testing.T) {
 	allowed := map[string]bool{
-		"github.com/mschulkind-oss/yolo-jail/internal/json5":  true,
-		"github.com/mschulkind-oss/yolo-jail/internal/jsonx":  true,
-		"github.com/mschulkind-oss/yolo-jail/internal/pytext": true,
+		// ScopeMatcherImportsOnlyPureLeaves pins the matcher to pure stdlib leaves.
+		"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy": true,
+		"github.com/mschulkind-oss/yolo-jail/internal/json5":        true,
+		"github.com/mschulkind-oss/yolo-jail/internal/jsonx":        true,
+		"github.com/mschulkind-oss/yolo-jail/internal/pytext":       true,
 		// loophole.toml's reader; its own dependencies are jsonx alone.
 		"github.com/mschulkind-oss/yolo-jail/internal/tomlx": true,
 	}

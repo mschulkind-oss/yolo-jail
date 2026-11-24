@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -13,6 +14,16 @@ import (
 )
 
 const callBrokerScopeRecordSuffix = ".call-broker-declaration"
+
+// Declaration records sort their lists; display order is not a declaration change.
+// Compare exact bytes and duplicate multiplicity without changing either input.
+func sameCallBrokerDisclosure(previous, current []string) bool {
+	previous = slices.Clone(previous)
+	current = slices.Clone(current)
+	slices.Sort(previous)
+	slices.Sort(current)
+	return slices.Equal(previous, current)
+}
 
 // ApprovedCallBrokerHTTP is nonsecret binding metadata captured with the selected gate.
 // It is not a credential or a grant.
@@ -46,6 +57,7 @@ func WithCallBrokerDeclarations(check *ScopeCheck, workspace string, selected []
 		s := ScopeSource{Source: selected.Source, Label: selected.Label, Pack: selected.Pack, RemoteHost: b.Scope.RemoteHost,
 			Form: brokerscope.FormCallRoot, Disclosure: CallBrokerDisclosure(b), ScopeKind: "call-broker root",
 			EntryKey: brokeredRootsPath(selected.Source)}
+		s.Disclosure = append(s.Disclosure, "declaration_sha256="+loopholedecl.CallBrokerDeclarationHash(b))
 		if b.HTTP != nil {
 			s.Disclosure = append(s.Disclosure, "http selected pack="+selected.Pack, "http declaration_sha256="+loopholedecl.CallBrokerDeclarationHash(b))
 			http := *b.HTTP
@@ -88,6 +100,20 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 		return nil
 	}
 	out := []string{"call broker: " + b.Source + " front=" + b.Front + " program=" + b.Program + " executor=" + b.Executor + " scope roots=" + b.Scope.Roots}
+	if description := b.Scope.MatchingDescription(); description != "" {
+		out = append(out, description)
+	}
+	if b.Context != nil {
+		names := make([]string, 0, len(b.Context.Fields))
+		for name := range b.Context.Fields {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			out = append(out, "context field="+strconv.Quote(name)+" env="+b.Context.Fields[name])
+		}
+		out = append(out, "context unset="+strings.Join(b.Context.Unset, ","), fmt.Sprintf("context route_anchors=%q", b.Context.RouteAnchors))
+	}
 	if b.Scope.RemoteHost != "" {
 		out = append(out, "remote_host="+b.Scope.RemoteHost+" root_template="+b.Scope.RootTemplate)
 	}
@@ -124,7 +150,11 @@ func CallBrokerDisclosure(b *loopholedecl.CallBroker) []string {
 				parts = append(parts, table+"=ask")
 			}
 		}
-		out = append(out, "cell "+c.Name+" tables="+strings.Join(c.Tables, ",")+" default="+strings.Join(parts, ",")+" max_for="+c.MaxFor)
+		kind := ""
+		if c.Kind != "" {
+			kind = " kind=" + c.Kind
+		}
+		out = append(out, "cell "+c.Name+kind+" tables="+strings.Join(c.Tables, ",")+" default="+strings.Join(parts, ",")+" max_for="+c.MaxFor)
 	}
 	if b.HTTP != nil {
 		out = append(out, "http origin="+b.HTTP.Origin+" credential_source="+b.HTTP.Credential.Source+
@@ -273,6 +303,9 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 	}
 	if requestSource != nil {
 		for _, table := range requestSource.Keys() {
+			if table == "read" {
+				continue
+			} // TOML read metadata is validated by the selected declaration resolver.
 			if table != "working_set" && table != "all" {
 				add(errs, "config.requests."+source+"."+table+": not a declared call-broker table; use working_set or all")
 				continue
@@ -323,6 +356,9 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 			}
 		}
 	}
+	for _, path := range callBrokerScopedReadAsks(ws, source) {
+		add(errs, path+": a scoped read that asks or refuses is not enforced yet, so the broker would run it unasked; remove the line with `yolo config unset "+path+"`, or set it true to keep the source's standing read")
+	}
 	if requestSource == nil {
 		requestSource = jsonx.NewOrderedMap()
 	}
@@ -354,4 +390,38 @@ func validateCallBrokerCells(source string, b *loopholedecl.CallBroker, user, ws
 			}
 		}
 	}
+}
+
+// callBrokerScopedReadAsks are the workspace `[scopes.<alias>.requests.read]` lines of source that
+// ask or refuse, as config paths. The live broker has no scoped read decision (plan U3), so it would
+// run such a read; the config is refused until it can be enforced rather than accepted and ignored.
+func callBrokerScopedReadAsks(ws *jsonx.OrderedMap, source string) []string {
+	scopes, _ := asMap(getOr(ws, "scopes", nil))
+	if scopes == nil {
+		return nil
+	}
+	stricter := func(v any) bool { return v == "ask" || v == false }
+	var out []string
+	for _, alias := range scopes.Keys() {
+		scope, _ := asMap(getOr(scopes, alias, nil))
+		if scope == nil || getOr(scope, "source", nil) != any(source) {
+			continue
+		}
+		requests, _ := asMap(getOr(scope, "requests", nil))
+		if requests == nil {
+			continue
+		}
+		raw := getOr(requests, "read", nil)
+		path := "scopes." + alias + ".requests.read"
+		if cells, ok := asMap(raw); ok {
+			for _, cell := range cells.Keys() {
+				if v, _ := cells.Get(cell); stricter(v) {
+					out = append(out, path+"."+cell)
+				}
+			}
+		} else if stricter(raw) {
+			out = append(out, path)
+		}
+	}
+	return out
 }

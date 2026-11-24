@@ -6,17 +6,31 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
 // fakeClock is an injected clock whose Sleep advances time, so a lock wait ends on the
-// clock's own event rather than on elapsed wall time.
-type fakeClock struct{ now time.Time }
+// clock's own event rather than on elapsed wall time. A test that runs two brokers at once
+// gives each its own clock, so one broker's waiting never moves the other's time; the mutex
+// keeps a clock a goroutine reads while another sleeps on it race-free.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
 
-func (c *fakeClock) Now() time.Time        { return c.now }
-func (c *fakeClock) Sleep(d time.Duration) { c.now = c.now.Add(d) }
-func newFakeClock() *fakeClock             { return &fakeClock{now: time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)} }
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+func (c *fakeClock) Sleep(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+func newFakeClock() *fakeClock { return &fakeClock{now: time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)} }
 func (c *fakeClock) source(dir string) SourceStore {
 	return SourceStore{Dir: dir, File: ".credentials.json", LockDir: ".storage-write.lock", Stale: 15 * time.Second,
 		Wait: 2 * time.Second, EntriesAt: []string{"mcpOAuth"}, Now: c.Now, Sleep: c.Sleep}

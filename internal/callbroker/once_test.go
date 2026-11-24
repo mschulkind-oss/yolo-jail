@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -56,6 +57,11 @@ func selectedTimedOnceFixture(t *testing.T) *onceFixture {
 
 func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *onceFixture {
 	t.Helper()
+	return selectedOnceFixtureForApply(t, standing, initialRead, timed, false)
+}
+
+func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liveApply bool, beforeBind ...func(*onceFixture)) *onceFixture {
+	t.Helper()
 	old, inputPath, marker, _ := testCallHandler(t)
 	home := filepath.Dir(marker)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -76,7 +82,21 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 		t.Fatal(err)
 	}
 	packDir := filepath.Dir(filepath.Dir(moduleDir))
-	if err := os.WriteFile(filepath.Join(packDir, "pack.toml"), []byte("name = \"test-pack\"\n[[loophole]]\nfrom = \"loopholes/tasks\"\n"), 0600); err != nil {
+	packManifest := "name = \"test-pack\"\n[[loophole]]\nfrom = \"loopholes/tasks\"\n"
+	if liveApply {
+		packManifest += "[[program]]\nbin = \"classifier\"\nvia = \"pack\"\nfrom = \"tools\"\nrun = \"classifier\"\n"
+		classifierPath := filepath.Join(packDir, "tools", "classifier")
+		if err := os.MkdirAll(filepath.Dir(classifierPath), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(classifierPath, mustRead(t, testClassifierPath), 0700); err != nil {
+			t.Fatal(err)
+		}
+		identity := old.input.ProgramIdentities["classifier"]
+		identity.Path = classifierPath
+		old.input.ProgramIdentities["classifier"] = identity
+	}
+	if err := os.WriteFile(filepath.Join(packDir, "pack.toml"), []byte(packManifest), 0600); err != nil {
 		t.Fatal(err)
 	}
 	configDir := filepath.Join(home, ".config", "yolo-jail")
@@ -129,7 +149,17 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 		old.input.EffectiveCells["change"] = p
 	}
 	old.input.FrontJailID = "launch"
-	scope := brokerscope.File{Source: old.input.Source, PID: os.Getpid(), Container: "fixture-container", Workspace: home,
+	container := "fixture-container"
+	workspace := home
+	if liveApply {
+		workspace, err = filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		container = runtime.JailName(workspace, "podman-self")
+		old.input.Roots = []string{"team:beta"}
+	}
+	scope := brokerscope.File{Source: old.input.Source, PID: os.Getpid(), Container: container, Workspace: workspace,
 		Form: brokerscope.FormCallRoot, Repos: append([]string(nil), old.input.Roots...)}
 	id, err := brokerscope.NewLaunchID()
 	if err != nil {
@@ -147,7 +177,7 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 		old.input.ReadGrantStanding = "pending"
 		grantStanding = loopholegrant.Pending
 	}
-	block := loopholegrant.Block{Pack: selectedPack, Workspace: home, Container: scope.Container, PID: scope.PID, LaunchID: id,
+	block := loopholegrant.Block{Pack: selectedPack, Workspace: workspace, Container: scope.Container, PID: scope.PID, LaunchID: id,
 		Kinds: map[string]loopholegrant.Kind{"read": {Standing: grantStanding, Text: "read tasks"}}}
 	grantData, err := loopholegrant.Merge([]byte("{}"), block)
 	if err != nil {
@@ -183,16 +213,27 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 	if _, err := store.Working(); err != nil {
 		t.Fatal(err)
 	}
-	h, err := newCLIHandler(inputPath, home, store, old.audit)
+	h, err := newCLIHandler(inputPath, workspace, store, old.audit)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// These tests are about grants, not the classifier's deadline, so its 2s production bound must
 	// not decide them on a loaded machine (fixtureClassifierDeadline).
 	h.classifier.deadline = fixtureClassifierDeadline
+	f := &onceFixture{h: h, home: home, marker: marker, inputPath: inputPath, scopePath: scopePath, grantPath: grantPath, userPath: userPath, store: store, scope: scope}
+	for _, prepare := range beforeBind {
+		prepare(f)
+	}
 	start, err := brokerstore.NewStartID()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(beforeBind) > 0 {
+		delivered, err := brokerscope.ReadDelivered(scope, h.input.DeclarationHash, callbrokerinput.InputDigest(h.original))
+		if err != nil {
+			t.Fatal(err)
+		}
+		start = delivered.Start
 	}
 	bound, lease, err := brokercore.BindLease(h.input.Source, scopePath, scope, start)
 	if err != nil {
@@ -214,7 +255,8 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 	} else if !initialRead && err == nil {
 		t.Fatal("fixture missing initial read grant became live")
 	}
-	return &onceFixture{h: h, home: home, marker: marker, inputPath: inputPath, scopePath: scopePath, grantPath: grantPath, userPath: userPath, store: store, scope: bound}
+	f.scope = bound
+	return f
 }
 
 func TestSelectedCLIHostEnvironmentIsDeclarationBoundAndPrivate(t *testing.T) {

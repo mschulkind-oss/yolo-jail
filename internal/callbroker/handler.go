@@ -55,15 +55,19 @@ func newCLIHandler(inputFile, workspace string, store *brokerstore.Store, audit 
 	if err := json.Unmarshal(data, &input); err != nil {
 		return nil, errors.New("selected call broker input is invalid; relaunch the jail")
 	}
-	if input.Version != "yolo.call-broker-launch/2" || !loopholedecl.ValidBrokerSourceName(input.Source) || input.Loophole == "" || input.Front != "cli" || input.Program == "" || store == nil || store.SourceName() != input.Source || audit == nil || workspace == "" {
+	if callbrokerinput.ValidateAuthorityVersion(input, data) != nil || !loopholedecl.ValidBrokerSourceName(input.Source) || input.Loophole == "" || input.Front != "cli" || input.Program == "" || store == nil || store.SourceName() != input.Source || audit == nil || workspace == "" {
 		return nil, errors.New("selected call broker input is incomplete; relaunch the jail with its pack selected")
 	}
 	program, err := pinCLI(input.Program, input.HostEnvNames)
 	if err != nil {
 		return nil, err
 	}
+	if why := brokercore.PlacementRefusal(input.Program, workspace)(program.path); why != "" {
+		return nil, errors.New(why)
+	}
 	c := Classifier{Source: input.Source, Argv: input.Classifier, Identities: input.ProgramIdentities,
-		Roots: input.Roots, Resources: input.Resources, Cells: input.Cells, Lookups: input.Lookups}
+		Roots: input.Roots, Resources: input.Resources, Cells: input.Cells, Lookups: input.Lookups,
+		ReadGrant: input.Version == callbrokerinput.SnapshotLaunchVersion || input.ReadStanding || input.ReadGrantStanding != ""}
 	return &CLIHandler{inputFile: inputFile, original: append([]byte(nil), data...), input: input,
 		workspace: workspace, shutdown: context.Background(), classifier: c, program: program, store: store, audit: audit}, nil
 }
@@ -135,7 +139,7 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 	if jail == "" || len(argv) == 0 || (op != "evaluate" && op != "ask" && op != "act") {
 		return Verdict{Verdict: "refused", Next: "Use a selected call broker with a valid CLI operation"}, CLIResult{}, errors.New("invalid broker operation or host identity")
 	}
-	if h.start == "" && (!h.input.ReadStanding || h.input.ReadGrantStanding != "granted" || h.input.ReadWithheld) {
+	if h.start == "" && (h.input.Version == callbrokerinput.SnapshotLaunchVersion || !h.input.ReadStanding || h.input.ReadGrantStanding != "granted" || h.input.ReadWithheld) {
 		auditReason = "read-standing-missing"
 		return Verdict{Verdict: "refused", Rule: "read grant missing", Next: "Ask the human to grant this pack read access with `yolo allow`"}, CLIResult{}, nil
 	}
@@ -184,7 +188,15 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 		auditReason = "decision-store-failed"
 		return Verdict{Verdict: "refused", Next: "Check the host broker store and retry"}, CLIResult{}, err
 	}
-	verdict = decideCall(call, h.input.EffectiveCells, working, h.workspace, h.input.Source, now)
+	q = q.WithWorkingState(working, now).WithExecutionContext(ctx)
+	cells, err := h.currentCellPolicies()
+	if err != nil {
+		return Verdict{Verdict: "refused", Next: err.Error()}, CLIResult{}, err
+	}
+	verdict = decideCall(call, cells, working, h.workspace, h.input.Source, now)
+	if refused, ok := neverReadVerdict(h.input.Source, call); ok && verdict.Verdict == "runs" {
+		verdict = refused
+	}
 	verdict.Digest = q.Digest
 	if len(call.Writes) != 0 && h.start != "" {
 		verdict, result, err = h.boundWrite(ctx, op, q, call, verdict, stdin)
@@ -240,7 +252,14 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 			return Verdict{Verdict: "refused", Next: err.Error()}, CLIResult{}, err
 		}
 	}
-	result, err = h.program.run(ctx, call, stdin)
+	err = h.snapshotReadTransaction(ctx, func(ctx context.Context) error {
+		if err := h.validateSnapshotReadRoots(call); err != nil {
+			return err
+		}
+		var err error
+		result, err = h.program.run(ctx, call, stdin)
+		return err
+	})
 	if err != nil {
 		if executionCompleted(err) {
 			auditOutcome, auditReason = "ran", "host-cli-response-rejected"
@@ -259,6 +278,20 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 
 func (h *CLIHandler) lookupWithClassifier(jail string, classifier Classifier) LookupReader {
 	return func(ctx context.Context, declared loopholedecl.CallBrokerLookup, args []string) (json.RawMessage, error) {
+		if h.input.Version == callbrokerinput.SnapshotLaunchVersion && !snapshotTransactionHeld(ctx) {
+			var data json.RawMessage
+			err := h.snapshotReadTransaction(ctx, func(ctx context.Context) error {
+				sf, _, err := h.currentAuthority()
+				if err != nil {
+					return err
+				}
+				current := classifier
+				current.Roots = slices.Clone(sf.Repos)
+				data, err = h.lookupWithClassifier(jail, current)(ctx, declared, args)
+				return err
+			})
+			return data, err
+		}
 		outcome, reason := "refused", "request-invalid"
 		digest := ""
 		defer func() {
@@ -317,6 +350,9 @@ func (h *CLIHandler) lookupWithClassifier(jail string, classifier Classifier) Lo
 			}
 		}
 		digest = callRequest(h.input.Source, h.workspace, jail, "", "", *answer.Classification, nil).Digest
+		if err := h.validateSnapshotReadRoots(*answer.Classification); err != nil {
+			return nil, err
+		}
 		result, err := h.program.run(ctx, *answer.Classification, nil)
 		if err != nil {
 			if executionCompleted(err) {

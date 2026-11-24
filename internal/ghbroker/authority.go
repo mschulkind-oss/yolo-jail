@@ -127,6 +127,9 @@ func (a *Authority) Classify(argv []string, repo string) (Decision, brokerstore.
 	return d, brokerstore.Policy{}, errors.New("no host permission set admits this command; configure its set on the host")
 }
 func (a *Authority) Revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
+	if q.HasScopedRoles() || q.ContextDigest != "" || q.ContextName != "" {
+		return brokerstore.Policy{}, errors.New("native scoped operation approval is not active; retry through the supported native write path")
+	}
 	if a == nil || q.Start != a.start || q.LaunchID != a.scope.LaunchID || q.Workspace != a.scope.Workspace || q.Jail != paths.JailShortHash(a.scope.Container) {
 		return brokerstore.Policy{}, errors.New("request holder is not this live host launch")
 	}

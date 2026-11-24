@@ -117,9 +117,13 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 	for i, cell := range b.Cells {
 		declaredCells[i] = cell
 		declaredCells[i].Tables = append([]string(nil), cell.Tables...)
-		declaredCells[i].Default = make(map[string]bool, len(cell.Default))
-		for table, value := range cell.Default {
-			declaredCells[i].Default[table] = value
+		// A read cell declares no default table: keep nil, not an empty map, so the
+		// host daemon's deep comparison with the declaration still holds after JSON.
+		if cell.Default != nil {
+			declaredCells[i].Default = make(map[string]bool, len(cell.Default))
+			for table, value := range cell.Default {
+				declaredCells[i].Default[table] = value
+			}
 		}
 	}
 	lookups := append([]loopholedecl.CallBrokerLookup(nil), b.Lookups...)
@@ -144,7 +148,7 @@ func selectedCallBrokerLaunchInput(lp *loopholes.Loophole, approved map[string][
 		Cells:     declaredCells, EffectiveCells: cloneCellPolicy(policy),
 		ReadStanding:      readDeclared && readGrant.Standing == config.LoopholeGrantGranted,
 		ReadGrantStanding: readGrant.Standing, ReadWithheld: readGrant.Withheld,
-		Lookups: lookups}
+		Lookups: lookups, NeverAware: true}
 	for _, root := range roots {
 		input.Roots = append(input.Roots, root.Repo)
 	}
@@ -541,6 +545,11 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		bound, err := brokerscope.ReadFile(frozen.CallBroker.ScopeFile)
 		if err == nil {
 			err = bindCallInput(frozen.CallBroker.ScopeFile, bound, path)
+		}
+		if err == nil {
+			if asks, captured := o.callBrokerDelivered[lp.Name]; captured {
+				err = callbrokerinput.PublishDelivered(frozen.CallBroker.ScopeFile, data, asks)
+			}
 		}
 		if err != nil {
 			// Release the publication lock before the inode-guarded cleaner takes it.

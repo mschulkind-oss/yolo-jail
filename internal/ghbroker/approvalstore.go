@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -19,7 +20,11 @@ import (
 // ApprovalStore is the GitHub source's host store as `yolo approve` opens it.
 func ApprovalStore() *brokerstore.Store {
 	return &brokerstore.Store{Dir: paths.BrokerSourceDir(Source), Source: Source, Revalidate: ApprovalAuthority, PublishRecords: true,
-		Entries: RequestEntries, Audit: StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))}
+		Entries: RequestEntries, NativeTimedPolicy: true, TimedLimit: approvalTimedLimit, Audit: StoreAudit(brokeraudit.Open(paths.BrokerAuditLog(), nil))}
+}
+
+func approvalTimedLimit(q brokerstore.Request) (brokerstore.TimedBound, error) {
+	return brokercore.SelectedTimedLimit(Source, q)
 }
 
 // RequestEntries is the working-set entries `yolo approve <id> --for <duration>` records for
@@ -28,6 +33,9 @@ func ApprovalStore() *brokerstore.Store {
 // it by. A write naming no PR or issue number the broker can read takes Allow once alone, since
 // a timed grant on it would cover the whole repository's writes.
 func RequestEntries(q brokerstore.Request) ([]brokerstore.WorkingEntry, error) {
+	if q.HasScopedRoles() {
+		return brokerstore.OperationEntries(q)
+	}
 	if q.Set != SetReadWrite {
 		return nil, errors.New("the request is not a GitHub write request")
 	}

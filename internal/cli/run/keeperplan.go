@@ -97,6 +97,7 @@ type keeperPlan struct {
 	ApprovedScopes map[string][]config.ScopeRepo `json:"approved_scopes,omitempty"`
 	// CallBrokerCells is the gate-time effective request/default and user ceiling snapshot.
 	CallBrokerCells      map[string]map[string]config.CallBrokerCellPolicy `json:"call_broker_cells,omitempty"`
+	CallBrokerDelivered  map[string]brokerscope.DeliveredAsks              `json:"call_broker_delivered,omitempty"`
 	ApprovedHTTPBindings map[string]config.ApprovedCallBrokerHTTP          `json:"approved_http_bindings,omitempty"`
 	// PrivateClientEntrypoints is the producer's checked entrypoint of each selected private HTTP
 	// client, which writeLaunchInput binds to the generation it mints.

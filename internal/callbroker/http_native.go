@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
 
@@ -74,6 +75,14 @@ func (h *HTTPHandler) readHTTPNativeParent(ctx context.Context, jail string, loo
 }
 
 func (h *HTTPHandler) readHTTPNativeParentWithFact(ctx context.Context, jail string, lookup loopholedecl.CallBrokerLookup, child Resource, fact *json.RawMessage) (parent string, err error) {
+	if h.input.Version == callbrokerinput.SnapshotLaunchVersion && !snapshotTransactionHeld(ctx) {
+		err = h.snapshotReadTransaction(ctx, func(ctx context.Context) error {
+			var err error
+			parent, err = h.readHTTPNativeParentWithFact(ctx, jail, lookup, child, fact)
+			return err
+		})
+		return parent, err
+	}
 	sf, _, err := h.currentAuthority()
 	if err != nil {
 		return "", err

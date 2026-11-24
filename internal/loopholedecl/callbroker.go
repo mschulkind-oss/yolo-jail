@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 )
 
@@ -32,6 +33,7 @@ type CallBroker struct {
 	ReadOverPost    []string
 	HTTP            *CallBrokerHTTP
 	Joins           []CallBrokerJoin
+	Context         *CallBrokerContext `json:",omitempty"`
 	// ProgramIdentities are resolved by the host from this call broker's selected staged
 	// pack tree; parsing a manifest never reads or executes a program.
 	ProgramIdentities    map[string]CallBrokerProgramIdentity `json:"-"`
@@ -59,6 +61,17 @@ type CallBrokerScope struct {
 	Roots        string
 	RemoteHost   string
 	RootTemplate string
+	Nesting      string   `json:",omitempty"`
+	Separator    string   `json:",omitempty"`
+	Anchors      []string `json:",omitempty"`
+}
+
+// CallBrokerContext declares nonsecret environment selectors for routed CLI calls.
+// Parsing or selecting this metadata never changes an executor's environment.
+type CallBrokerContext struct {
+	Fields       map[string]string
+	Unset        []string
+	RouteAnchors []string `json:",omitempty"`
 }
 
 type CallBrokerResource struct{ Type, Parent string }
@@ -67,7 +80,12 @@ type CallBrokerCell struct {
 	Tables  []string
 	Default map[string]bool
 	MaxFor  string
+	// Empty is the serialized legacy write kind, preserving old declaration hashes.
+	Kind string `json:",omitempty"`
 }
+
+func (c CallBrokerCell) IsRead() bool { return c.Kind == "read" }
+
 type CallBrokerLookup struct {
 	Name                                           string
 	CLI                                            []string
@@ -105,7 +123,7 @@ var callJoinKeys = []string{"cell", "follows"}
 var callFollowKeys = []string{"source", "fact"}
 var callCellTables = []string{"working_set", "all"}
 
-func parseCallBroker(manifestPath string, raw any) (*CallBroker, error) {
+func parseCallBroker(manifestPath string, raw any, legacy ...bool) (*CallBroker, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -113,7 +131,12 @@ func parseCallBroker(manifestPath string, raw any) (*CallBroker, error) {
 	if !ok {
 		return nil, Errorf("%s: 'call_broker' must be a mapping", manifestPath)
 	}
-	if err := rejectUnknownCallKeys(manifestPath, "call_broker", m, callBrokerKeys); err != nil {
+	keys := callBrokerKeys
+	toml := len(legacy) == 0 || !legacy[0]
+	if toml {
+		keys = append(append([]string(nil), keys...), "context")
+	}
+	if err := rejectUnknownCallKeys(manifestPath, "call_broker", m, keys); err != nil {
 		return nil, err
 	}
 	b := &CallBroker{}
@@ -208,14 +231,22 @@ func parseCallBroker(manifestPath string, raw any) (*CallBroker, error) {
 	} else if _, has := m.Get("http"); has {
 		return nil, Errorf("%s: call_broker.http requires an HTTP front; remove the block or select front http", manifestPath)
 	}
-	if b.Scope, err = parseCallBrokerScope(manifestPath, getOrNil(m, "scope")); err != nil {
+	if b.Scope, err = parseCallBrokerScope(manifestPath, getOrNil(m, "scope"), !toml); err != nil {
 		return nil, err
 	}
 	if b.Resources, err = parseCallBrokerResources(manifestPath, getOrNil(m, "resource")); err != nil {
 		return nil, err
 	}
-	if b.Cells, err = parseCallBrokerCells(manifestPath, getOrNil(m, "cell")); err != nil {
+	if b.Cells, err = parseCallBrokerCells(manifestPath, getOrNil(m, "cell"), !toml); err != nil {
 		return nil, err
+	}
+	if raw, has := m.Get("context"); has {
+		if b.Front != "cli" {
+			return nil, Errorf("%s: call_broker.context requires a CLI front; remove the block", manifestPath)
+		}
+		if b.Context, err = parseCallBrokerContext(manifestPath, raw, b.Scope); err != nil {
+			return nil, err
+		}
 	}
 	cellNames := map[string]bool{}
 	for _, cell := range b.Cells {
@@ -386,8 +417,12 @@ func callObject(path, name string, raw any, keys []string) (*jsonx.OrderedMap, e
 	}
 	return m, nil
 }
-func parseCallBrokerScope(path string, raw any) (CallBrokerScope, error) {
-	m, err := callObject(path, "scope", raw, callScopeKeys)
+func parseCallBrokerScope(path string, raw any, legacy ...bool) (CallBrokerScope, error) {
+	keys := callScopeKeys
+	if len(legacy) == 0 || !legacy[0] {
+		keys = append(append([]string(nil), keys...), "nesting", "separator", "anchors")
+	}
+	m, err := callObject(path, "scope", raw, keys)
 	if err != nil {
 		return CallBrokerScope{}, err
 	}
@@ -396,6 +431,25 @@ func parseCallBrokerScope(path string, raw any) (CallBrokerScope, error) {
 		return CallBrokerScope{}, Errorf("%s: 'call_broker.scope.roots' must be 'remotes' or 'declared'", path)
 	}
 	s := CallBrokerScope{Roots: roots}
+	for key, dst := range map[string]*string{"nesting": &s.Nesting, "separator": &s.Separator} {
+		if raw, has := m.Get(key); has {
+			value, ok := raw.(string)
+			if !ok || value == "" {
+				return s, Errorf("%s: call_broker.scope.%s must be a nonempty string; repair the declaration", path, key)
+			}
+			*dst = value
+		}
+	}
+	if _, has := m.Get("anchors"); has {
+		values, ok := stringSliceField(m, "anchors")
+		if !ok || len(values) == 0 {
+			return s, Errorf("%s: call_broker.scope.anchors must be a nonempty string list", path)
+		}
+		s.Anchors = values
+	}
+	if _, err := brokerpolicy.NewScopeMatcher(s.Nesting, s.Separator, s.Anchors); err != nil {
+		return s, Errorf("%s: call_broker.scope: %s", path, err)
+	}
 	s.RemoteHost, _ = getOrNil(m, "remote_host").(string)
 	s.RootTemplate, _ = getOrNil(m, "root_template").(string)
 	if roots == "remotes" {
@@ -448,7 +502,7 @@ func parseCallBrokerResources(path string, raw any) ([]CallBrokerResource, error
 	}
 	return out, nil
 }
-func parseCallBrokerCells(path string, raw any) ([]CallBrokerCell, error) {
+func parseCallBrokerCells(path string, raw any, legacy ...bool) ([]CallBrokerCell, error) {
 	list, ok := raw.([]any)
 	if !ok || len(list) == 0 {
 		return nil, Errorf("%s: 'call_broker.cell' must be a non-empty list", path)
@@ -456,7 +510,11 @@ func parseCallBrokerCells(path string, raw any) ([]CallBrokerCell, error) {
 	var out []CallBrokerCell
 	seen := map[string]bool{}
 	for i, v := range list {
-		m, e := callObject(path, fmt.Sprintf("cell[%d]", i), v, callCellKeys)
+		keys := callCellKeys
+		if len(legacy) == 0 || !legacy[0] {
+			keys = append(append([]string(nil), keys...), "kind")
+		}
+		m, e := callObject(path, fmt.Sprintf("cell[%d]", i), v, keys)
 		if e != nil {
 			return nil, e
 		}
@@ -465,6 +523,31 @@ func parseCallBrokerCells(path string, raw any) ([]CallBrokerCell, error) {
 			return nil, Errorf("%s: 'call_broker.cell[%d].name' must be unique and must not be 'read'", path, i)
 		}
 		seen[name] = true
+		kind := ""
+		if raw, has := m.Get("kind"); has {
+			value, ok := raw.(string)
+			if !ok || (value != "read" && value != "write") {
+				return nil, Errorf("%s: call_broker.cell[%d].kind must be read or write; repair the declaration", path, i)
+			}
+			kind = value
+		}
+		if kind == "read" {
+			for _, field := range []string{"tables", "default"} {
+				if _, has := m.Get(field); has {
+					return nil, Errorf("%s: read cell %s takes no %s; remove it", path, name, field)
+				}
+			}
+			maxFor := ""
+			if raw, has := m.Get("max_for"); has {
+				value, ok := raw.(string)
+				if !ok || !validDuration(value) {
+					return nil, Errorf("%s: read cell %s max_for must be a duration; repair the declaration", path, name)
+				}
+				maxFor = value
+			}
+			out = append(out, CallBrokerCell{Name: name, Kind: kind, MaxFor: maxFor})
+			continue
+		}
 		tables, ok := stringSliceField(m, "tables")
 		if !ok || len(tables) == 0 {
 			return nil, Errorf("%s: 'call_broker.cell[%d].tables' must list working_set and/or all", path, i)
@@ -508,7 +591,7 @@ func parseCallBrokerCells(path string, raw any) ([]CallBrokerCell, error) {
 		if maxFor != "" && !validDuration(maxFor) {
 			return nil, Errorf("%s: 'call_broker.cell[%d].max_for' must be a duration such as 8h", path, i)
 		}
-		out = append(out, CallBrokerCell{Name: name, Tables: tables, Default: defaults, MaxFor: maxFor})
+		out = append(out, CallBrokerCell{Name: name, Tables: tables, Default: defaults, MaxFor: maxFor, Kind: kind})
 	}
 	return out, nil
 }

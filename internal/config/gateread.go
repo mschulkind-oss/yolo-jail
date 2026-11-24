@@ -56,7 +56,7 @@ func ReadWorkspaceForGate(workspace string) (*WorkspaceRead, error) {
 	if probs := brokeredOutsideProblems(src.node().key(brokeredKey)); len(probs) > 0 {
 		return nil, configErr("%s", probs[0])
 	}
-	for _, key := range []string{"requests", "repos"} {
+	for _, key := range []string{"requests", "repos", "scopes"} {
 		if probs := readableScopeOutsideProblems(src.node().key(key), key); len(probs) > 0 {
 			return nil, configErr("%s", probs[0])
 		}
@@ -406,14 +406,27 @@ func NewScopeCheck(workspace string, brokers []ScopeBroker, read *WorkspaceRead)
 		// owner's "no vacuous scope approvals"; the readable form reaches the same answer by
 		// issuing grants per concrete target, scopeCheckFromReadable). The source's last approved
 		// scope, if it had one, still shows as removed, once.
-		if !brokerscope.HoldsRead(s.Grants) || !s.concrete() {
+		nativeDeclarationScope(&s, b)
+		if s.NativeDeclaration && sourceHasWrites(s) && !brokerscope.HoldsRead(s.Grants) && s.concrete() {
+			executable := s
+			executable.Read.Remotes = nil
+			executable.Entry, executable.Grants, executable.UserGrants = nil, nil, nil
+			executable.Dormant = !recordHeldRead(rec, b.Source)
+			s.executable = &executable
+			if !recordHasPolicyModel(rec, b.Source) {
+				pending := s
+				s.policyPending = &pending
+			}
+		}
+		independentWrite := s.NativeDeclaration && recordHasPolicyModel(rec, b.Source) && sourceHasWrites(s)
+		if !brokerscope.HoldsRead(s.Grants) && !independentWrite || !s.concrete() {
 			// Said apart at the launch: a held grant over no remote is a missing remote, not a
 			// missing grant (ScopeSource.ReadWithoutScope).
 			s.ReadWithoutScope = brokerscope.HoldsRead(s.Grants)
 			s.Read.Remotes, s.Entry, s.Grants, s.GrantFiles, s.UserGrants = nil, nil, nil, nil, nil
 			s.Dormant = !recordHeldLiveScope(rec, b.Source)
 		} else {
-			s.FirstRead = !recordHeldLiveScope(rec, b.Source)
+			s.FirstRead = !recordHeldLiveScope(rec, b.Source) && !(independentWrite && len(rec[b.Source]) > 0)
 		}
 		check.Sources = append(check.Sources, s)
 	}

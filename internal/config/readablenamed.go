@@ -30,6 +30,8 @@ type ReadableScopedCeiling struct {
 	Repository string
 	Always     []string
 	OnRequest  []string
+	Never      []string
+	NeverFiles []string
 	// AlwaysFiles and OnRequestFiles are the user config files each list is written in.
 	AlwaysFiles    []string
 	OnRequestFiles []string
@@ -67,6 +69,52 @@ func scopedCeilingAdmitting(ceilings []ReadableScopedCeiling, source string, tar
 		}
 	}
 	return ReadableScopedCeiling{}, "", false
+}
+
+// narrowerNeverRefuses reports whether the most specific user repository line naming capability
+// for source and target holds it in `never` (design 3.2 and 3.3: a narrower line governs, and at
+// equal specificity the stricter one wins). Lines are the `[repos.<name>.allow.<source>]` tables
+// and the direct `[repos.<name>.allow]` native-read lists. A narrower `always` or `on_request`
+// governs over a less specific `never`, so the answer is false there. An unqualified source line
+// is not narrower than itself and never reaches here.
+func narrowerNeverRefuses(plan *ReadableAllowancePlan, source string, target ReadableRepository, capability, readWord string) bool {
+	_, refused := narrowerNeverLine(plan, source, target, capability, readWord)
+	return refused
+}
+
+// narrowerNeverLine is narrowerNeverRefuses with the config path of the `never` list that refuses,
+// so a refusal can name the one verb that removes it: `repos.<name>.allow.<source>.never` for a
+// broker's own table and `repos.<name>.allow.never` for a native read list.
+func narrowerNeverLine(plan *ReadableAllowancePlan, source string, target ReadableRepository, capability, readWord string) (path string, refused bool) {
+	best := -1
+	var bestPath string
+	consider := func(c ReadableScopedCeiling, never, grants bool, neverPath string) {
+		if (!never && !grants) || !scopedCeilingAdmits(c, target) {
+			return
+		}
+		wild := strings.Count(c.Repository, "*")
+		if best < 0 || wild < best {
+			best, refused, bestPath = wild, false, ""
+		}
+		if wild == best && never {
+			refused, bestPath = true, neverPath
+		}
+	}
+	for _, c := range plan.NativeCeilings {
+		if c.Source == source {
+			consider(c, slices.Contains(c.Never, capability), slices.Contains(c.Always, capability) || slices.Contains(c.OnRequest, capability), "repos."+c.Name+".allow."+source+".never")
+		}
+	}
+	if capability == readWord {
+		for _, r := range plan.NativeReads {
+			if r.Source != source || r.Name == "" || r.Layer != "ceiling" {
+				continue
+			}
+			host := namedRepoHost(r.Repository)
+			consider(ReadableScopedCeiling{Host: host, Repository: strings.TrimPrefix(r.Repository, host+"/")}, r.Never, r.Always || r.OnRequest, "repos."+r.Name+".allow.never")
+		}
+	}
+	return bestPath, best >= 0 && refused
 }
 
 // scopedCeilingHolds reports whether any user `[repos.<name>.allow.<source>]` table lists capability,
@@ -247,6 +295,18 @@ func readableScopedCeiling(plan *ReadableAllowancePlan, name, line string, table
 	if !ok {
 		return fmt.Errorf("repos.%s.allow: expected a table", name)
 	}
+	if _, direct := allow.Get("always"); direct || readableValue(allow, "on_request") != nil || readableValue(allow, "never") != nil {
+		policy, err := anyHostReadPolicy(brokers)
+		if err != nil {
+			return fmt.Errorf("repos.%s.allow: direct lists require a declared any-host read source; write other ceilings under their broker table, such as [repos.%s.allow.github] or the broad [allow.github]: %w", name, name, err)
+		}
+		for _, key := range allow.Keys() {
+			if key != "always" && key != "on_request" && key != "never" {
+				return fmt.Errorf("repos.%s.allow.%s: named native read cannot mix broker tables and lists; use yolo config unset", name, key)
+			}
+		}
+		return nativeReadLists(plan, name, line, "repos."+name+".allow", allow, policy, input.UserOrigins)
+	}
 	for _, key := range allow.Keys() {
 		path := "repos." + name + ".allow." + key
 		if key == "always" || key == "on_request" {
@@ -264,9 +324,12 @@ func readableScopedCeiling(plan *ReadableAllowancePlan, name, line string, table
 			return fmt.Errorf("%s: expected a table", path)
 		}
 		for _, capability := range own.Keys() {
-			if capability != "always" && capability != "on_request" {
+			if capability != "always" && capability != "on_request" && capability != "never" {
 				return fmt.Errorf("%s.%s: a repository's ceiling holds only always and on_request", path, capability)
 			}
+		}
+		if err := validateScopedCeilingLists(path, own, broker, input.UserOrigins); err != nil {
+			return err
 		}
 		resolved, err := ResolveReadableAllowance(ReadableAllowanceInput{User: scopedAllowOnly(key, own),
 			SelectedPacks: input.SelectedPacks, Declarations: input.Declarations, PackSettings: input.PackSettings})
@@ -274,28 +337,37 @@ func readableScopedCeiling(plan *ReadableAllowancePlan, name, line string, table
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		if i := readableBrokerIndex(resolved.Sources, key); i >= 0 {
-			if err := scopedCeilingReadProblem(name, resolved.Sources[i]); err != nil {
+			always, err := validateReadableCapabilities(key, "always", stringList(readableValue(own, "always")), broker)
+			if err != nil {
 				return err
 			}
+			onRequest, err := validateReadableCapabilities(key, "on_request", stringList(readableValue(own, "on_request")), broker)
+			if err != nil {
+				return err
+			}
+			plan.NativeCeilings = append(plan.NativeCeilings, ReadableScopedCeiling{Name: name, Source: key, Host: namedRepoHost(line), Repository: strings.TrimPrefix(line, namedRepoHost(line)+"/"), Always: always, OnRequest: onRequest, Never: slices.Clone(resolved.Sources[i].Never), AlwaysFiles: cloneOrigins(input.UserOrigins[path+".always"]), OnRequestFiles: cloneOrigins(input.UserOrigins[path+".on_request"]), NeverFiles: cloneOrigins(input.UserOrigins[path+".never"])})
+			if err := stripScopedNativeRead(&resolved.Sources[i], plan, name, line, path, own, input.UserOrigins); err != nil {
+				return err
+			}
+			hasLegacyWrite := len(resolved.Sources[i].Always) != 0 || len(resolved.Sources[i].OnRequest) != 0
+			readOnlyNew := false
+			for _, field := range []string{"always", "on_request"} {
+				for _, token := range stringList(readableValue(own, field)) {
+					if token == broker.ReadCapability || token == "read" {
+						readOnlyNew = true
+					}
+				}
+			}
+			_, hasAlways := own.Get("always")
+			_, hasOnRequest := own.Get("on_request")
+			_, hasNever := own.Get("never")
+			if !hasLegacyWrite && (readOnlyNew || hasNever && !hasAlways && !hasOnRequest) {
+				continue
+			}
 			plan.ScopedCeilings = append(plan.ScopedCeilings, ReadableScopedCeiling{Name: name, Source: key, Host: namedRepoHost(line),
-				Repository: strings.TrimPrefix(line, namedRepoHost(line)+"/"), Always: resolved.Sources[i].Always, OnRequest: resolved.Sources[i].OnRequest,
+				Repository: strings.TrimPrefix(line, namedRepoHost(line)+"/"), Always: resolved.Sources[i].Always, OnRequest: resolved.Sources[i].OnRequest, Never: resolved.Sources[i].Never, NeverFiles: cloneOrigins(input.UserOrigins[path+".never"]),
 				AlwaysFiles:    cloneOrigins(input.UserOrigins["repos."+name+".allow."+key+".always"]),
 				OnRequestFiles: cloneOrigins(input.UserOrigins["repos."+name+".allow."+key+".on_request"])})
-		}
-	}
-	return nil
-}
-
-// scopedCeilingReadProblem refuses a repository's ceiling that lists the read capability in either
-// list: reading is every workspace's, under the broker's broad list, so the next step is that list.
-func scopedCeilingReadProblem(name string, policy ReadableBrokerPolicy) error {
-	for _, list := range []struct {
-		name  string
-		holds []string
-	}{{"always", policy.Always}, {"on_request", policy.OnRequest}} {
-		if slices.Contains(list.holds, policy.ReadCapability) {
-			return fmt.Errorf("repos.%s.allow.%s.%s: a repository's ceiling lists write capabilities only; reading is for every workspace: yolo allow %s always %s",
-				name, policy.Source, list.name, policy.Source, policy.ReadCapability)
 		}
 	}
 	return nil
@@ -319,6 +391,16 @@ func readableNamedRequests(plan *ReadableAllowancePlan, input ReadableAllowanceI
 		value := readableValue(requests, source)
 		broker, known := brokers[source]
 		if !known {
+			policy, policyErr := anyHostReadPolicy(brokers)
+			if policyErr == nil && (source == "read" || source == policy.ReadCapability) {
+				if err := validateNativeReadAliases("repos."+name+".requests", requests, policy, input.WorkspaceOrigins, false); err != nil {
+					return err
+				}
+				if err := nativeReadRequest(plan, name, named.Repository, path, value, policy, input.WorkspaceOrigins); err != nil {
+					return err
+				}
+				continue
+			}
 			if owner, capability, ok := anyHostCapabilityOf(brokers, source); ok {
 				return fmt.Errorf("%s is not built yet: a Git line under a name waits for a later slice; write it as yolo request %s %s %s", path, owner, capability, strings.Join(stringList(value), " "))
 			}
@@ -344,6 +426,19 @@ func readableNamedRequests(plan *ReadableAllowancePlan, input ReadableAllowanceI
 			plan.Diagnostics = append(plan.Diagnostics, fmt.Sprintf("%s names an unselected broker pack; add %q to packs or remove this request", path, broker.Pack))
 			continue
 		}
+		if err := validateNativeReadAliases(path, table, broker, input.WorkspaceOrigins, false); err != nil {
+			return err
+		}
+		readTable := shallowCopyMap(table)
+		for _, key := range table.Keys() {
+			if key == "read" || key == broker.ReadCapability {
+				if err := nativeReadRequest(plan, name, named.Repository, path+"."+key, readableValue(table, key), broker, input.WorkspaceOrigins); err != nil {
+					return err
+				}
+				readTable.Delete(key)
+			}
+		}
+		table = readTable
 		index := readableBrokerIndex(plan.Sources, source)
 		if index < 0 {
 			continue

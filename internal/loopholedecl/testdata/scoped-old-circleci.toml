@@ -1,0 +1,33 @@
+name = "circleci-broker"
+description = "Run scoped CircleCI CLI listings on the host with the host's CircleCI login."
+version = 1
+access = "read CircleCI run listings for this workspace's approved GitHub repositories"
+transport = "loopback-tls"
+lifecycle = "spawned"
+
+[[grants]]
+kind = "read"
+text = "read CircleCI runs for this repository"
+requestable_by_default = true
+
+[call_broker]
+source = "circleci"
+front = "cli"
+program = "circleci"
+classifier = ["yolo", "internal", "call-broker-classify", "circleci"]
+executor = "core"
+credential_paths = ["~/.config/circleci", "$XDG_CONFIG_HOME/circleci"]
+env_from_host = ["CIRCLE_TOKEN", "CIRCLE_CLI_TOKEN", "DBUS_SESSION_BUS_ADDRESS", "XDG_CONFIG_HOME"]
+
+[call_broker.scope]
+roots = "remotes"
+remote_host = "github.com"
+root_template = "gh/{owner}/{repo}"
+
+[[call_broker.resource]]
+type = "project"
+
+[[call_broker.cell]]
+name = "rerun_workflows"
+tables = ["working_set", "all"]
+default = { working_set = false, all = false }

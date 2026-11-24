@@ -1497,6 +1497,11 @@ func TestBackgroundAdvanceRepairCoordinationIsNoWaitAndConservative(t *testing.T
 	}
 }
 
+// contentionHangGuard only turns a producer that is truly blocked behind the held artifact lock
+// (or never reaches its phase) into a red test. The pass condition is the producer's done
+// event while the test still holds the lock, never a duration, so a loaded machine cannot fail it.
+const contentionHangGuard = 3 * time.Minute
+
 func runBackgroundRepairWithArtifactContention(t *testing.T, bg detachedPatchFailureFixture, phase string) ([]backgroundOutcomeFile, backgroundOutcome, string) {
 	t.Helper()
 	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -1521,11 +1526,11 @@ func runBackgroundRepairWithArtifactContention(t *testing.T, bg detachedPatchFai
 	case <-entered:
 	case <-done:
 		t.Fatalf("actual background producer ended before %s: %s", phase, output.String())
-	case <-time.After(5 * time.Second):
+	case <-time.After(contentionHangGuard):
 		resume()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(contentionHangGuard):
 		}
 		t.Fatalf("actual background producer did not reach %s: %s", phase, output.String())
 	}
@@ -1534,18 +1539,18 @@ func runBackgroundRepairWithArtifactContention(t *testing.T, bg detachedPatchFai
 		resume()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(contentionHangGuard):
 		}
 		t.Fatalf("could not contend the artifact lock during %s: %v", phase, err)
 	}
 	resume()
 	select {
 	case <-done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(contentionHangGuard):
 		lock.Release()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
+		case <-time.After(contentionHangGuard):
 		}
 		t.Fatalf("background producer waited behind the artifact lock during %s", phase)
 	}

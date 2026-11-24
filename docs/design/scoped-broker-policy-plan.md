@@ -2,7 +2,7 @@
 title: "Implementation plan: scoped operation-broker policy"
 status: accepted
 stage: DECIDED
-next: "Admit an independently materialized broker candidate and run U1 baseline reds"
+next: "U4 is built except the GitHub-dependent timed witnesses (H17, H18a, H18b; they need U11) and the generic withheld-fact witness H18 (needs U7); next unit is U7 (generic CLI/HTTP read, mixed and fact transactions), then U8"
 depends-on:
   - scoped-broker-policy.md
   - pack-brokers.md
@@ -231,6 +231,8 @@ No runner emission, AWS grammar-row correspondence or HTTP schema was verified b
 | N12 | Typed upgrade followed by three lookup rounds | Five processes, three lookup rounds, within the 30 s budget; a sixth process is refused. |
 
 ### U4 — store binding, selector parity, holder and placement (after U3; 5–7 h)
+
+**Status (shipped on the branch):** the bound operation bundle and holder (`brokerstore/operation_test.go`, `callbroker/scoped_approval_test.go`), the actual-startup placement check (`newCLIHandler` applies `brokercore.PlacementRefusal` to the resolved program with the approved workspace; `TestScopedApprovalActualStartupPlacement` covers path, symlink and the native-home exemption), and the one timed limit (`brokerstore.RoleTimedLimit`, reached through `brokercore.SelectedTimedLimit` by both the prompt and `--for` validation; an absent native `read_max_for` takes `brokerstore.TimedGrantDefault`; `scopedapprove_test.go` covers H19/H21 and the default, `timedroles_test.go` H16/H20). Remaining: H17, H18a, H18b (native GitHub, U11), H18 (generic withheld facts, U7), and the plan's `scopedbrokertimed_test.go` aggregate names, which the existing tests stand in for.
 
 **Settled:** one brokerstore; optional digest extensions; one selected table throughout; workspace-held exact answers; no grant/route/root authority fabrication.
 

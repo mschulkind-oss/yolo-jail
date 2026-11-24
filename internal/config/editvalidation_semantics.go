@@ -21,7 +21,7 @@ func validateExplicitRawReadableScopes(ctx *editValidationContext) error {
 		if source.value == nil {
 			continue
 		}
-		for _, root := range []string{"active_provider", "allow", "repos", "requests", "pack_sources"} {
+		for _, root := range []string{"active_provider", "allow", "repos", "requests", "pack_sources", "scopes", "contexts"} {
 			value, present := source.value.Get(root)
 			if present {
 				if err := validateRawReadableScopePath(value, []string{root}, source); err != nil {
@@ -91,7 +91,7 @@ func reportUnknownKeysWithReadableFG(config *jsonx.OrderedMap, errs *[]string) {
 	for key := range knownTopLevelConfigKeys {
 		allowed[key] = struct{}{}
 	}
-	for _, root := range []string{"active_provider", "allow", "repos", "requests", "pack_sources"} {
+	for _, root := range []string{"active_provider", "allow", "repos", "requests", "pack_sources", "scopes", "contexts"} {
 		if _, recognized := readableSchemaRule([]string{root}); recognized {
 			allowed[root] = struct{}{}
 		}
@@ -111,7 +111,7 @@ func validateProvidersForExplicit(config, readableEffective *jsonx.OrderedMap, c
 		ReportModelGaps: true,
 	})
 	if err != nil {
-		add(errs, err.Error())
+		add(errs, annotateScopedBrokerConflict(err, ctx.userOrigins, ctx.workspaceOrigins).Error())
 		return
 	}
 	ctx.semantic = &semantic

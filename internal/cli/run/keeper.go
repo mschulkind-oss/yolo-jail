@@ -309,6 +309,7 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	}
 	o.approvedScopes = plan.ApprovedScopes
 	o.callBrokerCells = cloneCallBrokerCells(plan.CallBrokerCells)
+	o.callBrokerDelivered = cloneDeliveredAsks(plan.CallBrokerDelivered)
 	o.approvedHTTPBindings = cloneHTTPBindings(plan.ApprovedHTTPBindings)
 	o.privateClientEntrypoints = slices.Clone(plan.PrivateClientEntrypoints)
 	o.approvedGrants = plan.ApprovedGrants

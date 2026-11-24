@@ -495,6 +495,8 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 	configChanged := oldJSON != currentJSON
 
 	var sc scopeOutcome
+	var priorScope scopeRecord
+	var priorSources sourcesRecord
 	scopePath := ApprovalScopePath(workspace)
 	oldScopeJSON, oldSourcesJSON := "", ""
 	if scope.inPlay() {
@@ -506,6 +508,7 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 			oldScopeJSON, _ = scopeRecordJSON(old)
 		}
 		oldSourcesJSON, _ = sourcesRecordJSON(oldSources)
+		priorScope, priorSources = old, oldSources
 		sc = compareScope(scope, old, oldSources)
 	}
 	grants, err := readLoopholeGrantsGate(workspace, scope)
@@ -513,8 +516,14 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 		return false, nil, err
 	}
 
+	approvalScope := scope
+	if scope.inPlay() && (configChanged || sc.changed || grants.out.changed) {
+		approvalScope = policyApprovalCheck(scope)
+		sc = compareScope(approvalScope, priorScope, priorSources)
+	}
 	recordAll := func() error {
 		if scope.inPlay() {
+			sc.publishPolicyApproval(approvalScope)
 			if err := writeScopeRecords(workspace, sc); err != nil {
 				return err
 			}
@@ -522,7 +531,13 @@ func approveConfigAndScope(workspace string, config *jsonx.OrderedMap, resolved 
 		if err := grants.record(workspace, scope); err != nil {
 			return err
 		}
-		return writeSnapshot(snapshotPath, currentJSON)
+		if err := writeSnapshot(snapshotPath, currentJSON); err != nil {
+			return err
+		}
+		if scope != nil && approvalScope != nil {
+			scope.Sources = approvalScope.Sources
+		}
+		return nil
 	}
 
 	if !configChanged && !sc.changed && !grants.out.changed {

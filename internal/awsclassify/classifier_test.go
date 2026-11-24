@@ -413,7 +413,7 @@ func TestS3ClassifierRejectsMalformedProtocol(t *testing.T) {
 		`{` + good + `} x`,
 		`not json`,
 		``,
-		`{"version":"yolo.call-broker-classifier/2","front":"cli","argv":["s3","ls","s3://bkt"],"roots":["s3://bkt"]}`,
+		`{"version":"yolo.call-broker-classifier/3","front":"cli","argv":["s3","ls","s3://bkt"],"roots":["s3://bkt"]}`,
 		`{"version":"yolo.call-broker-classifier/1","front":"http","argv":["s3","ls","s3://bkt"],"roots":["s3://bkt"]}`,
 		`{"version":"yolo.call-broker-classifier/1","front":"cli","argv":[],"roots":["s3://bkt"]}`,
 		`{` + good + `,"stdin_sha256":"` + strings.Repeat("a", 70*1024) + `"}`,

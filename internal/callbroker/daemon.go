@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -89,7 +90,7 @@ func Main(args []string) int {
 		fmt.Fprintln(os.Stderr, "call-broker: host scope and selected input disagree; relaunch the jail")
 		return 1
 	}
-	start, err := brokerstore.NewStartID()
+	start, err := h.lifetimeStart(sf)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "call-broker: cannot bind broker lifetime; retry the launch")
 		return 1
@@ -109,6 +110,16 @@ func Main(args []string) int {
 		bound.CallCLIPath = h.program.path
 	}
 	h.scopePath, h.bound, h.start = h.input.ScopeFile, bound, start
+	if h.input.Version == callbrokerinput.SnapshotLaunchVersion {
+		if _, err := h.currentLegacySnapshot(bound); err != nil {
+			fmt.Fprintln(os.Stderr, "call-broker: initial snapshot validation failed:", err)
+			return 1
+		}
+		if err := h.publishSnapshotConsumer(bound, start); err != nil {
+			fmt.Fprintln(os.Stderr, "call-broker: cannot publish snapshot consumer proof; retry the launch:", err)
+			return 1
+		}
+	}
 	if httpHandler != nil {
 		store.Revalidate = httpHandler.revalidateHTTP
 	} else {
@@ -149,4 +160,36 @@ func Main(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// lifetimeStart is the broker lifetime start: the one the launch's delivered baseline
+// binds when one exists, otherwise a fresh random one.
+func (h *CLIHandler) lifetimeStart(sf brokerscope.File) (string, error) {
+	start, err := brokerstore.NewStartID()
+	if _, statErr := os.Lstat(brokerscope.DeliveredBaselinePath(sf)); statErr == nil || !errors.Is(statErr, os.ErrNotExist) {
+		var delivered brokerscope.DeliveredBaseline
+		delivered, err = brokerscope.ReadDelivered(sf, h.input.DeclarationHash, snapshotInputDigest(h.original))
+		if err == nil {
+			start = delivered.Start
+		}
+	}
+	return start, err
+}
+
+// publishSnapshotConsumer writes the daemon's proof that it reads the policy snapshot.
+func (h *CLIHandler) publishSnapshotConsumer(bound brokerscope.File, start string) error {
+	proof := brokerscope.SnapshotConsumer{
+		Version: brokerscope.SnapshotConsumerVersion,
+		Binding: brokerscope.PolicyBinding{
+			Source:          h.input.Source,
+			Workspace:       bound.Workspace,
+			LaunchID:        bound.LaunchID,
+			DeclarationHash: h.input.DeclarationHash,
+			InputDigest:     brokerscope.InputDigest(h.original),
+		},
+		Start:                 start,
+		BrokerPID:             bound.BrokerPID,
+		SupportedReaderPolicy: brokerscope.PolicySnapshotVersion,
+	}
+	return brokerscope.PublishSnapshotConsumer(bound, proof)
 }

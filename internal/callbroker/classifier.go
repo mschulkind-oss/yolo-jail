@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
@@ -63,16 +64,20 @@ type Resource struct {
 }
 
 type Write struct {
+	Kind        string     `json:"kind,omitempty"`
 	Cell        string     `json:"cell"`
 	Chain       []Resource `json:"chain"`
 	Description string     `json:"description"`
+	kindPresent bool
 }
 
 type Classification struct {
-	Argv        []string     `json:"argv"`
-	StdinSHA256 string       `json:"stdin_sha256"`
-	Reads       [][]Resource `json:"reads,omitempty"`
-	Writes      []Write      `json:"writes,omitempty"`
+	Argv            []string                 `json:"argv"`
+	StdinSHA256     string                   `json:"stdin_sha256"`
+	Reads           [][]Resource             `json:"reads,omitempty"`
+	Writes          []Write                  `json:"writes,omitempty"`
+	ReadDescriptors []Read                   `json:"-"`
+	Operations      []brokerpolicy.Operation `json:"-"`
 }
 
 type Refusal struct {
@@ -100,6 +105,7 @@ type Classifier struct {
 	Cells        []loopholedecl.CallBrokerCell
 	Lookups      []loopholedecl.CallBrokerLookup
 	ReadOverPost []string
+	ReadGrant    bool // Declaration presence, not permission to execute a read.
 
 	// deadline bounds one classifier process; zero means classifierDeadline.
 	// Tests set it to exceed or stay within the bound deterministically.
@@ -152,13 +158,24 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 	defer cancel()
 	input := CLIInput{Version: "yolo.call-broker-classifier/1", Front: "cli", Argv: append([]string(nil), argv...),
 		StdinSHA256: stdinSHA256, Roots: append([]string(nil), c.Roots...)}
-	for round := 0; round <= maxLookupRounds; round++ {
+	var negotiation classifierNegotiation
+	round := 0
+	for process := 0; process < maxLookupRounds+2; process++ {
 		answer, err := c.invoke(ctx, input)
 		if err != nil {
 			return Answer{}, fmt.Errorf("call broker %s classifier failed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
 		}
-		if err := c.validate(answer, input); err != nil {
+		upgrade, err := negotiation.upgrade(c, process == 0, input.Version, answer.Version,
+			answer.Classification != nil && len(answer.Classification.Reads) != 0, len(answer.Lookups) != 0)
+		if err != nil {
+			return Answer{}, err
+		}
+		if err := c.validateMode(answer, input, upgrade); err != nil {
 			return Answer{}, fmt.Errorf("call broker %s classifier failed: %w; this is a bug in the selected pack, so running the call again fails the same way: report it to the pack's author", c.Source, err)
+		}
+		if upgrade {
+			input.Version = typedClassifierVersion
+			continue
 		}
 		if len(answer.Lookups) == 0 {
 			return answer, nil
@@ -169,7 +186,11 @@ func (c Classifier) ClassifyCLIDigest(ctx context.Context, argv []string, stdinS
 		if read == nil {
 			return Answer{}, fmt.Errorf("call broker %s lookup requires a core-approved read grant; request read access before retrying", c.Source)
 		}
+		round++
 		for _, lookup := range answer.Lookups {
+			if len(input.Facts) >= maxLookupFacts {
+				return Answer{}, errors.New("classifier exceeded four fact sends; update the pack's classifier")
+			}
 			var declared *loopholedecl.CallBrokerLookup
 			for i := range c.Lookups {
 				if c.Lookups[i].Name == lookup.Name {
@@ -204,6 +225,9 @@ func (c Classifier) invoke(ctx context.Context, input CLIInput) (Answer, error) 
 	raw, err := c.invokePayload(ctx, payload)
 	if err != nil {
 		return Answer{}, err
+	}
+	if err := rejectDuplicateJSONFields(raw); err != nil {
+		return Answer{}, fmt.Errorf("classifier answer is not strict JSON: %w", err)
 	}
 	var answer Answer
 	decoder := json.NewDecoder(bytes.NewReader(raw))
@@ -295,7 +319,11 @@ func (b *boundedAnswer) Write(p []byte) (int, error) {
 }
 
 func (c Classifier) validate(a Answer, input CLIInput) error {
-	if a.Version != input.Version {
+	return c.validateMode(a, input, false)
+}
+
+func (c Classifier) validateMode(a Answer, input CLIInput, provisional bool) error {
+	if !compatibleClassifierVersion(a.Version, input.Version) {
 		return errors.New("unknown classifier protocol version")
 	}
 	kinds := 0
@@ -348,27 +376,7 @@ func (c Classifier) validate(a Answer, input CLIInput) error {
 			return errors.New("canonical argv contains NUL")
 		}
 	}
-	for _, chain := range call.Reads {
-		if err := c.validateChain(chain); err != nil {
-			return err
-		}
-	}
-	for _, write := range call.Writes {
-		found := false
-		for _, cell := range c.Cells {
-			if cell.Name == write.Cell {
-				found = true
-				break
-			}
-		}
-		if !found || write.Cell == "read" || write.Description == "" || len(write.Description) > 512 || termsafe.HasUnsafe(write.Description) {
-			return errors.New("unknown write cell or invalid description")
-		}
-		if err := c.validateChain(write.Chain); err != nil {
-			return err
-		}
-	}
-	return nil
+	return c.normalizeOperations(call, input.Version, provisional)
 }
 
 func (c Classifier) validateChain(chain []Resource) error {

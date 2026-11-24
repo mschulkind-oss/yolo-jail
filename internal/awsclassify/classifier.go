@@ -19,6 +19,7 @@ import (
 )
 
 const protocolVersion = "yolo.call-broker-classifier/1"
+const typedProtocolVersion = "yolo.call-broker-classifier/2"
 
 const maxKeyBytes = 1024
 
@@ -60,7 +61,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "AWS classifier input has trailing data; retry the selected aws command")
 		return 2
 	}
-	if input.Version != protocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
+	if input.Version != protocolVersion && input.Version != typedProtocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
 		fmt.Fprintln(stderr, "AWS classifier protocol is unsupported; rebuild yolo and retry")
 		return 2
 	}
@@ -75,8 +76,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // Classify maps the jail's argv to one canonical host call and its resource chain, or
 // refuses it. It is a pure function of its input.
 func Classify(input callbroker.CLIInput) callbroker.Answer {
-	answer := callbroker.Answer{Version: input.Version}
-	if input.Version != protocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
+	answer := callbroker.Answer{Version: typedProtocolVersion}
+	if input.Version != protocolVersion && input.Version != typedProtocolVersion || input.Front != "cli" || len(input.Argv) == 0 {
 		return refused(answer, "unsupported", "unsupported AWS classifier input", "Use a selected yolo build and retry the aws command")
 	}
 	argv := input.Argv
@@ -352,6 +353,20 @@ func read(answer callbroker.Answer, input callbroker.CLIInput, argv []string, ty
 		Argv:        argv,
 		StdinSHA256: input.StdinSHA256,
 		Reads:       [][]callbroker.Resource{{{Type: typ, ID: id}, {Type: "location", ID: loc}}},
+	}
+	if input.Version == typedProtocolVersion {
+		cell := "list_objects"
+		switch input.Argv[0] {
+		case "ce":
+			cell = strings.ReplaceAll(input.Argv[1], "-", "_")
+		case "s3api":
+			cell = "head_objects"
+		case "s3":
+			if input.Argv[1] == "cp" {
+				cell = "get_objects"
+			}
+		}
+		answer.Classification = callbroker.NewReadClassification(argv, input.StdinSHA256, callbroker.Read{Cell: cell, Chain: answer.Classification.Reads[0]})
 	}
 	return answer
 }

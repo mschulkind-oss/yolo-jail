@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
@@ -105,14 +106,80 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 	}
 	collectLegacyReadableRepositories(&plan, read, brokers)
 	filterReadablePlanToActiveBrokers(&plan, brokers)
-	gate, err := ProduceReadableGateInput(workspace, plan)
+	gate, err := produceReadableGateInput(workspace, plan, true)
 	if err != nil {
 		return readableScopeFailure(workspace, brokers, err), true
 	}
 	applyLegacyReadableWorkspace(read, user, brokers, &gate)
 	check := scopeCheckFromReadable(workspace, brokers, gate)
+	projection := scopeProjectionFor(workspace, brokers, gate, true)
+	record, _, _, err := readScopeRecords(workspace)
+	if err != nil {
+		return readableScopeFailure(workspace, brokers, err), true
+	}
+	for i := range check.Sources {
+		source := &check.Sources[i]
+		pending, paired := pairedProjection(projection.Sources, i, source.Source)
+		if !paired {
+			continue
+		}
+		if !pending.NativeDeclaration || !pending.concrete() || brokerscope.HoldsRead(source.Grants) {
+			continue
+		}
+		executable := *source
+		pending.executable = &executable
+		source.policyPending = &pending
+		readCapability := ""
+		for _, broker := range brokers {
+			if broker.Source == source.Source && broker.Readable != nil {
+				readCapability = broker.Readable.ReadCapability
+			}
+		}
+		for _, request := range gate.Requests {
+			if request.Status == ReadableRequestGranted && readableRequestOfSource(request, source.Source) && request.Capability != readCapability && request.Capability != "repos" {
+				source.policyPending.policyWriteLines = append(source.policyPending.policyWriteLines, fmt.Sprintf("write request %s = %v", request.Path, request.Value))
+			}
+		}
+		for _, scope := range plan.Scopes {
+			if !scope.Selected || scope.Source != source.Source || scope.Layer != "ask" {
+				continue
+			}
+			for _, table := range []string{"working_set", "all"} {
+				cells := make([]string, 0, len(scope.Tables[table]))
+				for cell := range scope.Tables[table] {
+					cells = append(cells, cell)
+				}
+				sort.Strings(cells)
+				for _, cell := range cells {
+					word := scope.Tables[table][cell]
+					if word == "true" || word == "ask" {
+						source.policyPending.policyWriteLines = append(source.policyPending.policyWriteLines, fmt.Sprintf("write request scopes.%s.requests.%s.%s = %s", scope.Alias, table, cell, word))
+					}
+				}
+			}
+		}
+		if !sourceHasWrites(*source.policyPending) {
+			source.policyPending = nil
+			continue
+		}
+		if recordHasPolicyModel(record, source.Source) {
+			*source = *source.policyPending
+			source.policyPending = nil
+			source.FirstRead = len(record[source.Source]) == 0
+		}
+	}
 	markCarriedBrokerRead(check, carriedRead)
 	return check, true
+}
+
+// pairedProjection is the projection source that pairs with check source i: by identity, never by
+// position alone, so a projection built over a different broker list cannot lend its writes to the
+// wrong source.
+func pairedProjection(projection []ScopeSource, i int, source string) (ScopeSource, bool) {
+	if i >= len(projection) || projection[i].Source != source {
+		return ScopeSource{}, false
+	}
+	return projection[i], true
 }
 
 // resolveGateReadableAllowance is the readable resolution the launch's config-change gate runs
@@ -143,7 +210,7 @@ func resolveGateReadableAllowance(workspace string, user *jsonx.OrderedMap, user
 		PackSettings: detachedSettings,
 		UserOrigins:  userOrigins, WorkspaceOrigins: workspaceOrigins,
 	})
-	return plan, user, carriedRead, err
+	return plan, user, carriedRead, annotateScopedBrokerConflict(err, userSources, read.sources)
 }
 
 // validateGateReadableAllowance reports what the launch's config-change gate would refuse in the
@@ -156,7 +223,7 @@ func resolveGateReadableAllowance(workspace string, user *jsonx.OrderedMap, user
 // fails: each such failure is reported by its own validator.
 func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, errs *[]string) {
 	named := false
-	for _, key := range []string{"allow", "repos", "requests"} {
+	for _, key := range []string{"allow", "repos", "requests", "scopes", "contexts"} {
 		if _, present := config.Get(key); present {
 			named = true
 		}
@@ -174,7 +241,10 @@ func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, e
 	}
 	packs := nonNilPacks(func() []*packload.Pack { p, _ := resolveSelectedPacks(); return p }())
 	declarations, settings, err := ReadableDeclarationsForPacks(packs)
-	if err != nil || len(declarations) == 0 {
+	if err != nil {
+		if hasScopedBrokerVocabulary(user, read.Config) {
+			add(errs, "selected broker declarations could not be read: "+err.Error()+"; run yolo config check after selecting a valid pack")
+		}
 		return
 	}
 	selected := make([]string, 0, len(packs))
@@ -186,7 +256,7 @@ func validateGateReadableAllowance(config *jsonx.OrderedMap, workspace string, e
 	// from the launch's running scope brokers (call brokers such as aws among them), so any
 	// other resolution error here may be one the launch does not raise.
 	var retired *RetiredReposKeyError
-	if errors.As(err, &retired) {
+	if errors.As(err, &retired) || err != nil && (hasScopedBrokerVocabulary(user, read.Config) || hasDeclarationScopedVocabulary(declarations, user, read.Config)) {
 		add(errs, err.Error())
 	}
 }
@@ -569,6 +639,7 @@ func containsStringAny(values []any, want string) bool {
 
 func readableWorkspaceOrigins(config *jsonx.OrderedMap, sources *Sources) map[string][]string {
 	origins := map[string][]string{}
+	scopedPolicyOrigins(origins, config, sources)
 	readableNamedOrigins(origins, config, sources)
 	var raw any
 	if config != nil {
@@ -696,6 +767,7 @@ func scopedCeilingOriginFiles(origin string, ceilings []ReadableScopedCeiling) (
 
 func readableUserOrigins(config *jsonx.OrderedMap, sources *Sources) map[string][]string {
 	origins := map[string][]string{}
+	scopedPolicyOrigins(origins, config, sources)
 	var raw any
 	if config != nil {
 		raw, _ = config.Get("allow")
@@ -746,7 +818,15 @@ func scopeSourceFiles(sources *Sources, parts ...string) []string {
 	return files
 }
 
+// scopeProjectionFor builds the independent projection the policy-pending pairing reads; a test
+// replaces it to hand the pairing a projection whose order differs from the check's.
+var scopeProjectionFor = scopeCheckFromReadableProjection
+
 func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input ReadableGateInput) *ScopeCheck {
+	return scopeCheckFromReadableProjection(workspace, brokers, input, false)
+}
+
+func scopeCheckFromReadableProjection(workspace string, brokers []ScopeBroker, input ReadableGateInput, independentProjection bool) *ScopeCheck {
 	rec, _, _ := readScopeRecord(ApprovalScopePath(workspace))
 	observed := make(map[string]ReadableObservedSource, len(input.ObservedSources))
 	for _, source := range input.ObservedSources {
@@ -877,7 +957,22 @@ func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input Reada
 		if len(input.Differences) > 0 {
 			source.Read.Problem = strings.Join(input.Differences, "; ")
 		}
-		if !brokerscope.HoldsRead(source.Grants) {
+		nativeDeclarationScope(&source, broker)
+		readFloor := readableReadAllowed(input, broker.Source)
+		if !readFloor {
+			if independentProjection && source.NativeDeclaration {
+				kept := source.Grants[:0]
+				for _, grant := range source.Grants {
+					if grant.Kind != brokerscope.KindRead {
+						kept = append(kept, grant)
+					}
+				}
+				source.Grants = kept
+			} else {
+				source.Grants = nil
+			}
+		}
+		if !brokerscope.HoldsRead(source.Grants) && !(independentProjection && source.NativeDeclaration) || !source.concrete() {
 			// Grants are issued per concrete target here, so a read allowance over no target
 			// issues none: whether the read was allowed is read off the input itself. A target
 			// dropped as unserializable (Differences) is not a missing remote, and its problem is
