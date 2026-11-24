@@ -113,27 +113,51 @@ func (h *HTTPHandler) serveHTTP(ctx context.Context, op, jail string, original H
 		return Verdict{Verdict: "refused", Rule: classified.Refused.Reason, Next: classified.Refused.NextStep}, response, nil
 	}
 	digest = classified.CanonicalSHA256
-	if len(classified.Writes) != 0 {
+	call := Classification{Reads: classified.Reads, Writes: classified.Writes, Operations: classified.Operations}
+	if len(call.Writes) != 0 {
 		set = "write"
-		for _, write := range classified.Writes {
+		for _, write := range call.Writes {
 			if len(write.Chain) == 0 || !slices.Contains(sf.Repos, write.Chain[len(write.Chain)-1].ID) {
 				return Verdict{Verdict: "refused", Rule: "HTTP write left the approved root", Next: "Use yolo request for the intended root", Digest: digest}, response, nil
 			}
 		}
-		if err := h.verifyHTTPNativeWriteChains(ctx, jail, classified.Writes); err != nil {
+	}
+	for _, chain := range call.Reads {
+		if len(chain) == 0 || !slices.Contains(sf.Repos, chain[len(chain)-1].ID) {
+			reason = "native-facts-unavailable"
+			return Verdict{Verdict: "refused", Rule: "HTTP read root is outside the approved scope", Next: "Use yolo request to ask for the intended root", Digest: digest}, response, nil
+		}
+	}
+	// The one bundle decision is made before any ancestry lookup: a refused operation never
+	// reaches the provider, and the lookups below are decided on their own reads.
+	_, _, working, now, err := h.store.InspectContext(ctx)
+	if err != nil {
+		reason = "decision-store-failed"
+		return Verdict{Verdict: "refused", Next: "Check the host broker store before retrying"}, response, err
+	}
+	policy, err := h.operationPolicy(len(call.Reads) != 0)
+	if err != nil {
+		return Verdict{Verdict: "refused", Next: err.Error()}, response, err
+	}
+	decided := decideBundle(policy, call, working, h.workspace, h.input.Source, now)
+	if decided.Verdict.Verdict == "refused" {
+		reason = "decision-refused"
+		refused := decided.Verdict
+		refused.Digest = digest
+		return refused, response, nil
+	}
+	if len(call.Writes) != 0 {
+		if err := h.verifyHTTPNativeWriteChains(ctx, jail, call.Writes); err != nil {
 			reason = "native-facts-unavailable"
 			return Verdict{Verdict: "refused", Rule: "HTTP write ancestry is unverified", Next: err.Error(), Digest: digest}, response, nil
 		}
-		_, _, working, now, err := h.store.InspectContext(ctx)
-		if err != nil {
-			return Verdict{Verdict: "refused", Next: "Check the host broker store before retrying"}, response, err
-		}
-		cells, err := h.currentCellPolicies()
-		if err != nil {
-			return Verdict{Verdict: "refused", Next: err.Error()}, response, err
-		}
-		predicted := decideCall(Classification{Reads: classified.Reads, Writes: classified.Writes}, cells, working, h.workspace, h.input.Source, now)
-		verdict, response, err = h.boundHTTPWrite(ctx, op, jail, original, classified, predicted)
+	}
+	if err := h.verifyHTTPNativeReads(ctx, jail, call.Reads); err != nil {
+		reason = "native-facts-unavailable"
+		return Verdict{Verdict: "refused", Rule: "HTTP read ancestry is unverified", Next: err.Error(), Digest: digest}, response, nil
+	}
+	if len(call.Writes) != 0 || len(decided.AskReads) != 0 {
+		verdict, response, err = h.boundHTTPWrite(ctx, op, jail, original, classified, call, decided)
 		if response.PossibleTransmission {
 			outcome, reason = "ran", "possible-transmission"
 		} else if verdict.Verdict == "asks" && op == "ask" {
@@ -143,21 +167,7 @@ func (h *HTTPHandler) serveHTTP(ctx context.Context, op, jail string, original H
 		}
 		return verdict, response, err
 	}
-	for _, chain := range classified.Reads {
-		if len(chain) == 0 || !slices.Contains(sf.Repos, chain[len(chain)-1].ID) {
-			reason = "native-facts-unavailable"
-			return Verdict{Verdict: "refused", Rule: "HTTP read root is outside the approved scope", Next: "Use yolo request to ask for the intended root", Digest: digest}, response, nil
-		}
-	}
-	if err := h.verifyHTTPNativeReads(ctx, jail, classified.Reads); err != nil {
-		reason = "native-facts-unavailable"
-		return Verdict{Verdict: "refused", Rule: "HTTP read ancestry is unverified", Next: err.Error(), Digest: digest}, response, nil
-	}
 	verdict = Verdict{Verdict: "runs", Rule: "current standing read", Digest: digest}
-	if refused, ok := neverReadVerdict(h.input.Source, Classification{Reads: classified.Reads, Operations: classified.Operations}); ok {
-		refused.Digest = digest
-		return refused, response, nil
-	}
 	if op != "act" {
 		reason = "evaluation-only"
 		return verdict, response, nil

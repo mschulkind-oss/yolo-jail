@@ -16,8 +16,8 @@ func scopedReplayShapes() map[string]brokerstore.Request {
 	}
 }
 
-// Call-site pins: the legacy revalidation of the HTTP path refuses a scoped or context-bound
-// request itself, and the CLI path a context-bound one (its reads and withheld candidates are
+// Call-site pins: the HTTP path refuses a withheld-candidate or context-bound request itself (a
+// read subject is decided by revalidateHTTP: TestScopedHTTPApprovalRefusesAWithdrawnRead), and the CLI path a context-bound one (its reads and withheld candidates are
 // replayed by TestScopedWithheldRequestIsReplayedNotTrusted). Deleting either guard fails these, because without it the
 // request is judged by the later holder checks and the message changes.
 func TestCLIRevalidateRefusesScopedAndContextRequests(t *testing.T) {

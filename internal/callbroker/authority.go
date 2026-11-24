@@ -11,6 +11,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokercore"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
@@ -27,6 +28,11 @@ import (
 var oncePolicy = brokerstore.Policy{Window: 15 * time.Minute, MaxWindow: 15 * time.Minute, Uses: 1}
 
 var readSourceGrant = loopholegrant.Read
+
+// approvalLivePolicy is a test seam: the decision leaf ApprovalAuthority's rebuilt handler uses
+// where a test gave the live handler one through CLIHandler.livePolicy. Nothing in a launch
+// publishes scoped asks to a daemon yet, so production never sets it.
+var approvalLivePolicy func() (brokerpolicy.Policy, error)
 
 // ApprovalAuthority is the standalone host yolo approve adapter. A recorded
 // request only locates its original launch; the selected declaration, current
@@ -61,6 +67,7 @@ func ApprovalAuthority(q brokerstore.Request) (brokerstore.Policy, error) {
 			return brokerstore.Policy{}, err
 		}
 		h.scopePath, h.bound, h.start = path, sf, q.Start
+		h.livePolicy = approvalLivePolicy
 		return h.revalidateHTTP(q)
 	}
 	if q.HTTPOriginalDigest != "" {
@@ -71,6 +78,7 @@ func ApprovalAuthority(q brokerstore.Request) (brokerstore.Policy, error) {
 		return brokerstore.Policy{}, err
 	}
 	h.scopePath, h.bound, h.start = path, sf, q.Start
+	h.livePolicy = approvalLivePolicy
 	return h.revalidate(q)
 }
 

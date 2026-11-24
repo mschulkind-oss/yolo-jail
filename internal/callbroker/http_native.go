@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/callbrokerinput"
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 )
@@ -76,6 +78,14 @@ func (h *HTTPHandler) readHTTPNativeParent(ctx context.Context, jail string, loo
 
 func (h *HTTPHandler) readHTTPNativeParentWithFact(ctx context.Context, jail string, lookup loopholedecl.CallBrokerLookup, child Resource, fact *json.RawMessage) (parent string, err error) {
 	if h.input.Version == callbrokerinput.SnapshotLaunchVersion && !snapshotTransactionHeld(ctx) {
+		if _, held := ctx.Value(workingStateKey{}).(workingState); !held {
+			// The transaction below holds the source lock, which the store snapshot also takes.
+			working, now, err := h.workingFor(ctx)
+			if err != nil {
+				return "", err
+			}
+			ctx = withWorkingState(ctx, working, now)
+		}
 		err = h.snapshotReadTransaction(ctx, func(ctx context.Context) error {
 			var err error
 			parent, err = h.readHTTPNativeParentWithFact(ctx, jail, lookup, child, fact)
@@ -97,6 +107,9 @@ func (h *HTTPHandler) readHTTPNativeParentWithFact(ctx context.Context, jail str
 	classified, err := classifier.ClassifyHTTP(ctx, original, h.input.HTTPBinding.HTTP.RequestHeaders)
 	if err != nil || classified.Refused != nil || len(classified.Writes) != 0 || len(classified.Reads) != 1 || len(classified.Reads[0]) == 0 || classified.Reads[0][0] != child || !slices.Contains(sf.Repos, classified.Reads[0][len(classified.Reads[0])-1].ID) || !sameHTTPBytes(original, classified.Canonical) {
 		return "", errors.New("HTTP native lookup did not classify as the identical standing read; fix the selected pack")
+	}
+	if err := h.gateHTTPLookup(ctx, classified); err != nil {
+		return "", err
 	}
 	if _, _, err := h.currentAuthority(); err != nil {
 		return "", err
@@ -145,6 +158,26 @@ func (h *HTTPHandler) readHTTPNativeParentWithFact(ctx context.Context, jail str
 		*fact = append((*fact)[:0], response.Body...)
 	}
 	return parent, nil
+}
+
+// gateHTTPLookup decides a native lookup's own read before any provider send. An HTTP lookup
+// has no withheld form, so a read that refuses or asks, and that no live answer covers, is
+// refused naming its line: the broker sends no exploratory provider read.
+func (h *HTTPHandler) gateHTTPLookup(ctx context.Context, lookup HTTPResult) error {
+	policy, err := h.operationPolicy(true)
+	if err != nil {
+		return err
+	}
+	working, now, err := h.workingFor(ctx)
+	if err != nil {
+		return err
+	}
+	read := Classification{Reads: lookup.Reads, Operations: lookup.Operations}
+	if decided := decideBundle(policy, read, working, h.workspace, h.input.Source, now); decided.Verdict.Verdict != "runs" {
+		table := policy.Decide(read.Operations, brokerstore.ResolveWorkspace(h.workspace), workingMembers(working, now))
+		return fmt.Errorf("an ancestry lookup needs a read that policy does not allow (%s), and no HTTP lookup can be withheld; ask the human to change that line with `yolo allow` or `yolo request`, then retry", lineOf(table.Operations))
+	}
+	return nil
 }
 
 func (h *HTTPHandler) lookupHTTP(jail string) LookupReader {

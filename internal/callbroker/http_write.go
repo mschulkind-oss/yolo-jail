@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerpolicy"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 )
@@ -28,23 +29,68 @@ func (h *HTTPHandler) requestHTTPWrite(jail string, result HTTPResult) brokersto
 	return q
 }
 
+// httpBundle is the request one HTTP call files: its writes, then the reads that ask, bound
+// by one digest. A read that runs under standing authority is not a subject.
+func (h *HTTPHandler) httpBundle(jail string, result HTTPResult, call Classification, decided bundleDecision) brokerstore.Request {
+	return bundleSubjects(h.requestHTTPWrite(jail, result), call, decided)
+}
+
+// storedCall is the operations a stored HTTP request names, for a decision that cannot
+// replay the original: the host approval adapter has no body to classify again.
+func storedCall(source string, q brokerstore.Request) Classification {
+	var call Classification
+	chainOf := func(in []brokerstore.CallResource) []Resource {
+		chain := make([]Resource, len(in))
+		for i, resource := range in {
+			chain[i] = Resource{Type: resource.Type, ID: resource.ID}
+		}
+		return chain
+	}
+	for _, read := range q.CallReads {
+		chain := chainOf(read.Chain)
+		call.Reads = append(call.Reads, chain)
+		call.Operations = append(call.Operations, operation(source, brokerpolicy.Read, read.Cell, "", chain))
+	}
+	for _, write := range q.CallWrites {
+		chain := chainOf(write.Chain)
+		call.Writes = append(call.Writes, Write{Cell: write.Cell, Chain: chain})
+		call.Operations = append(call.Operations, operation(source, brokerpolicy.Write, write.Cell, "", chain))
+	}
+	return call
+}
+
 // revalidateHTTP is used by the host approval adapter and by the exact store
 // transaction. It cannot replay a body from pending storage: act reclassifies
 // the resubmitted original inside dispatch before any request is transmitted.
 func (h *HTTPHandler) revalidateHTTP(q brokerstore.Request) (brokerstore.Policy, error) {
-	if q.HasScopedRoles() || q.ContextDigest != "" || q.ContextName != "" {
+	// A read subject is a scoped role this front decides; a candidate set needs a withheld
+	// lookup, which no HTTP lookup is, and a context has no execution path yet.
+	if q.ContextDigest != "" || q.ContextName != "" || slices.ContainsFunc(q.CallWrites, func(w brokerstore.CallWrite) bool { return w.Role != "" || len(w.Candidates) != 0 }) {
 		return brokerstore.Policy{}, errors.New("scoped HTTP operation execution is not active; resubmit through the supported selected write path")
 	}
 	sf, user, err := h.currentAuthority()
 	if err != nil {
 		return brokerstore.Policy{}, err
 	}
-	if q.Set != h.input.Source || q.Repo != h.input.Source || q.Start != h.start || q.LaunchID != sf.LaunchID || q.Workspace != sf.Workspace || q.Jail != h.input.FrontJailID || q.HTTPDeclarationHash != h.input.DeclarationHash || q.StdinDigest != q.HTTPOriginalDigest || len(q.Argv) != 1 || q.Argv[0] != "http" || len(q.OriginalArgv) != 0 || len(q.CallWrites) == 0 || q.Digest != brokerstore.CommandDigest(q) || !validHTTPHash(q.HTTPOriginalDigest) || !validHTTPHash(q.HTTPCanonicalDigest) {
+	if q.Set != h.input.Source || q.Repo != h.input.Source || q.Start != h.start || q.LaunchID != sf.LaunchID || q.Workspace != sf.Workspace || q.Jail != h.input.FrontJailID || q.HTTPDeclarationHash != h.input.DeclarationHash || q.StdinDigest != q.HTTPOriginalDigest || len(q.Argv) != 1 || q.Argv[0] != "http" || len(q.OriginalArgv) != 0 || len(q.CallWrites)+len(q.CallReads) == 0 || q.Digest != brokerstore.CommandDigest(q) || !validHTTPHash(q.HTTPOriginalDigest) || !validHTTPHash(q.HTTPCanonicalDigest) {
 		return brokerstore.Policy{}, errors.New("HTTP approval does not match the live selected host launch; resubmit the original call")
 	}
 	cells, err := h.cellsFromAuthority(sf, user)
 	if err != nil {
 		return brokerstore.Policy{}, err
+	}
+	for _, read := range q.CallReads {
+		if len(read.Chain) == 0 || !slices.Contains(sf.Repos, read.Chain[len(read.Chain)-1].ID) {
+			return brokerstore.Policy{}, errors.New("HTTP read left the selected root; use yolo request and retry")
+		}
+	}
+	held, heldAt, _ := q.WorkingState()
+	policy, err := h.operationPolicy(len(q.CallReads) != 0)
+	if err != nil {
+		return brokerstore.Policy{}, err
+	}
+	if decideBundle(policy, storedCall(h.input.Source, q), held, q.Workspace, h.input.Source, heldAt).Verdict.Verdict == "refused" {
+		return brokerstore.Policy{}, errors.New("one operation's host ceiling or approved request was withdrawn; use yolo allow and yolo config apply before retrying")
 	}
 	for _, write := range q.CallWrites {
 		if len(write.Chain) == 0 || !slices.Contains(sf.Repos, write.Chain[len(write.Chain)-1].ID) {
@@ -59,7 +105,7 @@ func (h *HTTPHandler) revalidateHTTP(q brokerstore.Request) (brokerstore.Policy,
 		policy, exists := cells[write.Cell]
 		frozen, declared := policy.Tables[table]
 		current := config.CallBrokerCurrentCeiling(user, h.input.Source, table, write.Cell)
-		if !exists || !declared || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" || current == "off" || frozen.Ceiling == "always" && current != "always" {
+		if h.livePolicy == nil && (!exists || !declared || frozen.Decision == "refuse" || frozen.Request == "false" || frozen.Ceiling == "off" || current == "off" || frozen.Ceiling == "always" && current != "always") {
 			return brokerstore.Policy{}, errors.New("HTTP write host ceiling or selected cell was withdrawn; use yolo allow and yolo config apply")
 		}
 	}
@@ -78,9 +124,14 @@ func validHTTPHash(hash string) bool {
 	return true
 }
 
-func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, original HTTPCall, result HTTPResult, predicted Verdict) (Verdict, HTTPExecution, error) {
+func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, original HTTPCall, result HTTPResult, call Classification, decided bundleDecision) (Verdict, HTTPExecution, error) {
 	var reply HTTPExecution
-	q := h.requestHTTPWrite(jail, result)
+	predicted := decided.Verdict
+	q := h.httpBundle(jail, result, call, decided)
+	set := "write"
+	if len(call.Writes) == 0 {
+		set = "read"
+	}
 	_, _, initialWorking, initialNow, err := h.store.InspectContext(ctx)
 	if err != nil {
 		return Verdict{Verdict: "refused", Next: "Check the host broker store and retry"}, reply, err
@@ -112,9 +163,24 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		}
 		classifier := h.classifier
 		classifier.Roots = slices.Clone(sf.Repos)
+		heldWorking, heldNow, _ := currentRequest.WorkingState()
+		ctx = withWorkingState(ctx, heldWorking, heldNow)
 		current, err := classifier.ClassifyHTTPWithLookups(ctx, original, h.input.HTTPBinding.HTTP.RequestHeaders, h.lookupHTTP(jail))
-		if err != nil || current.Refused != nil || current.OriginalIntentSHA256 != q.HTTPOriginalDigest || current.CanonicalSHA256 != q.HTTPCanonicalDigest || !reflect.DeepEqual(h.requestHTTPWrite(jail, current).CallWrites, q.CallWrites) {
+		if err != nil || current.Refused != nil || current.OriginalIntentSHA256 != q.HTTPOriginalDigest || current.CanonicalSHA256 != q.HTTPCanonicalDigest {
 			return brokerstore.Policy{}, errors.New("HTTP original body, canonical request or ordered writes changed; resubmit and ask again")
+		}
+		currentCall := Classification{Reads: current.Reads, Writes: current.Writes, Operations: current.Operations}
+		currentPolicy, err := h.operationPolicy(len(currentCall.Reads) != 0)
+		if err != nil {
+			return brokerstore.Policy{}, err
+		}
+		currentDecided := decideBundle(currentPolicy, currentCall, heldWorking, h.workspace, h.input.Source, heldNow)
+		if currentDecided.Verdict.Verdict == "refused" {
+			return brokerstore.Policy{}, errors.New("one operation was refused by the current policy; change the request and retry")
+		}
+		currentBundle := h.httpBundle(jail, current, currentCall, currentDecided)
+		if !reflect.DeepEqual(currentBundle.CallWrites, q.CallWrites) || !reflect.DeepEqual(currentBundle.CallReads, q.CallReads) {
+			return brokerstore.Policy{}, errors.New("HTTP original body, canonical request or ordered operations changed; resubmit and ask again")
 		}
 		if err := h.verifyHTTPNativeWriteChains(ctx, jail, current.Writes); err != nil {
 			return brokerstore.Policy{}, err
@@ -126,7 +192,7 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		policy, err := h.revalidateHTTP(rebound)
 		if err == nil && op == "act" {
 			err = h.audit.RequiredContext(ctx, brokeraudit.Event{Event: "call-preflight", Service: h.input.Source, Jail: jail,
-				Set: "write", Outcome: "verified-before-store-dispatch", CommandDigest: q.Digest})
+				Set: set, Outcome: "verified-before-store-dispatch", CommandDigest: q.Digest})
 		}
 		if err == nil {
 			fresh = current
@@ -212,14 +278,15 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 		attempted = reply.PossibleTransmission
 		return err
 	}
+	ranUnderCoverage := false
 	coverage := func(working []brokerstore.WorkingEntry, now time.Time) (bool, error) {
-		cells, err := h.currentCellPolicies()
+		policy, err := h.operationPolicy(len(call.Reads) != 0)
 		if err != nil {
 			return false, err
 		}
-		decision := decideCall(Classification{Writes: result.Writes, Reads: result.Reads}, cells, working, q.Workspace, h.input.Source, now)
+		decision := decideBundle(policy, call, working, q.Workspace, h.input.Source, now).Verdict
 		if decision.Verdict == "refused" {
-			return false, errors.New("one HTTP write is refused by current coverage; change the request and retry")
+			return false, errors.New("one HTTP operation is refused by current coverage; change the request and retry")
 		}
 		if decision.Verdict != "runs" {
 			return false, nil
@@ -231,12 +298,17 @@ func (h *HTTPHandler) boundHTTPWrite(ctx context.Context, op, jail string, origi
 			if err := dispatch(); err != nil {
 				return false, err
 			}
+			ranUnderCoverage = true
 		}
 		return true, nil
 	}
 	filed, _, covered, err := h.store.FileIfStillAsksWithCoverageContext(ctx, q, gate, coverage)
 	if err != nil {
 		return h.httpWriteFailure(q.Digest, attempted, preflightFailed, err), reply, err
+	}
+	if ranUnderCoverage {
+		// Standing coverage already dispatched; spending an answer as well would file a request.
+		return Verdict{Verdict: "runs", Rule: "standing coverage", Digest: q.Digest}, reply, nil
 	}
 	if covered {
 		if op == "ask" {

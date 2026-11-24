@@ -18,7 +18,18 @@ import (
 func scopedFixture(t *testing.T, readAsk, readCeiling, changeAsk, changeCeiling brokerpolicy.Value) *onceFixture {
 	t.Helper()
 	f := selectedOnceFixtureWithStanding(t, true)
-	source := f.h.input.Source
+	policy := scopedLeaf(t, f.h.input.Source, readAsk, readCeiling, changeAsk, changeCeiling)
+	f.h.livePolicy = func() (brokerpolicy.Policy, error) { return policy, nil }
+	// The public approval path rebuilds its own handler; it takes the same leaf.
+	approvalLivePolicy = f.h.livePolicy
+	t.Cleanup(func() { approvalLivePolicy = nil })
+	f.store.Entries = RequestEntries
+	return f
+}
+
+// scopedLeaf is the scoped decision leaf the fixtures substitute for the frozen one.
+func scopedLeaf(t *testing.T, source string, readAsk, readCeiling, changeAsk, changeCeiling brokerpolicy.Value) brokerpolicy.Policy {
+	t.Helper()
 	matcher, err := brokerpolicy.NewScopeMatcher("exact", "", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -38,9 +49,7 @@ func scopedFixture(t *testing.T, readAsk, readCeiling, changeAsk, changeCeiling 
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.h.livePolicy = func() (brokerpolicy.Policy, error) { return policy, nil }
-	f.store.Entries = RequestEntries
-	return f
+	return policy
 }
 
 // mixedClassifier makes the handler's classifier answer every call with one read
@@ -80,6 +89,20 @@ func TestScopedOperationApprovals(t *testing.T) {
 		}
 		if v, _, err := f.call(t, "act", "read"); err != nil || v.Verdict != "asks" || f.reads(t) != 1 {
 			t.Fatalf("second run did not ask again: %+v %v reads=%d", v, err, f.reads(t))
+		}
+	})
+	t.Run("public approval of a scoped ask", func(t *testing.T) {
+		f := scopedFixture(t, ask, onReq, ask, onReq)
+		if v, _, err := f.call(t, "ask", "read"); err != nil || v.Verdict != "asks" {
+			t.Fatalf("ask: %+v %v", v, err)
+		}
+		pending := f.pending(t)[0]
+		if _, err := ApprovalAuthority(pending); err != nil {
+			t.Fatalf("the public approval path cannot revalidate a scoped ask: %v", err)
+		}
+		approvalLivePolicy = nil
+		if _, err := ApprovalAuthority(pending); err == nil {
+			t.Fatal("without the scoped leaf the rebuilt handler must not approve this ask: the seam is not reaching the public path")
 		}
 	})
 	t.Run("C2", func(t *testing.T) {
