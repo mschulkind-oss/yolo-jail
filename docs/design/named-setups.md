@@ -3,7 +3,7 @@ title: "Named setups: one name chooses every wall, and nothing follows from your
 date: 2026-11-03
 status: accepted
 stage: DECIDED
-next: "Land slices 11d to 11f (one machine-wide yolo ps, its --setup narrowing, one yolo stores inventory) and run their Mac witnesses W-SU11 and W-SU14; the plan owns slice state"
+next: "Run the runtime-unreachable halves of the Mac witnesses W-SU11 and W-SU14 (their listing halves passed 2026-11-24); the plan owns slice state"
 depends-on:
   - macos-user-model.md#OQ-MM10
 tags: [design, setups, confinement, macos-user, seatbelt, podman, naming]
@@ -19,7 +19,7 @@ vantage:
 designed in [§12](#12-listing-what-runs-yolo-ps-and-yolo-stores) (one machine-wide list across every
 technology, ruled 2026-11-06 as [OQ-SU6](#decision-ledger)). Of the plan's slice 11, 11a, 11b and 11c
 are built, and `yolo stop`, `ps`, `stores` and `setup list` act per setup (slice 6b, `e83501cd5`);
-the one machine-wide `yolo ps`, its `--setup` narrowing and one `yolo stores` inventory (11d to 11f) are built and on main (2026-11-12); their Mac witnesses W-SU11 and W-SU14 have not run.
+the one machine-wide `yolo ps`, its `--setup` narrowing and one `yolo stores` inventory (11d to 11f) are built and on main (2026-11-12); their Mac witnesses W-SU11 and W-SU14 ran 2026-11-24: the listing halves pass, the runtime-stopped halves are owed ([plan](named-setups-plan.md#mac-checks)).
 A private 6a/6b prototype has focused synthetic-only closure of three held-bind findings; a separate
 local rootful Linux Podman/crun probe establishes narrow bind-mount and descriptor-holder behavior.
 A self-process `--preserve-fds` countercontrol also shows the raw source descriptor available to

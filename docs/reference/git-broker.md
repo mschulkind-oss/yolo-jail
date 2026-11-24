@@ -28,8 +28,7 @@ Allow once, and Allow for a time). UNMEASURED: the HTTPS upstream runs only in p
 against a local server, and no run against a real forge, a real SSH agent or a real host
 credential helper is recorded. The answers to a push were re-verified 2026-11-12 against
 `82dcd8725`, when the design graduated here: `yolo approve --add` and `--remember` are removed
-([GB-D28](#GB-D28)). One Mac witness is still to run in full
-([W-GB1](#a-mac-witness-still-to-run-w-gb1)).
+([GB-D28](#GB-D28)). The Mac witness [W-GB1](#a-mac-witness-w-gb1) passed 2026-11-24.
 
 The git broker lets an agent in a jail run `git fetch`, `git pull`, `git ls-remote` and
 `git push` against the workspace's real remotes while the jail holds no git credential. The
@@ -422,7 +421,7 @@ decisions and spent grants into the same log. Revoking a working-set entry is no
 upstream can hang a call once the jail side has closed, over HTTPS as over SSH, because the
 handler cancels only when the jail's connection errors.
 
-### A Mac witness still to run: W-GB1
+### A Mac witness: W-GB1
 
 A nightly run on the owner's Mac failed in `TestGitBrokerConfigBranch`: the second workspace's
 granted `git fetch` reported `fatal: bad object` although the host broker logged
@@ -444,8 +443,10 @@ packet trace (logs on the Mac under `/Users/Shared/yolo/evidence/`). The failure
 five runs; that neither withdraws the nightly's observation nor names its cause. On 2026-11-23 at
 `fe37424b3`, which holds `287479402`, the run was **blocked**: the owner's podman machine
 (`podman-machine-default`, applehv) was stopped, last up four weeks earlier, and step 1's `podman info`
-refused the connection. Starting that VM is the owner's. **Still owed:** steps 1 to 4 at `287479402` or
-later, once the machine is running.
+refused the connection. **Satisfied** on 2026-11-24 at `93608f56b`, which holds `287479402`: step 1 printed
+`true pasta`, and step 2 gave five `--- PASS: TestGitBrokerConfigBranch` (46 to 47 s each) with no
+`--- SKIP:`. The nightly's `fatal: bad object` did not recur; its cause is still unnamed. Re-run it only
+after a change to the broker's stream handling.
 
 ## What this does not do
 
