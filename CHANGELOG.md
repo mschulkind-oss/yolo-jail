@@ -43,6 +43,7 @@ You can run your own clone of a pack, skills from your mise tools reach your age
 - On a Mac, two yolo processes that create the same lock file at once no longer fail with "no such file or directory".
 - A launch that refreshes an agent no longer leaves a `sleep` process running for a minute afterward.
 - Several jails launched at once no longer fail because another launch updated a patched fork's build state; the launch rereads it and goes on.
+- A host launch now updates your agents' settings even while files a removed pack left behind wait for you to retire them.
 
 ## [0.19.0] - 2026-11-19
 
