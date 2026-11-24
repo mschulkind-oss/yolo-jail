@@ -265,12 +265,12 @@ func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
 		execCount++
 		return ExecResult{Ran: false}
 	}
-	o.ResourceGroupPlace = func(_ context.Context, sel config.ResourceGroupSelection, iopaths resourcegroups.IOPaths, lockDir string, pid int) (string, error) {
+	o.ResourceGroupChildren = func(_ context.Context, sel config.ResourceGroupSelection, iopaths resourcegroups.IOPaths) (*resourcegroups.ChildSlices, error) {
 		placeCalls++
-		if sel.Unit != "forms.slice" || sel.AgentPercent != 5 || iopaths.Assigned != planFile || lockDir == "" || pid != os.Getpid() {
-			t.Errorf("writer got unit=%q percent=%d assigned=%q lock=%q pid=%d", sel.Unit, sel.AgentPercent, iopaths.Assigned, lockDir, pid)
+		if sel.Unit != "forms.slice" || sel.AgentPercent != 5 || iopaths.Assigned != planFile {
+			t.Errorf("child creation got unit=%q percent=%d assigned=%q", sel.Unit, sel.AgentPercent, iopaths.Assigned)
 		}
-		return "", fmt.Errorf("fixture writer refuses; run yolo check --no-build")
+		return nil, fmt.Errorf("fixture writer refuses; run yolo check --no-build")
 	}
 	o.Getenv = func(string) string { return "" }
 	if rc := Run(*o); rc != 1 {
@@ -314,13 +314,18 @@ func TestPlacedResourceGroupIsRecordedForTheLaunch(t *testing.T) {
 	o.ResourceGroupIOPaths = func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
 		return resourcegroups.IOPaths{Devices: []string{"8:0"}, Assigned: assigned, UserManager: true}, nil
 	}
-	o.ResourceGroupPlace = func(context.Context, config.ResourceGroupSelection, resourcegroups.IOPaths, string, int) (string, error) {
-		return "/sys/fs/cgroup/batch.slice/yolo-agent", nil
+	o.ResourceGroupChildren = func(context.Context, config.ResourceGroupSelection, resourcegroups.IOPaths) (*resourcegroups.ChildSlices, error) {
+		return &resourcegroups.ChildSlices{Unit: "batch.slice", Agent: "batch-agent.slice", AgentDir: "/sys/fs/cgroup/batch.slice/batch-agent.slice"}, nil
+	}
+	o.ResourceGroupMember = func(int) (string, error) { return "/sys/fs/cgroup/batch.slice/batch-agent.slice/run-p1.scope", nil }
+	o.ResourceGroupMove = func(context.Context, string, int) error {
+		t.Error("a launcher already inside the agent child was moved again")
+		return nil
 	}
 	if o.placeOrRefuseResourceGroup(cfg) {
 		t.Fatalf("a placeable mapping refused:\n%s", stderr.String())
 	}
-	if o.resourceGroupPlaced == nil || o.resourceGroupPlaced.Unit != "batch.slice" || o.resourceGroupPlaced.Child != "/sys/fs/cgroup/batch.slice/yolo-agent" {
+	if o.resourceGroupPlaced == nil || o.resourceGroupPlaced.Unit != "batch.slice" || o.resourceGroupPlaced.Child != "batch-agent.slice" {
 		t.Fatalf("the launch did not record its placement: %+v", o.resourceGroupPlaced)
 	}
 	if strings.Contains(stderr.String(), "enforced.") || !strings.Contains(stderr.String(), "Enforcement is unverified until the host witness passes") {
@@ -341,21 +346,25 @@ func TestResourceGroupContainerArgsAskTheRuntimeForTheSameGroup(t *testing.T) {
 		rt    string
 		unit  string
 		facts *podmanFacts
-		want  string // "" is success with --cgroup-parent=<unit>
+		want  string // "" is success with --cgroup-parent=<agent child>
 	}{
 		{"rootless podman systemd slice", "podman", "batch.slice", facts("systemd", &rootless), ""},
 		{"no facts", "podman", "batch.slice", nil, "cgroup manager could not be read"},
 		{"rootful podman", "podman", "batch.slice", facts("systemd", &rootful), "not rootless"},
 		{"cgroupfs manager", "podman", "batch.slice", facts("cgroupfs", &rootless), "cgroup_manager"},
-		{"not a slice", "podman", "work.service", facts("systemd", &rootless), "map a .slice unit"},
+		{"no agent child slice", "podman", "work.service", facts("systemd", &rootless), "no agent child slice"},
 		{"other backend", "container", "batch.slice", nil, "no supported way"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			o := &Options{podmanFacts: tc.facts, resourceGroupPlaced: &placedResourceGroup{Unit: tc.unit, Child: "/x"}}
+			child := strings.TrimSuffix(tc.unit, ".slice") + "-agent.slice"
+			if !strings.HasSuffix(tc.unit, ".slice") {
+				child = tc.unit
+			}
+			o := &Options{podmanFacts: tc.facts, resourceGroupPlaced: &placedResourceGroup{Unit: tc.unit, Child: child}}
 			args, err := o.resourceGroupContainerArgs(tc.rt)
 			if tc.want == "" {
-				if err != nil || len(args) != 1 || args[0] != "--cgroup-parent="+tc.unit {
+				if err != nil || len(args) != 1 || args[0] != "--cgroup-parent=batch-agent.slice" {
 					t.Fatalf("args = %v, err = %v", args, err)
 				}
 				return
@@ -391,9 +400,13 @@ func TestAssembleRunCmdPassesTheResourceGroupParent(t *testing.T) {
 			o := goldenOptions("/ws", home)
 			in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
 			o.podmanFacts = f
-			o.resourceGroupPlaced = &placedResourceGroup{Unit: tc.unit, Child: "/x"}
+			child := strings.TrimSuffix(tc.unit, ".slice") + "-agent.slice"
+			if !strings.HasSuffix(tc.unit, ".slice") {
+				child = tc.unit
+			}
+			o.resourceGroupPlaced = &placedResourceGroup{Unit: tc.unit, Child: child}
 			argv := o.assembleRunCmd(in)
-			if got := slices.Contains(argv, "--cgroup-parent="+tc.unit); got != tc.wantArg {
+			if got := slices.Contains(argv, "--cgroup-parent="+child); got != tc.wantArg {
 				t.Fatalf("--cgroup-parent present = %v, want %v", got, tc.wantArg)
 			}
 			if (in.assemblyErr != nil) != tc.wantErr {
@@ -553,9 +566,22 @@ func TestHostResourceGroupPlacesTheHostCommandBeforeItRuns(t *testing.T) {
 		Observe: func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
 			return resourcegroups.IOPaths{Devices: []string{"8:0"}, Assigned: filepath.Join(root, "io.max"), UserManager: true}, nil
 		},
-		Place: func(_ context.Context, sel config.ResourceGroupSelection, _ resourcegroups.IOPaths, _ string, pid int) (string, error) {
+		Children: func(_ context.Context, sel config.ResourceGroupSelection, _ resourcegroups.IOPaths) (*resourcegroups.ChildSlices, error) {
+			return &resourcegroups.ChildSlices{Unit: sel.Unit, Agent: "batch-agent.slice", AgentDir: "/cg/batch-agent.slice"}, nil
+		},
+		Member: func(int) (string, error) {
+			if len(placed) == 0 {
+				return "/cg/batch.slice", nil
+			}
+			return "/cg/batch-agent.slice/run-p4242.scope", nil
+		},
+		Pause: func() {},
+		Move: func(_ context.Context, agent string, pid int) error {
 			placed = append(placed, pid)
-			return "/sys/fs/cgroup/" + sel.Unit + "/yolo-agent", nil
+			if agent != "batch-agent.slice" {
+				t.Errorf("host launcher moved into %q", agent)
+			}
+			return nil
 		},
 	})
 	group := jsonx.NewOrderedMap()

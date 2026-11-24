@@ -58,6 +58,11 @@ func sectionResourceGroups(r *reporter, cfg *jsonx.OrderedMap, workspace string,
 		r.fail(identity+"; its policy cannot be observed here", "Run `yolo check --no-build` on the host. "+removal)
 		return
 	}
+	agentChild, batchChild, childErr := resourcegroups.ChildUnits(selection.Unit)
+	if childErr != nil {
+		r.fail(identity+"; a launch cannot place it", termsafe.Visible(childErr.Error())+" "+removal)
+		return
+	}
 	paths, resolveErr := pathsForSelection(selection)
 	if resolveErr != nil {
 		r.line("  I/O policy observation: unknown/unavailable: " + termsafe.Visible(resolveErr.Error()))
@@ -83,5 +88,6 @@ func sectionResourceGroups(r *reporter, cfg *jsonx.OrderedMap, workspace string,
 		r.fail(identity+"; a launch cannot place it", termsafe.Visible(err.Error())+" "+removal)
 		return
 	}
-	r.warn(identity+"; io is delegated, so a launch will create the two children and place itself", "Placement and enforcement are not verified by this check; the owner's host witness establishes them. "+removal)
+	r.line("  Child slices: a launch creates " + termsafe.Visible(agentChild) + " and " + termsafe.Visible(batchChild) + " as systemd child slices of " + termsafe.Visible(selection.Unit) + " through your user manager (`systemctl --user set-property --runtime`, then start), places itself in the agent child with a transient scope, and asks rootless podman for --cgroup-parent=" + termsafe.Visible(agentChild) + ".")
+	r.warn(identity+"; io reaches the group, so a launch will create the two child slices and place itself", "Placement and enforcement are not verified by this check; the owner's host witness establishes them. "+removal)
 }

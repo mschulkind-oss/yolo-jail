@@ -248,9 +248,10 @@ var configKeys = map[string]Entry{
 	"resource_groups": {
 		PodmanLinux: honored("run.Run calls placeOrRefuseResourceGroup (resourcegroups.go) after config " +
 			"validation and before setup dispatch: a selected mapping observes the user-manager unit, " +
-			"creates or reuses the two shared children through pinned descriptors, writes and reads " +
-			"back their io.max, moves the launcher into the agent child and reads /proc/<pid>/cgroup " +
-			"back, then assembleRunCmd passes --cgroup-parent for rootless podman's systemd manager. " +
+			"creates or reuses the two systemd child slices (<stem>-agent.slice, <stem>-batch.slice) " +
+			"through the user manager, reads each child's io.max back, moves the launcher into the " +
+			"agent child and reads /proc/<pid>/cgroup back, then assembleRunCmd passes " +
+			"--cgroup-parent=<agent child> for rootless podman's systemd manager. " +
 			"Every condition it cannot observe refuses. Unselected, nothing is probed. Enforcement is " +
 			"unverified until the owner's host witness"),
 		PodmanMac: refused("the same gate refuses a selected mapping: placement is Linux-only (OQ-RG1)"),
