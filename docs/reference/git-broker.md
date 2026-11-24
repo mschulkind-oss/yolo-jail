@@ -441,8 +441,11 @@ cannot settle the Mac Podman VM's jail-to-host stream.
 passed five runs at main `77df9ca0d`, which holds the reviewed baseline `3b1be0bc15d1` but not
 `287479402`, so those runs lacked step 3's separate exit statuses, commit check, `git fsck` and
 packet trace (logs on the Mac under `/Users/Shared/yolo/evidence/`). The failure did not recur in
-five runs; that neither withdraws the nightly's observation nor names its cause. **Still to run:**
-steps 1 to 4 at `287479402` or later.
+five runs; that neither withdraws the nightly's observation nor names its cause. On 2026-11-23 at
+`fe37424b3`, which holds `287479402`, the run was **blocked**: the owner's podman machine
+(`podman-machine-default`, applehv) was stopped, last up four weeks earlier, and step 1's `podman info`
+refused the connection. Starting that VM is the owner's. **Still owed:** steps 1 to 4 at `287479402` or
+later, once the machine is running.
 
 ## What this does not do
 

@@ -296,6 +296,10 @@ them on a Mac. All five passed on 2026-11-10 at main `5a69dd0b4` (darwin/arm64, 
 `0.17.1+197.g5a69dd0b4075`). W-PH2 and W-PH3 need `podman-self`, because git-broker is inert on
 Apple Container; W-PH4 uses `seatbelt-self`. Re-run them after a change to the pin's macOS path.
 
+On 2026-11-23 at main `fe37424b3` (installed `0.19.0+61.gfe37424b3605`) W-PH1, W-PH5 and the dry-run half of
+W-PH4 passed again. W-PH2, W-PH3 and W-PH4's live half did not run: they need a running `podman-self` jail
+and a `seatbelt-self` session.
+
 | ID | What it shows | How |
 | :--- | :--- | :--- |
 | <a id="w-ph1"></a>W-PH1 | The darwin bundle carries the host `yolo`, and the installed launcher is that file (PH-D2) | `ls ~/.local/share/yolo-jail/flake-bundle/bin/darwin-arm64/` lists `yolo`; `cmp` against `command -v yolo` prints `same` |
