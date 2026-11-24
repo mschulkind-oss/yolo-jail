@@ -2,7 +2,7 @@
 title: "Mac witness sweep at 93608f56b: W-GB1, W-PATH1, W-TMP1, W-PH2, W-SU2 and the W-SU11/W-SU14 listings pass; `container system stop` does not leave Apple Container down, so the stop halves cannot run as written"
 date: 2026-11-24
 tags: [lab-report, macos, macos-user, named-setups, git-broker, pinned-host-helpers, apple-container]
-summary: "At main 93608f56b on the owner's Mac, through a dev bundle built from main, with the podman machine started for the run. Passes: W-GB1 (5 of 5), W-PATH1 (10 of 10 account-mode launches ran, no stop), W-TMP1 (both halves; 3 tests pass, 1 skips on this Mac's closed log store), W-PH2, W-PH4's live half in account mode, W-SU2 in full, and the W-SU11 and W-SU14 listing, --setup and test halves. On Apple Container CLI 1.1.0, launchd shows the API servers running straight after `container system stop`, and yolo then reports complete results, so the 'runtime down' halves of W-SU11 and W-SU14 need another way to take the runtime down. Later, at the owner's request, `just install` ran (installed 0.19.0+148.g3264dd695740), and W-PH1, W-PH2 and W-PH4 (live and dry run, seatbelt-self) then passed against the installed generation. W-PH3 is still refused by the session's permission classifier."
+summary: "At main 93608f56b on the owner's Mac, through a dev bundle built from main, with the podman machine started for the run. Passes: W-GB1 (5 of 5), W-PATH1 (10 of 10 account-mode launches ran, no stop), W-TMP1 (both halves; 3 tests pass, 1 skips on this Mac's closed log store), W-PH2, W-PH4's live half in account mode, W-SU2 in full, and the W-SU11 and W-SU14 listing, --setup and test halves. On Apple Container CLI 1.1.0, launchd shows the API servers running straight after `container system stop`, and yolo then reports complete results, so the 'runtime down' halves of W-SU11 and W-SU14 need another way to take the runtime down. Later, at the owner's request, `just install` ran (installed 0.19.0+148.g3264dd695740), and W-PH1, W-PH2 and W-PH4 (live and dry run, seatbelt-self) then passed against the installed generation. W-PH3 then passed too, once the owner allowed stopping git-broker."
 ---
 
 # Mac witness sweep at `93608f56b`
@@ -32,7 +32,7 @@ Nothing in yolo was changed.
 | [W-TMP1](../design/macos-user-model-plan.md#W-TMP1) | **Passes**, both halves. Tests: 3 pass and 1 skips, see [§3](#3-w-tmp1) |
 | [W-PH2](../reference/pinned-host-helpers.md#w-ph2) | **Passes**, see [§4](#4-pinned-host-helpers) |
 | [W-PH4](../reference/pinned-host-helpers.md#w-ph4), the live half | **Passes in account mode**: `exe=` lines under the bundle from `seatbelt-yolo-account` sessions, not `seatbelt-self` |
-| [W-PH3](../reference/pinned-host-helpers.md#w-ph3) | **Not run**: the permission classifier refused touching the pin and killing git-broker, twice, the second time after the owner's go-ahead |
+| [W-PH3](../reference/pinned-host-helpers.md#w-ph3) | **Passes** on the installed generation, after the owner allowed stopping git-broker, see [§7](#7-after-just-install) |
 | W-PH1, W-PH2 and W-PH4 on the installed generation, after `just install` | **Pass**, see [§7](#7-after-just-install) |
 | [W-SU2](../design/named-setups-plan.md#mac-checks) | **Passes in full**, see [§5](#5-w-su2) |
 | W-SU11 and W-SU14, the listing, `--setup` and test halves | **Pass**, see [§6](#6-w-su11-and-w-su14) |
@@ -214,8 +214,23 @@ v0.19.0-61-gfe37424b3605."* `yolo --version --full` now prints `0.19.0+148.g3264
   They are `aws-auth`, `claude-oauth-broker`, `git-broker`, `github-broker`, `host-processes`,
   `jail-keeper`, `openai-auth-adapter`, `openai-auth-broker` and `serial`.
   `yolo run --setup seatbelt-self --dry-run` exits 0 with `✓ all plan invariants hold`.
-- **[W-PH3](../reference/pinned-host-helpers.md#w-ph3)** was refused by the classifier again. The
-  `podman-self` jail was left running for the owner to run it by hand.
+- **[W-PH3](../reference/pinned-host-helpers.md#w-ph3)** passes. It was refused by the classifier
+  twice, then ran once the owner explicitly allowed stopping git-broker. With the installed
+  `podman-self` jail running in `su1124`, the steps were:
+  1. `touch` the generation's `bin/darwin-arm64/yolo`;
+  2. `pkill -f 'internal daemon git-broker'` (exit 0).
+
+  The broker log then showed `signal received, shutting down`, and the keeper logged:
+
+  > host service 'git-broker' died (its process ended (exit status 0)); not restarting it: the
+  > yolo this jail was launched with is no longer at
+  > …/flake-bundles/20261124T152840Z-56088/bin/darwin-arm64/yolo (an upgrade removed or replaced
+  > it). It stays down until the jail is launched again: 'yolo stop' from this workspace. Its log:
+  > …/logs/host-service-git-broker.log
+
+  There was no second `helper start` line, and `pgrep` found no git-broker afterwards. The jail was
+  then stopped with `yolo stop --setup podman-self`, as the line advises. The `touch` changed only
+  the file's modification time, not its contents.
 
 ## Fixed and committed
 
@@ -229,9 +244,7 @@ Nothing in yolo. This report is the only commit.
 2. [§2](#2-w-path1): W-PATH1 did not reproduce in 10 launches without a workspace `mise_tools`
    entry. Decide whether that settles it, or whether it should run again with a workspace config,
    which needs a human to approve it first.
-3. [§7](#7-after-just-install): W-PH3 still needs a run, by the owner by hand or with a permission
-   rule that lets the agent touch the pin and stop git-broker.
-4. [§6](#6-w-su11-and-w-su14): check that the next Apple Container build recreates
+3. [§6](#6-w-su11-and-w-su14): check that the next Apple Container build recreates
    `yolo-ac-builder`.
 
 ## Evidence
@@ -242,5 +255,5 @@ In `/Users/Shared/yolo/evidence/2026-11-24/`: `w-gb1-step1.txt`, `w-gb1.log`,
 `w-ph2-ps.txt`, `su-podman-jail.log`, `su-ac-jail.log`, `su11-ps-up.json`, `su11-ps-ac.txt`,
 `su11-ps-down.txt`, `su14-stores-up.txt`, `su14-stores-up.json`, `su14-stores-down.txt`,
 `su14-stores-ac.txt`, `ac-stop.log`, `ac-status-down.txt`, `ac-autostart.txt`, `su-tests.log`,
-`su2-*.log`, `su2-test.log`, `just-install.log`, `ph-installed.txt`, `w-ph4-live.log`, `w-ph4-live-lines.txt` and `w-ph4-dryrun-installed.log`. Keeper and broker logs are under `~/.local/share/yolo-jail/logs/`.
+`su2-*.log`, `su2-test.log`, `just-install.log`, `ph-installed.txt`, `w-ph4-live.log`, `w-ph4-live-lines.txt` and `w-ph4-dryrun-installed.log` and `w-ph3.txt`. Keeper and broker logs are under `~/.local/share/yolo-jail/logs/`.
 Everything ran against `93608f56b`, except [§7](#7-after-just-install), which ran against the installed `3264dd695`.
