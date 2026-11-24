@@ -16,10 +16,10 @@ import (
 	"time"
 )
 
-// pinnedIOChildren is an unactivated native-write prototype. It observes the
-// selected user-manager scope/service before allocating a child; the manager
-// owns the unit and may own .control. Only the two named children are ours.
-// No production launch or ReconcileUserIO path calls this constructor.
+// pinnedIOChildren is the descriptor-relative child writer behind
+// OpenUserIOChildren. It observes the selected user-manager unit before
+// allocating a child; the manager owns the unit and may own .control. Only the
+// two named children are ours.
 type pinnedIOChildren struct {
 	parent   *pinnedGroup
 	path     string
@@ -33,6 +33,10 @@ type pinnedIOChildren struct {
 	// readback. Nil is the production cgroup-v2 check; only same-package
 	// regular-file fixtures set it, and openPinnedIOChildren never does.
 	policyFS func(int) error
+	// procRoot and mountInfo are where a member's cgroup is read from; "" is
+	// /proc and /proc/self/mountinfo. Only fixtures set them.
+	procRoot  string
+	mountInfo string
 }
 
 func (p *pinnedIOChildren) policyValidator() func(int) error {
@@ -50,6 +54,11 @@ func (p *pinnedIOChildren) readChildPolicy(name string) ([]byte, error) {
 // identity while exercising openPinnedGroup's real cgroup-v2 filesystem guard.
 var pinnedIOUnitObserver = observeDelegatedIOUnit
 
+// pinnedIOPolicyFS is the policy-file descriptor check a constructed writer
+// uses. Nil is the production cgroup-v2 check; only fixtures over ordinary
+// files set it, alongside requireCgroupV2FS.
+var pinnedIOPolicyFS func(int) error
+
 func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, percent int, lockDir string) (*pinnedIOChildren, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, errors.New("delegated I/O context missing or canceled")
@@ -62,14 +71,14 @@ func openPinnedIOChildren(ctx context.Context, unit string, paths IOPaths, perce
 	}
 	plan := ReadAndPlanIO(IOPaths{Assigned: paths.Assigned, Devices: paths.Devices, Ancestors: paths.Ancestors}, percent, os.ReadFile)
 	if !hasFiniteSplit(plan) {
-		return nil, errors.New("assigned I/O policy lacks a safe finite split; run yolo check --no-build")
+		return nil, errors.New("assigned group has no safe finite I/O allowance to split: give the selected slice a finite IOReadBandwidthMax or IOWriteBandwidthMax (and nothing ambiguous above it), then run yolo check --no-build")
 	}
 	parentPath := filepath.Dir(paths.Assigned)
 	parent, err := openPinnedGroup(parentPath, true)
 	if err != nil {
 		return nil, err
 	}
-	p := &pinnedIOChildren{parent: parent, path: parentPath, unit: unit, paths: paths, percent: percent, plan: plan, children: map[string]*pinnedGroup{}}
+	p := &pinnedIOChildren{parent: parent, path: parentPath, unit: unit, paths: paths, percent: percent, plan: plan, children: map[string]*pinnedGroup{}, policyFS: pinnedIOPolicyFS}
 	completed := false
 	defer func() {
 		if !completed {
@@ -120,12 +129,6 @@ func observeDelegatedIOUnit(ctx context.Context, unit string, paths IOPaths) err
 	if ctx == nil || ctx.Err() != nil {
 		return errors.New("delegated I/O context missing or canceled")
 	}
-	if !strings.HasSuffix(unit, ".service") && !strings.HasSuffix(unit, ".scope") {
-		return errors.New("selected unit is not a delegatable scope or service")
-	}
-	if !paths.UserManager || filepath.Base(paths.Assigned) != "io.max" || !filepath.IsAbs(paths.Assigned) {
-		return errors.New("delegated user-manager identity unavailable")
-	}
 	query := func(argv []string) (string, error) {
 		deadline, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
@@ -136,21 +139,44 @@ func observeDelegatedIOUnit(ctx context.Context, unit string, paths IOPaths) err
 	if err != nil {
 		return err
 	}
-	fresh, err := ResolveSelectedIOPaths(unit, query, mountInfo, os.ReadFile)
-	if err != nil || !sameAssignedGroup(paths, fresh) {
-		return errors.New("selected delegated user-manager identity or device policy changed")
+	return observeDelegatedIOUnitWith(unit, paths, query, mountInfo, os.ReadFile)
+}
+
+// observeDelegatedIOUnitWith is observeDelegatedIOUnit over injected seams. A
+// scope or service must declare Delegate=yes with io among its controllers. A
+// slice cannot carry Delegate=, so a slice is admitted on the user manager's
+// own identity (ResolveSelectedIOPaths finds it in the user manager only) and
+// the cgroup-v2 check CheckDelegatedIO makes: io must be listed in the
+// group's cgroup.controllers and cgroup.subtree_control.
+func observeDelegatedIOUnitWith(unit string, paths IOPaths, query ManagerQuery, mountInfo []byte, read IOReadFile) error {
+	slice := strings.HasSuffix(unit, ".slice")
+	if !slice && !strings.HasSuffix(unit, ".service") && !strings.HasSuffix(unit, ".scope") {
+		return errors.New("selected unit is not a slice, scope or service; name one in resource_groups, then run yolo check --no-build")
 	}
-	for property, expected := range map[string]string{"Id": unit, "ActiveState": "active", "Delegate": "yes"} {
+	if !paths.UserManager || filepath.Base(paths.Assigned) != "io.max" || !filepath.IsAbs(paths.Assigned) {
+		return errors.New("selected unit is not in your user manager; map a unit of systemctl --user, then run yolo check --no-build")
+	}
+	fresh, err := ResolveSelectedIOPaths(unit, query, mountInfo, read)
+	if err != nil || !sameAssignedGroup(paths, fresh) {
+		return errors.New("selected delegated user-manager identity or device policy changed; run yolo check --no-build")
+	}
+	properties := map[string]string{"Id": unit, "ActiveState": "active"}
+	if !slice {
+		properties["Delegate"] = "yes"
+	}
+	for property, expected := range properties {
 		value, err := query([]string{"systemctl", "--user", "show", "--property=" + property, "--value", "--", unit})
 		if err != nil || strings.TrimSpace(value) != expected {
-			return fmt.Errorf("selected user-manager %s is not verified; run yolo check --no-build", property)
+			return fmt.Errorf("selected user-manager %s is not %q; start the unit with systemctl --user start %s, then run yolo check --no-build", property, expected, unit)
 		}
 	}
-	controllers, err := query([]string{"systemctl", "--user", "show", "--property=DelegateControllers", "--value", "--", unit})
-	if err != nil || !containsController(controllers, "io") {
-		return errors.New("selected unit does not verifiably delegate I/O")
+	if !slice {
+		controllers, err := query([]string{"systemctl", "--user", "show", "--property=DelegateControllers", "--value", "--", unit})
+		if err != nil || !containsController(controllers, "io") {
+			return errors.New("selected unit does not delegate io: add io to its Delegate= list, then run yolo check --no-build")
+		}
 	}
-	return CheckDelegatedIO(paths, os.ReadFile)
+	return CheckDelegatedIO(paths, read)
 }
 
 func containsController(value, controller string) bool {
@@ -322,7 +348,7 @@ func (p *pinnedIOChildren) writeChildPolicy(ctx context.Context, name string, da
 		return err
 	}
 	child := p.children[name]
-	if err := writePolicyAt(child.fd, data, p.policyValidator()); err != nil {
+	if err := writeNamedAt(child.fd, "io.max", data, p.policyValidator()); err != nil {
 		return fmt.Errorf("cannot write pinned child: %w", err)
 	}
 	if err := p.verifyChild(name); err != nil {

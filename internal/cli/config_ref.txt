@@ -3442,10 +3442,10 @@
         [programs.overrides.board]
         prebuilt = true
 
-  [bold]resource_groups[/bold] (table): Owner-only selection for host resource groups. No mapping is enabled by default. A selected mapping is intent only: this build cannot verify or enforce host placement, so `yolo` refuses mapped launches and `yolo check --no-build` reports placement as unsupported/unknown. No group manager, controller, device or policy probe runs when there is no matching mapping.
+  [bold]resource_groups[/bold] (table): Owner-only selection for host resource groups. No mapping is enabled by default. A selected mapping is required placement: on Linux a launch observes the unit in your systemd user manager, creates or reuses two shared children (yolo-agent and yolo-batch) under it, sets their io.max from the unit's finite I/O allowance, moves the launcher into the agent child and reads the membership back before any other launch work. Anything it cannot observe refuses and names the next step (io not delegated to your user manager, no finite allowance, an inactive unit). Enforcement is unverified until the owner's host witness passes. No group manager, controller, device or policy probe runs when there is no matching mapping. Setup is in the user guide under "Owner resource-group selection".
     • [bold]default[/bold] (string): Explicit fallback owner unit for workspaces without a more-specific mapping. Setting this opts those workspaces in.
     • [bold]maintenance[/bold] (string): Owner unit reserved for explicitly attributed machine-wide maintenance work. It is not inherited from the current directory and is not used by this build.
-    • [bold]agent_percent[/bold] (integer): Planned agent share for future finite group budgets. Default: 5; valid range: 1 through 99. This value does not apply a cap in this build.
+    • [bold]agent_percent[/bold] (integer): Agent child's share of a finite group allowance, by controlled device and I/O dimension; the batch child gets the rest. Default: 5; valid range: 1 through 99.
     • [bold]workspaces[/bold] (table): Exact mapping from quoted canonical absolute workspace paths to owner unit names.
     • [bold]projects[/bold] (table): Mapping from quoted canonical absolute project roots to owner unit names. The nearest component-bounded root is used after exact workspace mappings.
     Empty or unmatched mappings leave the workspace off. Project configuration cannot set or override this owner-only key. Use `yolo check --no-build` to inspect the selection.

@@ -1,16 +1,16 @@
 ---
 title: "Tool skills: a mise tool's skills as one more skills layer, delivered a launch later"
 date: 2026-11-22
-status: in-review
+status: accepted
 tags: [skills, mise, packs, delivery, macos-user]
 summary: "The jail asks mise which skills the user's own tools declare, snapshots them into yolo's state directory, and the host composes that snapshot as the lowest-priority layer of the skills delivery that already exists. No new transport, view or agent knowledge."
-stage: DESIGN
-next: "Build slice 1 (allowlist) and slice 2 (discovery) in parallel"
+stage: BUILT
+next: "Graduate to a system doc in docs/reference/ and retire this design"
 ---
 
 # Tool skills: a mise tool's skills as one more skills layer, delivered a launch later
 
-**Status:** 2026-11-22. Nothing built. Repository evidence read at `fe37424b3`; upstream mise contract read from
+**Status:** 2026-11-24. All six slices of [§12](#12-test-first-slices) are built. Designed 2026-11-22. Repository evidence read at `fe37424b3`; upstream mise contract read from
 source on the same date ([Appendix A](#appendix-a-evidence)). The macOS rows are UNMEASURED and wait on the owner's Mac.
 
 > **In short.** mise already records which skills the active tools declare; the only work is to read that list
@@ -205,15 +205,15 @@ Mechanism choices the designer owns (none needed the owner), tier 1 (structural)
 
 | ID | Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| MS-D1 | The allowlist is `OwnMiseTools` of the user scope, in declaration order, `off` excluded, empty when sealed, captured or nested; carried as `YOLO_MISE_SKILL_TOOLS` on the per-entry channel | 2026-11-22 | [§5](#5-the-three-forced-points) | — |
-| MS-D2 | Discovery is `mise -C /workspace skills ls --json` run in the jail after install, 15 s and 1 MiB bounds, own process group | 2026-11-22 | [§4](#4-the-design), [§6.3](#63-failure-and-degenerate-inputs) | — |
-| MS-D3 | Match is exact string equality of `tool` with the allowlist key; order is allowlist position then name | 2026-11-22 | [§4](#4-the-design), [§6.1](#61-names-conflicts-order) | — |
-| MS-D4 | The snapshot is a digest-named directory plus a `current` file, replaced by rename; skills are copied (never linked) through an `O_NOFOLLOW` walk with the workspace layer's caps | 2026-11-22 | [§4](#4-the-design), [§6.3](#63-failure-and-degenerate-inputs) | — |
-| MS-D5 | The host layer has the lowest priority and re-applies the allowlist, names and caps; it never trusts the index's order | 2026-11-22 | [§6.1](#61-names-conflicts-order) | — |
-| MS-D6 | A failed refresh keeps the previous snapshot; a successful empty one clears it | 2026-11-22 | [§6.3](#63-failure-and-degenerate-inputs) | — |
-| MS-D7 | Staleness is a content digest compared with `YOLO_TOOL_SKILLS_DELIVERED`, so a branch-named version that changes bytes is noticed | 2026-11-22 | [§4](#4-the-design) | — |
-| MS-D8 | Bare names in every selected destination; no plugin folder, no settings key | 2026-11-22 | [§9](#9-alternatives-rejected) | — |
-| MS-D9 | The snapshot stays in `.yolo/tool-skills/`; the host composes it only when its index carries the per-workspace snapshot token, minted and stored host-side outside the workspace and carried as `YOLO_TOOL_SKILLS_TOKEN` | 2026-11-23 | [§10](#10-open-questions) | — |
+| MS-D1 | The allowlist is `OwnMiseTools` of the user scope, in declaration order, `off` excluded, empty when sealed, captured or nested; carried as `YOLO_MISE_SKILL_TOOLS` on the per-entry channel | 2026-11-22 | [§5](#5-the-three-forced-points) | yes |
+| MS-D2 | Discovery is `mise -C /workspace skills ls --json` run in the jail after install, 15 s and 1 MiB bounds, own process group | 2026-11-22 | [§4](#4-the-design), [§6.3](#63-failure-and-degenerate-inputs) | yes |
+| MS-D3 | Match is exact string equality of `tool` with the allowlist key; order is allowlist position then name | 2026-11-22 | [§4](#4-the-design), [§6.1](#61-names-conflicts-order) | yes |
+| MS-D4 | The snapshot is a digest-named directory plus a `current` file, replaced by rename; skills are copied (never linked) through an `O_NOFOLLOW` walk with the workspace layer's caps | 2026-11-22 | [§4](#4-the-design), [§6.3](#63-failure-and-degenerate-inputs) | yes |
+| MS-D5 | The host layer has the lowest priority and re-applies the allowlist, names and caps; it never trusts the index's order | 2026-11-22 | [§6.1](#61-names-conflicts-order) | yes |
+| MS-D6 | A failed refresh keeps the previous snapshot; a successful empty one clears it | 2026-11-22 | [§6.3](#63-failure-and-degenerate-inputs) | yes |
+| MS-D7 | Staleness is a content digest compared with `YOLO_TOOL_SKILLS_DELIVERED`, so a branch-named version that changes bytes is noticed | 2026-11-22 | [§4](#4-the-design) | yes |
+| MS-D8 | Bare names in every selected destination; no plugin folder, no settings key | 2026-11-22 | [§9](#9-alternatives-rejected) | yes |
+| MS-D9 | The snapshot stays in `.yolo/tool-skills/`; the host composes it only when its index carries the per-workspace snapshot token, minted and stored host-side outside the workspace and carried as `YOLO_TOOL_SKILLS_TOKEN` | 2026-11-23 | [§10](#10-open-questions) | yes |
 
 ## 12. Test-first slices
 

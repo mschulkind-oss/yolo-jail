@@ -10,6 +10,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-24
+
+You can run your own clone of a pack, skills from your mise tools reach your agents, and every launch now checks for newer packs instead of waiting up to an hour.
+
+### Added
+
+**Run your own clone of a pack.** Add `local = "~/src/mypack"` to a git pack entry in your user config. A launch then runs your clone's working tree, uncommitted files included, when the clone is level with or ahead of the branch on the remote. Each launch says which copy runs and why, and yolo never writes to your clone. See [Run your own clone of a pack](userguide/guides/packs-and-skills.md#run-your-own-clone-of-a-pack).
+
+**Skills from your mise tools reach your agents.** When a tool in your user config's mise tools ships skills, yolo delivers them to your agents one session after the tool installs. The launch says which skills it delivered, which a built-in or pack skill replaced, and which it skipped.
+
+### Changed
+
+- **Launches check for updates at every start.** Each launch asks the remote whether a branch pack, a patched fork or a Git skill import has moved, instead of at most once an hour. The check stops after five seconds, and the launch then runs the copy it has and says so. Agent launchers, MCP server refreshes and pi extension updates now run the first time you use them after each jail start. Relaunch the jail to pick up a new release. See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
+- **The `slack-mcp` pack is no longer bundled.** If your config lists it, run `yolo pack remove slack-mcp`. To keep a Slack integration, supply a pack of your own.
+
+### Fixed
+
+- A launch you decline, or that fails, no longer moves the project's old home into a setup's home.
+- An Apple Container setup no longer takes over a home that Podman laid and it cannot read. The launch names the Podman setup to start instead.
+- `yolo pack remove` now removes a pack listed in a `config.d` file. Before, it changed nothing.
+- Ctrl-C now ends a launch's check of a patched fork's upstream at once, instead of when its five-second limit runs out.
+- Change previews now mark every changed line.
+- `yolo config unset env.set.<NAME>` now removes that variable from the file, instead of refusing.
+- `yolo config migrate` now lists the old-format files it kept, instead of saying there is nothing to migrate.
+- `yolo check` no longer asks for an AWS login profile you set under the older `loopholes` table, and no longer blames filters for an empty local pack.
+- `yolo check` names an exported `YOLO_REPO_ROOT` as the problem, instead of giving generic reinstall advice.
+- On a Mac, the keychain message now says that choosing Always Allow also lets later reads over ssh through.
+- Two jails that share an install folder no longer install into it at once on systems whose `mkdir` is from uutils coreutils.
+- On a Mac, two yolo processes that create the same lock file at once no longer fail with "no such file or directory".
+
 ## [0.19.0] - 2026-11-19
 
 Workspaces can import skills directly from Git repositories, yolo config approval-diff previews configuration changes before launch, packs can export skills without their binaries, and agents can query AWS Cost Explorer through your AWS login.

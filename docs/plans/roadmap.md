@@ -31,8 +31,9 @@ needs a ruling or a Mac sits in the others.
 
 ## Buildable now by an agent
 
-1. [Tool skills](../design/mise-tool-skills.md) — the owner's current request (2026-11-23): deliver the skills
-   the user's own mise tools declare as one more skills layer. Every mechanism is decided; build its six slices in order.
+1. [Tool skills](../design/mise-tool-skills.md) — the owner's request (2026-11-23): deliver the skills
+   the user's own mise tools declare as one more skills layer. Built, all six slices; next is graduating it to a
+   system doc.
 
 2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): the hourly
    refresh throttle for packs and the patched-fork upstream check is dropped (a probe per remote, in parallel, under a
@@ -323,7 +324,7 @@ agent runs its witnesses on main; no branch or real account probe is implied.
    [the keeper's scope move and logout](../design/jail-lifetime-last-session-wins.md#8-what-done-looks-like),
    [per-jail host daemons'](../design/host-daemon-ownership.md) first launch, [live config apply's](../design/live-config-apply.md)
    rootless evidence, with [M6](../design/live-config-apply.md#LA-M6) and a live forward's traffic, [resource
-   groups](../design/resource-groups-plan.md)' native delegation, child creation, placement and lifetime (the prototype's
+   groups](../design/resource-groups-plan.md)' native delegation, child creation, placement and lifetime (the writer and the launcher placement are built under RG-R5 and unverified; the witness list is in the plan; the prototype's
    review is done; its creation step needs the owner's authorization), [launch preparation](../design/launch-update-preparation-plan.md#runtime-2026-11-13)'s
    rootless acceptance (Darwin's is the Mac's), [pack brokers](../design/pack-brokers-http-plan.md)' rootless per-cell
    proof once a client is listed, the patched fork's rootless check, [the in-jail nix root watcher](../reference/in-jail-nix-roots.md)'s

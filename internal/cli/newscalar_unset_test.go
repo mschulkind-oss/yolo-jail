@@ -344,10 +344,9 @@ func TestConfigRegistryUnsetScalarDryRunInvalidInputAbsentAndNonScalarPreserveFi
 	}
 
 	// A table with no removal spelling is removed whole now (TestRunConfigEditUnsetRemovesAWholeTable);
-	// what still refuses is a key with no removal at all, and one whose removal needs two edits.
+	// what still refuses is a key with no removal at all.
 	for _, args := range [][]string{
 		{"unset", "unknown.key", "--project"},
-		{"unset", "env.set.FOO", "--project"},
 	} {
 		var out, errw bytes.Buffer
 		rc, output, errOutput := dispatchConfigCapture(t, args)
@@ -355,11 +354,6 @@ func TestConfigRegistryUnsetScalarDryRunInvalidInputAbsentAndNonScalarPreserveFi
 		errw.WriteString(errOutput)
 		if rc == 0 || out.Len() != 0 || errw.Len() == 0 {
 			t.Errorf("invalid/non-scalar unset %q rc=%d stdout=%q stderr=%q", args, rc, out.String(), errw.String())
-		}
-		if args[1] == "env.set.FOO" && (!strings.Contains(errw.String(), workspace.Path) ||
-			!strings.Contains(errw.String(), "env.set.FOO") || !strings.Contains(errw.String(), "yolo config add env.unset") ||
-			strings.Contains(errw.String(), "edit the value manually")) {
-			t.Errorf("non-scalar refusal lacks selected path, canonical key, or next step: %q", errw.String())
 		}
 		if got := mustReadScalarUnset(t, workspace.Path); !bytes.Equal(got, before) {
 			t.Fatalf("invalid/non-scalar unset %q changed bytes: %q", args, got)
@@ -380,32 +374,69 @@ func TestConfigRegistryUnsetScalarDryRunInvalidInputAbsentAndNonScalarPreserveFi
 	}
 }
 
-func TestConfigRegistryUnsetScalarRefusalQuotesSelectedFileAndGivesNextStep(t *testing.T) {
-	// Resolved where minted: the edit resolver names the selected file by its physical path,
-	// and macOS's temp directory is under /var, a link to /private/var.
-	tmp, err := filepath.EvalSymlinks(t.TempDir())
+// RC-D74: `unset env.set.<NAME>` deletes that key from the selected file, as any other unset does.
+func TestConfigUnsetEnvSetDeletesTheKeyFromTheScopeFile(t *testing.T) {
+	for _, tc := range []struct {
+		name, project, wantKept, wantGone string
+		format                            configdoc.Format
+	}{
+		{
+			name: "TOML", format: configdoc.TOML,
+			project:  "# keep me\n[env.set]\nFOO = \"x\" # foo\nBAR = 'y' # bar\n",
+			wantKept: "BAR = 'y' # bar", wantGone: "FOO",
+		},
+		{
+			name: "legacy JSONC", format: configdoc.JSONC,
+			project:  "{\n  // keep me\n  \"env\": {\"set\": {\"FOO\": \"x\", \"BAR\": \"y\"}}\n}\n",
+			wantKept: `"BAR": "y"`, wantGone: "FOO",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workspace := testconfig.WorkspaceFormat(t, tc.format, tc.project)
+			user := testconfig.UserFormat(t, tc.format, map[configdoc.Format]string{configdoc.TOML: "", configdoc.JSONC: "{}"}[tc.format])
+			t.Setenv("HOME", user.Root)
+			t.Setenv("YOLO_VERSION", "")
+			withConfigEditCWD(t, workspace.Root)
+			rc, out, errw := dispatchConfigCapture(t, []string{"unset", "env.set.FOO", "--project"})
+			if rc != 0 || strings.Contains(errw, "env.unset") {
+				t.Fatalf("unset env.set.FOO rc=%d stdout=%q stderr=%q", rc, out, errw)
+			}
+			after := string(mustReadScalarUnset(t, workspace.Path))
+			if strings.Contains(after, tc.wantGone) || !strings.Contains(after, tc.wantKept) || !strings.Contains(after, "keep me") {
+				t.Fatalf("unset did not remove only FOO: %q", after)
+			}
+			doc, err := configdoc.Parse([]byte(after), tc.format)
+			if err != nil {
+				t.Fatal(err)
+			}
+			steps := []configdoc.Step{{Key: "env"}, {Key: "set"}, {Key: "FOO"}}
+			if _, found, err := doc.Index.Value(steps...); err != nil || found {
+				t.Fatalf("FOO still present: found=%v err=%v", found, err)
+			}
+		})
+	}
+}
+
+// RC-D74: a value another layer sets for the name is not hidden by the unset.
+func TestConfigUnsetEnvSetLetsAnotherLayersValueShowThrough(t *testing.T) {
+	workspace := testconfig.Workspace(t, "[env.set]\nFOO = 'project'\n")
+	user := testconfig.User(t, "[env.set]\nFOO = 'user'\n")
+	t.Setenv("HOME", user.Root)
+	t.Setenv("YOLO_VERSION", "")
+	withConfigEditCWD(t, workspace.Root)
+	rc, out, errw := dispatchConfigCapture(t, []string{"unset", "env.set.FOO", "--project"})
+	if rc != 0 {
+		t.Fatalf("unset rc=%d stdout=%q stderr=%q", rc, out, errw)
+	}
+	if got := mustReadScalarUnset(t, workspace.Path); bytes.Contains(got, []byte("FOO")) {
+		t.Fatalf("project still holds FOO: %q", got)
+	}
+	effective, err := config.LoadReadableConfig(workspace.Root, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workspace := filepath.Join(tmp, "workspace with spaces")
-	if err := os.Mkdir(workspace, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	project := filepath.Join(workspace, paths.WorkspaceConfigTOMLName)
-	if err := os.WriteFile(project, []byte("[env.set]\nFOO = \"x\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("YOLO_VERSION", "")
-	withConfigEditCWD(t, workspace)
-
-	rc, out, errw := dispatchConfigCapture(t, []string{"unset", "env.set.FOO", "--project"})
-	if rc == 0 || out != "" || !strings.Contains(errw, `"`+project+`"`) ||
-		!strings.Contains(errw, `"env.set.FOO"`) || !strings.Contains(errw, "yolo config add env.unset") || strings.Contains(errw, "edit the value manually") || !strings.Contains(errw, "yolo config apply") {
-		t.Fatalf("non-scalar refusal is not quoted/actionable: rc=%d stdout=%q stderr=%q", rc, out, errw)
-	}
-	if got, err := os.ReadFile(project); err != nil || string(got) != "[env.set]\nFOO = \"x\"\n" {
-		t.Fatalf("refusal changed selected Project file: got=%q err=%v", got, err)
+	if got := readableValue(t, effective, "env", "set", "FOO"); got != "user" {
+		t.Fatalf("merged env.set.FOO = %#v, want the user layer's value", got)
 	}
 }
 

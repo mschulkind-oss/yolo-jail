@@ -1,13 +1,13 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Per the owner's RG-R5 (2026-11-24): build the real Brief 3 child writer and Brief 4 launch placement and wire them into mapped launches, keeping every observed-authority refusal; then the owner delegates io and provisions a batch slice, and the host witness validates after landing"
+next: "The owner delegates io to the user manager and provisions a slice with a finite IO*Max, then runs the host witness listed under Brief 4; until it passes no document claims enforcement"
 depends-on: [resource-groups.md]
 ---
 
 # Plan: owner-selected resource groups
 
-**Status:** 2026-11-05. The Brief 1 selection and Brief 2 read-only finite-policy foundation are integrated from the accepted source lineages. A bounded fake-only required-start admission test boundary is integrated and independently HIGH-reviewed. Its exact source passed the resource-group package, race, targeted Run/host/Check consumer, and Darwin arm64 compile gates. The committed primary-source development bundle reports the matching commit; its scrubbed `check --no-build` passed with resource groups disabled, and the required rootful `podman-self` default-off nested `true` launch passed. An unactivated descriptor-relative child-writer prototype has no production caller. **2026-11-13:** its independent review is recorded under [Brief 3](#prototype-review-2026-11-13); its two confirmed major findings are fixed, and its native evidence is listed there as owed. Native delegated-unit authority, actual placement, enforcement and device evidence remain unproven; whole-project combined and native gates are distinct and remain outstanding.
+**Status:** 2026-11-24. Briefs 1 and 2 (owner-only selection, finite-policy planning, read-only check) are integrated. By the owner's [RG-R5](resource-groups.md#RG-R5), Brief 3's real child writer and Brief 4's launcher placement are built and wired into mapped launches; every refusal the code makes from what it observes stays. **Enforcement is unverified:** no one has yet run the writer or the placement on a real host, and a nested jail cannot show cgroup delegation. The owner's host witness, listed under [Brief 4](#brief-4--verified-execution-boundary-coverage), validates after landing.
 **Design:** [Resource groups](resource-groups.md) controls behavior; this plan is advice, and the tree is the source of implementation facts.
 
 ## Map
@@ -28,7 +28,8 @@ depends-on: [resource-groups.md]
 | `internal/resourcegroups/authority_linux.go`, `authority_other.go`, `pinned_linux.go` | guarded direct-writer refusal, unsupported-platform result, and fake-only required-start admission boundary; no activated writer |
 | `internal/resourcegroups/authority_linux_test.go` | fake injected admission tests; no production caller or native authority proof |
 | `internal/resourcegroups/pinnedio_linux.go`, `pinnedio_linux_test.go` | unactivated descriptor-relative Linux child-writer/guard prototype and ordinary-filesystem syscall fixtures; no mapped execution |
-| `internal/cli/run/` launch-boundary files, `internal/cli/host.go` | Brief 4: actual placement-witnessed execution boundaries; unbuilt |
+| `internal/resourcegroups/userio_linux.go`, `userio_other.go`, `userio_linux_test.go` | Brief 3: the production child writer, process placement and member witness |
+| `internal/cli/run/resourcegroupplace.go`, `resourcegroups.go`, `assemble.go`, `internal/cli/check/resourcegroups.go` | Brief 4: launcher placement in `Run` and `yolo host`, the podman `--cgroup-parent` request, and the check report |
 
 ## Reuse
 
@@ -68,11 +69,11 @@ depends-on: [resource-groups.md]
 - **Fences:** no cgroup writes or `enforced` status; no host-wide arbitrary device scan. `ReconcileUserIO` performs only a read-only cgroup gate and then refuses because native delegated authority and placement remain unverified; it does not write. The injected `ReconcileDelegatedIO` algorithm and its fake-writer tests do not establish an activated writer or enforcement.
 - **Commit:** `feat(resources): surface finite assigned IO plans without enforcement`.
 
-### Brief 3 — least-authority Linux adapter (unactivated descriptor-relative prototype; writer/placement remain unbuilt)
+### Brief 3 — least-authority Linux adapter (built and wired 2026-11-24; unverified on a host)
 
 **Integrated fake-only increment:** `ReconcileDelegatedIOAndStart` composes the injected reconciliation algorithm with a fresh observed-member check and an injected start callback under the assigned-group lock. Its tests cover unobserved/wrong-child/stale membership, missing delegation or finite budget, manager/policy drift, valid admission, concurrent shared-child reuse, cancellation, and no parent/sibling writes. An independent HIGH review accepted this bounded test/algorithm slice. The exact source passed the package, race, focused production-consumer, and Darwin compile gates. The committed primary-source bundle/check and rootful default-off nested smoke passed. These callbacks are fake only; the adapter has no production callers and establishes no native authority or placement.
 
-**Current boundary:** the integrated `ReconcileUserIO` performs a read-only gate, then refuses native mutation. `ReconcileDelegatedIO` and `ReconcileDelegatedIOAndStart` are not wired to a production writer or launch caller. An unactivated [`pinnedIOChildren`](../../internal/resourcegroups/pinnedio_linux.go) prototype uses descriptor-relative child writes gated on observed user-manager delegation and cgroup-v2 checks; fixture tests do not establish native delegation, lifetime, safe allocation, or placement. The [native authority investigation](../research/resource-groups-native-authority.md) and independent review show upstream cgroup v2 disallows rename, whereas deletion/recreation and owner revocation still need identity checks. This is not implementation of the real Brief 3 writer and must not be wired to mapped starts before native evidence.
+**Current state:** `ReconcileUserIO` and `OpenUserIOChildren` ([`userio_linux.go`](../../internal/resourcegroups/userio_linux.go)) are the production writer, built on the descriptor-relative [`pinnedIOChildren`](../../internal/resourcegroups/pinnedio_linux.go). They observe the selected user-manager unit (a slice needs no `Delegate=`, which a slice cannot carry; a scope or service must delegate `io`), check `io` in the group's `cgroup.controllers` and `cgroup.subtree_control`, create or reuse the two children, write `io.max` per the default 5%/95% split ([resource-groups.md](resource-groups.md#decision-ledger)) and read it back, all under the per-group lock and without writing the assigned group, an ancestor or a sibling. The prototype's two R3 and R4 notes remain: the assigned `io.max` is still read by pathname, bracketed by identity checks, and `UserIOChildren.Close` is idempotent. The injected `ReconcileDelegatedIO` algorithm remains for its fake-authority tests only. What no one has shown is that the kernel and the user manager accept these writes on a real host: the [witness items below](#brief-4--verified-execution-boundary-coverage) are owed.
 
 #### Prototype review (2026-11-13)
 
@@ -120,7 +121,20 @@ slices with finite `IO*Max` limits. Until a re-run of this witness shows `io` in
 - **Fences:** no host policy changes, parent rewrite, raw jail cgroup bind, privileged helper, daemon, or cleanup of uncertain live state.
 - **Commit:** `feat(resources): reconcile shared Linux children under verified authority`.
 
-### Brief 4 — verified execution-boundary coverage (after Brief 3)
+### Brief 4 — verified execution-boundary coverage
+
+**Status:** launcher placement built 2026-11-24; container placement requested, not witnessed.
+
+**Built (RG-R5, 2026-11-24):** `placeOrRefuseResourceGroup` ([`resourcegroups.go`](../../internal/cli/run/resourcegroups.go), [`resourcegroupplace.go`](../../internal/cli/run/resourcegroupplace.go)) runs right after config validation in `Run`, and `RefuseHostResourceGroup` runs it for `yolo host`. Only a selected mapping reaches it (off by default, [resource-groups.md](resource-groups.md#decision-ledger)). It opens the children, then moves the **launcher process itself** into `yolo-agent` through the pinned child's `cgroup.procs` and reads `/proc/<pid>/cgroup` back; a mismatch refuses. Every descendant inherits the cgroup: startup work before the container, and a host-mode command, since `hostSyscallExec` keeps the pid. An attach runs the same gate, which reuses the existing pair (one allowance, never two). For rootless podman with the systemd cgroup manager and a `.slice` unit, `assembleRunCmd` also passes `--cgroup-parent=<unit>`, so the container scope is a child of the mapped slice; this is a request, not membership, and the container does not land inside `yolo-agent` (systemd creates its scope, not our child). Any other backend, a rootful or cgroupfs podman, a non-slice unit, macOS and an in-jail launch refuse. The batch child is created and limited but nothing is placed in it yet; placing tool and background work there is unbuilt.
+
+**Host witness owed (the owner, after landing).** Each must show the stated result; none is claimed today.
+
+1. `io` appears in `user@1000.service`'s `cgroup.subtree_control` and in the mapped slice's, and the slice has a finite `io.max` (`cat` the files).
+2. `yolo` from a user-manager terminal creates `yolo-agent` and `yolo-batch` under the slice, owned by the user, with `io.max` equal to the printed 5/95 plan (or the override).
+3. `/proc/<pid>/cgroup` of the launcher is the slice's `yolo-agent`; from a login-session scope the launch refuses naming the common-ancestor step.
+4. Where the container's scope lands (`systemd-cgls`, `/proc/<container pid>/cgroup`): under the slice as requested, or elsewhere; say which.
+5. A heavy write inside the jail shows throttling in the slice's `io.stat` and respects the parent cap; two simultaneous launches share one pair.
+6. Lifetime: stop the slice while a child holds a member, recreate it, and report what the launch does.
 
 **Settled — do not re-open:** charge work only when its actual process/runtime membership is witnessed before expensive work. A requested container parent or keeper scope return code is not proof. Attach reuses the running jail and does not create a second allowance. Nix builders/shared services and every unverified nested/external boundary are explicitly excluded.
 

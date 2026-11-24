@@ -1606,13 +1606,19 @@ forward ([SUP-D50](#SUP-D50)).
   comment says "ALL"), inherited and non-yolo ones included, though its message says "yolo-jail ACLs".
 - **W-SU11 (slice 11d):** on a Mac with Podman and Apple Container both installed, one jail
   running in each: `yolo ps` lists both rows with their setups, `yolo ps --format json` has
-  `"complete": true`; then `container system stop` and `yolo ps` again: the Podman row is listed,
-  the Apple Container line names `container system start`, JSON has `"complete": false`, and
-  `ls ~/.local/share/yolo-jail/containers/` still holds the Apple Container jail's record. Also
+  `"complete": true`; then take the runtime down with `launchctl bootout gui/$(id -u)/<label>` for
+  `com.apple.container.apiserver`, `com.apple.container.container-core-images`,
+  `com.apple.container.machine-apiserver` and `com.apple.container.container-network-vmnet.default`
+  (`container system stop` boots out `user/<uid>` while the services run in `gui/<uid>`, so it
+  stops nothing that sticks), and `yolo ps` again: the Podman row is listed, the Apple Container
+  line names `container system start`, and JSON has `"complete": false`. The Apple Container jail
+  ends with its runtime, so its record under `~/.local/share/yolo-jail/containers/` goes too.
+  Restore with `container system start`. Also
   paste `container inspect <name> | jq '.[0].status'` from the running jail, which settles how
   `startedDate` is encoded ([SUP-D25](#SUP-D25)). With both jails running, also `yolo ps --setup
   apple-container-self`: only the Apple Container row is listed, and no line names Podman. Then
   rerun `go test -count=1 -run TestMacosUserPs ./integration`, which reads the new JSON.
+  *Run 2026-11-24 at `042a00ab2`* (lab report, retired): **the stopped half passes.** With the services booted out of `gui/501`, `container system status` said the apiserver was not running, `yolo ps` listed only the Podman row and then named `container system start`, and JSON had `"complete": false` with the Apple Container source `"state": "unreachable"`. The Apple Container jail's VM ended with its services, so its record went; that is the jail really ending, not a record lost while it lived. `container system start` restored the runtime, and `TestMacosUserPsListsItsLiveSession` passed after. **W-SU11 has passed in full.**
   *Run 2026-11-24 at `93608f56b`* (lab report, retired): **the listing, `--setup` and test halves pass** (both rows, `"complete": true`, `--setup apple-container-self` lists only the Apple Container row, `status` is the object measured 2026-11-06, `TestMacosUserPsListsItsLiveSession` passes). **The stopped half cannot run as written:** on Apple Container CLI 1.1.0 `container system stop` ends the containers, but launchd has the API servers running again straight after (`container system status` printed `status running`; `launchctl list` showed `com.apple.container.apiserver` with a live PID), so `yolo ps` got real answers, listed only the Podman row, printed no `container system start` line and said `"complete": true`, and the Apple Container jail's record was gone because its keeper tore the jail down (exit 137). That is the runtime's behavior, not a yolo defect: yolo's answers were true. **Still owed:** the "runtime unreachable" half, which needs a way to take the runtime down that sticks (for instance `launchctl bootout` of its API server; untested), or a unit test at the `internal/runtime` probe boundary. Also, `container system stop` removed `yolo-ac-builder`, so check that the next Apple Container image build recreates it.
   *`startedDate` measured 2026-11-06* (run report section 3): `status` is an object, not a string, with the keys `networks`, `startedDate` and `state`; `container ls --all --format json` carries the same object. `startedDate` is an RFC 3339 timestamp in UTC with second precision, e.g. `"2026-11-06T19:57:12Z"`, and it matched the wall clock at start. The rest of W-SU11 waits on 11d.
 - **W-SU14 (slice 11f):** on the same Mac, with one jail running in Podman and one in Apple
@@ -1620,10 +1626,11 @@ forward ([SUP-D50](#SUP-D50)).
   listed), a `container image store — Podman` and a `container image store — Apple Container`
   heading, and one `workspace durable dirs` row for a project both run. `yolo stores --format json`
   has `"schema": "yolo.stores/1"`, `"complete": true`, no `runtime` key, and `confinement` on each
-  image row. Then `container system stop` and `yolo stores` again: no Apple Container section, a
+  image row. Then take the runtime down as W-SU11 does (`launchctl bootout gui/$(id -u)/…`) and `yolo stores` again: no Apple Container section, a
   line under the header naming Apple Container and `container system start`, and
   `"complete": false`. `yolo stores --setup apple-container-self` (with it started again) has no
   Podman heading. Then rerun `go test -count=1 -run TestMacosUserStores ./integration`.
+  *Run 2026-11-24 at `042a00ab2`* (lab report, retired): **the stopped half passes.** With the runtime booted out, `yolo stores` printed `Sources: Podman, Seatbelt, yolo host` and a line naming Apple Container as unreachable, with no Apple Container section, and JSON had `"complete": false`. After `container system start`, `yolo stores --setup apple-container-self` named only Apple Container and `TestMacosUserStoresListsTheSandboxAccount` passed. **W-SU14 has passed in full.**
   *Run 2026-11-24 at `93608f56b`* (lab report, retired): **the listing, `--setup` and test halves pass again** (`Sources: Podman, Apple Container, Seatbelt, yolo host`, both image-store headings, a durable-dirs row, JSON `yolo.stores/1` complete with no `runtime` key and `confinement` on every image row; `--setup apple-container-self` names only Apple Container; both `TestMacosUserStores...` and `TestMacosUserPs...` pass). The stopped half has the same blocker as W-SU11 above: after `container system stop` the runtime answered, so `yolo stores` still listed Apple Container with `"complete": true`.
   *Run 2026-11-13 at `b1d255ded`* (lab report): **the listing and `--setup` pass** (both sources, both image headings, one `ph2` durable row; JSON `yolo.stores/1`, complete, no `runtime`, `confinement` on every image row). `container system stop` was not run: it would stop an owner's jail. **`TestMacosUserStoresListsTheSandboxAccount` fails**, wanting the `images.macos-user` row that SUP-D57 removed. The test now reads each container source's image rows instead, and passes in macos-user CI ([run 43616544987](https://github.com/mschulkind-oss/yolo-jail/actions/runs/43616544987), at `42fde3fe1`); The owner cleared `container system stop` on 2026-11-14 (no Apple Container jail on that Mac needs keeping), so the next run does the stop half too.
 

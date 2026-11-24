@@ -774,21 +774,26 @@ table instead of the live one would remove the race. Found 2026-10-18.
 ### <a id="mcpauth-records-lock-enoent-darwin"></a>🔧 **`records.lock: no such file or directory` in the two-broker test on a Mac, after the shared-clock race was fixed**
 
 The Mac run of 2026-11-24 at `6551bbc6f` failed `TestOutcomeTwoBrokersAdoptOneSingleUseToken` 8 of 10 times as
-separate processes and 0 of 10 at `GOMAXPROCS=1`, always with `slack: openat records.lock: no such file or
-directory`. The same run's `-race` build reported a data race on the test's shared `fakeClock`, which is fixed
-(each broker has its own clock, and the clock and the fixture's event list are locked). Linux never showed the
-ENOENT, so whether the fix removed it is **unverified**: nothing traced how a broker's wait reaches the
-canonical directory's `records.lock` (`paths.OpenLockFileBeneath`, `internal/paths/statefile_open_unix.go`). Next
-step, on a Mac: rerun the test as 10 separate processes at current main; if it still fails, log the directory's
-`Stat` when the `openat` fails.
+separate processes, always with `slack: openat records.lock: no such file or directory`. The shared-clock data race
+was fixed, but the failure stayed at `042a00ab2`: macOS 26.5 APFS returns ENOENT to one of two concurrent
+`openat(dirfd, name, O_CREAT)` of a new name, `os.Root` included. Measured on the owner's Mac (macOS 26.5, APFS) by a
+standalone probe with no yolo code: in 2,000 trials, each a fresh directory with two goroutines opening one new name
+together, one of the two got ENOENT in 1968 to 1999 pairs, whatever the other flags; one opener alone, and two racing
+`open(2)` calls by absolute path, got 0. At the failing open the directory was intact and the file already existed,
+created by the other opener. Evidence: `/Users/Shared/yolo/evidence/2026-11-24b/` on that Mac (`creatprobe/`,
+`creatprobe.txt`, `mcpauth-diag.log`).
 
-### <a id="env-set-unset-advice"></a>🔧 **`yolo config unset env.set.<NAME>` advises `env.unset`, which hides the variable instead of removing the key**
+**Fix built, unconfirmed on a Mac.** `openNoFollowLeaf` (`internal/paths/statefile_open_unix.go`) repeats a creating
+`openat` that reports ENOENT, at most `createRetries` times and only while the directory descriptor is still a linked
+directory, through the same no-follow and regular-file checks; `paths.OpenRootCreate` does the same for `os.Root`
+callers (the approval-wait lock, the trace-store admission file, the launch-input lock, the nix-roots registry lock),
+and `internal/toolskills`' snapshot lock has its own bounded loop. Linux cannot show the race, so the tests inject it.
 
-On the Mac run of 2026-11-24 the refusal names `yolo config add env.unset '"PUBLIC_A"'`, and running it leaves the dead
-`PUBLIC_A = "a"` line in `env.set` and also cancels a `PUBLIC_A` that another layer (such as the user config) sets
-([RC-D50](../reference/config/rulings.md#RC-D50)'s walk order: merged `env.set`, then the union of `env.unset`).
-Decide whether removing an `env.set` key should delete it from the layer's file or whether hiding it is the intended
-answer, and say what it does to other layers in the refusal. Needs a config-owner ruling first.
+Next step, on a Mac, to confirm: run `go test -count=1 -run TestOutcomeTwoBrokersAdoptOneSingleUseToken ./internal/mcpauth`
+as 10 separate processes. Delete this entry only after all 10 pass. Also still open: fixed-name `O_EXCL` claims made
+through a directory descriptor (the MCP teardown and retire claims, `wsstatebeneath`, `storage/ensure.go`,
+`stateguard/rescue.go`) are not retried, since a retry would turn the ENOENT into EEXIST and read as losing the claim.
+Whether the race reaches an `O_EXCL` create needs the same probe with `O_EXCL` on the Mac.
 
 ### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
 

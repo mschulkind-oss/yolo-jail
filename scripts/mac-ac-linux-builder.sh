@@ -90,9 +90,25 @@ if ! container ls 2>/dev/null | grep -q "^$NAME "; then
   # RESOURCES MATTER HERE, unlike in the runbook's proof. The default 1 GB is enough
   # to echo a string into $out; it is not enough to compile nodejs, which is one of
   # the five derivations this builder exists to produce.
-  container run -d --rm --name "$NAME" --cpus "$CPUS" --memory "$MEMORY" \
-    -e YOLO_BUILDER_PUBKEY="$(cat "$KEY.pub")" "$IMAGE" >/dev/null 2>&1 \
-    || die "could not start $NAME"
+  start_builder() {
+    container run -d --rm --name "$NAME" --cpus "$CPUS" --memory "$MEMORY" \
+      -e YOLO_BUILDER_PUBKEY="$(cat "$KEY.pub")" "$IMAGE" 2>&1 >/dev/null
+  }
+  # A builder that stopped without being removed (its runtime was booted out under it,
+  # observed 2026-11-24) keeps the name taken while `container ls` does not show it, so
+  # the run is refused as a conflict. Remove that leftover once and start again; and
+  # whatever the runtime says on a failure goes to the log, never to /dev/null.
+  if ! out=$(start_builder); then
+    if container ls --all 2>/dev/null | grep -q "^$NAME "; then
+      log "removing a stopped $NAME left behind and starting it again"
+      container rm "$NAME" >/dev/null 2>&1 || true
+      out=$(start_builder) || die "could not start $NAME: $out
+Read the builder's own log with: container logs $NAME"
+    else
+      die "could not start $NAME: $out
+Read the builder's own log with: container logs $NAME"
+    fi
+  fi
   # sshd needs a moment; the address appears with the container.
   for _ in $(seq 1 30); do
     container ls 2>/dev/null | grep -q "^$NAME " && break

@@ -785,6 +785,15 @@ func (o *Options) assembleRunCmd(in *assembleInput) []string {
 
 	// --- resources ---
 	runCmd = append(runCmd, o.resourceArgs(cfg, rt)...)
+	// A mapped launch asks the runtime for the same group it placed the launcher in. The
+	// request is not membership: only the launcher's placement was read back.
+	if groupArgs, err := o.resourceGroupContainerArgs(rt); err != nil {
+		if in.assemblyErr == nil {
+			in.assemblyErr = err
+		}
+	} else {
+		runCmd = append(runCmd, groupArgs...)
+	}
 	// The disk I/O priority is not a limit and takes no runtime flag: the entrypoint
 	// applies it from this variable (docs/design/io-priority.md §5.1). The decision is the
 	// one the briefing reads (appliedIOPriority).
