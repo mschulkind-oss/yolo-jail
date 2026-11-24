@@ -124,6 +124,13 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// prompt reappear on a home the user already opted in.
 		pr.Printf("  [yellow]⚠ briefing: %v — treating every existing briefing as yours[/yellow]", err)
 	}
+	// The user scope's repo_instructions replacement joins the user block after agents_md_extra
+	// (IF-D13): `yolo host apply` writes a real home every workspace shares, so a workspace layer's
+	// value is never delivered here, and one that cannot be read is said, not fatal.
+	extra, extraErr := hostBriefingExtra()
+	if extraErr != nil {
+		pr.Printf("  [yellow]⚠ briefing: %v[/yellow]", extraErr)
+	}
 	req := entrypoint.HostBriefingRequest{
 		Manifest: man,
 		// The kind's own bucket (V3) — see hostArchiveRoot. A retired briefing used to be
@@ -138,7 +145,7 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 		// BriefingContent does. The USER-SCOPE agents_md_extra is user prose, in the user block
 		// ahead of it (docs/reference/agent-briefings.md#what-a-composed-briefing-contains, BD-D8).
 		Base:  jailcontent.HostBriefingBase(paths.IsMacOS),
-		Extra: config.AgentsMDExtraUser(),
+		Extra: extra,
 		// The `describes` gate's census (BB-D69), the one the notch line above was printed from.
 		Delivery: delivery,
 	}

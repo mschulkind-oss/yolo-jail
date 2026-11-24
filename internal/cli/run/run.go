@@ -431,6 +431,11 @@ func Run(opts Options) (rc int) {
 		return 1
 	}
 	staged.hostImportExclusions = selectedHostImportExclusions(hostImportExclusions, staged.packs)
+	// THE repo_instructions MODE, resolved once and handed to every staged pack, above the dispatch so
+	// the argv rewrite below and both arms read one selection (repoinstructions.go).
+	if !o.applyRepoInstructions(cfg, rt, staged.packs) {
+		return 1
+	}
 	o.launchMCPSelection = o.snapshotLaunchMCPSelection(cfg, rt)
 	// THE LAUNCH GUARD (launchguard.go, JL-D75), from the moment there is a pack tree to lose: a
 	// signal before the keeper's spawn ends the launch through it, which discards what no container
@@ -690,6 +695,8 @@ func Run(opts Options) (rc int) {
 		// either, and the native backend is where a "where is my agent?" is hardest to
 		// diagnose (no image, no provisioning output to read back).
 		o.warnIfNoPacks()
+		// And what repo_instructions did, or could not do, to each agent's repository files (IF-D5).
+		o.discloseRepoInstructions(staged.packs)
 		// And each off-switch loophole the config keeps off (LC-D3), beside it for the same reason.
 		o.noteLoopholesOff(cfg)
 		// Validate the exact host-service settings this fresh native launch will use before
@@ -2683,6 +2690,8 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// where the message is still on screen when the agent (or the fallback bash)
 	// starts. Printed any earlier it scrolls away behind the nix build.
 	o.warnIfNoPacks()
+	// And what repo_instructions did, or could not do, to each agent's repository files (IF-D5).
+	o.discloseRepoInstructions(staged.packs)
 	// Beside it, for the same reason: each off-switch loophole the config keeps off (LC-D3), the
 	// answer to an agent that finds no login, credentials or cgroup delegate in the jail.
 	o.noteLoopholesOff(cfg)
@@ -3530,6 +3539,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// jail is up, attaching is how a user re-enters it, so a fresh-launch-only notice
 	// is one a user with a long-lived jail may never see.
 	o.warnIfNoPacks()
+	// And the repository-instructions lines, for the same reason, over the packs the jail booted with.
+	o.discloseRepoInstructions(view.staged.packs)
 	// The disk I/O priority line, for the same reason, graded against the value this attach's
 	// shell receives: the one the jail was launched with (attachIOPriority).
 	o.noteIOPriority(rt, o.attachIOPriority(rt, cfg, envLines))

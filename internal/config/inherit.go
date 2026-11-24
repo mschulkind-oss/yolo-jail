@@ -198,6 +198,9 @@ var inheritCensus = map[string]keyDisposition{
 	// ---- Preflight only ---------------------------------------------------------
 	// `agents_md_extra` is briefing prose rendered into this jail's own AGENTS.md.
 	"agents_md_extra": {preflight: true, reason: "prose rendered into this jail's briefing"},
+	// `repo_instructions` is read on the host at launch (its replace_with file is a host path), so a jail neither
+	// re-reads it nor passes it on to an inner launch; its preflight reading only shape-checks it.
+	"repo_instructions": {preflight: true, reason: "which repository instruction files this jail's agents ignore, read host-side at launch; a replace_with path is a host path"},
 	// `briefing_provenance` changes only the text of this jail's own composed briefing.
 	"briefing_provenance": {preflight: true, reason: "shapes the text of this jail's own briefing"},
 	// `writable_home_dirs` names paths under /home/agent — in-jail referents, and the

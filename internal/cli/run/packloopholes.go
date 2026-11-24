@@ -227,6 +227,11 @@ var disclosureClasses = map[packdecl.Kind]disclosureClass{
 	// `profile` below — a disclosure that overclaims is the silent-skip failure wearing a
 	// badge — reached from the other side.
 	packdecl.KindAutonomy: disclosureSkip,
+	// instructions crosses nothing: it renders a setting inside the agent's own config or hands a
+	// flag to its own program, and reads no host file. What it did, or could not do, is the launch's
+	// own `repo instructions:` line per agent (run.discloseRepoInstructions), which is not a host
+	// access disclosure and so is not printed here.
+	packdecl.KindInstructions: disclosureSkip,
 	// profile is the same call as autonomy, with one more reason on top: the variant the
 	// user can NAME here is the one they SELECTED, and that selection already prints by
 	// name in the launch's profile line (noteUseProfiles, DECLARED/RECEIVED, never

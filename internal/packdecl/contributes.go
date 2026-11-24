@@ -1187,6 +1187,14 @@ type Contribution struct {
 	// base's, since the fork supplies the bytes (packload.forkedProgram; ML-D14).
 	ReadsSharedModels bool `json:"reads_shared_models,omitempty"`
 
+	// --- instructions (docs/design/workspace-instruction-files.md, IF-D7; instructions.go) ---
+	// Reads are the workspace-relative name patterns the agent (this contribution's `agent`) loads,
+	// Ignore is the one mechanism that stops it, and Redeliver gives back the user-level file that
+	// mechanism also drops. An agent with no Ignore is unsupported.
+	Reads     []string               `json:"reads,omitempty"`
+	Ignore    *InstructionsIgnore    `json:"ignore,omitempty"`
+	Redeliver *InstructionsRedeliver `json:"redeliver,omitempty"`
+
 	// --- adapter (docs/reference/protocol-resolution.md#the-three-declarations, OQ-PR1) ---
 	// Adapts is the protocol PAIR this contribution converts, and Address is where the
 	// converted wire is served. Together they are the whole kind: an adapter says WHAT it
@@ -3266,6 +3274,7 @@ func (m *Manifest) validateContributions() []string {
 	problems = append(problems, m.validateAddressedFiles()...)
 	problems = append(problems, m.validateDuplicateContentSources()...)
 	problems = append(problems, m.validateSingleAutonomy()...)
+	problems = append(problems, m.validateSingleInstructions()...)
 	problems = append(problems, m.validateSingleMCPAuth()...)
 	problems = append(problems, m.validateServicePointers()...)
 	problems = append(problems, m.validatePatchedOwnerKeys()...)
@@ -4656,7 +4665,7 @@ func validateContribution(label string, c Contribution) []string {
 	// `briefing`, `skills` and `files` are the three kinds whose content MANY packs deliver
 	// into destinations AGENT packs name — the only place "who is this for?" is a question
 	// with more than one answer.
-	if c.Kind != KindBriefing && c.Kind != KindSkills && c.Kind != KindFiles {
+	if c.Kind != KindBriefing && c.Kind != KindSkills && c.Kind != KindFiles && c.Kind != KindInstructions {
 		if c.Kind == KindModels {
 			// `models` alone accepts an audience, and only its scoped `only` form reads it.
 			// Its body validation handles the verb/empty-list rules; this reuses the bin
@@ -4676,6 +4685,20 @@ func validateContribution(label string, c Contribution) []string {
 					"%s: kind %q does not take %q — a destination's identity and a contribution's "+
 						"audience are read for \"briefing\", \"skills\" and \"files\" only; no "+
 						"consumer reads either on this kind", label, c.Kind, f.name))
+			}
+		}
+	}
+	// `reads`, `ignore` and `redeliver` are the `instructions` kind's whole body, refused elsewhere
+	// for `forward`'s reason: nothing reads them on another kind.
+	if c.Kind != KindInstructions {
+		for _, f := range []struct {
+			name string
+			set  bool
+		}{{"reads", len(c.Reads) > 0}, {"ignore", c.Ignore != nil}, {"redeliver", c.Redeliver != nil}} {
+			if f.set {
+				problems = append(problems, fmt.Sprintf(
+					"%s: kind %q does not take %q — it is part of the \"instructions\" kind's body; "+
+						"no consumer reads it on this kind", label, c.Kind, f.name))
 			}
 		}
 	}
@@ -5012,6 +5035,8 @@ func validateContribution(label string, c Contribution) []string {
 			problems = append(problems, label+`: kind "mcp-auth" does not take "bin" — its store declaration is pack-wide, not bound to one program`)
 		}
 		problems = append(problems, mcpAuthProblems(label, c.MCPAuthDeclaration())...)
+	case KindInstructions:
+		problems = append(problems, instructionsProblems(label, c)...)
 	case KindAutonomy:
 		if c.Autonomous == nil && c.Guarded == nil {
 			problems = append(problems, label+": autonomy needs at least one of \"autonomous\" or \"guarded\"")

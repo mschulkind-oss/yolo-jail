@@ -111,6 +111,12 @@ after = "host:.oh-omp/agent/AGENTS.md"
 agent = "oh-omp"
 into = ".oh-omp/agent/AGENTS.md"
 
+# UNSUPPORTED: oh-omp documents no setting that stops it reading these files.
+[[instructions]]
+agent = "oh-omp"
+bin = "oh-omp"
+reads = ["AGENTS.md"]
+
 [[skills]]
 agent = "oh-omp"
 into = ".oh-omp/agent/skills"

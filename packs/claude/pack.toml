@@ -111,6 +111,22 @@ warns_above_chars = 40000
 agents = ["claude"]
 from = "briefing/claude.md"
 
+# Which repository instruction files claude reads, and the one setting that stops it
+# (docs/design/workspace-instruction-files.md, IF-D7). `claudeMdExcludes` takes absolute-path
+# globs and is merged across settings layers, `--settings` included (the design's Appendix A), so
+# the entries are anchored at the workspace and never match the briefing under the home. The user's
+# own entries survive: this is appended to, never replaced.
+[[instructions]]
+agent = "claude"
+bin = "claude"
+reads = ["AGENTS.md", "CLAUDE.md", "CLAUDE.local.md", ".claude/rules/**"]
+ignore = { list = { surface = "claude/settings", path = "/claudeMdExcludes", add = [
+  "${workspace}/**/AGENTS.md",
+  "${workspace}/**/CLAUDE.md",
+  "${workspace}/**/CLAUDE.local.md",
+  "${workspace}/**/.claude/rules/**",
+] }, host_launch = ["--settings", '{"claudeMdExcludes":${entries_json}}'] }
+
 # The rest of what Claude needs to know about yolo, read on demand (docs/reference/agent-briefings.md
 # BD-D2): the briefing above is its pointer.
 [[skills]]

@@ -64,7 +64,7 @@ func SchemaKeys() []SchemaKey {
 		"brokered.*": knownBrokeredSourceKeys, "brokered.*.grants.*": knownBrokeredGrantKeys,
 		"brokered.*.sets.*": knownBrokeredSetKeys, "programs": knownProgramsKeys,
 		"programs.overrides.*": knownProgramOverrideKeys, "host_files.*": knownHostFileKeys,
-		"gpu": knownGPUKeys, "prune": knownPruneKeys,
+		"gpu": knownGPUKeys, "prune": knownPruneKeys, "repo_instructions": knownRepoInstructionsKeys,
 	} {
 		addSet(prefix, fields)
 	}
@@ -601,7 +601,7 @@ func legacySchemaType(path string) SchemaType {
 		"host_files.*.content", "host_files.*.codec", "host_files.*.mode",
 		"devices.*.usb", "devices.*.description", "devices.*.cgroup_rule",
 		"gpu.devices", "gpu.capabilities", "gpu.vendor", "gpu.mode", "gpu.hsa_override_gfx_version",
-		"network.mode", "resources.memory",
+		"network.mode", "resources.memory", "repo_instructions.mode", "repo_instructions.replace_with",
 		"brokered.*.grants.*.kind", "brokered.*.grants.*.repo", "brokered.*.grants.*.branch", "brokered.*.grants.*.tag",
 		"brokered.*.sets.*.name", "brokered.*.sets.*.mode", "brokered.*.sets.*.window",
 		"brokered.*.sets.*.max_window":
@@ -634,7 +634,7 @@ func legacySchemaType(path string) SchemaType {
 		return SchemaTypeObject
 	case "mcp_servers.*.oauth.callback_port":
 		return SchemaTypeNumber
-	case "network", "security", "providers", "profiles", "loopholes", "brokered", "resources", "gpu", "mcp_servers.*",
+	case "network", "security", "providers", "profiles", "loopholes", "brokered", "resources", "gpu", "repo_instructions", "mcp_servers.*",
 		"providers.*.endpoints", "providers.*.models", "providers.*.options", "providers.*.models.*.cost",
 		"model_facts", "model_facts.*", "profiles.*", "loopholes.*.settings", "programs", "programs.overrides", "programs.overrides.*",
 		"brokered.*", "brokered.*.grants.*", "brokered.*.sets", "brokered.*.sets.*":

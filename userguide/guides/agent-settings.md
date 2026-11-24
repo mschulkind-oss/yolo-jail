@@ -42,6 +42,71 @@ An **MCP server** gives an agent extra tools through the
 it code intelligence such as go-to-definition. [MCP and LSP](mcp-and-lsp.md) covers both.
 [Providers and Models](providers-and-models.md) covers profiles.
 
+## Keep, ignore or replace a repository's own instruction files
+
+A repository can carry instructions for coding agents: `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md`
+and files like them. An agent reads whatever the checked-out repository says, so an agent in your
+jail follows rules you did not write. `repo_instructions` lets you decide what happens to them.
+
+```toml
+# ~/.config/yolo-jail/config.toml, or the project's yolo-jail.toml
+[repo_instructions]
+mode = "ignore"
+```
+
+| Mode | What happens |
+|---|---|
+| `keep` | The default. Agents read the repository's files, as they do today. |
+| `ignore` | Each agent that has a setting for it stops reading them. |
+| `replace` | The same, and the text of a file you name joins the agent's briefing in their place. |
+
+To replace, name the file with `replace_with`. In your own config that is an absolute path or one
+starting with `~/`. In a project's `yolo-jail.toml` it is a path inside the project, and a link or a
+path that leaves the project is refused. You can set it from the command line:
+
+```console
+$ yolo config set repo_instructions.mode replace
+$ yolo config set repo_instructions.replace_with ~/rules/mine.md
+```
+
+Your own config and the project file can both set it, and the later layer wins as for any other
+setting. `yolo config why repo_instructions.mode` says which layer set it.
+
+### Which agents can do it
+
+yolo uses each agent's own setting. It never empties, hides or replaces a file in your project, so
+`git status` in the jail shows the project as it is.
+
+| Agent | `ignore` and `replace` |
+|---|---|
+| Claude Code | Yes. yolo adds exclusions for the project's files to `claudeMdExcludes`, next to any you wrote. |
+| Codex | Yes. yolo sets `project_doc_max_bytes` to 0. |
+| pi | Yes, except `.pi/SYSTEM.md` and `.pi/APPEND_SYSTEM.md`, which pi still reads and the launch names. |
+| Copilot, agy, muse, opencode, oh-omp | No. They have no setting that stops them reading these files. |
+
+The agent's own files in your home, where yolo puts its briefing, are never excluded, so the agent
+still reads what yolo tells it about the jail.
+
+### When an agent cannot do it
+
+The launch still goes ahead. For each agent you selected, it prints one line saying what happened,
+and the line cannot be turned off:
+
+```text
+repo instructions: claude: ignoring 3 files (AGENTS.md, CLAUDE.md, +1 more) through claudeMdExcludes
+repo instructions: agy: NOT ignored, it still reads GEMINI.md, AGENTS.md; agents that can ignore them: claude, codex, pi; to stop this notice: yolo config set repo_instructions.mode keep
+```
+
+If an agent that cannot ignore the files is one you rely on, either pick one of the agents above,
+or set the mode back to `keep`, which silences the notice.
+
+### On your own machine
+
+`yolo host -- <agent>` reads your **user** config only. For Claude Code and Codex it hands the agent
+the same setting as a command-line flag for that one run, and for pi its flag, and prints the same
+line. `yolo host apply` writes your user config's `replace` text into the briefing it writes, and
+nothing about one project into your real home, which every project shares.
+
 ## Codex's background copy
 
 Since version 0.157, Codex starts a second copy of itself in the background, and the `codex` you

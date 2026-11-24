@@ -526,7 +526,7 @@ the semantic axis, and it is short:
 | Combine | Meaning | Kinds that use it |
 | :--- | :--- | :--- |
 | **Exclusive** | one owner per target; a second claim is an error | `program` with a recipe (by bin) · `files` (by path) · `config` (by surface identity) · `autonomy` · `loophole` (by loophole name) · `service` (by service name) · `provider` (by provider name) · `mcp` (by server name) · `adapter` (by `from → to` pair) · `blocked-tool` (by bin) · `intercept` (by bin) · `profile` (by pack + name) |
-| **Shared** | many independent claimants are the ordinary case | `program` with no recipe ([a need](#program-needs)) · `reads-host` · `mount` |
+| **Shared** | many independent claimants are the ordinary case | `program` with no recipe ([a need](#program-needs)) · `reads-host` · `mount` · `instructions` |
 | **Merge** | many inputs into one target is the feature | `skills` · `env` (a key claimed twice collides) |
 | **Concat** | ordered concatenation | `briefing` |
 | **Overlay** | ordered after the target's owner, never a collision | `config-overlay` (later wins, per-key provenance) · [`config-list`](#adding-entries-to-an-array-config-list) (entries appended, first occurrence wins) · `models` (a provider's model list: every `add` appended, then every `only` intersected, the user's own `providers.<name>.models` last; [providers.md](providers.md#model-lists-shaped-by-packs)) |
@@ -2510,6 +2510,34 @@ review-worthy: the entry is data in the agent's config file, and the program beh
 own `program` contribution. At the host only a pack yolo ships or one at a path on this machine
 has its entry written ([HC-D26](host-agent-environment.md#HC-D26)). How the table reaches
 each agent is [`mcp-configuration.md`](mcp-configuration.md#a-packs-servers-the-mcp-kind)'s.
+
+#### `instructions`
+
+Which repository instruction files an agent reads (`reads`: workspace-relative name patterns, for
+the launch's disclosure) and the **one** mechanism that stops it (`ignore`), declared by the pack that
+installs the agent so core names no agent. One per agent per pack, shared across packs, never
+review-worthy. It is inert until a launch's `repo_instructions` mode is `ignore` or `replace`; the launch
+hands the mode to every loaded pack (`packload.ApplyInstructions`) and the declaration answers from it:
+
+| `ignore.` | Does | Notches |
+| :--- | :--- | :--- |
+| `list` | appends `add` (with `${workspace}`) to an array of a surface the pack owns, through the config-list fold, so your own entries survive | jail, macos-user |
+| `set` | folds `config` into a surface's managed layer, through the config-overlay fold | jail, macos-user |
+| `launch` | adds `flags` to the program's launch flags, in the one fold every spelling reads | every notch |
+| `host_launch` | replaces `list` and `set` at `yolo host --`, which has no per-workspace file; takes `${entries_json}` | host |
+
+`redeliver` (`flag`, `file`) gives back a user-level file the mechanism also drops, by handing the
+program the file the pack already delivers (`<flag> <home>/<file>`), and needs `ignore.launch`;
+`ignore.still_read` names files the mechanism does not reach, for the disclosure. A declaration
+with no `ignore` is an **unsupported** agent: nothing changes for it and the launch says so.
+
+> [!WARNING]
+> **There is no mask, and no kind will ever carry one.** Binding an empty file over a workspace
+> path shows git an emptied file and blocks `git checkout` and `git pull`; the owner ruled it out
+> for every agent ([IF-D14](../design/workspace-instruction-files.md#10-decision-ledger)).
+
+`TestEveryAgentPackDeclaresItsInstructionFiles` requires a declaration from every pack that delivers
+a briefing to an agent. The design is [workspace-instruction-files.md](../design/workspace-instruction-files.md).
 
 #### `autonomy`
 

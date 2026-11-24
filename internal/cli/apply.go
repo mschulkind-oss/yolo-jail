@@ -1817,7 +1817,7 @@ func collectProblemKind(prob string) string {
 	if !ok {
 		return string(packdecl.KindConfigOverlay)
 	}
-	for _, k := range []packdecl.Kind{packdecl.KindConfigList, packdecl.KindAutonomy, packdecl.KindFiles} {
+	for _, k := range []packdecl.Kind{packdecl.KindConfigList, packdecl.KindAutonomy, packdecl.KindFiles, packdecl.KindInstructions} {
 		if strings.HasPrefix(rest, string(k)+" ") || strings.HasPrefix(rest, string(k)+":") {
 			return string(k)
 		}

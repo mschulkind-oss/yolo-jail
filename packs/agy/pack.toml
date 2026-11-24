@@ -18,6 +18,12 @@ after = "host:.gemini/config/AGENTS.md"
 agent = "agy"
 into = ".gemini/config/AGENTS.md"
 
+# UNSUPPORTED: agy has no setting that stops it reading these files.
+[[instructions]]
+agent = "agy"
+bin = "agy"
+reads = ["GEMINI.md", "AGENTS.md"]
+
 [[skills]]
 agent = "agy"
 into = ".gemini/config/skills"

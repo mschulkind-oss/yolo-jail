@@ -664,6 +664,7 @@ func contributionParityFixture(t *testing.T) ([]byte, []byte) {
 		{"kind": "adapter", "adapts": map[string]any{"from": "openai", "to": "anthropic"}, "address": "http://127.0.0.1:12345"},
 		{"kind": "blocked-tool", "bin": "badtool", "message": "blocked", "suggestion": "use fixture-tool", "replacement": "fixture-tool"},
 		{"kind": "intercept", "bin": "fixture-wrapper", "forward": []string{"yolo", "fixture-tool"}},
+		{"kind": "instructions", "agent": "fixture-tool", "bin": "fixture-tool", "reads": []string{"AGENTS.md"}, "ignore": map[string]any{"launch": map[string]any{"flags": []string{"--no-context"}}}},
 		{"kind": "mcp", "name": "fixture-mcp", "bin": "fixture-server", "config": map[string]any{"command": "fixture-server", "args": []string{"--stdio"}}},
 	}
 	// The twenty-second kind is a separate program tree with the decided prebuilt/run shape.

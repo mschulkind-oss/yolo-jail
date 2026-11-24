@@ -449,6 +449,32 @@
     Example (~/.config/yolo-jail/config.toml):
       briefing_provenance = true
 
+  [bold]repo_instructions[/bold] (table): What a launch does about the instruction files a
+    repository carries (AGENTS.md, CLAUDE.md, CLAUDE.local.md and their kin).
+    mode is "keep" (the default: the agent reads them as it does today), "ignore"
+    (each agent that has a setting for it stops reading them) or "replace" (ignore, then the
+    text of replace_with joins the agent's briefing).  replace_with is a file: in your
+    user config an absolute path or ~/..., in a project file a path inside the workspace
+    (a link or an escape is refused).  It is required for "replace" and refused otherwise.
+    Both scopes may set either key; the ordinary merge order applies and a later layer wins.
+
+    The setting each agent's pack declares does the work: Claude Code gets claudeMdExcludes,
+    Codex project_doc_max_bytes = 0, pi --no-context-files.  Their own user-level files, where
+    yolo's briefing lives, are never touched.  Copilot, agy, muse, opencode and oh-omp have no
+    setting that stops them reading these files, so the launch continues, and says on a line
+    that they still do.  yolo never masks, empties or rewrites a file in your workspace.
+    `yolo host -- <agent>` reads your user config alone and hands the agent its flag;
+    `yolo host apply` writes your user-scope replacement text into the briefing and no
+    per-workspace setting into your real home.
+
+    Example (yolo-jail.toml):
+      [repo_instructions]
+      mode = "replace"
+      replace_with = "docs/house-rules.md"
+
+    Set it with `yolo config set repo_instructions.mode ignore`; `yolo config why
+    repo_instructions.mode` names the layer that set it.
+
   [bold]allow.<pack>[/bold] (table, [bold]USER SCOPE ONLY[/bold]): A loophole's grants, settings and off switch.
     A loophole is a host-side service the jail can reach.  Every loophole ships
     in a pack, and it runs whenever its pack is selected.  The legacy JSONC key

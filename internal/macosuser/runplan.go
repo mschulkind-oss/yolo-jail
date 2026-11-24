@@ -17,6 +17,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
+	"github.com/mschulkind-oss/yolo-jail/internal/repoinstr"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
@@ -1386,6 +1387,10 @@ func buildBootstrapEnv(workspace string, cfg, gitIdentity, sandboxEnv *jsonx.Ord
 	bootstrapEnv.Set("YOLO_MISE_TOOLS", miseJSON)
 	lspJSON := jsonx.MustDumpsCompact(getSectionOrEmptyMap(cfg, "lsp_servers"))
 	bootstrapEnv.Set("YOLO_LSP_SERVERS", lspJSON)
+	// The repo_instructions mode, so the guest boot hands its packs the selection the host handed its own.
+	if wire := repoinstr.WireFromConfig(cfg); wire != "" {
+		bootstrapEnv.Set(repoinstr.EnvName, wire)
+	}
 	mcpSrvJSON := jsonx.MustDumpsCompact(getSectionOrEmptyMap(cfg, "mcp_servers"))
 	bootstrapEnv.Set("YOLO_MCP_SERVERS", mcpSrvJSON)
 	// The `agent_updates` policy. macos-user is the backend where missing this hides

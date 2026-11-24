@@ -241,6 +241,11 @@ var hostAtLaunch = map[packdecl.Kind]string{
 	packdecl.KindAdapter: "an adapter's address is composed into the providers table a launch " +
 		"carries, so `yolo host -- <program>` points its agent there, starting the pack service " +
 		"that answers it when one does; `yolo host apply` writes it into no file",
+	// docs/design/workspace-instruction-files.md IF-D13 and IF-D16.
+	packdecl.KindInstructions: "an agent's way of ignoring a repository's instruction files is a flag " +
+		"for the one launch: `yolo host -- <program>` hands it, for the user scope's `repo_instructions` " +
+		"mode, and `yolo host apply` writes no per-workspace setting into the home every workspace shares " +
+		"(it writes only the replacement text, into the briefing)",
 	// docs/design/host-notch-services.md OQ-NC1 (A) and OQ-HS4.
 	packdecl.KindService: "a service's host half (`host_daemon`, in a pack yolo ships or a local " +
 		"one) runs at `yolo host -- <program>` beside the one agent paired through it, and stops " +
@@ -405,6 +410,11 @@ func HostFields() FieldSet {
 		// fact about one surface's mechanism and not about the notch.
 		packdecl.KindConfigList: true,
 		packdecl.KindAutonomy:   true, // honored: host renders the GUARDED posture (§4.2)
+		// instructions is honored through the launch: `yolo host -- <agent>` hands the agent's own
+		// flag for the user scope's repo_instructions mode (hostrepoinstructions.go), and `yolo host
+		// apply` writes the user scope's replacement text into the briefing, never a setting into
+		// the shared real home (IF-D13).
+		packdecl.KindInstructions: true,
 		// provider is honored at this notch and BUILT: `yolo host apply` composes the
 		// providers table at user scope and runs each surface's derive over it (OQ-HC1), and
 		// `yolo host -- <program>` composes the same table into the launched process.

@@ -880,6 +880,8 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	}, hostServicesStart)
 	sp.End()
 	trace.recordComposition(launch, flags.profile)
+	// THE repo_instructions MODE at this notch (hostrepoinstructions.go), before the argv rewrite below.
+	applyHostRepoInstructions(launch, cmd[0], errw)
 
 	sp = trace.span("host.preflight")
 	if rc := hostPreflight(launch, errw); rc != 0 {

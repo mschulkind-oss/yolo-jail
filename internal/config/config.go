@@ -83,7 +83,7 @@ var knownTopLevelConfigKeys = set(
 	"per_side_paths", "network", "security", "mise_tools", "lsp_servers",
 	"mcp_servers", "mcp_presets", "devices", "gpu", "resources", "env_sources",
 	"loopholes", "brokered", "host_processes", "journal",
-	"kvm", "prune", "programs", "ephemeral_storage", "macos_log", "include_if_found", "agents_md_extra",
+	"kvm", "prune", "programs", "ephemeral_storage", "macos_log", "include_if_found", "agents_md_extra", "repo_instructions",
 	"briefing_provenance",
 	"cache_relocations", "writable_home_dirs", "host_files", "host_wrappers", "share_host_fonts", "local_clones",
 	"host_apply_on_launch", "host_management", "host_import_exclusions", "agent_updates", "host_floor", "host_path", "provisioners", "packs", "perf_logging", "macos_user_mode", "macos_user_shared_tmp", "on_request",
