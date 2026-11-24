@@ -2,17 +2,19 @@
 title: "Which instruction files an agent reads from the repository: keep, ignore, or replace"
 date: 2026-11-24
 status: accepted
-stage: DECIDED
+stage: BUILT
 tags: [instructions, packs, briefing, config, parity]
 summary: "A repository's own AGENTS.md, CLAUDE.md and their kin can be kept, ignored or replaced by a file the user names. Ignoring uses each agent's own setting, rendered by its pack at every setup; an agent with no such setting is unsupported, the launch continues, and says so. yolo never masks a workspace file."
-next: "Build from the plan seed (workspace-instruction-files-plan.md); the owner's rulings are in the ledger"
+next: "Graduate to a system doc; the Mac cells still need a witness"
 ---
 
 # Which instruction files an agent reads from the repository: keep, ignore, or replace
 
-**Status:** 2026-11-24. Both open questions ruled the same day; the build follows this document. Repository
-evidence read at `0b7092a6b`; agent evidence read from the installed programs in this jail on the same date
-([Appendix A](#appendix-a-evidence)). Every macOS and Apple Container cell is UNMEASURED: no Mac was available.
+**Status:** 2026-11-24, built at `f484b19f4` and after. MEASURED: a nested podman jail launched with
+`mode = "ignore"` rendered claude's `claudeMdExcludes` anchored at `/workspace`, codex's `project_doc_max_bytes = 0`,
+pi's carrier flags with its briefing handed back, and printed the four disclosure lines. UNMEASURED: every macOS
+and Apple Container cell (no Mac was available) and a real agent session honoring any setting (no agent was
+started). Agent evidence was read from the installed programs ([Appendix A](#appendix-a-evidence)).
 
 > **In short.** A repository's instruction files are the agent's to read only because nobody told the agent
 > not to. Each agent that has a setting for it gets one rendered by its pack, at every setup. An agent
@@ -235,22 +237,22 @@ workspace-layer `replace` cannot reach `yolo host apply`.
 
 | ID | Ruling / Decision | Date | Settled in | Built |
 | :--- | :--- | :--- | :--- | :--- |
-| IF-D1 | Mechanism: each agent's own knob rendered by its pack through the config composition, at every setup; no other mechanism exists | 2026-11-24 | [§3](#3-the-decisions-this-design-rests-on), [§7](#7-why-yolo-never-masks) | — |
-| IF-D2 | Scope: every instruction file a selected agent reads from the repository, root and nested, per agent, never a global filename list | 2026-11-24 | [§4](#4-the-per-agent-mechanisms) | — |
-| IF-D3 | Modes `keep` (default), `ignore`, `replace` with a user-named file; replace composes through the briefing | 2026-11-24 | [§5](#5-what-each-mode-does) | — |
-| IF-D4 | The user config, the per-workspace layer and the committed project file may each set it | 2026-11-24 | [§3.1](#31-the-config-key) | — |
-| IF-D5 | Every launch discloses what it hid or replaced; not suppressible | 2026-11-24 | [§5.1](#51-the-disclosure-if-d5) | — |
-| IF-D6 | One config table `repo_instructions` with `mode` and `replace_with`, both scopes | 2026-11-24 | [§3.1](#31-the-config-key) | — |
-| IF-D7 | The mechanism lives in a new pack contribution `instructions` with `reads` and at most one of `ignore.list`, `ignore.set`, `ignore.launch`; core names no agent. A census test requires every agent pack to declare it. Tier 1 (structural) | 2026-11-24 | [§3.2](#32-the-new-pack-contribution) | — |
-| IF-D8 | A flag or setting that also drops the user-level briefing is a knob only with a declared `redeliver`; pi redelivers the briefing file through `--append-system-prompt`; copilot's flag drops it with no way back, so copilot is unsupported; opencode's only switch is too broad | 2026-11-24 | [§4](#4-the-per-agent-mechanisms) | — |
-| IF-D9 | Claude entries are anchored at `${workspace}` and added as a list, never replacing the user's own `claudeMdExcludes` | 2026-11-24 | [§3.2](#32-the-new-pack-contribution), [§6](#6-per-setup-behavior) | — |
-| IF-D10 | Ordinary merge order, later layer wins; no stricter rule for the project file | 2026-11-24 | [§3.1](#31-the-config-key) | — |
-| IF-D11 | A missing or unreadable `replace_with` refuses the launch; an empty one behaves as `ignore` | 2026-11-24 | [§3.1](#31-the-config-key) | — |
-| IF-D12 | The disclosure counts files with a bounded scan (depth 6, 5,000 directories, skipping `.git` and `node_modules`) and says when it could not finish | 2026-11-24 | [§5.1](#51-the-disclosure-if-d5) | — |
-| IF-D13 | At the host, workspace-scoped mechanisms go through the launch (`yolo host -- <agent>`), never into the shared real home by `yolo host apply`; `replace` at the host is the user-scope value only | 2026-11-24 | [§6](#6-per-setup-behavior) | — |
-| IF-D14 | Owner, on whether a mask may cover a tracked file: yolo never masks a workspace file with a mount: no empty-file bind, no replacement bind, not as a fallback, not for an untracked file. "my empty mount was a bad idea. so yes, B. let's never do that." An agent with no knob is unsupported. Tier 1 (structural: no mask code exists) | 2026-11-24 | [§7](#7-why-yolo-never-masks) | — |
-| IF-D15 | Owner, on whether to refuse when an agent cannot honor the mode: when a selected agent cannot honor the mode the launch continues ("it should continue") and discloses, per agent, that it still reads the files, naming the agents that can and the way back to `keep`; never suppressible, no refusal, no hatch | 2026-11-24 | [§8](#8-an-agent-that-cannot-honor-the-mode) | — |
-| IF-D16 | `ignore.host_launch`: at `yolo host --` the claude entries and the codex setting travel as launch arguments, since the unconfined path has no per-workspace file | 2026-11-24 | [§3.2](#32-the-new-pack-contribution), [§6](#6-per-setup-behavior) | — |
+| IF-D1 | Mechanism: each agent's own knob rendered by its pack through the config composition, at every setup; no other mechanism exists | 2026-11-24 | [§3](#3-the-decisions-this-design-rests-on), [§7](#7-why-yolo-never-masks) | ✅ |
+| IF-D2 | Scope: every instruction file a selected agent reads from the repository, root and nested, per agent, never a global filename list | 2026-11-24 | [§4](#4-the-per-agent-mechanisms) | ✅ |
+| IF-D3 | Modes `keep` (default), `ignore`, `replace` with a user-named file; replace composes through the briefing | 2026-11-24 | [§5](#5-what-each-mode-does) | ✅ |
+| IF-D4 | The user config, the per-workspace layer and the committed project file may each set it | 2026-11-24 | [§3.1](#31-the-config-key) | ✅ |
+| IF-D5 | Every launch discloses what it hid or replaced; not suppressible | 2026-11-24 | [§5.1](#51-the-disclosure-if-d5) | ✅ |
+| IF-D6 | One config table `repo_instructions` with `mode` and `replace_with`, both scopes | 2026-11-24 | [§3.1](#31-the-config-key) | ✅ |
+| IF-D7 | The mechanism lives in a new pack contribution `instructions` with `reads` and at most one of `ignore.list`, `ignore.set`, `ignore.launch`; core names no agent. A census test requires every agent pack to declare it. Tier 1 (structural) | 2026-11-24 | [§3.2](#32-the-new-pack-contribution) | ✅ |
+| IF-D8 | A flag or setting that also drops the user-level briefing is a knob only with a declared `redeliver`; pi redelivers the briefing file through `--append-system-prompt`; copilot's flag drops it with no way back, so copilot is unsupported; opencode's only switch is too broad | 2026-11-24 | [§4](#4-the-per-agent-mechanisms) | ✅ |
+| IF-D9 | Claude entries are anchored at `${workspace}` and added as a list, never replacing the user's own `claudeMdExcludes` | 2026-11-24 | [§3.2](#32-the-new-pack-contribution), [§6](#6-per-setup-behavior) | ✅ |
+| IF-D10 | Ordinary merge order, later layer wins; no stricter rule for the project file | 2026-11-24 | [§3.1](#31-the-config-key) | ✅ |
+| IF-D11 | A missing or unreadable `replace_with` refuses the launch; an empty one behaves as `ignore` | 2026-11-24 | [§3.1](#31-the-config-key) | ✅ |
+| IF-D12 | The disclosure counts files with a bounded scan (depth 6, 5,000 directories, skipping `.git` and `node_modules`) and says when it could not finish | 2026-11-24 | [§5.1](#51-the-disclosure-if-d5) | ✅ |
+| IF-D13 | At the host, workspace-scoped mechanisms go through the launch (`yolo host -- <agent>`), never into the shared real home by `yolo host apply`; `yolo host --` reads the user scope's mode alone, and `replace` at the host is the user-scope value only, delivered by `yolo host apply` | 2026-11-24 | [§6](#6-per-setup-behavior) | ✅ |
+| IF-D14 | Owner, on whether a mask may cover a tracked file: yolo never masks a workspace file with a mount: no empty-file bind, no replacement bind, not as a fallback, not for an untracked file. "my empty mount was a bad idea. so yes, B. let's never do that." An agent with no knob is unsupported. Tier 1 (structural: no mask code exists) | 2026-11-24 | [§7](#7-why-yolo-never-masks) | ✅ |
+| IF-D15 | Owner, on whether to refuse when an agent cannot honor the mode: when a selected agent cannot honor the mode the launch continues ("it should continue") and discloses, per agent, that it still reads the files, naming the agents that can and the way back to `keep`; never suppressible, no refusal, no hatch | 2026-11-24 | [§8](#8-an-agent-that-cannot-honor-the-mode) | ✅ |
+| IF-D16 | `ignore.host_launch`: at `yolo host --` the claude entries and the codex setting travel as launch arguments, since the unconfined path has no per-workspace file | 2026-11-24 | [§3.2](#32-the-new-pack-contribution), [§6](#6-per-setup-behavior) | ✅ |
 
 ## 11. Open questions
 
@@ -278,15 +280,19 @@ Event-driven, no agent sessions; probes are `--version` and `copilot instruction
 
 Each test must fail if its call site is deleted.
 
-## 13. Files a build would touch
+## 13. Where it lives
 
-The seed lists them with notes ([`workspace-instruction-files-plan.md`](workspace-instruction-files-plan.md)):
-`internal/packdecl/packdecl.go` (the kind), `internal/packload` (validation, census),
-`internal/config/schema.go`, `validate.go` and the editing verbs, `internal/render/configkeys.go` and
-`internal/setupcensus/configkeys.go` (per-setup honored status), `internal/entrypoint/surfaceloop.go` (rendering),
-a new disclosure file in `internal/cli/run`, `internal/jailcontent` (the replacement
-section), the shipped `packs/*/pack.toml` for the agents in [§4](#4-the-per-agent-mechanisms), and
-[`settings-per-setup.md`](../../userguide/reference/settings-per-setup.md).
+| Piece | Where |
+| :--- | :--- |
+| The kind, its validation and accessors | `internal/packdecl/instructions.go` |
+| The mode handed to each loaded pack; the launch-flag fold | `internal/packload/instructions.go`, `LaunchFlagsFor` |
+| The list and set folds | `internal/packoverlay/instructions.go` |
+| The config table | `internal/config/repoinstructions.go` |
+| Resolution, the wire form, the scan and the disclosure | `internal/repoinstr` |
+| The launch, the session input and the briefing text | `internal/cli/run/repoinstructions.go`, `sessioninputs.go`, `prepare.go` |
+| The jail's and macos-user's boot | `internal/entrypoint/packsurfaces.go` (`LoadJailPacks`) |
+| The unconfined path | `internal/cli/hostrepoinstructions.go` |
+| Each agent's declaration | `packs/*/pack.toml`, `[[instructions]]` |
 
 ## Appendix A: Evidence
 

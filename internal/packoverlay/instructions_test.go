@@ -79,8 +79,10 @@ func TestInstructionsSetFoldsAsAnOverlayOnTheOwnersSurface(t *testing.T) {
 		t.Fatalf("overlays = %+v, want the one from the instructions pack", overlays)
 	}
 	data, _ := overlays[0].Data.(map[string]any)
-	if _, ok := data["project_doc_max_bytes"]; !ok {
-		t.Errorf("overlay data = %#v, want the declared setting in the managed layer", overlays[0].Data)
+	// An INTEGER, not the float a JSON round trip makes of it: the TOML codec would write 0.0, which
+	// codex refuses for project_doc_max_bytes (seen in a nested jail).
+	if got, ok := data["project_doc_max_bytes"].(int64); !ok || got != 0 {
+		t.Errorf("overlay data = %#v, want the declared setting as an int64 in the managed layer", overlays[0].Data)
 	}
 }
 

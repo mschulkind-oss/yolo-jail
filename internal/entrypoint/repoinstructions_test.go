@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/repoinstr"
@@ -28,6 +29,9 @@ func stagedInstructionsPack(t *testing.T) string {
 	manifest := `{"name":"agents","contributes":[
  {"kind":"config","config":[{"agent":"claude","name":"settings","codec":"json","path":"~/.claude/settings.json",
    "defaults":{"claudeMdExcludes":["/mine/**/CLAUDE.md"]}}]},
+ {"kind":"config","config":[{"agent":"codex","name":"config","codec":"toml","path":"~/.codex/config.toml"}]},
+ {"kind":"instructions","agent":"codex","bin":"codex","reads":["AGENTS.md"],
+   "ignore":{"set":{"surface":"codex/config","config":{"project_doc_max_bytes":0}}}},
  {"kind":"instructions","agent":"claude","bin":"claude","reads":["AGENTS.md","CLAUDE.md"],
    "ignore":{"list":{"surface":"claude/settings","path":"/claudeMdExcludes",
      "add":["${workspace}/**/AGENTS.md","${workspace}/**/CLAUDE.md"]}}},
@@ -99,5 +103,22 @@ func TestBootHandsPiItsFlagAndTheBriefingBackAndAgyNothing(t *testing.T) {
 	}
 	if got := launchFlagsFor(e, packs, "claude"); got != nil {
 		t.Errorf("claude's setting is a rendered file, not a flag, in a jail: %+v", got)
+	}
+}
+
+// codex's setting is an INTEGER in its TOML file: the manifest's JSON round trip makes it a float,
+// which the codec would write as `0.0` and codex would refuse.
+func TestBootWritesCodexsProjectDocLimitAsAnInteger(t *testing.T) {
+	_, home := bootWithRepoInstructions(t, `{"mode":"ignore"}`)
+	data, err := os.ReadFile(filepath.Join(home, ".codex", "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "project_doc_max_bytes = 0\n") {
+		t.Errorf("codex config:\n%s", data)
+	}
+	_, home = bootWithRepoInstructions(t, "")
+	if data, _ := os.ReadFile(filepath.Join(home, ".codex", "config.toml")); strings.Contains(string(data), "project_doc_max_bytes") {
+		t.Errorf("a keep launch wrote the setting:\n%s", data)
 	}
 }

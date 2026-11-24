@@ -106,7 +106,8 @@ needs a ruling or a Mac sits in the others.
 8. [Repository instruction files: keep, ignore or replace](../design/workspace-instruction-files.md) — the owner's
    request (2026-11-24), ruled the same day: stop an agent reading a repository's `AGENTS.md` and kin, per user or
    workspace, through each agent's own setting. yolo never masks a workspace file, and an agent with no setting
-   keeps running and is named in a launch line. Build from [its seed](../design/workspace-instruction-files-plan.md).
+   keeps running and is named in a launch line. Built; next is graduating it to a system doc, and its Mac cells
+   wait on the owner's Mac ([its seed](../design/workspace-instruction-files-plan.md)).
 
 
 ## Independent design review

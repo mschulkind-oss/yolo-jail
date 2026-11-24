@@ -61,8 +61,34 @@ func placeInstructions(set *OverlaySet, p *packload.Pack, decl packdecl.Instruct
 			set.Orphans = append(set.Orphans, instructionsOrphan(p, surface, key, autonomy))
 			return
 		}
-		set.byTarget[key] = append(set.byTarget[key], agentcfg.Overlay{Pack: p.Name, Data: data})
+		set.byTarget[key] = append(set.byTarget[key], agentcfg.Overlay{Pack: p.Name, Data: integralAsInt(data)})
 	}
+}
+
+// integralAsInt turns a whole number a JSON round trip made a float64 back into an int64. The
+// manifest's body travels as JSON, which has one number type, and the TOML codec writes a float64
+// as `0.0`, which an agent that reads an integer setting (codex's `project_doc_max_bytes`) refuses.
+// A TOML file decodes a whole number as int64, so this is the value the surface already holds.
+func integralAsInt(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = integralAsInt(e)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = integralAsInt(e)
+		}
+		return out
+	case float64:
+		if x == float64(int64(x)) {
+			return int64(x)
+		}
+	}
+	return v
 }
 
 func instructionsOrphan(p *packload.Pack, surface string, key manifest.SurfaceKey, autonomy bool) OrphanOverlay {
