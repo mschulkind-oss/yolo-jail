@@ -5,8 +5,7 @@ status: draft
 stage: SKETCH
 tags: [instructions, packs, plan-seed]
 summary: "What the design work surfaced for the build of repository instruction-file modes; not a hand-off, and incomplete until the design is accepted."
-depends-on: [workspace-instruction-files.md#OQ-IF1, workspace-instruction-files.md#OQ-IF2]
-next: "Wait for the design's two rulings, then a planner completes this against the tree"
+next: "Build the design; this seed records what the build surfaced"
 ---
 
 # Instruction files from the repository: build seed
@@ -14,8 +13,8 @@ next: "Wait for the design's two rulings, then a planner completes this against 
 **Status:** 2026-11-24 — seeded during design; not a hand-off, and incomplete until the design is accepted. The
 design ([workspace-instruction-files.md](workspace-instruction-files.md)) wins on behavior.
 
-Blocked on [OQ-IF1](workspace-instruction-files.md#OQ-IF1) (what the mask covers) and
-[OQ-IF2](workspace-instruction-files.md#OQ-IF2) (refuse or disclose).
+Both rulings are in: no mask ([IF-D14](workspace-instruction-files.md#10-decision-ledger)) and a launch that
+continues and discloses ([IF-D15](workspace-instruction-files.md#10-decision-ledger)).
 
 ## What surfaced
 
@@ -24,11 +23,11 @@ Blocked on [OQ-IF1](workspace-instruction-files.md#OQ-IF1) (what the mask covers
   host yolo first.
 - The claude entries need `${workspace}` substitution in a list entry; check that `config-list` bodies take it
   the way `config` map keys do.
-- `yolo host -- claude --settings '<json>'`: nothing measured shows claude merges `claudeMdExcludes` from that
-  layer; the design marks it UNMEASURED, so the first build slice should record a Mac and Linux witness.
+- `yolo host -- claude --settings '<json>'`: the 2.1.331 binary reads `claudeMdExcludes` from the merged settings,
+  which include the `--settings` source (design Appendix A); a Mac witness is still unrecorded.
 - Codex's `-c` handoff already exists as the `launch_selection` `each` form; reuse its argv placement rules.
-- pi's redelivery needs a second `[[briefing]]` destination used only while ignoring; check how
-  `agent-briefings.md` composes two destinations for one agent.
-- Copilot: a measurement that its personal file survives `--no-custom-instructions` would promote it from
-  fallback-only; it needs a session-free probe, if one exists.
+- pi's redelivery is the briefing file handed back through `--append-system-prompt`, so no second destination
+  is composed.
+- Copilot is unsupported ([design §4](workspace-instruction-files.md#4-the-per-agent-mechanisms)); a measured
+  session showing its personal file survives `--no-custom-instructions` would promote it.
 - Add the `repo_instructions` row to `userguide/reference/settings-per-setup.md` and the config reference text.
