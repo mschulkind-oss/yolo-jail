@@ -14,6 +14,11 @@ import (
 
 const cgroup2Magic = 0x63677270
 
+// requireCgroupV2FS is the filesystem guard every pinned cgroup directory passes.
+// Only a same-package test fixture over ordinary directories turns it off (with
+// pinnedIOPolicyFS), and restores it on cleanup; no production path touches it.
+var requireCgroupV2FS = true
+
 type pinnedGroup struct {
 	fd     int
 	device uint64
@@ -35,7 +40,7 @@ func pinFD(fd int, requireCgroup bool) (*pinnedGroup, error) {
 		syscall.Close(fd)
 		return nil, errors.New("selected group is not a directory")
 	}
-	if requireCgroup {
+	if requireCgroup && requireCgroupV2FS {
 		var fs syscall.Statfs_t
 		if err := syscall.Fstatfs(fd, &fs); err != nil || fs.Type != cgroup2Magic {
 			syscall.Close(fd)
@@ -117,7 +122,17 @@ func (g *pinnedGroup) writePolicy(data []byte, _ bool) error {
 // entry always requires cgroup v2; a regular-file fixture substitutes only the
 // filesystem validator, never the descriptor-relative open/write operation.
 func writePolicyAt(dirFD int, data []byte, validate func(int) error) error {
-	fd, err := syscall.Openat(dirFD, "io.max", syscall.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	return writeNamedAt(dirFD, "io.max", data, validate)
+}
+
+// writeNamedAt writes one of the two files a Yolo child may be written through:
+// its io.max and its cgroup.procs. The name is relative to the pinned directory
+// descriptor and never a path.
+func writeNamedAt(dirFD int, name string, data []byte, validate func(int) error) error {
+	if name != "io.max" && name != "cgroup.procs" {
+		return errors.New("unsupported delegated child file")
+	}
+	fd, err := syscall.Openat(dirFD, name, syscall.O_WRONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		return err
 	}

@@ -17,26 +17,10 @@ import (
 	"time"
 )
 
-// ReconcileUserIO refuses real cgroup mutation: the unactivated FD writer
-// cannot establish selected unit lifetime, safe policy reconciliation and
-// actual placement. A pinned FD alone is not delegated authority. Even the
-// read-only filesystem gate runs before refusal, so an ordinary directory
-// cannot be mistaken for a cgroup delegation.
-func ReconcileUserIO(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error)) error {
-	group, err := openPinnedGroup(filepath.Dir(paths.Assigned), true)
-	if err != nil {
-		return fmt.Errorf("cannot pin assigned cgroup: %w", err)
-	}
-	group.close()
-	return errors.New("direct cgroup I/O writer unsupported: native delegation, lifetime and placement unverified; inspect selection with yolo check --no-build")
-}
-
-// ReconcileDelegatedIO is a conditional adapter for fake/injected I/O, not a
-// real cgroup writer. It requires a resolved USER-manager identity and a shared
-// private lock, but the actual host writer is still unactivated; a fake
-// observer cannot establish delegated unit lifetime or actual placement.
-// Callers must not supply a real filesystem writer until native authority
-// and placement are independently proven; current mapped launches refuse.
+// ReconcileDelegatedIO is the injected-I/O form of the reconciliation
+// algorithm, kept for its fake-authority tests. The production writer is
+// ReconcileUserIO (userio_linux.go), which goes through pinned descriptors; a
+// fake observer here establishes neither delegated authority nor placement.
 func ReconcileDelegatedIO(ctx context.Context, paths IOPaths, percent int, lockDir string, observe func() (IOPaths, error), read IOReadFile, mkdir func(string) error, write func(string, []byte) error) error {
 	return reconcileDelegatedIO(ctx, paths, percent, lockDir, observe, read, mkdir, write, nil, nil)
 }
@@ -409,7 +393,7 @@ func CheckDelegatedIO(paths IOPaths, read IOReadFile) error {
 		return fmt.Errorf("I/O delegation unavailable: %w", err)
 	}
 	if !slices.Contains(strings.Fields(string(controllers)), "io") || !slices.Contains(strings.Fields(string(subtree)), "io") {
-		return errors.New("assigned group lacks delegated io controller; ask the owner to enable user-manager delegation, then run yolo check --no-build")
+		return errors.New("io is not delegated to your user manager for the selected group (assigned group lacks delegated io controller): add io to Delegate= in a user@.service drop-in, restart your user manager, and make sure the selected slice lists io in its cgroup.subtree_control, then run yolo check --no-build")
 	}
 	return nil
 }
