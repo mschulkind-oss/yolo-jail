@@ -234,11 +234,11 @@ A selected group is required placement, and it is Linux-only. When a launch matc
 
 ### Setting up the host
 
-A launch refuses, naming the step, while any of these is missing. Run them as your own user, not root:
+A launch refuses, naming the step, while any of these is missing. Step 1 needs root once; the rest run as your own user, and every step survives a reboot:
 
-1. Delegate the `io` controller to your user manager. Create a drop-in with `systemctl edit user@.service` containing `[Service]` and `Delegate=cpu memory pids io`, then log out and back in (or reboot) so your manager restarts. Rootless podman's own cgroup setup already needs the manager to hold `cpu`, `memory` and `pids`.
-2. Define a slice with a finite allowance in your user manager, for example `~/.config/systemd/user/batch-yolo.slice` with `[Slice]`, `IOReadBandwidthMax=/dev/nvme0n1 600M` and `IOWriteBandwidthMax=/dev/nvme0n1 300M` (use your device). A group with `max`, no record or only an ancestor's limit has no allowance to split, so the launch refuses.
-3. Start the slice with `systemctl --user start batch-yolo.slice`. An empty slice has no cgroup until it is started, and the launch refuses naming this command.
+1. Delegate the `io` controller to your user manager. Create a drop-in with `sudo systemctl edit user@.service` containing `[Service]` and `Delegate=cpu cpuset io memory pids`, then log out and back in (or reboot) so your manager restarts. Rootless podman's own cgroup setup already needs the manager to hold `cpu`, `memory` and `pids`.
+2. Define a slice with a finite allowance in your user manager, for example `~/.config/systemd/user/batch-yolo.slice` with `[Slice]`, `IOReadBandwidthMax=/dev/nvme0n1 600M` and `IOWriteBandwidthMax=/dev/nvme0n1 300M` (use your device), and an `[Install]` section with `WantedBy=default.target`. A group with `max`, no record or only an ancestor's limit has no allowance to split, so the launch refuses.
+3. Start the slice now and at every login with `systemctl --user daemon-reload` and then `systemctl --user enable --now batch-yolo.slice`. An empty slice has no cgroup until it is started, and the launch refuses naming `systemctl --user start`.
 4. Map the workspace in your user config, for example `yolo config set --user resource_groups.default '"batch-yolo.slice"'`.
 5. Start the launch from your user manager: a desktop terminal, or `systemd-run --user --scope yolo`. A login-session scope is outside your user manager, and the kernel refuses to move a process out of it into your slice.
 
