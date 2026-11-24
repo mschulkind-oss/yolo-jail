@@ -12,7 +12,7 @@ import (
 // boundWrite keeps Evaluate read-only and puts filing, standing coverage,
 // exact-once spending and the original host CLI invocation behind one store
 // transaction. There is no external CLI rollback guarantee after dispatch.
-func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Request, call Classification, predicted Verdict, stdin []byte) (Verdict, CLIResult, error) {
+func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Request, call Classification, predicted Verdict, decided bundleDecision, stdin []byte) (Verdict, CLIResult, error) {
 	refused := func(err error) (Verdict, CLIResult, error) {
 		if executionCompleted(err) {
 			return Verdict{Verdict: "refused", Rule: "host CLI response rejected after completed write",
@@ -59,6 +59,7 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 	}
 	var result CLIResult
 	didRun := false
+	var resolvedRefusal *Verdict
 	set := "write"
 	if len(call.Writes) == 0 {
 		set = "read"
@@ -69,8 +70,12 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 			return err
 		}
 		var err error
-		result, err = h.program.run(ctx, call, stdin)
-		if err == nil {
+		if decided.resolving() {
+			result, resolvedRefusal, err = h.resolveAndRun(ctx, q, call, stdin)
+		} else {
+			result, err = h.program.run(ctx, call, stdin)
+		}
+		if err == nil && resolvedRefusal == nil {
 			didRun = true
 		}
 		return err
@@ -114,6 +119,11 @@ func (h *CLIHandler) boundWrite(ctx context.Context, op string, q brokerstore.Re
 		}
 		if spent && didRun {
 			return Verdict{Verdict: "runs", Rule: "exact Allow once spent", Digest: q.Digest}, result, nil
+		}
+		if spent && resolvedRefusal != nil {
+			// The answer was spent at the lookup's first send and is not refunded.
+			resolvedRefusal.Digest = q.Digest
+			return *resolvedRefusal, CLIResult{}, nil
 		}
 		filed = next
 	}

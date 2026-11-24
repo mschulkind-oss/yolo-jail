@@ -189,9 +189,8 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 // revalidate runs under the store's transaction, including from yolo approve.
 // The classifier sees only the recorded hash, never retained stdin or facts.
 func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
-	// Withheld facts and contexts have no execution path yet: their request is judged here, not
-	// replayed as a known write.
-	if slices.ContainsFunc(q.CallWrites, func(write brokerstore.CallWrite) bool { return write.Role != "" || len(write.Candidates) != 0 }) || q.ContextDigest != "" || q.ContextName != "" {
+	// A context has no execution path yet; reads and withheld candidates are replayed below.
+	if q.ContextDigest != "" || q.ContextName != "" {
 		return brokerstore.Policy{}, errors.New("scoped operation execution is not active; retry the supported selected write path")
 	}
 	sf, user, err := h.currentAuthority()
@@ -203,7 +202,8 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 	}
 	classifier := h.classifier
 	classifier.Roots = slices.Clone(sf.Repos)
-	answer, err := classifier.ClassifyCLIDigest(snapshotTransactionContext(q.ExecutionContext()), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
+	held, heldAt, _ := q.WorkingState()
+	answer, err := classifier.ClassifyCLIDigest(snapshotTransactionContext(withWorkingState(q.ExecutionContext(), held, heldAt)), q.OriginalArgv, q.StdinDigest, h.lookupWithClassifier(q.Jail, classifier))
 	if err != nil {
 		return brokerstore.Policy{}, fmt.Errorf("current classifier refused this call (%v); retry the original call", err)
 	}
@@ -223,7 +223,7 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 	expected := callRequest(h.input.Source, q.Workspace, q.Jail, q.Start, q.LaunchID, call, nil)
 	expected.StdinDigest = q.StdinDigest
 	expected.OriginalArgv = slices.Clone(q.OriginalArgv)
-	expected = bundleSubjects(expected, call, decided.AskReads)
+	expected = bundleSubjects(expected, call, decided)
 	if expected.Digest != q.Digest || !reflect.DeepEqual(expected.Argv, q.Argv) || !reflect.DeepEqual(expected.OriginalArgv, q.OriginalArgv) || !reflect.DeepEqual(expected.CallWrites, q.CallWrites) || !reflect.DeepEqual(expected.CallReads, q.CallReads) {
 		return brokerstore.Policy{}, errors.New("current canonical command, ordered operations or resources changed; retry the original call")
 	}
@@ -237,6 +237,9 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 		}
 	}
 	for _, w := range call.Writes {
+		if len(w.Candidates) != 0 {
+			continue // judged with the lookup that left them, by decideBundle
+		}
 		table := selectedWriteTable(w, working, q.Workspace, h.input.Source, now)
 		frozen, exists := cells[w.Cell].Tables[table]
 		current := config.CallBrokerCurrentCeiling(user, h.input.Source, table, w.Cell)

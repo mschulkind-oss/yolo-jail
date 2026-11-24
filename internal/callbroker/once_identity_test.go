@@ -49,7 +49,7 @@ func TestSelectedCLIExactOnceRejectsForgedCanonicalWritesAndOriginalInput(t *tes
 				if err != nil || answer.Classification == nil {
 					t.Fatalf("fixture classification: %v", err)
 				}
-				v, _, err := f.h.boundWrite(context.Background(), "act", q, *answer.Classification, Verdict{Verdict: "asks"}, nil)
+				v, _, err := f.h.boundWrite(context.Background(), "act", q, *answer.Classification, Verdict{Verdict: "asks"}, bundleDecision{}, nil)
 				if err == nil || v.Verdict != "refused" {
 					t.Fatal("wrong authenticated holder passed transaction gate")
 				}

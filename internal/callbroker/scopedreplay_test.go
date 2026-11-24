@@ -16,12 +16,16 @@ func scopedReplayShapes() map[string]brokerstore.Request {
 	}
 }
 
-// Call-site pins: the legacy revalidation of the CLI and HTTP paths refuses a scoped or
-// context-bound request itself. Deleting either guard fails these, because without it the
+// Call-site pins: the legacy revalidation of the HTTP path refuses a scoped or context-bound
+// request itself, and the CLI path a context-bound one (its reads and withheld candidates are
+// replayed by TestScopedWithheldRequestIsReplayedNotTrusted). Deleting either guard fails these, because without it the
 // request is judged by the later holder checks and the message changes.
 func TestCLIRevalidateRefusesScopedAndContextRequests(t *testing.T) {
 	f := selectedOnceFixtureWithStanding(t, true)
 	for name, q := range scopedReplayShapes() {
+		if name == "scoped role" {
+			continue
+		}
 		if _, err := f.h.revalidate(q); err == nil || !strings.Contains(err.Error(), "scoped operation execution is not active") {
 			t.Fatalf("%s: err=%v", name, err)
 		}

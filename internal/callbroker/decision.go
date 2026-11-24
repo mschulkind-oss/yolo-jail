@@ -25,6 +25,10 @@ func callRequest(source, workspace, jail, start, launch string, c Classification
 		Set: source, Repo: source, Argv: slices.Clone(c.Argv), StdinDigest: fmt.Sprintf("%x", sha256.Sum256(stdin))}
 	for _, write := range c.Writes {
 		item := brokerstore.CallWrite{Cell: write.Cell}
+		if len(write.Candidates) != 0 {
+			// A withheld lookup left several cells; bundleSubjects narrows them to the ones not refused.
+			item = brokerstore.CallWrite{Cell: write.Candidates[0], Role: brokerstore.RoleWithheldWrite, Candidates: slices.Clone(write.Candidates)}
+		}
 		for _, resource := range write.Chain {
 			item.Chain = append(item.Chain, brokerstore.CallResource{Type: resource.Type, ID: resource.ID})
 		}

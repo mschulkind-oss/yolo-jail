@@ -103,8 +103,13 @@ func TestScopedOperationApprovals(t *testing.T) {
 		if v, _, err := f.call(t, "ask", "read"); err != nil || v.Verdict != "asks" || !strings.Contains(v.Next, "--for") {
 			t.Fatalf("ask: %+v %v", v, err)
 		}
-		entries, err := f.store.DecideWorking(f.pending(t)[0].ID, brokerstore.Decision{For: 10 * time.Minute})
-		if err != nil || len(entries) != 1 || !entries[0].Timed() {
+		f.store.TimedLimit = ApprovalTimedLimit
+		id := f.pending(t)[0].ID
+		if _, err := f.store.DecideWorking(id, brokerstore.Decision{For: 30 * time.Minute}); err == nil || !strings.Contains(err.Error(), "15m") {
+			t.Fatalf("an implicit read is capped at the shared 15m: %v", err)
+		}
+		entries, err := f.store.DecideWorking(id, brokerstore.Decision{For: 10 * time.Minute})
+		if err != nil || len(entries) != 1 || !entries[0].Timed() || !strings.HasPrefix(entries[0].Kind, brokerstore.WorkingCallPrefix+"read") {
 			t.Fatalf("timed read answer: %+v %v", entries, err)
 		}
 		for i := 0; i < 2; i++ {
@@ -209,6 +214,30 @@ func TestScopedRefusalHasNoAnonymousFallback(t *testing.T) {
 		}
 		if f.reads(t) != 0 || f.effects(t) != 0 || len(f.pending(t)) != 0 {
 			t.Fatalf("a refused read sent or filed: reads=%d effects=%d requests=%d", f.reads(t), f.effects(t), len(f.pending(t)))
+		}
+	})
+}
+
+// The implicit read of an unchanged declaration is decided by the same leaf as a typed one.
+func TestReadCellCardinality(t *testing.T) {
+	t.Run("H26", func(t *testing.T) {
+		f := selectedOnceFixtureWithStanding(t, true)
+		if v, _, err := f.call(t, "act", "read"); err != nil || v.Verdict != "runs" || f.reads(t) != 1 || len(f.pending(t)) != 0 {
+			t.Fatalf("an unchanged launch's read must run unasked: %+v %v reads=%d", v, err, f.reads(t))
+		}
+	})
+	t.Run("H27", func(t *testing.T) {
+		f := scopedFixture(t, brokerpolicy.False, brokerpolicy.OnRequest, brokerpolicy.Ask, brokerpolicy.OnRequest)
+		v, _, err := f.call(t, "act", "read")
+		if err != nil || v.Verdict != "refused" || f.reads(t) != 0 || !strings.Contains(v.Next, "fixture read ask") {
+			t.Fatalf("the scoped read line must govern the implicit read: %+v %v", v, err)
+		}
+	})
+	t.Run("H28", func(t *testing.T) {
+		f := selectedOnceFixtureForApply(t, true, false, false, false)
+		v, _, err := f.call(t, "act", "read")
+		if v.Verdict != "refused" || f.reads(t) != 0 {
+			t.Fatalf("a read without its grant must refuse: %+v %v", v, err)
 		}
 	})
 }

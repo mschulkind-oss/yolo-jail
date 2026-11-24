@@ -316,7 +316,7 @@ func (c Classifier) validateHTTPClassificationMode(original HTTPCall, allowed []
 		return HTTPCall{}, nil, nil, errors.New("HTTP classification has no read or write resources")
 	}
 	operations := Classification{Reads: reads, ReadDescriptors: classification.ReadDescriptors, Writes: writes}
-	if err := c.normalizeOperations(&operations, version, provisional); err != nil {
+	if err := c.normalizeOperations(&operations, version, provisional, false); err != nil {
 		return HTTPCall{}, nil, nil, err
 	}
 	classification.Operations = operations.Operations

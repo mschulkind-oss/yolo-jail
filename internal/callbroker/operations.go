@@ -176,7 +176,7 @@ func compatibleClassifierVersion(answer, input string) bool {
 	return answer == input || input == "yolo.call-broker-classifier/1" && answer == typedClassifierVersion
 }
 
-func (c Classifier) normalizeOperations(call *Classification, version string, provisional bool) error {
+func (c Classifier) normalizeOperations(call *Classification, version string, provisional, withheldFact bool) error {
 	if err := validateOperationWireVersion(version, call.Reads, call.ReadDescriptors, call.Writes); err != nil {
 		return err
 	}
@@ -235,18 +235,30 @@ func (c Classifier) normalizeOperations(call *Classification, version string, pr
 		}
 	}
 	for _, write := range call.Writes {
-		found := false
-		for _, cell := range c.Cells {
-			found = found || cell.Name == write.Cell && !cell.IsRead()
+		cells := []string{write.Cell}
+		if write.Cell == "" || len(write.Candidates) != 0 {
+			if !withheldFact || write.Cell != "" || len(write.Candidates) < 2 {
+				return errors.New("a write names one declared cell, or at least two candidates only after a withheld lookup; update the pack's classifier")
+			}
+			cells = write.Candidates
 		}
-		if !found || write.Cell == "read" || write.Kind != "" && write.Kind != "write" || write.Description == "" || len(write.Description) > 512 || termsafe.HasUnsafe(write.Description) {
+		if write.Kind != "" && write.Kind != "write" || write.Description == "" || len(write.Description) > 512 || termsafe.HasUnsafe(write.Description) {
 			return errors.New("unknown write cell or invalid write description/kind")
 		}
 		if err := c.validateChain(write.Chain); err != nil {
 			return err
 		}
-		if !provisional {
-			call.Operations = append(call.Operations, operation(c.Source, brokerpolicy.Write, write.Cell, write.Description, write.Chain))
+		for i, name := range cells {
+			found := false
+			for _, cell := range c.Cells {
+				found = found || cell.Name == name && !cell.IsRead()
+			}
+			if !found || name == "read" || slices.Contains(cells[:i], name) {
+				return errors.New("unknown, repeated or non-write cell")
+			}
+			if !provisional {
+				call.Operations = append(call.Operations, operation(c.Source, brokerpolicy.Write, name, write.Description, write.Chain))
+			}
 		}
 	}
 	return nil
@@ -281,9 +293,17 @@ func (c *httpClassification) UnmarshalJSON(raw []byte) error {
 }
 
 func (w *Write) UnmarshalJSON(raw []byte) error {
-	fields, err := exactHTTPObject(raw, []string{"cell", "chain", "description"}, "kind")
+	fields, err := exactHTTPObject(raw, []string{"chain", "description"}, "kind", "cell", "candidates")
 	if err != nil {
 		return err
+	}
+	_, hasCell := fields["cell"]
+	_, hasCandidates := fields["candidates"]
+	if hasCell == hasCandidates {
+		return errors.New("write must name exactly one of cell or candidates")
+	}
+	if hasCandidates && !hasJSONType(fields["candidates"], '[') {
+		return errors.New("write candidates must be an array")
 	}
 	for _, key := range []string{"cell", "description", "kind"} {
 		if value, has := fields[key]; has && !httpJSONString(value) {
