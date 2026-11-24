@@ -210,7 +210,9 @@ class SnapshotTests(unittest.TestCase):
                     (dest / "flake.nix").write_text("flake")
                     (dest / "flake.lock").write_text("lock")
                     _fake_helper_dirs(dest, snapshot)
-                    (dest / "bin" / f"linux-{goarch}" / "yolo").write_text(launcher)
+                    # The launcher is the host platform's own yolo: on a Mac that is the darwin dir's,
+                    # which _fake_helper_dirs filled with placeholder bytes that cannot execute.
+                    (dest / "bin" / f"{goos}-{goarch}" / "yolo").write_text(launcher)
                     (dest / "yolo-build-stamp.json").write_text(json.dumps({"snapshotIdentity": identity, "buildKind": "development"}))
                 return SimpleNamespace(returncode=0)
             output = Path(td) / "bundle"
