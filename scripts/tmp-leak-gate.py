@@ -140,6 +140,16 @@ def cmdline(pid):
     return " ".join(a.decode(errors="replace") for a in raw.split(b"\0") if a) or "(no command line)"
 
 
+def survivor_line(pid):
+    """A survivor's command line and its working directory: go test runs each package in that
+    package's directory, so the cwd names the package whose test started it."""
+    try:
+        cwd = os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        cwd = "unreadable"
+    return f"{cmdline(pid)} (cwd {cwd})"
+
+
 def reap_survivors(private, session):
     """Kill every process the command left running, without adopting it: the gate is NOT a
     subreaper, so a process a test killed is collected by its real parent or init exactly as it
@@ -149,7 +159,7 @@ def reap_survivors(private, session):
     process it had to kill, the command line read before the kill so the report can name it."""
     if not sys.platform.startswith("linux"):
         return []
-    killed = [(pid, cmdline(pid)) for pid in find_survivors(private, session)]
+    killed = [(pid, survivor_line(pid)) for pid in find_survivors(private, session)]
     for pid, _ in killed:
         try:
             os.kill(pid, signal.SIGKILL)
