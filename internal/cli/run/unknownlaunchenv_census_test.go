@@ -72,6 +72,8 @@ var notLaunchSettings = func() map[string]string {
 		"YOLO_BROKER_STATE_DIR": testOnly, "YOLO_BROKER_UPSTREAM_URL": testOnly,
 
 		"YOLO_REPO_ROOT": "retired; the launch refuses it with its own message naming the replacement",
+		"YOLO_JAIL": "not a yolo setting; a shell marker some users export, which a launch warns about as unknown " +
+			"(unknownlaunchenv_test.go) and testsupport.AmbientYoloDials scrubs so that warning stays out of unrelated tests",
 	}
 	// Loophole endpoints: recognized through the SELECTED pack that ships the loophole
 	// (TestKnownLaunchYOLOEnvNamesIncludeSelectedLoopholeEndpoints), never as fixed names.
