@@ -31,8 +31,9 @@ needs a ruling or a Mac sits in the others.
 
 ## Buildable now by an agent
 
-1. [Tool skills](../design/mise-tool-skills.md) — the owner's current request (2026-11-23): deliver the skills
-   the user's own mise tools declare as one more skills layer. Every mechanism is decided; build its six slices in order.
+1. [Tool skills](../design/mise-tool-skills.md) — the owner's request (2026-11-23): deliver the skills
+   the user's own mise tools declare as one more skills layer. Built, all six slices; next is graduating it to a
+   system doc.
 
 2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): the hourly
    refresh throttle for packs and the patched-fork upstream check is dropped (a probe per remote, in parallel, under a
