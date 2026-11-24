@@ -282,6 +282,40 @@ func TestDenyDefaultProfileAllowsUnixSocketsUnderItsOwnRootsOnly(t *testing.T) {
 	}
 }
 
+// MMP-D37: POSIX named semaphores are allowed, every name, in every rendering of the profile:
+// LMDB (Pants' local store) and Python's multiprocessing lock with them, and (deny default)
+// refuses sem_open. Removing the allow fails this; so does narrowing it to a list of names, or
+// widening it to shared memory or to every IPC operation, which carry data a semaphore does not.
+func TestDenyDefaultProfileAllowsPosixSemaphoresAndNoOtherIPC(t *testing.T) {
+	for name, pp := range map[string]ProfileParams{"minimal": testProfileParams(), "full": fullProfileParams(),
+		"empty": {}} {
+		p := DenyDefaultProfile(pp)
+		at := strings.Index(p, "#seatbelt-test-id:"+PosixSemAllowID+"#")
+		if at < 0 {
+			t.Fatalf("%s: the profile renders no POSIX semaphore allow", name)
+		}
+		rule := p[at:]
+		rule = rule[strings.Index(rule, "\n")+1:]
+		rule = rule[:strings.Index(rule, "\n")]
+		if !strings.HasPrefix(rule, "(allow ipc-posix-sem) ") {
+			t.Errorf("%s: the form under %s is %q, not the bare (allow ipc-posix-sem): a name filter "+
+				"decides which tools fail, and LMDB and Python each pick their own names", name, PosixSemAllowID, rule)
+		}
+		mustPrecede(t, p, "#seatbelt-test-id:"+PosixSemAllowID+"#", "#seatbelt-test-id:library-keychains-deny#",
+			"the closing block allows nothing, so the semaphore allow sits above it")
+		// The profile's one other IPC rule is libnotify's shared-memory READ. Anything wider
+		// would be read as riding in on this allow.
+		for _, ln := range strings.Split(p, "\n") {
+			if !strings.HasPrefix(ln, "(allow") || !strings.Contains(ln, "ipc") {
+				continue
+			}
+			if ln != rule && !strings.HasPrefix(ln, "(allow ipc-posix-shm-read-data ") {
+				t.Errorf("%s: an IPC allow beyond semaphores and libnotify's shm read: %s", name, ln)
+			}
+		}
+	}
+}
+
 // MMP-D15: this session's host-services dir is granted read-only by its exact path, with a stat
 // of its parent and never a listing, and its liveness lock denied after the allow. Removing the
 // grant fails this; so does granting a write, or a listing of /private/tmp.

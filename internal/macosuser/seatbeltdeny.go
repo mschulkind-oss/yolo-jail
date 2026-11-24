@@ -358,6 +358,7 @@ func DenyDefaultProfile(p ProfileParams) string {
 
 	b.WriteString(processBlocks())
 	b.WriteString(serviceBlocks())
+	b.WriteString(posixSemAllow())
 	b.WriteString(networkBlocks(absCleanAll(ws, home, sandboxTmp)))
 	b.WriteString(nixDaemonBlocks())
 	b.WriteString(closingDenies(hostHome))
@@ -693,6 +694,58 @@ func serviceBlocks() string {
 		"\n(allow system-socket)                                                 ;; [10-runtime] AF_SYSTEM sockets for kernel network event monitoring.\n" +
 		"\n(allow ipc-posix-shm-read-data                                        ;; [10-runtime]\n" +
 		"    (ipc-posix-name \"apple.shm.notification_center\"))                 ;; Shared memory read by libnotify.\n"
+}
+
+// PosixSemAllowID is the test id of the profile's POSIX named-semaphore allow (MMP-D37).
+const PosixSemAllowID = "posix-sem-allow"
+
+// posixSemAllow lets the sandbox use POSIX named semaphores, every name (MMP-D37). `(deny
+// default)` refuses sem_open, and two things an agent's tools do all day are built on it:
+//
+//   - LMDB takes its reader and writer locks with a pair of named semaphores on macOS, `/MDBr…`
+//     and `/MDBw…`. Pants keeps its local store in LMDB: each of the ten Pants engines checked,
+//     2.22.0 to 2.33.2, carries both format strings and imports sem_open, sem_wait, sem_post and
+//     sem_unlink, so refused them Pants cannot open its store;
+//   - Python's multiprocessing makes one per Lock, and a Queue and a ProcessPoolExecutor are
+//     built on Locks. Refused, each raises PermissionError.
+//
+// EVERY NAME, not a list of prefixes. A tool picks its own names, and a semaphore has no path:
+// Seatbelt can scope one by name alone, so a list would only decide which tools fail, each with
+// an error that names no semaphore. That is the loopback ruling's reasoning (MMP-D14). The bare
+// operation is what Codex's base policy ships (codex-rs/sandboxing/src/seatbelt_base_policy.sbpl,
+// read 2026-11-23); Safehouse's system-runtime profile has no semaphore rule.
+//
+// WHAT IT OPENS. A semaphore carries a count and no data. A named one made by a process outside
+// the sandbox can be opened inside by name, then held, released or unlinked, where its mode
+// admits the sandbox's user: in the run-as-you mode, every semaphore of yours. That is what lets
+// the sandbox's Pants and yours take the same locks on the one store they share (cachealias.go),
+// and it is also a way to stall a program of yours that locks with one, for whoever knows or
+// guesses the name. Shared memory, which does carry data, is not widened: the profile's one shm
+// rule stays libnotify's read.
+//
+// MEASURED on macOS 26.7.2 (2026-11-23) with sandbox-exec, under the profile this file renders:
+// without the rule, sem_open(O_CREAT|O_EXCL) of `/MDBr…` and of `/mp-…` fails with EPERM, and
+// Python 3.15's multiprocessing.Lock(), Queue() and ProcessPoolExecutor raise PermissionError;
+// with it, LMDB's sequence (unlink, create, wait, post, open by name, unlink) passes. The bare
+// operation covers the five sub-operations this macOS has: allowing ipc-posix-sem-create alone
+// let the create through and refused the wait, the post and the unlink. And Pants 2.33.2 itself,
+// in a throwaway project: without the rule `pants list ::` ends in "exceeded timeout of 60
+// seconds while waiting for pantsd to start", each store shard holding a lock.mdb and no
+// data.mdb; with it pantsd starts, its file watcher reports a new file to the next run, and a
+// shell_command runs and is stored.
+func posixSemAllow() string {
+	// ASCII only, like the rest of the rendered profile.
+	return "\n;; [yolo] POSIX named semaphores, every name (MMP-D37). LMDB takes its locks with a\n" +
+		";; pair of them on macOS (/MDBr*, /MDBw*), so Pants cannot open its store without\n" +
+		";; them, and Python's multiprocessing makes one per Lock, under every Queue and\n" +
+		";; process pool. A tool picks its own names and Seatbelt can scope a semaphore by\n" +
+		";; name alone, so no narrower rule keeps tools working. A semaphore carries a\n" +
+		";; count, never data. What this opens: one a process of yours made can be opened\n" +
+		";; here by name, where its mode admits the sandbox's user. Shared memory is not\n" +
+		";; widened. The bare operation is Codex's\n" +
+		";; (codex-rs/sandboxing/src/seatbelt_base_policy.sbpl).\n" +
+		";; #seatbelt-test-id:" + PosixSemAllowID + "#\n" +
+		"(allow ipc-posix-sem)                                                 ;; sem_open, sem_wait, sem_post, sem_unlink.\n"
 }
 
 // LoopbackAllowID is the test id of the profile's loopback allow (OQ-MM7, ruled 2026-10-23).
