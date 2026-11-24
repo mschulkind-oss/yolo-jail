@@ -802,6 +802,14 @@ without a `yolo host` caller's env. Not touched here because another lane owns `
 Next step: read how the classifier's refusal can fire on a deselected pack when the test's helper
 process answers late, and wait on that helper's readiness line.
 
+### <a id="cli-short-suite-slowdown"></a>🔧 **`internal/cli` and `internal/cli/run` short suites run 5–10× slower than measured**
+
+`scripts/go_packages.py` recorded about 3 minutes for `internal/cli` on the 32-core Linux jail
+(2026-11-03). On 2026-11-24 it took about 15 minutes idle (`internal/cli/run` about 25) and passed
+45 under host load. The per-package timeout is now a 3-hour hang guard, so this no longer fails a
+landing, but it makes every gate slow. Next step: `go test -short -json` both packages once and rank
+tests by elapsed time; the patched-build replays (`git` process starts) were the long pole before.
+
 ### <a id="unset-env-set-one-verb"></a>🔧 **`yolo config unset env.set.<NAME>` has no single-edit removal**
 
 Its schema removal is `RemovalUnsetList`: the entry leaves `env.set` and its name joins `env.unset`,

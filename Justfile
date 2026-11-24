@@ -259,14 +259,14 @@ test:
 
 # Run fast tests only (skip container integration tests).
 # -timeout is per PACKAGE, and is SHORT_TEST_TIMEOUT in scripts/go_packages.py,
-# which says why it is 45m (internal/cli, serial and git-process-bound, on a
+# which says why it is 3h (internal/cli, serial and git-process-bound, on a
 # loaded Mac). `just done` takes the same value.
 #
 # THE TMPDIR LEAK GATE wraps it: the suite runs under a private TMPDIR, and anything left there
 # afterward fails the recipe, named (scripts/tmp-leak-gate.py says how to find and fix one).
 # No switch turns it off; a leak is fixed in the test that made it.
 test-fast:
-    python3 scripts/tmp-leak-gate.py python3 scripts/go_packages.py run go test -short -timeout=45m
+    python3 scripts/tmp-leak-gate.py python3 scripts/go_packages.py run go test -short -timeout=3h
 
 # Run linter (Go: vet + staticcheck) ONCE PER BUILD CONFIGURATION THIS TREE
 # TARGETS — not once per machine.

@@ -21,9 +21,12 @@ ROOT = Path(__file__).resolve().parent.parent
 # with no test hung in any run: about 3 minutes on a 32-core Linux machine, about 9 on an idle
 # macOS CI runner (check-macos's three shards summed), where a process start costs far more, and
 # 22.6 on a Mac also running the macos-user and integration suites
-# (the retired lab report 2026-11-03-mac-slice-12a-witness-w1 (git log --follow)). The bound sits at twice the
-# slowest, so a hang still panics with every goroutine's stack.
-SHORT_TEST_TIMEOUT = "45m"
+# (the retired lab report 2026-11-03-mac-slice-12a-witness-w1 (git log --follow)).
+# By 2026-11-24 the same package took 15 minutes on that idle Linux machine and passed 45 under
+# host load, failing every loaded landing. The bound is only a hang guard, never a budget a
+# loaded machine must beat (AGENTS.md, Testing), so it is hours: a hang still panics with every
+# goroutine's stack.
+SHORT_TEST_TIMEOUT = "3h"
 
 
 def _has_git_metadata(root):
