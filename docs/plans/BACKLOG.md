@@ -771,6 +771,46 @@ again. It failed once on `/var/lib/containers/storage/overlay` while integration
 jail were adding and removing podman mounts (`internal/entrypoint/fsx_test.go`). A fixture mount
 table instead of the live one would remove the race. Found 2026-10-18.
 
+### <a id="mcpauth-two-brokers-darwin"></a>🔧 **`TestOutcomeTwoBrokersAdoptOneSingleUseToken` fails under `-count` on a Mac**
+
+On the owner's Mac at `fe37424b3` it failed 39 of 40 repetitions under `-count=20` with
+`slack: openat records.lock: no such file or directory` (`internal/mcpauth/outcome_concurrency_test.go`),
+but passed alone and in one full run. On Linux at current main it passes 20 of 20, so it is not
+reproduced here. The lock is opened by `paths.OpenLockFileBeneath` through `openNoFollowLeaf`
+(`internal/paths/statefile_open_unix.go`): an `unix.Openat` with `O_CREAT|O_NOFOLLOW|O_NONBLOCK`
+against a directory descriptor, which returns ENOENT only if that directory vanished or the kernel
+reports a create race that way. Two hypotheses, neither confirmed: (1) darwin returns ENOENT for two
+concurrent `O_CREAT` opens of one new name through `openat`; (2) state shared across repetitions.
+Next step, on a Mac: run with `-count=1 -race` in a loop, and log the directory's `Stat` when the
+openat fails; if (1), retry the open once on ENOENT while the directory still exists.
+
+### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
+
+It failed once in the full `just test-fast` on a Mac (`status=-1 out=""`: the CLI was killed after
+`decisionWaitDelay`, five seconds, rather than interrupted) and passed alone
+(`internal/approvalnotify/main_test.go`). The fixture waits on a FIFO event, so the cause is not
+in the wait. One unconfirmed hypothesis: a signal ignored on entry to a non-interactive `sh` (as when the suite itself
+runs from a background job) cannot be trapped, so the trap never prints and Go falls through to the
+kill. Next step: have the fixture print and exit from `trap` through `exec` of a child that resets
+SIGINT, or fail the test with the inherited disposition named; confirm by running it from `cmd &`.
+
+### <a id="callbroker-revoked-native-parent-flake"></a>🔧 **`TestSelectedHTTPWriteRevokedReadOrChangedNativeParentCannotSpend/pack_deselected` fails once under load**
+
+On a Mac's full gate it failed once (`rc=64`, *"HTTP broker refused: This is a bug in the selected
+pack's HTTP classifier"*, `internal/callbroker/http_host_test.go`) and passed 3 of 3 alone, with and
+without a `yolo host` caller's env. Not touched here because another lane owns `internal/callbroker`.
+Next step: read how the classifier's refusal can fire on a deselected pack when the test's helper
+process answers late, and wait on that helper's readiness line.
+
+### <a id="unset-env-set-one-verb"></a>🔧 **`yolo config unset env.set.<NAME>` has no single-edit removal**
+
+Its schema removal is `RemovalUnsetList`: the entry leaves `env.set` and its name joins `env.unset`,
+two edits in one file, and `configedit` plans one mutation. Since 2026-11-23 the refusal names the verb
+for the second half (`yolo config add env.unset '"NAME"'`) instead of telling the user to hand-edit.
+Still open: whether `unset` should itself do both edits (needs a multi-mutation plan in
+`internal/configedit`), or remove only this file's line (`RemovalUnspecified`), letting a lower file's
+value show through. Found by the Mac run of 2026-11-23.
+
 ### <a id="worker-sigterm-capture-jail"></a>🔧 **A stopped preparation worker leaves its capture jail's keeper running**
 
 A shared-demand worker that gets SIGTERM while a `program-capture-jail` runs exits without waiting

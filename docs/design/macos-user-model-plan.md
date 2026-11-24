@@ -1339,10 +1339,12 @@ the colleague who reported the refusal):
   four outputs, the refusal text, the launch's `tmp:` line, the test results, and
   `log show --last 5m --predicate 'sender == "Sandbox"'` lines naming `/private/tmp` if any tool
   you use failed. It decides whether [MMP-D29](#MMP-D29)'s closing stands for the account mode.
-  *Run 2026-11-13 at `b1d255ded`* (lab report): the closed `/tmp` holds (the four outputs as expected). The closed-`/tmp` line is in `jail-mechanics/topics/limits.md`, not `CLAUDE.md`. The `tmp:` line prints. **`yolo config unset macos_user_shared_tmp --user` is refused** (*"no scalar removal policy"*). The hatch's `touch` and the tests did not run: account-mode launches intermittently stopped with `yolo: command not found` (section 3).
+  *Run 2026-11-13 at `b1d255ded`* (lab report): the closed `/tmp` holds (the four outputs as expected). The closed-`/tmp` line is in `jail-mechanics/topics/limits.md`, not `CLAUDE.md`. The `tmp:` line prints. `yolo config unset macos_user_shared_tmp --user` was refused (*"no scalar removal policy"*); the Mac run of 2026-11-23 at `fe37424b3` found that fixed (it removes the line and leaves the file's starting bytes). The hatch's `touch` and the tests did not run: account-mode launches intermittently stopped with `yolo: command not found` (section 3).
 - <a id="W-PATH1"></a>**W-PATH1 (account-mode provisioning finds no `yolo`,
-  lab report section 3):**
-  at the first main commit that contains `StageYoloMissingStatus` (`git log -1 --format=%h -S
+  the 2026-11-13 Mac run's section 3):** **owed: re-run at main `b640bd144` or later.** The Mac run of
+  2026-11-23 at `fe37424b3` did not run it (the session's permission classifier refused the launch), so
+  nothing yet says whether the stop now names the staged command directory.
+  At the first main commit that contains `StageYoloMissingStatus` (`git log -1 --format=%h -S
   StageYoloMissingStatus -- internal/provision/provision.go`) or later, run through the dev bundle
   (`just build-dev-bundle`), as the lab report's launches were. Setup: a fresh workspace `/Users/Shared/yolo/path1` whose config sets
   `mise_tools`, so the launch runs the provisioning stage. With `YOLO_SETUP=seatbelt-yolo-account`,

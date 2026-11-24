@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -179,6 +180,16 @@ func runConfigEditWithMode(args []string, out, errw io.Writer, workspace string,
 	}
 	if !named {
 		mutation, err = configEditUnsetMutation(target.Format, key, target.AuthoredPath(), target.ExpectedBytes())
+		if errors.Is(err, errUnsetNeedsEnvUnset) {
+			// The verb that keeps a variable out of the jail is `add env.unset`, which applies
+			// after every file's env.set; a hand edit is never the advice.
+			fmt.Fprintf(errw, "cannot unset config key %q in selected file %q: an environment variable is removed by listing its name in env.unset; run `yolo config add env.unset '%q'` (add the scope flag you used here)", positionals[0], target.LogicalPath, key[len(key)-1].Key)
+			if target.Role != config.ExplicitEditUser {
+				fmt.Fprint(errw, "; run `yolo config apply` on the host to approve workspace changes")
+			}
+			fmt.Fprintln(errw)
+			return 1
+		}
 		if err != nil {
 			fmt.Fprintf(errw, "cannot unset config key %q in selected file %q: %v; edit the value manually in that file, then run `yolo check` in this workspace", positionals[0], target.LogicalPath, err)
 			if target.Role != config.ExplicitEditUser {
@@ -410,21 +421,25 @@ func redactHunkSpan(hunk []byte, sourceStart, sourceEnd int, privateSpans []conf
 	return out
 }
 
+// errUnsetNeedsEnvUnset is the unset of an `env.set.<NAME>` entry, whose removal is a name in
+// `env.unset` and so is a different verb (the readable schema's RemovalUnsetList).
+var errUnsetNeedsEnvUnset = errors.New("removing an env.set entry means adding its name to env.unset")
+
 func writeConfigEditHunks(out io.Writer, hunks []configedit.Hunk) {
 	for _, hunk := range hunks {
 		fmt.Fprintln(out, "@@")
-		if len(hunk.Before) > 0 {
-			fmt.Fprintf(out, "-%s", hunk.Before)
-			if hunk.Before[len(hunk.Before)-1] != '\n' {
-				fmt.Fprintln(out)
-			}
-		}
-		if len(hunk.After) > 0 {
-			fmt.Fprintf(out, "+%s", hunk.After)
-			if hunk.After[len(hunk.After)-1] != '\n' {
-				fmt.Fprintln(out)
-			}
-		}
+		writeConfigEditHunkSide(out, '-', hunk.Before)
+		writeConfigEditHunkSide(out, '+', hunk.After)
+	}
+}
+
+// writeConfigEditHunkSide marks every line of one side of a hunk, as a unified diff does.
+func writeConfigEditHunkSide(out io.Writer, marker byte, side []byte) {
+	if len(side) == 0 {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(string(side), "\n"), "\n") {
+		fmt.Fprintf(out, "%c%s\n", marker, line)
 	}
 }
 
@@ -547,7 +562,7 @@ func configEditUnsetMutation(format configdoc.Format, canonicalPath, authoredPat
 		}
 		mutation.Value = "native"
 	case config.RemovalUnsetList:
-		return configedit.Mutation{}, fmt.Errorf("this key's removal requires updating both env.set and env.unset; no multi-key edit is available")
+		return configedit.Mutation{}, errUnsetNeedsEnvUnset
 	case config.RemovalUnspecified:
 		// No removal spelling: the unset is this file's entry, removed whole, whatever it
 		// holds (a scalar, a list, a table, or a value of the wrong shape), so a lower file's

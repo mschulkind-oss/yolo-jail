@@ -165,16 +165,38 @@ func TestGitPreflightEOFStillCancelsSilentGroupAtDeadline(t *testing.T) {
 
 func TestGitPreflightEOFWaitsForOrdinaryExitStatus(t *testing.T) {
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec 1>&- 2>&-\nsleep 0.05\nexit 1\n"), 0700); err != nil {
+	release := filepath.Join(bin, "release")
+	if err := syscall.Mkfifo(release, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The fake git closes its output (EOF for the reader), then blocks on the FIFO until the test
+	// releases it, then exits 1: no clock decides when the exit happens.
+	script := "#!/bin/sh\nexec 1>&- 2>&-\nread _ < '" + release + "'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	// The deadline is only a guard that turns a hang into a red test.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	start := time.Now()
-	_, err := gitOutput(ctx, bin)
+	result := make(chan error, 1)
+	go func() {
+		_, err := gitOutput(ctx, bin)
+		result <- err
+	}()
+	// Opening the FIFO for writing completes once the script, which has already closed its output,
+	// is reading it: the reader has seen EOF while the process is still alive.
+	w, err := os.OpenFile(release, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.WriteString("go\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+	err = <-result
 	var exit *exec.ExitError
-	if !errors.As(err, &exit) || exit.ExitCode() != 1 || time.Since(start) < 50*time.Millisecond {
-		t.Fatalf("ordinary closed-output exit changed: %v (%s)", err, time.Since(start))
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("ordinary closed-output exit changed: %v", err)
 	}
 }
