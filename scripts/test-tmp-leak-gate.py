@@ -95,6 +95,9 @@ class TmpLeakGateTest(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0, "a process that outlives the command must fail the run")
         self.assertIn("TMPDIR LEAK", r.stderr)
         self.assertIn(str(child), r.stderr, "the survivor's pid must be named")
+        self.assertRegex(r.stderr, rf"(?m)^  {child}: \S", "the survivor's command line must be named, so the test that started it can be found")
+        self.assertRegex(r.stderr, rf"(?m)^  {child}: .*\(cwd {re.escape(os.getcwd())}\)$",
+                         "the survivor's working directory must be named: go test runs each package there")
         try:
             os.kill(child, 0)
             alive = open(f"/proc/{child}/stat").read().rsplit(")", 1)[1].split()[0] != "Z" \

@@ -1478,7 +1478,10 @@ const standInScript = `trap 'kill $!; exit 143' TERM; sleep 600 & wait`
 // `/bin/sleep` stand-in never shows its HOME there.
 func startStandIn(t *testing.T, home string, env []string, argv0, script string, args ...string) int {
 	t.Helper()
-	outer := `a0=$1; s=$2; shift 2; (exec -a "$a0" sh -c "$s" "$@" </dev/null >/dev/null 2>&1) & echo $!`
+	// set -m starts the stand-in as the leader of a process group of its own, so stopStandIn can
+	// end its sleep too even when the code under test SIGKILLed the shell, which a TERM trap
+	// cannot answer (a leaked `sleep 600` failed the TMPDIR leak gate, 2026-11-24).
+	outer := `set -m; a0=$1; s=$2; shift 2; (exec -a "$a0" sh -c "$s" "$@" </dev/null >/dev/null 2>&1) & echo $!`
 	base := []string{"HOME=" + home, "PATH=" + standInPath(t)}
 	out, err := runEnvCommand(append(base, env...),
 		append([]string{"bash", "-c", outer, "_", argv0, script}, args...)...)
@@ -1506,9 +1509,14 @@ func standInShows(pid int, argv0 string) bool {
 }
 
 // stopStandIn ends a stand-in the code under test left alive: SIGTERM, so it takes its sleep
-// with it, then SIGKILL.
+// with it, then SIGKILL. Last, whether or not the shell was still alive, it kills the stand-in's
+// process group (startStandIn's set -m), so a sleep whose shell died without its trap goes too.
 func stopStandIn(pid int) {
-	if pid <= 0 || processGone(pid) {
+	if pid <= 0 {
+		return
+	}
+	defer func() { _ = syscall.Kill(-pid, syscall.SIGKILL) }()
+	if processGone(pid) {
 		return
 	}
 	_ = syscall.Kill(pid, syscall.SIGTERM)
