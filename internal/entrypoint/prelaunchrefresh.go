@@ -383,7 +383,14 @@ _drop_refresh_lock() {
 _start_refresh_heartbeat() {
     local launcher=$$
     (
-        while sleep "$REFRESH_HEARTBEAT"; do
+        # The sleep is a background job waited on, so a TERM from _stop_refresh_heartbeat ends the
+        # sleep too: killed alone, this subshell left its sleep running its whole interval.
+        local nap=""
+        trap '[ -z "$nap" ] || kill "$nap" 2>/dev/null; exit 0' TERM
+        while :; do
+            sleep "$REFRESH_HEARTBEAT" & nap=$!
+            wait "$nap" || exit 0
+            nap=""
             kill -0 "$launcher" 2>/dev/null || exit 0
             [ "$(_refresh_lock_owner)" = "$REFRESH_TOKEN" ] || exit 0
             touch -c "$REFRESH_LOCK" 2>/dev/null || exit 0
