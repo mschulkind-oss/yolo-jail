@@ -1,9 +1,9 @@
 ---
 title: "One home per workspace, shared by every setup, with a small slice for what must differ"
 date: 2026-11-23
-status: in-review
-stage: DESIGN
-next: "The owner rules OQ-UH1 to OQ-UH5; the Mac agent runs W-UH2 (how each agent keys its sessions by directory) before the alias slice is built"
+status: accepted
+stage: DECIDED
+next: "The planner writes the implementation plan for slice 1 (container setups); the Mac agent runs W-UH2 and W-UH3 (how each agent keys and follows its session directories) before the alias slice is built"
 tags: [design, setups, home, sessions, concurrency, migration, macos-user]
 summary: "Every setup of a workspace shares one unified home under .yolo for sessions, history, plugins and every other state an agent keeps; each setup keeps a small slice (installs, the files yolo generates at boot, yolo's own state) at the path it has today. A setup's state directory becomes a real directory in its slice whose children link into the unified home. One container setup plus one guest may run together; two container setups are refused; stranded and legacy homes are merged, never lost. Sessions are never shared with the host, nor across workspaces unless the owner declares a set."
 vantage:
@@ -12,7 +12,7 @@ vantage:
 
 # One home per workspace, shared by every setup
 
-**Status:** 2026-11-23. Nothing built except the move-late fix this builds on (`09ba35cd9`). Evidence read at that
+**Status:** 2026-11-23; [OQ-UH1](#OQ-UH1) to [OQ-UH5](#OQ-UH5) ruled 2026-11-24. Nothing built except the move-late fix this builds on (`09ba35cd9`). Evidence read at that
 commit ([Appendix A](#appendix-a-evidence)). What only the Mac can answer is UNMEASURED and named in
 [§13.3](#mac-checks).
 
@@ -33,7 +33,7 @@ workspace; a guest and a container resume each other's sessions only through a p
 
 **Start at [§3](#3-the-target-model)**, then [§5](#5-one-layout-and-how-a-setup-reaches-the-home).
 
-**Needs your ruling:** [OQ-UH1](#OQ-UH1), [OQ-UH2](#OQ-UH2), [OQ-UH3](#OQ-UH3), [OQ-UH4](#OQ-UH4), [OQ-UH5](#OQ-UH5).
+**Ruled 2026-11-24:** [OQ-UH1](#OQ-UH1) to [OQ-UH5](#OQ-UH5), each as leaned; no question remains open.
 
 **Reads with:** [`named-setups.md`](named-setups.md) (its section 9 and SU-D6 are what this amends),
 [`named-setups-plan.md`](named-setups-plan.md) (SUP-D9 to SUP-D36, the move this generalizes),
@@ -269,7 +269,7 @@ today ([UH-D5](#decision-ledger)).
 | guest | container | Allow |
 | guest | guest | Refuse ([OQ-UH1](#OQ-UH1)) |
 | any | the same setup | Attach, unchanged |
-| any | a peer that cannot be asked | Refuse; relaxable for a stopped runtime ([OQ-UH3](#OQ-UH3)) |
+| any | a peer that cannot be asked | Refuse, unless every keeper and session record says not running and only the runtime could not be asked: then proceed with one line ([OQ-UH3](#OQ-UH3)) |
 
 Two container setups share the most (the same `/workspace` slug, the same generated-state races, the same per-workspace
 host services) and nobody asked for the pair. A refusal is cheap to loosen and unsafe to tighten after a bad write.
@@ -289,7 +289,10 @@ probe:
    and held until the jail answers, so two launches of different setups cannot both pass. Launches of different
    setups of one workspace queue through jail-up; that is the cost.
 
-**Unknown refuses**, as the attach decision does, naming the command that settles it:
+**Unknown refuses**, as the attach decision does, naming the command that settles it, with one exception
+([OQ-UH3](#OQ-UH3)): when every keeper lock and session record says the peer is not running and only its runtime
+could not be asked (a stopped Podman machine), the launch proceeds and prints one line naming the setup it could
+not ask. The accepted miss is a jail whose keeper died while its runtime is unreachable. A refusal reads:
 
 > Refusing to launch: could not ask Podman whether `podman-self` is running for this workspace. Run `podman ps -a`
 > to see, then launch again.
@@ -354,13 +357,12 @@ machine and the real path is not.
   inside it. With sets ([§11](#11-workspace-sets-a-later-slice)) each member needs its own prefix.
 - **Symlink principle.** [No symlink guessing](../reference/no-symlink-guessing-principle.md) governs a user's file that
   is already a link. The alias is a link yolo lays by a name rule it owns, in a store it owns; yolo never follows or
-  interprets a link it did not lay. That is my reading of a principle the owner wrote for user files, so it goes to him
-  as [OQ-UH4](#OQ-UH4).
+  interprets a link it did not lay. The owner ruled that reading ([OQ-UH4](#OQ-UH4)): yolo may lay these links.
 
 Three agent behaviors decide whether aliases work: does the agent follow a symlinked project directory, does its
 cleanup replace the link with a directory, does it resolve the path and write the real name (harmless).
-[W-UH2](#mac-checks) and [W-UH3](#mac-checks) measure them. **Until measured, or if the owner rules against
-links, the guest keeps its own sessions** and containers share theirs; nothing else here waits on it.
+[W-UH2](#mac-checks) and [W-UH3](#mac-checks) measure them. **Until measured, or if the agent does not follow
+the link, the guest keeps its own sessions** and containers share theirs; nothing else here waits on it.
 
 Other ways to give the guest a stable path are in [Appendix B](#appendix-b-alternatives-considered).
 
@@ -427,7 +429,8 @@ knowledge of which release stranded them. Sam's workspace holds `podman-self/hom
 `apple-container-self/home` holds `.claude/projects/c.jsonl` and a Podman-laid `claude/projects/a.jsonl`. The first
 launch with no jail running leaves `unified-home/.claude/projects` holding a, b and c, and prints one line such as
 "Merged 3 sessions into this workspace's shared home." With a jail running it names the source that waits and
-`yolo stop`. `yolo check` shows what waits, a read-only plan ([OQ-UH2](#OQ-UH2)).
+`yolo stop`. `yolo check` shows what waits, a read-only plan. A launch is the only thing that merges; there is no
+`yolo home merge` verb ([OQ-UH2](#OQ-UH2)).
 
 ### 9.5 What is reused
 
@@ -535,112 +538,12 @@ Smallest finished first; each lands alone.
    composition for Podman and Apple Container, the stranded-home migration, the project lock for every launch, the
    two-container refusal and the host guard test. It gives the owner's first want. Mac: W-UH1, W-UH5, W-UH6.
 2. **The guest joins:** links with real-path targets, container plus guest allowed, the yolo-account gate. Mac: W-UH4, W-UH5.
-3. **The alias set**, gated on W-UH2, W-UH3 and [OQ-UH4](#OQ-UH4).
-4. **Settings follow**, only if [OQ-UH5](#OQ-UH5) is ruled B.
-5. **Workspace sets** ([§11](#11-workspace-sets-a-later-slice)).
-6. **Retire the stale prose** of [§12](#12-rulings-this-amends); graduate this document to a reference.
+3. **The alias set** ([OQ-UH4](#OQ-UH4)), gated on W-UH2 and W-UH3.
+4. **Workspace sets** ([§11](#11-workspace-sets-a-later-slice)).
+5. **Retire the stale prose** of [§12](#12-rulings-this-amends); graduate this document to a reference.
 
-No companion implementation plan exists yet; the planner writes it once this design is accepted.
-
-## Open Questions
-
-1. 💬 **OQ-UH1: Should two guests, `seatbelt-self` and `seatbelt-yolo-account`, run in one workspace at once?**
-
-   Dana has both guest setups. She runs `yolo --setup seatbelt-self -- claude` in one terminal and
-   `yolo --setup seatbelt-yolo-account -- claude` in another; today both run, each in its own home, and the Mac run
-   of 2026-11-09 saw it work. With one unified home both would write one tree as two macOS users, which no one has
-   measured.
-
-   - **A — Refuse the second.** Dana sees "Refusing to launch: `seatbelt-self` is running for this workspace… Stop it
-     with `yolo stop --setup seatbelt-self`, then launch again." She stops one first.
-   - **B — Allow it,** as with a container and a guest. Both run; their files share ACL-inherited permissions that
-     [W-UH4](#mac-checks) must show work in both directions.
-
-   <!-- vantage: question id=OQ-UH1 leaning="A (Refuse the second) — nobody named this pair, and a refusal is cheap to loosen after a measurement but unsafe to tighten after two users write one tree." -->
-
-   _Leaning:_ A (Refuse the second) — nobody named this pair, and a refusal is cheap to loosen after a measurement but
-   unsafe to tighten after two users write one tree.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-2. 💬 **OQ-UH2: Is a launch the only thing that merges old homes, or does `yolo home merge` exist too?**
-
-   Sam upgrades with sessions in two old homes and his Podman jail still running. His next launch cannot merge them and
-   prints which home waits and `yolo stop`. He cannot see what will move, or how many sessions, before it does.
-
-   - **A — Launch only.** Sam runs `yolo stop`, launches, and the merge runs silently with one line. `yolo check` lists
-     what waits and from which setup, as a read-only plan. No new verb.
-   - **B — Also `yolo home merge [--plan]`.** Sam previews with `--plan` and runs it without a launch; one more command
-     to document and keep working.
-
-   <!-- vantage: question id=OQ-UH2 leaning="A (Launch only) — the owner ruled the move silent, and yolo check already gives the preview a verb would." -->
-
-   _Leaning:_ A (Launch only) — the owner ruled the move silent, and `yolo check` already gives the preview a verb
-   would.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-3. 💬 **OQ-UH3: Should a stopped Podman machine stop an Apple Container launch?**
-
-   Priya once ran `podman-self` in this workspace and now runs Apple Container daily; her Podman machine is off. Before
-   launching, yolo asks every setup the workspace has used whether it runs. Podman cannot answer, though no Podman
-   keeper holds its lock. She runs `yolo`.
-
-   - **A — Refuse.** She reads "could not ask Podman whether `podman-self` is running… Run `podman ps -a`", starts the
-     machine, and launches again, every day the machine is off.
-   - **B — Proceed when every keeper and session record says not running** and only the runtime could not be asked,
-     printing one line naming the setup it could not ask. The one miss is a jail whose keeper died while its runtime is
-     unreachable, which would let two container setups run.
-
-   <!-- vantage: question id=OQ-UH3 leaning="B (Proceed on keeper evidence) — the keeper lock is the stronger witness for every jail yolo starts, and a daily refusal costs more than a rare double fault." -->
-
-   _Leaning:_ B (Proceed on keeper evidence) — the keeper lock is the stronger witness for every jail yolo starts, and
-   a daily refusal costs more than a rare double fault.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-4. 💬 **OQ-UH4: May yolo lay alias links in the shared store so a guest resumes a container's sessions?**
-
-   Priya runs Claude in `podman-self` all week; its sessions sit under `-workspace`. She starts `seatbelt-self` at
-   `/Users/priya/code/proj`; Claude keys by the real path, so `/resume` there lists nothing. yolo could lay a link
-   `-Users-priya-code-proj → -workspace` in the shared store. It is a link yolo makes in yolo's own store, not a user's
-   file, but the owner's rule on symlinks was written for user files. It serves one pairing, the one he wants supported,
-   and works only if Claude follows the link, which is unmeasured.
-
-   - **A — Lay the alias links.** Priya sees the week's sessions in the guest once W-UH3 shows Claude follows them; if it
-     does not, the guest keeps its own sessions with no error.
-   - **B — No links, ever.** The guest has its own sessions; Podman and Apple Container share theirs; switching to the
-     guest still looks like losing sessions.
-
-   <!-- vantage: question id=OQ-UH4 leaning="A (Lay the alias links) — it is the only candidate that keeps one store, the principle is about user files, and a measurement gates it." -->
-
-   _Leaning:_ A (Lay the alias links) — it is the only candidate that keeps one store, the principle is about user
-   files, and a measurement gates it.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
-
-5. 💬 **OQ-UH5: Should your own edits to a generated settings file follow you when you switch setups?**
-
-   Dana sets a theme and a hook by editing `~/.claude/settings.json` inside a Podman jail. yolo regenerates the file each
-   boot and keeps her keys (read-modify-write), but the file belongs to the setup. Switching to Apple Container, she
-   finds the edit gone. Edits made through `yolo config` already apply to every setup.
-
-   - **A — No; they stay per setup.** Dana repeats the edit or makes it through `yolo config`. Simple and safe: a
-     guest's managed keys name macOS paths.
-   - **B — Yes; the capture overlay moves to the unified home.** Her edit follows her; a key captured in a guest can
-     name a macOS path that a container then applies, which no one has measured.
-
-   <!-- vantage: question id=OQ-UH5 leaning="A (No, they stay per setup) — config edits already follow through yolo config, and B waits on a measurement of platform-specific captured keys." -->
-
-   _Leaning:_ A (No, they stay per setup) — config edits already follow through `yolo config`, and B waits on a
-   measurement of platform-specific captured keys.
-
-   **Answer:**
-   > _(empty — fill in when decided)_
+Generated settings files stay per setup ([OQ-UH5](#OQ-UH5)); no slice moves them. No companion implementation plan
+exists yet; the planner writes it next.
 
 ## Decision Ledger
 
@@ -656,16 +559,21 @@ No companion implementation plan exists yet; the planner writes it once this des
 | <a id="UH-D3"></a>UH-D3 | **The unified home is dotted and mirrors the in-jail path; slices keep their backend's layout.** A design decision: only links cross the boundary and they are named for the child. | 2026-11-23 | [§5.1](#51-the-dotted-and-undotted-split-settled) | — |
 | <a id="UH-D4"></a>UH-D4 | **A setup reaches the unified home by links inside a composed directory,** an absolute `/workspace` target in containers and the real path in the guest; Podman binds the composed directory. A design decision: one mechanism all three backends hold, with no extra mounts. | 2026-11-23 | [§5.2](#52-composition-what-a-launch-does-to-its-own-slice) | — |
 | <a id="UH-D5"></a>UH-D5 | **At most one container setup per workspace; container plus guest allowed; same-setup attach unchanged.** The owner's UH-R5 words, built on `jailRuns` with the witness class and the project lock for every fresh launch; no lock file in `.yolo`. | 2026-11-23 | [§7.1](#71-the-rule), [§7.2](#72-where-it-runs) | — |
-| <a id="UH-D6"></a>UH-D6 | **A peer that cannot be asked refuses the launch, naming the command that settles it.** A design decision, relaxable by [OQ-UH3](#OQ-UH3). | 2026-11-23 | [§7.2](#72-where-it-runs) | — |
+| <a id="UH-D6"></a>UH-D6 | **A peer that cannot be asked refuses the launch, naming the command that settles it.** A design decision, relaxed by [OQ-UH3](#OQ-UH3) for a runtime that cannot be asked when the keeper evidence says not running. | 2026-11-23 | [§7.2](#72-where-it-runs) | — |
 | <a id="UH-D7"></a>UH-D7 | **A database is carved out until a measurement shows two kernels can share it.** A design decision: a SQLite store across a VM boundary has unmeasured lock behavior. | 2026-11-23 | [§6.3](#63-the-carve-out-key) | — |
 | <a id="UH-D8"></a>UH-D8 | **Migration is composition applied to every home on disk:** a rename that refuses to replace, keep-both `.from-<setup>`, links moved as links, nothing deleted, silent through the plan and commit split, refused while any jail runs for other homes. A design decision under [OQ-SU5](named-setups.md#OQ-SU5). | 2026-11-23 | [§9](#9-migration-one-merge-for-every-home-on-disk) | — |
 | <a id="UH-D9"></a>UH-D9 | **No table of shipped directory names:** a source is read by the selected packs' declarations only. A design decision: it keeps `packload.Embedded*` out of name reservation and an unselected pack's directory untouched. | 2026-11-23 | [§9.1](#91-what-exists-and-what-the-merge-reads) | — |
-| <a id="UH-D10"></a>UH-D10 | **The guest's session names alias the container's `-workspace` entries by links in the shared store, opt-in per pack and gated on measurement.** A design decision: `/workspace` is the same on every machine and the real path is not. [OQ-UH4](#OQ-UH4) rules the principle. | 2026-11-23 | [§8](#8-the-guests-path-to-the-workspace) | — |
+| <a id="UH-D10"></a>UH-D10 | **The guest's session names alias the container's `-workspace` entries by links in the shared store, opt-in per pack and gated on measurement.** A design decision: `/workspace` is the same on every machine and the real path is not. [OQ-UH4](#OQ-UH4) ruled the principle. | 2026-11-23 | [§8](#8-the-guests-path-to-the-workspace) | — |
 | <a id="UH-D11"></a>UH-D11 | **Host and jail are separated by construction and a test:** one path function, link targets confined to the unified home, an import test on the host renderer. | 2026-11-23 | [§10](#10-host-and-jail-never-share) | — |
 | <a id="UH-D12"></a>UH-D12 | **Sets share sessions only,** through a per-pack `session_paths`, in a machine-tier store, with merge semantics. A design decision answering the owner's *"share the same sessions."* | 2026-11-23 | [§11](#11-workspace-sets-a-later-slice) | — |
 | <a id="UH-D13"></a>UH-D13 | **`seatbelt-yolo-account` joins the unified home only after W-UH4 passes;** until then it keeps a private whole state directory and says so. A design decision: its files are another user's. | 2026-11-23 | [§7.4](#74-the-yolo-account) | — |
 | <a id="UH-D14"></a>UH-D14 | **`DIR-BH1` is not in tension:** composition links selected packs only, and the unified home is never a home. | 2026-11-23 | [§6.4](#64-dir-bh1-no-tension) | — |
 | <a id="UH-D15"></a>UH-D15 | **`bash_history`, `.ssh`, core `.config`, `venv-shadows` and `writable-home` stay in the slice.** A design decision: single-file bind inodes, generated content, or unknown content. | 2026-11-23 | [§4](#4-what-goes-where) | — |
+| <a id="OQ-UH1"></a>[OQ-UH1](#OQ-UH1) | **A second guest is refused:** `seatbelt-self` and `seatbelt-yolo-account` never run at once in one workspace. The owner: *"A (Refuse the second)."* | 2026-11-24 | [§7.1](#71-the-rule) | — |
+| <a id="OQ-UH2"></a>[OQ-UH2](#OQ-UH2) | **A launch is the only thing that merges old homes;** no `yolo home merge` verb, and `yolo check` shows what waits. The owner: *"A (Launch only)."* | 2026-11-24 | [§9.4](#94-stranded-users-and-what-they-see) | — |
+| <a id="OQ-UH3"></a>[OQ-UH3](#OQ-UH3) | **A peer whose runtime cannot be asked does not refuse when every keeper and session record says it is not running;** the launch proceeds with one line naming that setup. The owner: *"B (Proceed on keeper evidence)."* Amends [UH-D6](#UH-D6). | 2026-11-24 | [§7.2](#72-where-it-runs) | — |
+| <a id="OQ-UH4"></a>[OQ-UH4](#OQ-UH4) | **yolo may lay alias links in its own shared store** so a guest resumes a container's sessions, gated on W-UH2 and W-UH3. The owner: *"A (Lay the alias links)."* | 2026-11-24 | [§8](#8-the-guests-path-to-the-workspace) | — |
+| <a id="OQ-UH5"></a>[OQ-UH5](#OQ-UH5) | **Edits to a generated settings file stay per setup;** edits through `yolo config` already reach every setup. The owner: *"A (No, they stay per setup)."* | 2026-11-24 | [§14](#14-slices) | — |
 
 ## Mac checks
 
