@@ -207,6 +207,15 @@ func TestScanFindsNestedFilesAndSkipsGitAndNodeModules(t *testing.T) {
 	}
 }
 
+// The workspace's own .yolo state (a home with thousands of directories) is yolo's, not the repository's.
+func TestScanSkipsTheWorkspacesOwnYoloState(t *testing.T) {
+	ws := workspaceWith(t, map[string]string{"AGENTS.md": "a", ".yolo/home/a/b/c/d/e/f/AGENTS.md": "state"})
+	scan := ScanWorkspace(ws, map[string][]string{"claude": {"AGENTS.md"}})
+	if scan.Incomplete || strings.Join(scan.Files["claude"], ",") != "AGENTS.md" {
+		t.Errorf("scan = %+v, want only the repository's file and no bound reached", scan)
+	}
+}
+
 func TestScanStopsAtItsDepthBoundAndSaysSo(t *testing.T) {
 	ws := workspaceWith(t, map[string]string{"a/b/c/d/e/f/g/AGENTS.md": "too deep", "AGENTS.md": "near"})
 	scan := ScanWorkspace(ws, map[string][]string{"claude": {"AGENTS.md"}})

@@ -48,7 +48,7 @@ func ScanWorkspace(workspace string, reads map[string][]string) Scan {
 			return nil
 		}
 		if d.IsDir() {
-			if d.Name() == ".git" || d.Name() == "node_modules" {
+			if d.Name() == ".git" || d.Name() == "node_modules" || (d.Name() == ".yolo" && filepath.Dir(rel) == ".") {
 				return filepath.SkipDir
 			}
 			depth := strings.Count(rel, string(filepath.Separator)) + 1

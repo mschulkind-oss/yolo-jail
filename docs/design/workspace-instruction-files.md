@@ -173,7 +173,7 @@ repo instructions: agy: NOT ignored, it still reads GEMINI.md, AGENTS.md; agents
 The last form is the unsupported agent's line. It names the next step: the agents that do honor the mode, and the
 command that sets it back to `keep`.
 
-- The files are counted by a bounded scan: depth at most 6, skipping `.git` and `node_modules`, at most 5,000
+- The files are counted by a bounded scan: depth at most 6, skipping `.git`, `node_modules` and the workspace's own `.yolo` state, at most 5,000
   directories. A scan that cannot finish says so and names the patterns instead.
 - It is in the launch stream and `launch.log`, and `YOLO_NO_BANNER` does not hide it ([report-tiers.md](../reference/report-tiers.md)).
 - `yolo config why repo_instructions.mode` names the layer that set the mode.
