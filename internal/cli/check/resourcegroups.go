@@ -52,25 +52,36 @@ func sectionResourceGroups(r *reporter, cfg *jsonx.OrderedMap, workspace string,
 		r.line("  Resource groups: disabled (no workspace mapping)")
 		return
 	}
-	if pathsForSelection != nil {
-		paths, resolveErr := pathsForSelection(selection)
-		if resolveErr != nil {
-			r.line("  I/O policy observation: unknown/unavailable: " + termsafe.Visible(resolveErr.Error()))
-		} else if len(paths.Devices) == 0 {
-			r.line("  I/O policy observation: unknown/unavailable (the selected group supplied no device identities; no host-wide device scan was performed).")
-		} else {
-			plan := resourcegroups.ReadAndPlanIO(paths, selection.AgentPercent, readFile)
-			r.line("  I/O policy plan (read-only; child ceilings are not applied or enforced):")
-			if !selection.AgentPercentExplicit {
-				r.line("  I/O child split: 5% agent / 95% batch is an engineering default, not measured throughput.")
-			} else {
-				r.line(fmt.Sprintf("  I/O child split: %d%% agent / %d%% batch (owner override; not measured throughput).", selection.AgentPercent, 100-selection.AgentPercent))
-			}
-			for _, row := range plan.Dimensions {
-				r.line("  I/O policy: " + resourcegroups.FormatIODimension(row))
-			}
-		}
+	identity := "Resource group selected: " + termsafe.Visible(selection.Unit) + " via " + termsafe.Visible(selection.Source)
+	removal := "To launch without a group, remove the mapping with `yolo config unset --user resource_groups`."
+	if pathsForSelection == nil {
+		r.fail(identity+"; its policy cannot be observed here", "Run `yolo check --no-build` on the host. "+removal)
+		return
 	}
-	r.fail("Resource group selected: "+termsafe.Visible(selection.Unit)+" via "+termsafe.Visible(selection.Source)+"; placement unsupported/unknown",
-		"This build cannot verify host resource-group placement or policy. Every launch this mapping selects refuses. Remove the mapping with `yolo config unset --user resource_groups`; do not treat selection as enforcement.")
+	paths, resolveErr := pathsForSelection(selection)
+	if resolveErr != nil {
+		r.line("  I/O policy observation: unknown/unavailable: " + termsafe.Visible(resolveErr.Error()))
+		r.fail(identity+"; a launch cannot place it", "Start the unit in your user manager (`systemctl --user start "+termsafe.Visible(selection.Unit)+"`) with a finite IOReadBandwidthMax or IOWriteBandwidthMax, or fix the observation above. "+removal)
+		return
+	}
+	if len(paths.Devices) == 0 {
+		r.line("  I/O policy observation: unknown/unavailable (the selected group supplied no device identities; no host-wide device scan was performed).")
+		r.fail(identity+"; a launch cannot place it", "Give the unit a finite IOReadBandwidthMax or IOWriteBandwidthMax. "+removal)
+		return
+	}
+	plan := resourcegroups.ReadAndPlanIO(paths, selection.AgentPercent, readFile)
+	r.line("  I/O policy plan (read-only; this check writes nothing, a launch applies it):")
+	if !selection.AgentPercentExplicit {
+		r.line("  I/O child split: 5% agent / 95% batch is an engineering default, not measured throughput.")
+	} else {
+		r.line(fmt.Sprintf("  I/O child split: %d%% agent / %d%% batch (owner override; not measured throughput).", selection.AgentPercent, 100-selection.AgentPercent))
+	}
+	for _, row := range plan.Dimensions {
+		r.line("  I/O policy: " + resourcegroups.FormatIODimension(row))
+	}
+	if err := resourcegroups.CheckDelegatedIO(paths, readFile); err != nil {
+		r.fail(identity+"; a launch cannot place it", termsafe.Visible(err.Error())+" "+removal)
+		return
+	}
+	r.warn(identity+"; io is delegated, so a launch will create the two children and place itself", "Placement and enforcement are not verified by this check; the owner's host witness establishes them. "+removal)
 }

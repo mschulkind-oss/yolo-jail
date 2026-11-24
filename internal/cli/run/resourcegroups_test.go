@@ -2,10 +2,12 @@ package run
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,15 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/resourcegroups"
 )
 
+// hermeticHostPlacement replaces the host launch's real placement dependencies, which read
+// YOLO_VERSION (set in the jail this suite often runs in), systemd and the cgroup mount.
+func hermeticHostPlacement(t *testing.T, p resourceGroupPlacement) {
+	t.Helper()
+	saved := hostResourceGroupPlacement
+	hostResourceGroupPlacement = func() resourceGroupPlacement { return p }
+	t.Cleanup(func() { hostResourceGroupPlacement = saved })
+}
+
 func TestHostResourceGroupRefusalEscapesDynamicTerminalText(t *testing.T) {
 	root := filepath.Join(canonicalTempDir(t), "[bold red]project\x1b[31m[/bold red]")
 	workspace := filepath.Join(root, "child")
@@ -23,6 +34,9 @@ func TestHostResourceGroupRefusalEscapesDynamicTerminalText(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Chdir(workspace)
+	hermeticHostPlacement(t, resourceGroupPlacement{IsLinux: true, Observe: func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
+		return resourcegroups.IOPaths{}, fmt.Errorf("observer failed")
+	}})
 	projects := jsonx.NewOrderedMap()
 	projects.Set(root, "safe.slice")
 	group := jsonx.NewOrderedMap()
@@ -38,7 +52,7 @@ func TestHostResourceGroupRefusalEscapesDynamicTerminalText(t *testing.T) {
 		t.Fatalf("host refusal contains raw terminal control: %q", got)
 	}
 	visible := strings.ReplaceAll(got, "\u2060", "")
-	for _, want := range []string{"[bold red]project\\x1b[31m[/bold red]", "safe.slice", "This build cannot place a launch in a resource group"} {
+	for _, want := range []string{"[bold red]project\\x1b[31m[/bold red]", "safe.slice", "could not be placed", "yolo config unset --user resource_groups"} {
 		if !strings.Contains(visible, want) {
 			t.Errorf("host refusal lost visible dynamic text %q: %q", want, got)
 		}
@@ -134,13 +148,13 @@ func TestMappedLaunchInJailDoesNotProbeHostPolicy(t *testing.T) {
 	if observerCalls != 0 || managerCalls != 0 {
 		t.Errorf("in-jail Run made host policy probes: observer=%d systemctl=%d", observerCalls, managerCalls)
 	}
-	for _, forbidden := range []string{"Read-only I/O child plan", "finite assigned"} {
+	for _, forbidden := range []string{"I/O child plan", "finite assigned"} {
 		if strings.Contains(got, forbidden) {
 			t.Errorf("in-jail Run presented host policy output %q:\n%s", forbidden, got)
 		}
 	}
-	if !strings.Contains(got, "unknown/unavailable") || !strings.Contains(got, "unsupported/unknown") {
-		t.Fatalf("in-jail Run did not preserve explicit unknown/refusal status:\n%s", got)
+	if !strings.Contains(got, "inside a jail") || !strings.Contains(got, "could not be placed") || !strings.Contains(got, "yolo config unset --user resource_groups") {
+		t.Fatalf("in-jail Run did not refuse with a next step:\n%s", got)
 	}
 }
 
@@ -157,14 +171,14 @@ func TestRunResourceGroupDiagnosticsEscapeDynamicTerminalText(t *testing.T) {
 	cfg := jsonx.NewOrderedMap()
 	cfg.Set("resource_groups", resourceGroup)
 	var stderr bytes.Buffer
-	o := &Options{Workspace: workspace, Stderr: &stderr}
+	o := &Options{Workspace: workspace, Stderr: &stderr, IsLinux: true}
 	fillDefaults(o)
 	o.Stderr = &stderr
 	o.Getenv = func(string) string { return "" }
 	o.ResourceGroupIOPaths = func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
 		return resourcegroups.IOPaths{}, fmt.Errorf("observer [bold yellow]failure[/bold yellow]\x1b[2J")
 	}
-	if !o.refuseUnsupportedResourceGroup(cfg) {
+	if !o.placeOrRefuseResourceGroup(cfg) {
 		t.Fatal("selected resource group did not retain the placement refusal")
 	}
 	got := stderr.String()
@@ -195,7 +209,7 @@ func TestRunResourceGroupsOffInJailDoesNotProbeOrRefuse(t *testing.T) {
 		observerCalls++
 		return resourcegroups.IOPaths{}, fmt.Errorf("must not be called")
 	}
-	if o.refuseUnsupportedResourceGroup(jsonx.NewOrderedMap()) {
+	if o.placeOrRefuseResourceGroup(jsonx.NewOrderedMap()) {
 		t.Fatal("disabled in-jail selection unexpectedly refused")
 	}
 	if observerCalls != 0 || stderr.Len() != 0 {
@@ -243,36 +257,149 @@ func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
 		}
 		return resourcegroups.IOPaths{Devices: []string{"8:0"}, Assigned: planFile, UserManager: true}, nil
 	}
-	execCount := 0
+	if runtime.GOOS != "linux" {
+		t.Skip("the delegation preflight is linux-only; authority_other.go answers unsupported elsewhere")
+	}
+	execCount, placeCalls := 0, 0
 	o.Exec = func([]string, string, []string, time.Duration) ExecResult {
 		execCount++
 		return ExecResult{Ran: false}
+	}
+	o.ResourceGroupPlace = func(_ context.Context, sel config.ResourceGroupSelection, iopaths resourcegroups.IOPaths, lockDir string, pid int) (string, error) {
+		placeCalls++
+		if sel.Unit != "forms.slice" || sel.AgentPercent != 5 || iopaths.Assigned != planFile || lockDir == "" || pid != os.Getpid() {
+			t.Errorf("writer got unit=%q percent=%d assigned=%q lock=%q pid=%d", sel.Unit, sel.AgentPercent, iopaths.Assigned, lockDir, pid)
+		}
+		return "", fmt.Errorf("fixture writer refuses; run yolo check --no-build")
 	}
 	o.Getenv = func(string) string { return "" }
 	if rc := Run(*o); rc != 1 {
 		t.Fatalf("Run() = %d, want refusal\nstderr:\n%s", rc, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), `forms.slice`) || !strings.Contains(stderr.String(), `yolo config unset --user resource_groups`) || !strings.Contains(stderr.String(), `unsupported/unknown`) {
-		t.Fatalf("resource-group refusal lacks selected identity, unsupported state, or next step:\n%s", stderr.String())
+	got := stderr.String()
+	for _, want := range []string{`forms.slice`, `could not be placed`, `fixture writer refuses`, `yolo config unset --user resource_groups`, `I/O child plan for the selected group:`, `8:0 rbps: finite assigned 101`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("mapped Run output lacks %q:\n%s", want, got)
+		}
 	}
-	if !strings.Contains(stderr.String(), `Read-only I/O child plan (not applied or enforced)`) || !strings.Contains(stderr.String(), `8:0 rbps: finite assigned 101`) {
-		t.Fatalf("selected launch did not consume its finite read-only plan:\n%s", stderr.String())
-	}
-	// The delegation preflight is the build's own: only linux compiles the cgroup-v2 checker
-	// (internal/resourcegroups/authority_other.go answers unsupported everywhere else), so a
-	// macOS runner's host reports that rather than the Linux answer the fixture describes.
-	wantPreflight := `controller visible; child write authority and placement unverified`
-	if runtime.GOOS != "linux" {
-		wantPreflight = `Resource-group I/O delegation: unsupported/unknown: delegated cgroup-v2 I/O is unsupported on this platform`
-	}
-	if !strings.Contains(stderr.String(), wantPreflight) {
-		t.Fatalf("mapped Run omitted read-only delegation preflight while refusing startup:\n%s", stderr.String())
-	}
-	if planObserved != 1 {
-		t.Fatalf("resource-group plan observer calls = %d, want one production gate call", planObserved)
+	if planObserved != 1 || placeCalls != 1 {
+		t.Fatalf("observer calls = %d, writer calls = %d, want one production gate call each", planObserved, placeCalls)
 	}
 	if execCount != 0 {
-		t.Fatalf("injected launch observer reached an external execution hook %d times", execCount)
+		t.Fatalf("a refused placement reached an external execution hook %d times", execCount)
+	}
+}
+
+// A placed launch records what the placement established, so the container argv asks the
+// runtime for the same group; deleting the gate's call leaves it nil and this fails.
+func TestPlacedResourceGroupIsRecordedForTheLaunch(t *testing.T) {
+	workspace := canonicalTempDir(t)
+	t.Setenv("HOME", canonicalTempDir(t))
+	group := jsonx.NewOrderedMap()
+	group.Set("default", "batch.slice")
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("resource_groups", group)
+	root := canonicalTempDir(t)
+	assigned := filepath.Join(root, "io.max")
+	for name, data := range map[string]string{"io.max": "8:0 rbps=101 wbps=20\n", "cgroup.controllers": "io\n", "cgroup.subtree_control": "io\n"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stderr bytes.Buffer
+	o := &Options{Workspace: workspace, Stderr: &stderr, IsLinux: true}
+	fillDefaults(o)
+	o.Stderr = &stderr
+	o.Getenv = func(string) string { return "" }
+	o.ResourceGroupIOPaths = func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
+		return resourcegroups.IOPaths{Devices: []string{"8:0"}, Assigned: assigned, UserManager: true}, nil
+	}
+	o.ResourceGroupPlace = func(context.Context, config.ResourceGroupSelection, resourcegroups.IOPaths, string, int) (string, error) {
+		return "/sys/fs/cgroup/batch.slice/yolo-agent", nil
+	}
+	if o.placeOrRefuseResourceGroup(cfg) {
+		t.Fatalf("a placeable mapping refused:\n%s", stderr.String())
+	}
+	if o.resourceGroupPlaced == nil || o.resourceGroupPlaced.Unit != "batch.slice" || o.resourceGroupPlaced.Child != "/sys/fs/cgroup/batch.slice/yolo-agent" {
+		t.Fatalf("the launch did not record its placement: %+v", o.resourceGroupPlaced)
+	}
+	if strings.Contains(stderr.String(), "enforced.") || !strings.Contains(stderr.String(), "Enforcement is unverified until the host witness passes") {
+		t.Fatalf("placement output claims more than it witnessed:\n%s", stderr.String())
+	}
+}
+
+func TestResourceGroupContainerArgsAskTheRuntimeForTheSameGroup(t *testing.T) {
+	rootless, rootful := true, false
+	facts := func(manager string, rootless *bool) *podmanFacts {
+		f := &podmanFacts{parsed: true}
+		f.info.Host.CgroupManager = manager
+		f.info.Host.Security.Rootless = rootless
+		return f
+	}
+	cases := []struct {
+		name  string
+		rt    string
+		unit  string
+		facts *podmanFacts
+		want  string // "" is success with --cgroup-parent=<unit>
+	}{
+		{"rootless podman systemd slice", "podman", "batch.slice", facts("systemd", &rootless), ""},
+		{"no facts", "podman", "batch.slice", nil, "cgroup manager could not be read"},
+		{"rootful podman", "podman", "batch.slice", facts("systemd", &rootful), "not rootless"},
+		{"cgroupfs manager", "podman", "batch.slice", facts("cgroupfs", &rootless), "cgroup_manager"},
+		{"not a slice", "podman", "work.service", facts("systemd", &rootless), "map a .slice unit"},
+		{"other backend", "container", "batch.slice", nil, "no supported way"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := &Options{podmanFacts: tc.facts, resourceGroupPlaced: &placedResourceGroup{Unit: tc.unit, Child: "/x"}}
+			args, err := o.resourceGroupContainerArgs(tc.rt)
+			if tc.want == "" {
+				if err != nil || len(args) != 1 || args[0] != "--cgroup-parent="+tc.unit {
+					t.Fatalf("args = %v, err = %v", args, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "yolo config unset --user resource_groups") && !strings.Contains(err.Error(), "retry") {
+				t.Fatalf("error = %v, want one naming %q and a next step", err, tc.want)
+			}
+		})
+	}
+	// Default off: no placement means no argument and no probe of podman's facts.
+	if args, err := (&Options{}).resourceGroupContainerArgs("podman"); args != nil || err != nil {
+		t.Fatalf("an unmapped launch got %v, %v", args, err)
+	}
+}
+
+// The assembled podman argv carries the request, and a refused request stops the launch
+// through assemblyErr; deleting the call in assembleRunCmd fails both halves.
+func TestAssembleRunCmdPassesTheResourceGroupParent(t *testing.T) {
+	rootless := true
+	f := &podmanFacts{parsed: true}
+	f.info.Host.CgroupManager = "systemd"
+	f.info.Host.Security.Rootless = &rootless
+	for _, tc := range []struct {
+		name    string
+		unit    string
+		wantArg bool
+		wantErr bool
+	}{{"slice", "batch.slice", true, false}, {"service", "work.service", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			emptyLoopholeDirs(t)
+			o := goldenOptions("/ws", home)
+			in := relocationInput(t, "podman", "/ws/.yolo/home", nil)
+			o.podmanFacts = f
+			o.resourceGroupPlaced = &placedResourceGroup{Unit: tc.unit, Child: "/x"}
+			argv := o.assembleRunCmd(in)
+			if got := slices.Contains(argv, "--cgroup-parent="+tc.unit); got != tc.wantArg {
+				t.Fatalf("--cgroup-parent present = %v, want %v", got, tc.wantArg)
+			}
+			if (in.assemblyErr != nil) != tc.wantErr {
+				t.Fatalf("assemblyErr = %v, want error=%v", in.assemblyErr, tc.wantErr)
+			}
+		})
 	}
 }
 
@@ -403,4 +530,46 @@ func canonicalTempDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// A host launch the placement accepts proceeds, and says what it established and what it did
+// not; deleting the host gate's placement call leaves the writer unvisited and this fails.
+func TestHostResourceGroupPlacesTheHostCommandBeforeItRuns(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the delegation preflight is linux-only")
+	}
+	workspace := canonicalTempDir(t)
+	t.Chdir(workspace)
+	root := canonicalTempDir(t)
+	for name, data := range map[string]string{"io.max": "8:0 rbps=101 wbps=20\n", "cgroup.controllers": "io\n", "cgroup.subtree_control": "io\n"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var placed []int
+	hermeticHostPlacement(t, resourceGroupPlacement{
+		IsLinux: true,
+		Pid:     4242,
+		Observe: func(config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
+			return resourcegroups.IOPaths{Devices: []string{"8:0"}, Assigned: filepath.Join(root, "io.max"), UserManager: true}, nil
+		},
+		Place: func(_ context.Context, sel config.ResourceGroupSelection, _ resourcegroups.IOPaths, _ string, pid int) (string, error) {
+			placed = append(placed, pid)
+			return "/sys/fs/cgroup/" + sel.Unit + "/yolo-agent", nil
+		},
+	})
+	group := jsonx.NewOrderedMap()
+	group.Set("default", "batch.slice")
+	cfg := jsonx.NewOrderedMap()
+	cfg.Set("resource_groups", group)
+	var stderr bytes.Buffer
+	if RefuseHostResourceGroup(&stderr, cfg) {
+		t.Fatalf("a placeable host mapping refused:\n%s", stderr.String())
+	}
+	if len(placed) != 1 || placed[0] != 4242 {
+		t.Fatalf("the host launcher was placed %v, want exactly pid 4242 once", placed)
+	}
+	if !strings.Contains(stderr.String(), "Enforcement is unverified until the host witness passes") {
+		t.Fatalf("host placement output omits the unverified-enforcement statement:\n%s", stderr.String())
+	}
 }

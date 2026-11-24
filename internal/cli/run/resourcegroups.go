@@ -45,10 +45,14 @@ func (o *Options) resourceGroupIOPaths(selection config.ResourceGroupSelection) 
 	}, mountInfo, os.ReadFile)
 }
 
-// refuseUnsupportedResourceGroup observes a finite policy plan for a selected mapping,
-// then retains the required-placement refusal until actual placement can be verified.
-// The unselected path returns without manager, controller, device, or path probes.
-func (o *Options) refuseUnsupportedResourceGroup(cfg *jsonx.OrderedMap) bool {
+// placeOrRefuseResourceGroup is the mapped launch's required placement, reported as whether the
+// launch must stop. The unselected path returns without manager, controller, device, or path
+// probes (OQ-RG3). A selected mapping on a Linux host observes the group, reconciles its two
+// shared children, moves this launcher into the agent child and reads the membership back, all
+// before the launch's expensive work. Every condition it cannot observe refuses naming the next
+// step; there is no unplaced fallback. It claims placement and a policy readback, never
+// enforcement: only the owner's host witness establishes that.
+func (o *Options) placeOrRefuseResourceGroup(cfg *jsonx.OrderedMap) bool {
 	selection, err := config.SelectResourceGroup(cfg, o.Workspace)
 	if err != nil {
 		o.pr(o.Stderr).printf("[bold red]Cannot resolve resource-group selection: %s[/bold red]", richtext.Escape(termsafe.Visible(err.Error())))
@@ -58,28 +62,28 @@ func (o *Options) refuseUnsupportedResourceGroup(cfg *jsonx.OrderedMap) bool {
 	if selection.Unit == "" {
 		return false
 	}
-	paths, observeErr := o.resourceGroupIOPaths(selection)
-	if observeErr != nil {
-		o.pr(o.Stderr).printf("[bold yellow]Resource-group I/O policy: unknown/unavailable: %s[/bold yellow]", richtext.Escape(termsafe.Visible(observeErr.Error())))
-	} else if len(paths.Devices) == 0 {
-		o.pr(o.Stderr).print("Resource-group I/O policy: unknown/unavailable; the selected group supplied no device identities and no host-wide device scan was performed.")
-	} else {
-		plan := resourcegroups.ReadAndPlanIO(paths, selection.AgentPercent, os.ReadFile)
-		o.pr(o.Stderr).print("Read-only I/O child plan (not applied or enforced):")
-		for _, row := range plan.Dimensions {
-			o.pr(o.Stderr).print(resourcegroups.FormatIODimension(row))
-		}
-		// This read-only preflight does not create children or establish membership.
-		// Even a delegated group cannot start until Brief 4 proves every execution boundary.
-		if err := resourcegroups.CheckDelegatedIO(paths, os.ReadFile); err != nil {
-			o.pr(o.Stderr).printf("Resource-group I/O delegation: unsupported/unknown: %s", richtext.Escape(termsafe.Visible(err.Error())))
-		} else {
-			o.pr(o.Stderr).print("Resource-group I/O delegation: controller visible; child write authority and placement unverified.")
+	outcome := resourceGroupPlacement{
+		InJail:  o.inJail(),
+		IsLinux: o.IsLinux,
+		Observe: o.resourceGroupIOPaths,
+		Place:   o.ResourceGroupPlace,
+		Pid:     os.Getpid(),
+	}.place(selection)
+	if len(outcome.PlanLines) > 0 {
+		o.pr(o.Stderr).print("I/O child plan for the selected group:")
+		for _, line := range outcome.PlanLines {
+			o.pr(o.Stderr).print(richtext.Escape(termsafe.Visible(line)))
 		}
 	}
-	o.pr(o.Stderr).printf("[bold red]Resource group %q selected via %s, but placement is unsupported/unknown; this launch was not started.[/bold red]", richtext.Escape(termsafe.Visible(selection.Unit)), richtext.Escape(termsafe.Visible(selection.Source)))
-	o.pr(o.Stderr).print("This build cannot place a launch in a resource group, so every launch this mapping selects refuses. Remove the mapping with `yolo config unset --user resource_groups`.")
-	return true
+	if outcome.Err != nil {
+		o.pr(o.Stderr).printf("[bold red]Resource group %q selected via %s could not be placed; this launch was not started: %s[/bold red]", richtext.Escape(termsafe.Visible(selection.Unit)), richtext.Escape(termsafe.Visible(selection.Source)), richtext.Escape(termsafe.Visible(outcome.Err.Error())))
+		o.pr(o.Stderr).print("To launch without a resource group, remove the mapping with `yolo config unset --user resource_groups`.")
+		return true
+	}
+	o.resourceGroupPlaced = outcome.Placed
+	o.pr(o.Stderr).printf("Resource group %q selected via %s: this launch is in %s and its child I/O ceilings were written and read back. Enforcement is unverified until the host witness passes.",
+		richtext.Escape(termsafe.Visible(selection.Unit)), richtext.Escape(termsafe.Visible(selection.Source)), richtext.Escape(termsafe.Visible(outcome.Placed.Child)))
+	return false
 }
 
 // hostResourceGroupRefusal applies the same required-placement contract to host launches.
@@ -114,7 +118,43 @@ func RefuseHostResourceGroup(errw io.Writer, cfg *jsonx.OrderedMap) bool {
 	if selection.Unit == "" {
 		return false
 	}
-	fmt.Fprintf(errw, "yolo host: resource group %q selected via %s, but host placement is unsupported/unknown; command was not started.\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source))
-	fmt.Fprintln(errw, "This build cannot place a launch in a resource group, so every launch this mapping selects refuses. Remove the mapping with `yolo config unset --user resource_groups`.")
-	return true
+	outcome := hostResourceGroupPlacement().place(selection)
+	for _, line := range outcome.PlanLines {
+		fmt.Fprintln(errw, "yolo host: I/O child plan: "+termsafe.Visible(line))
+	}
+	if outcome.Err != nil {
+		fmt.Fprintf(errw, "yolo host: resource group %q selected via %s could not be placed; command was not started: %s\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source), termsafe.Visible(outcome.Err.Error()))
+		fmt.Fprintln(errw, "To run without a resource group, remove the mapping with `yolo config unset --user resource_groups`.")
+		return true
+	}
+	fmt.Fprintf(errw, "yolo host: resource group %q selected via %s: this command runs in %s and its child I/O ceilings were written and read back. Enforcement is unverified until the host witness passes.\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source), termsafe.Visible(outcome.Placed.Child))
+	return false
+}
+
+// hostResourceGroupIOPaths observes the selected unit from the host with the same bounded
+// systemd and cgroup-v2 reads a launch uses.
+func hostResourceGroupIOPaths(selection config.ResourceGroupSelection) (resourcegroups.IOPaths, error) {
+	mountInfo, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		return resourcegroups.IOPaths{}, fmt.Errorf("cannot read cgroup mount table: %w", err)
+	}
+	return resourcegroups.ResolveSelectedIOPaths(selection.Unit, func(argv []string) (string, error) {
+		result := realExec(argv, "", nil, 2*time.Second)
+		if !result.Ran || result.Timeout || result.RC != 0 {
+			return "", fmt.Errorf("%v failed or unavailable", argv)
+		}
+		return result.Stdout, nil
+	}, mountInfo, os.ReadFile)
+}
+
+// hostResourceGroupPlacement is the host launch's real placement dependencies. It is a
+// variable so a host-launch test can supply the manager, the filesystem and the writer; the
+// jail this suite often runs in sets YOLO_VERSION, which a hermetic test must not depend on.
+var hostResourceGroupPlacement = func() resourceGroupPlacement {
+	return resourceGroupPlacement{
+		InJail:  os.Getenv("YOLO_VERSION") != "",
+		IsLinux: runtime.GOOS == "linux",
+		Observe: hostResourceGroupIOPaths,
+		Pid:     os.Getpid(),
+	}
 }

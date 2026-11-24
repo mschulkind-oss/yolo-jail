@@ -126,7 +126,7 @@ func TestCheckResourceGroupsInJailDoesNotProbeHostPolicy(t *testing.T) {
 			t.Errorf("in-jail Check presented host policy output %q:\n%s", forbidden, got)
 		}
 	}
-	if !strings.Contains(got, "unknown/unavailable") || !strings.Contains(got, "placement unsupported/unknown") {
+	if !strings.Contains(got, "unknown/unavailable") || !strings.Contains(got, "a launch cannot place it") {
 		t.Fatalf("in-jail Check did not preserve explicit unknown/refusal status:\n%s", got)
 	}
 }
@@ -229,7 +229,7 @@ func TestCheckResourceGroupsFiniteAssignedPlan(t *testing.T) {
 		// The cgroup-v2 observation is Linux's alone: elsewhere the check says so and asks no
 		// service manager, rather than reading the fixture's mount table (CI run 42284867904).
 		want := "read-only cgroup-v2 policy observation is unsupported on " + runtime.GOOS
-		if !strings.Contains(got, want) || !strings.Contains(got, "placement unsupported/unknown") {
+		if !strings.Contains(got, want) || !strings.Contains(got, "a launch cannot place it") {
 			t.Errorf("on %s the resource-group check does not say %q:\n%s", runtime.GOOS, want, got)
 		}
 		if len(queried) != 0 {
@@ -237,7 +237,7 @@ func TestCheckResourceGroupsFiniteAssignedPlan(t *testing.T) {
 		}
 		return
 	}
-	for _, want := range []string{"rbps: finite assigned 101 agent=5 batch=96", "wbps: finite assigned 20 agent=1 batch=19", "placement unsupported/unknown"} {
+	for _, want := range []string{"rbps: finite assigned 101 agent=5 batch=96", "wbps: finite assigned 20 agent=1 batch=19", "a launch cannot place it"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("production resource-group check missing %q:\n%s", want, got)
 		}
@@ -285,12 +285,12 @@ func TestCheckResourceGroupsDisabledAndSelectedUnknown(t *testing.T) {
 		t.Fatalf("selected unknown resource-group Check() = %d, want 1", rc)
 	}
 	got := out.String()
-	for _, want := range []string{"Resource group selected: work.slice", "placement unsupported/unknown", "rbps: finite assigned 101 agent=5 batch=96", "wbps: finite assigned 20 agent=1 batch=19", "riops", "wiops", "I/O policy plan (read-only; child ceilings are not applied or enforced)", "5% agent / 95% batch is an engineering default, not measured throughput"} {
+	for _, want := range []string{"Resource group selected: work.slice", "a launch cannot place it", "rbps: finite assigned 101 agent=5 batch=96", "wbps: finite assigned 20 agent=1 batch=19", "riops", "wiops", "I/O policy plan (read-only; this check writes nothing, a launch applies it)", "5% agent / 95% batch is an engineering default, not measured throughput"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("selected check output missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "[PASS] Resource group") || !strings.Contains(got, "placement unsupported/unknown") {
-		t.Fatalf("check must keep selected placement unsupported/unknown:\n%s", got)
+	if strings.Contains(got, "[PASS] Resource group") || !strings.Contains(got, "a launch cannot place it") {
+		t.Fatalf("check must keep selected a launch cannot place it:\n%s", got)
 	}
 }
