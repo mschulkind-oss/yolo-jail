@@ -365,11 +365,13 @@ Two classes, because they end differently.
 - **Determined, and a change is needed** — the dispositions above. This is the only path that
   can stop a launch, and it stops it *with a remedy*.
 
-**The budget is a stuck-detector, not a tuning knob**, which is why there is no config key and no
-environment variable for it: the observe pass is milliseconds against a warm home, so a second is
-vast headroom and anything past it means a cold or network-mounted `$HOME` rather than a value
-someone should be adjusting. On expiry the gate reports cannot-determine and execs — a launch must
-never hang on a check it can decline to make.
+**The budget is a hang guard, not a budget and not a tuning knob**, which is why there is no config
+key and no environment variable for it. It protects one thing: a launch must never hang on a
+check it can decline to make, such as an observe pass stuck on a network-mounted `$HOME`. It is
+30 seconds, because a bound a loaded machine can exceed is a coin flip on load: it was one second
+until the owner's 2026-11-24 report, when jails starting together stretched a pass that is
+milliseconds warm past it, and the render went silently stale. On expiry the gate execs and says
+what it skipped and the command that renders now (`yolo host apply`).
 
 **A failed apply after an accepted prompt aborts the launch.** The user said "apply these and
 launch", so exec'ing an agent against a home the apply did not finish is the "it looked like it
@@ -514,6 +516,7 @@ from code comments, and this appendix is where they resolve.
 | **[OQ-HS14](#why-its-this-way)** — an apply that fails after an accepted prompt aborts the launch | The user asked for apply-then-launch; exec'ing against a half-applied home is the failure the gate exists to remove. |
 | **[OQ-HS15](#why-its-this-way)** — the lock is the launch path's, not the command's | Closing the gap means an unbounded wait on someone else's prompt, or a new refusal in a shipping command. |
 | **[OQ-HS16](#why-its-this-way)** — a change list, not a unified diff | A second diff renderer, at a surface interrupting someone starting an agent, is duplication and too long to read. |
+| <a id="hs-d-guard"></a>**HS-GUARD** — the observe budget is a 30 s hang guard, not 1 s | *Implementation decision* (2026-11-24, the owner's report: `could not check whether your host render is up to date (the check did not finish within 1s)`). Considered: a fingerprint of inputs before the full observe (a second model of what the apply reads, the drift the survey runs the apply to avoid), and scoping the guard to part of the pass (it has no seams to scope to). Chosen: keep the guard for the one real hazard, a stuck pass, make it generous, and make an overrun say what it skipped and name `yolo host apply`. Pinned by `TestHostApplyGateWaitsOutAPassThatLoadSlowed`. |
 | <a id="oq-hs17"></a>**[OQ-HS17](#oq-hs17)** — a failure stops only the launch of the program it configures | *Implementation decision* (2026-09-28). A failure's packs are recorded where it happens (`hostFailure`: a render error names its pack, a broken link the pack declaring the destination). A launch of `<bin>` is stopped by a failure whose pack is **related**: the packs installing `<bin>` (an honored `program` install), every pack declaring a contribution or surface for one of their agents, every pack whose `config-overlay` or `config-list` targets one of those agents' surfaces, and the `needs` closure of all of them (`launchRelatedPacks`). Every other failure is reported with its fix and the program launches; a program no pack installs has no related pack. A failure no pack can be named for (an overlay problem, a refused skills or briefing stage, the wrappers) still refuses, because it is not provably unrelated. Measured: `yolo host -- claude` refused because pi's `settings.json` was a link into a deleted directory, and claude reads no pi file. [OQ-HS14](#why-its-this-way) stands for the related case: exec'ing a program against its own half-applied configuration is still refused. |
 
 ## Current values
@@ -527,7 +530,7 @@ place the values themselves are stated.
 | `host_wrappers` default | unset ⇒ on exactly when `host_management` is declared `"own"` | `config.hostWrappersValue` |
 | Pack update coupling | `yolo pack update` runs `host apply --assert` under `own` on host, and refuses its host half under the retired `"assert"` | `cli.packUpdate`, `cli.hostApplyFromPackUpdate` |
 | Non-TTY approval | none: the first-apply loss refuses off a terminal, naming `yolo host apply --assert`; `yolo host` refuses `--accept-config-changes` by name ([OQ-NC10](../plans/notch-convergence.md#7-decision-ledger)) | `cli.hostApplyGate`, `cli.acceptConfigChangesAtHost` |
-| Observe budget | 1s, then cannot-determine | `cli.hostApplyGateBudget` |
+| Observe hang guard | 30s, then cannot-determine naming `yolo host apply` | `cli.hostApplyGateBudget`, `cli.hostApplyGateGuard` |
 | Per-home lock | a flock under the global storage lock dir, keyed by the resolved home | `cli.hostApplyLockPath`, `cli.tryHostApplyLock` |
 | Host provenance record | `<home>/.local/share/yolo-jail/host-provenance/<agent>-<name>.provenance` | `internal/render` target layout |
 | Surveyed destinations | the four written kinds plus the wrapper dir (`host_wrappers`) | `cli.hostApplySurvey`, `cli.noteWrapperPlan` |

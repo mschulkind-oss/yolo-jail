@@ -59,17 +59,27 @@ import (
 // which asks it where it can be answered. So the variable was retired rather than given that
 // door, and `--accept-config-changes` stays refused at the host by name (jailOnlyRunFlags).
 
-// hostApplyGateBudget bounds the observe pass (§4.4).
+// hostApplyGateBudget is the observe pass's HANG GUARD (§4.4), not a budget the pass must beat.
 //
-// A STUCK-DETECTOR, NOT A TUNING KNOB, which is why there is no config key and no environment
-// variable for it: the observe pass measured 11.4 ms warm (§5), so a second is three orders of
-// magnitude of headroom and anything past it means a cold or network-mounted $HOME rather than
-// a value someone should be adjusting. On expiry the gate reports cannot-determine and execs —
-// a launch must never hang on a check it can decline to make.
+// A HANG GUARD, NOT A TUNING KNOB, which is why there is no config key and no environment
+// variable for it. It was one second until the owner's 2026-11-24 report: several jails starting
+// together stretch a pass that measures 11.4 ms warm (§5) past a second, the gate took
+// cannot-determine, and the host render went silently stale. A bound a loaded machine can exceed
+// is a coin flip on load, so this one is generous enough that only a pass that is stuck (a hung
+// network-mounted $HOME) reaches it. On expiry the gate execs, SAYS the render was skipped and
+// names `yolo host apply`, which renders now — a launch must never hang on a check it can
+// decline to make, and must never decline it quietly.
 //
 // A package var only so a test can shrink it, or widen it past a loaded machine's scheduling
 // (the package's TestMain), following flockSyscall's convention. Nothing but a test reassigns it.
-var hostApplyGateBudget = time.Second
+var hostApplyGateBudget = hostApplyGateGuard
+
+// hostApplyGateGuard is the production value of hostApplyGateBudget.
+const hostApplyGateGuard = 30 * time.Second
+
+// hostApplyGateAfter is the guard's clock, behind a seam so a test can say how long the machine
+// was loaded without sleeping: it hands back a timer channel the test fires, or never fires.
+var hostApplyGateAfter = time.After
 
 // hostApplyGateSurvey is the observe pass, behind a seam, and the seam exists for ONE reason:
 // a budget overrun cannot be provoked deterministically by shrinking the budget.
@@ -235,7 +245,7 @@ func hostApplyGate(errw io.Writer, stdin io.Reader, bin string) bool {
 			what = "the rest of your host render"
 		}
 		fmt.Fprintf(errw, "yolo host: could not check whether %s is up to date "+
-			"(%s) — launching %s anyway.\n", what, why, bin)
+			"(%s) — launching %s anyway; `yolo host apply` renders it now.\n", what, why, bin)
 		return true
 	}
 	// WHAT CANNOT BE WRITTEN, split by whether this program reads it ([OQ-HS17]). The observe
@@ -624,7 +634,7 @@ func surveyHostApplyWithinBudget(afterTrees bool, bin string) (*hostApplySurvey,
 		// An unresolvable pack is returned even under a non-zero rc: it is the one finding the
 		// caller reports by name rather than as cannot-determine.
 		return got.survey, ""
-	case <-time.After(hostApplyGateBudget):
+	case <-hostApplyGateAfter(hostApplyGateBudget):
 		if afterTrees {
 			return nil, fmt.Sprintf("the check did not finish within %s; it starts once %s's patched "+
 				"extensions are checked and built", hostApplyGateBudget, bin)

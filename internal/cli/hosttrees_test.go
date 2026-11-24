@@ -339,7 +339,7 @@ func TestAHostLaunchLinksTheTreeItBuiltWhenTheRenderCheckOverruns(t *testing.T) 
 	for _, w := range []string{
 		"yolo host: linked ~/.tool/ext/tool-ext to the build of extension treepack/tool-ext that tool loads",
 		"could not check whether the rest of your host render is up to date (the check did not finish within 10ms; " +
-			"it starts once tool's patched extensions are checked and built) — launching tool anyway.",
+			"it starts once tool's patched extensions are checked and built) — launching tool anyway; `yolo host apply` renders it now.",
 	} {
 		if !strings.Contains(report, w) {
 			t.Errorf("the launch does not say %q:\n%s", w, report)

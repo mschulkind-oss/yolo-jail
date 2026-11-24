@@ -392,6 +392,74 @@ func TestHostApplyGateExecsWhenTheBudgetExpires(t *testing.T) {
 	}
 }
 
+// THE OWNER'S 2026-11-24 REPORT: "could not check whether your host render is up to date (the
+// check did not finish within 1s)". Several jails starting together made a healthy observe pass
+// slower than the 1 s guard, so the render went stale without anyone being told why it mattered.
+// The guard is now a hang guard: a pass that is merely SLOW under load must be waited for.
+//
+// Event-driven: the test's clock says "the machine was loaded for five seconds" by firing any
+// guard of five seconds or less the moment the survey is blocked, and never firing a longer one.
+// Red if the guard goes back under five seconds, and red if the gate stops asking hostApplyGateAfter.
+func TestHostApplyGateWaitsOutAPassThatLoadSlowed(t *testing.T) {
+	gateFixture(t, true)
+	const loaded = 5 * time.Second
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	prevSurvey, prevAfter := hostApplyGateSurvey, hostApplyGateAfter
+	hostApplyGateSurvey = func(_, _ io.Writer, _, _ bool, _ io.Reader, _ *hostApplySurvey) int {
+		defer close(finished)
+		close(started)
+		<-release
+		return 0
+	}
+	hostApplyGateAfter = func(d time.Duration) <-chan time.Time {
+		ch := make(chan time.Time, 1)
+		if d <= loaded {
+			// The guard expires while the survey is still running: the load outlasted it.
+			go func() { <-started; ch <- time.Time{} }()
+		} else {
+			// A hang guard this generous is not reached by load: the survey finishes first.
+			go func() { <-started; close(release) }()
+		}
+		return ch
+	}
+	prevBudget := hostApplyGateBudget
+	hostApplyGateBudget = hostApplyGateGuard // production's, which the package's TestMain widens
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+		<-finished
+		hostApplyGateSurvey, hostApplyGateAfter, hostApplyGateBudget = prevSurvey, prevAfter, prevBudget
+	})
+
+	var errw bytes.Buffer
+	if !hostApplyGate(&errw, nil, "claude") {
+		t.Fatalf("the launch must proceed:\n%s", errw.String())
+	}
+	if strings.Contains(errw.String(), "could not check") {
+		t.Errorf("a pass the load only slowed must be waited for, not skipped:\n%s", errw.String())
+	}
+}
+
+// An overrun that does happen (a hung home) is never silent about what it skipped: the line names
+// the command that renders now.
+func TestHostApplyGateOverrunNamesTheCommandThatRendersNow(t *testing.T) {
+	gateFixture(t, true)
+	blockGateSurvey(t)
+	var errw bytes.Buffer
+	if !hostApplyGate(&errw, nil, "claude") {
+		t.Fatalf("a budget overrun must EXEC:\n%s", errw.String())
+	}
+	if !strings.Contains(errw.String(), "`yolo host apply` renders it now") {
+		t.Errorf("the overrun does not name the command that renders now:\n%s", errw.String())
+	}
+}
+
 // TestHostApplyGateExecsWhenTheApplyItselfCannotAnswer is §4.4's first class arriving the other
 // way: a pack the observe pass refuses outright. `yolo check` owns that problem; a launch may
 // not be stopped by it.
