@@ -45,6 +45,10 @@ type resourceGroupPlacement struct {
 	// Move asks the user manager to put pid into a transient scope inside the named agent
 	// child slice. nil is the real busctl StartTransientUnit call over Query.
 	Move func(ctx context.Context, agentUnit string, pid int) error
+	// Now and Sleep are the clock behind the membership wait; nil is the real one. A test
+	// injects both so the guard is a deadline it controls.
+	Now   func() time.Time
+	Sleep func(time.Duration)
 	// MountInfo is the cgroup mount table; nil reads /proc/self/mountinfo.
 	MountInfo []byte
 	Pid       int
@@ -100,11 +104,15 @@ func (d resourceGroupPlacement) children(ctx context.Context, sel config.Resourc
 
 // moveIntoAgentSlice is the real Move: busctl's StartTransientUnit with this pid in the new
 // scope's PIDs and the agent child as its Slice. The call returns when the job is queued, not
-// when the pid has moved. It then waits for that job's completion with `systemctl --user
-// start` on the scope, which joins the pending start job and blocks until the manager reports
-// it done (systemctl waits on the manager's own JobRemoved signal), so no loop or timer decides
-// success; the caller reads /proc/<pid>/cgroup once afterwards. Query's timeout is only the
-// generous failure guard.
+// when the pid has moved; place waits on that condition, /proc/<pid>/cgroup naming the agent
+// child.
+// placementPoll is the pause between membership reads; placementGuard is the one generous
+// failure guard on the whole wait.
+const (
+	placementPoll  = 25 * time.Millisecond
+	placementGuard = 60 * time.Second
+)
+
 func (d resourceGroupPlacement) moveIntoAgentSlice(ctx context.Context, agentUnit string, pid int) error {
 	if d.Move != nil {
 		return d.Move(ctx, agentUnit, pid)
@@ -121,10 +129,6 @@ func (d resourceGroupPlacement) moveIntoAgentSlice(ctx context.Context, agentUni
 		"Slice", "s", agentUnit,
 		"Description", "s", "yolo jail launcher in " + agentUnit,
 		"0"})
-	if err != nil {
-		return err
-	}
-	_, err = d.Query([]string{"systemctl", "--user", "start", scope})
 	return err
 }
 
@@ -176,16 +180,31 @@ func (d resourceGroupPlacement) place(sel config.ResourceGroupSelection) resourc
 			out.Err = fmt.Errorf("your user manager would not move this launcher into %s: %w; check that `busctl --user status` works in this terminal (start yolo from a terminal inside your user manager), then run yolo check --no-build", children.Agent, err)
 			return out
 		}
-		// The move is finished when the scope's start job is, which moveIntoAgentSlice waited
-		// for, so one read decides: a launcher still outside the agent child is a refusal.
-		dir, err = member(d.Pid)
-		if err != nil {
-			out.Err = fmt.Errorf("cannot read which cgroup this launcher is in after asking for the move: %w; run yolo check --no-build", err)
-			return out
+		// The call only queued the scope's start job, so wait on the condition itself: re-read the
+		// launcher's cgroup every placementPoll until it is inside the agent child, under one
+		// generous failure guard. Neither a read count nor a short budget decides success.
+		now, sleep := d.Now, d.Sleep
+		if now == nil {
+			now = time.Now
 		}
-		if !resourcegroups.InsideGroup(dir, children.AgentDir) {
-			out.Err = fmt.Errorf("this launcher is in %s after your user manager moved it, not inside %s; check `systemctl --user status %s` and that this terminal belongs to your user manager, then run yolo check --no-build", dir, children.Agent, children.Agent)
-			return out
+		if sleep == nil {
+			sleep = time.Sleep
+		}
+		guard := now().Add(placementGuard)
+		for {
+			dir, err = member(d.Pid)
+			if err != nil {
+				out.Err = fmt.Errorf("cannot read which cgroup this launcher is in after asking for the move: %w; run yolo check --no-build", err)
+				return out
+			}
+			if resourcegroups.InsideGroup(dir, children.AgentDir) {
+				break
+			}
+			if !now().Before(guard) || ctx.Err() != nil {
+				out.Err = fmt.Errorf("this launcher is still in %s, not inside %s, %s after your user manager was asked to move it; check `systemctl --user status %s` and that this terminal belongs to your user manager, then run yolo check --no-build", dir, children.Agent, placementGuard, children.Agent)
+				return out
+			}
+			sleep(placementPoll)
 		}
 	}
 	out.Placed = &placedResourceGroup{Unit: sel.Unit, Child: children.Agent, ChildDir: children.AgentDir}

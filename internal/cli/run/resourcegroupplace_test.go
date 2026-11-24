@@ -23,16 +23,12 @@ type rgFakeManager struct {
 	calls   [][]string
 	started map[string]string // unit -> control group
 	// member is where the launcher is until a transient scope's start job completes. The job
-	// is asynchronous: busctl only queues it, and `systemctl --user start <scope>` returns when
-	// it is done. jobRelease, when set, holds that wait until the test closes it, and
-	// jobWaiting is closed when the wait begins.
+	// is asynchronous: busctl only queues it. While jobRelease is open the launcher stays
+	// outside the agent child; the test closes it to complete the job late.
 	member     string
 	failBusctl error
 	jobRelease chan struct{}
-	jobWaiting chan struct{}
 	neverMoves bool // the job completes but the pid stays where it was
-	jobDone    bool
-	readEarly  bool // the membership was read before the job completed
 }
 
 func newRGFakeManager(t *testing.T) *rgFakeManager {
@@ -68,15 +64,6 @@ func (f *rgFakeManager) query(argv []string) (string, error) {
 		return f.started[argv[len(argv)-1]] + "\n", nil
 	case argv[0] == "systemctl" && argv[2] == "set-property":
 		return "", nil
-	case argv[0] == "systemctl" && argv[2] == "start" && strings.HasPrefix(argv[3], "yolo-jail-launcher-"):
-		if f.jobWaiting != nil {
-			close(f.jobWaiting)
-		}
-		if f.jobRelease != nil {
-			<-f.jobRelease
-		}
-		f.jobDone = true
-		return "", nil
 	case argv[0] == "systemctl" && argv[2] == "start":
 		for _, unit := range argv[3:] {
 			cg := f.cg + "/" + unit
@@ -102,11 +89,15 @@ func (f *rgFakeManager) query(argv []string) (string, error) {
 
 func (f *rgFakeManager) memberOf(int) (string, error) {
 	if f.member == "pending" {
-		if !f.jobDone {
-			f.readEarly = true
-		}
 		if f.neverMoves {
 			return filepath.Join(f.root, f.cg, "session-3.scope"), nil
+		}
+		if f.jobRelease != nil {
+			select {
+			case <-f.jobRelease:
+			default:
+				return filepath.Join(f.root, f.cg, "session-3.scope"), nil
+			}
 		}
 		return filepath.Join(f.root, f.cg, "batch-yolo-agent.slice", "run-p77.scope"), nil
 	}
@@ -157,24 +148,29 @@ func TestPlacementCreatesChildSlicesAndMovesTheLauncherIntoTheAgentChild(t *test
 			t.Errorf("the placement call lacks %q: %s", want, bus)
 		}
 	}
-	if f.call("start") == nil || f.readEarly {
-		t.Fatalf("the membership was read before the scope's start job completed (early=%v): %v", f.readEarly, f.calls)
-	}
 	if !strings.HasSuffix(out.Placed.ChildDir, "batch-yolo-agent.slice") {
 		t.Fatalf("child dir = %q", out.Placed.ChildDir)
 	}
 }
 
-// The scope's start job completes late, released by the test; the launch waits for that event
-// and still succeeds, and the membership is read only after it. No read count or timer decides.
-func TestPlacementWaitsForTheStartJobToCompleteThenReadsMembershipOnce(t *testing.T) {
+// The scope's start job completes late, released by the test; the launch keeps waiting on the
+// condition (membership in the agent child) and succeeds. The sleep seam is the test's event: it
+// blocks the poll until the test has seen the launch waiting, so nothing here is timed.
+func TestPlacementWaitsForTheLauncherToLandInTheAgentChild(t *testing.T) {
 	f := newRGFakeManager(t)
 	f.jobRelease = make(chan struct{})
-	f.jobWaiting = make(chan struct{})
+	waiting := make(chan struct{}, 1)
 	d := f.placement()
+	d.Sleep = func(time.Duration) {
+		select {
+		case waiting <- struct{}{}:
+		default:
+		}
+		<-f.jobRelease // the launch is held until the job completes
+	}
 	done := make(chan resourceGroupOutcome, 1)
 	go func() { done <- d.place(rgSelection) }()
-	<-f.jobWaiting // the launch is now blocked on the job, not polling
+	<-waiting // the launch read the membership, found it outside, and is waiting
 	select {
 	case out := <-done:
 		t.Fatalf("placement finished before the job completed: %+v", out)
@@ -185,8 +181,24 @@ func TestPlacementWaitsForTheStartJobToCompleteThenReadsMembershipOnce(t *testin
 	if out.Err != nil || out.Placed == nil {
 		t.Fatalf("a late job completion refused a launch where nothing was wrong: %+v", out)
 	}
-	if f.readEarly {
-		t.Fatal("the membership was read before the job completed")
+}
+
+// The one generous guard: a launcher that never lands refuses naming the status command, judged
+// by an injected clock that the poll's sleep advances, so no real time passes.
+func TestPlacementRefusesAtTheGuardWhenTheLauncherNeverLands(t *testing.T) {
+	f := newRGFakeManager(t)
+	f.neverMoves = true
+	d := f.placement()
+	clock := time.Unix(0, 0)
+	d.Now = func() time.Time { return clock }
+	sleeps := 0
+	d.Sleep = func(dur time.Duration) { sleeps++; clock = clock.Add(dur) }
+	out := d.place(rgSelection)
+	if out.Err == nil || out.Placed != nil || !strings.Contains(out.Err.Error(), "systemctl --user status batch-yolo-agent.slice") {
+		t.Fatalf("outcome = %+v", out)
+	}
+	if clock.Sub(time.Unix(0, 0)) < placementGuard || sleeps < 2 {
+		t.Fatalf("gave up after %s and %d sleeps, before the %s guard", clock.Sub(time.Unix(0, 0)), sleeps, placementGuard)
 	}
 }
 
@@ -218,15 +230,6 @@ func TestPlacementRefusalsNameTheirStep(t *testing.T) {
 		d := f.placement()
 		out := d.place(rgSelection)
 		if out.Err == nil || out.Placed != nil || !strings.Contains(out.Err.Error(), "busctl --user status") || !strings.Contains(out.Err.Error(), "yolo check --no-build") {
-			t.Fatalf("outcome = %+v", out)
-		}
-	})
-	t.Run("membership never lands", func(t *testing.T) {
-		f := newRGFakeManager(t)
-		f.neverMoves = true
-		d := f.placement()
-		out := d.place(rgSelection)
-		if out.Err == nil || out.Placed != nil || !strings.Contains(out.Err.Error(), "not inside batch-yolo-agent.slice") || !strings.Contains(out.Err.Error(), "systemctl --user status batch-yolo-agent.slice") {
 			t.Fatalf("outcome = %+v", out)
 		}
 	})
