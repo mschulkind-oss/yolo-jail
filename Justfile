@@ -369,6 +369,7 @@ lint-ci: lint
     python3 scripts/test_matched_bundle.py
     # The launcher slot `just deploy` and `just deploy-dev` share: what they replace and refuse.
     python3 scripts/test_launcher_slot.py
+    python3 scripts/test-mac-ac-linux-builder.py
     # The macOS nightly's duration-balanced shard partition, and the workflow step that calls it.
     python3 scripts/test_nightly_shard.py
     # The re-run of a job no hosted runner took: when it re-runs, and what it watches.
