@@ -175,6 +175,35 @@ const pinAttachLeavesAnOlderJailsTree = "TestAnAttachToAJailTheLastReleaseLaunch
 // provider declares api_key_env_name as a list where v0.10.0's packdecl declares a string, and pi
 // declares two hooks v0.10.0 does not know.
 var knownReleaseBreaks = []knownReleaseBreak{
+	// Measured against v0.19.0 on 2026-11-24: every agent pack declares which repository
+	// instruction files its agent reads (docs/design/workspace-instruction-files.md, IF-D7), a
+	// kind v0.19.0 skips. Skipping it only leaves repo_instructions unrendered in an older jail,
+	// which keeps its staged tree on attach; a fresh launch uses this tree's binaries.
+	{release: "v0.19.0", pack: "claude", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+	{release: "v0.19.0", pack: "codex", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+	{release: "v0.19.0", pack: "copilot", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+	{release: "v0.19.0", pack: "opencode", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+	{release: "v0.19.0", pack: "agy", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+	{release: "v0.19.0", pack: "muse-code", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+	{release: "v0.19.0", pack: "omp", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+	{release: "v0.19.0", pack: "pi", problem: `unknown kind "instructions"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropContributionKind("instructions")},
+
 	// Measured against v0.18.0: these are harmless unknown metadata/kind skips,
 	// not fatal list-shape exceptions. The real reader retains Claude's program.
 	{release: "v0.18.0", pack: "claude", problem: `unknown field "native_sign_in"`,
