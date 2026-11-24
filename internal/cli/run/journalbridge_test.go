@@ -106,6 +106,10 @@ func TestMain(m *testing.M) {
 	// TestMain again and exits, execs away or is killed before its own removals run, so its
 	// directories and t.TempDirs go in a private TMPDIR this process removes.
 	releaseTmp := testtmp.Isolate()
+	// NO TEST RUNS THE MACHINE'S PODMAN (testsupport.StubPodman): a rootless one leaves its pause
+	// process behind, which the TMPDIR leak gate fails the run for. A test that wants podman to
+	// answer puts a fake of its own first on PATH.
+	releasePodman := testsupport.StubPodman()
 	release := testsupport.IsolateHostSingletons()
 	// EVERY TEST STARTS IN A HOME OF ITS OWN. Most fixtures set HOME; the host-service ones
 	// (startExternalServiceHarness and its neighbors) did not, and each wrote its log into the
@@ -128,6 +132,7 @@ func TestMain(m *testing.M) {
 			code = 1
 		}
 	}
+	releasePodman()
 	releasePin()
 	releaseHome()
 	release()
