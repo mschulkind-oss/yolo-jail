@@ -1,7 +1,7 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Keep mapped execution refused. The 2026-11-24 read-only witness found io not delegated to the user manager and the batch slices unprovisioned; the owner sets those up, then re-run the witness and collect the write witnesses it lists (delegation, child creation and readback, placement, lifetime) on a real rootless Linux host before building the real Brief 3 writer or connecting any writer to launch; complete combined and native evidence gates before claiming enforcement."
+next: "Per the owner's RG-R5 (2026-11-24): build the real Brief 3 child writer and Brief 4 launch placement and wire them into mapped launches, keeping every observed-authority refusal; then the owner delegates io and provisions a batch slice, and the host witness validates after landing"
 depends-on: [resource-groups.md]
 ---
 
@@ -109,7 +109,7 @@ no `ControlGroup`. The disks are `nvme0n1` (259:0, kyber) and `sda` (8:0, bfq, U
 owner's host setup, not code:** delegate `io` to the user manager (a `user@.service` drop-in adding `io`
 to `Delegate=`, which also needs `io` in `user.slice` and `user-1000.slice`), then provision the batch
 slices with finite `IO*Max` limits. Until a re-run of this witness shows `io` in the user manager's
-`cgroup.subtree_control` and an active batch slice, mapped execution stays refused. The script is
+`cgroup.subtree_control` and an active batch slice, a mapped launch on this host refuses on what it observes. The owner's [RG-R5](resource-groups.md#RG-R5) lets the writer and placement be built and wired before that witness. The script is
 `.yolo/durable/rg-native-witness.sh` in the owner's workspace; it only reads.
 
 **Settled — do not re-open:** only existing verified user-manager delegated rights or an authorized manager-owned child route may place work. Never write owner parents or unrelated siblings, elevate privilege, widen the jail delegate protocol, move jobs between owner groups, or delete active/uncertain Yolo children. Without verified authority/membership, mapped starts refuse as unsupported/unknown.
