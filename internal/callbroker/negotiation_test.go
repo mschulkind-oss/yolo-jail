@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -13,12 +14,35 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
+
+// BSD wc (macOS) pads its count with leading spaces; the counting fixture must
+// still select its numbered answer. A padding wc first on PATH reproduces it.
+func TestCountingClassifierScriptToleratesPaddedLineCounts(t *testing.T) {
+	bin := canonicalTempDir(t)
+	realWC, err := exec.LookPath("wc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim := "#!/bin/sh\nn=$(" + shquote.Quote(realWC) + " \"$@\" | tr -d ' ')\nprintf '%8s\\n' \"$n\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "wc"), []byte(shim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script, _ := countingClassifierScript(t, []string{"first", "second"})
+	cmd := exec.Command("/bin/sh", "-c", script)
+	cmd.Env = testtmp.ChildEnv([]string{"PATH=" + bin + ":" + os.Getenv("PATH")})
+	cmd.Stdin = strings.NewReader("{}")
+	out, err := cmd.CombinedOutput()
+	if err != nil || string(out) != "first" {
+		t.Fatalf("padded wc broke the counting fixture: out=%q err=%v", out, err)
+	}
+}
 
 func countingClassifierScript(t *testing.T, answers []string) (string, string) {
 	t.Helper()
 	log := filepath.Join(canonicalTempDir(t), "requests.jsonl")
-	script := "request=$(cat)\nprintf '%s\\n' \"$request\" >> " + shquote.Quote(log) + "\ncount=$(wc -l < " + shquote.Quote(log) + ")\ncase \"$count\" in\n"
+	script := "request=$(cat)\nprintf '%s\\n' \"$request\" >> " + shquote.Quote(log) + "\ncount=$(( $(wc -l < " + shquote.Quote(log) + ") ))\ncase \"$count\" in\n"
 	for i, answer := range answers {
 		script += fmt.Sprintf("%d) printf '%%s' %s ;;\n", i+1, shquote.Quote(answer))
 	}
