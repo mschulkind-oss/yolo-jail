@@ -93,6 +93,58 @@ func TestRemovedDirectoryStillReportsENOENT(t *testing.T) {
 	}
 }
 
+// On macOS APFS fstat of a removed directory's descriptor still reports a directory with
+// nlink=2. The stand-in below makes Linux say the same, so the test fails if liveness is read
+// from the link count or the mode instead of from the name.
+func TestRemovedDirectoryIsNotRetriedWhenFstatSaysLive(t *testing.T) {
+	for _, sub := range []string{"", "inner"} {
+		t.Run("sub="+sub, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "gone")
+			if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			name := "records.lock"
+			if sub != "" {
+				name = sub + "/" + name
+			}
+			realFstat := fstatFD
+			fstatFD = func(fd int, st *unix.Stat_t) error {
+				err := realFstat(fd, st)
+				st.Mode = unix.S_IFDIR | 0o755
+				st.Nlink = 2
+				return err
+			}
+			t.Cleanup(func() { fstatFD = realFstat })
+			calls := 0
+			real := openat
+			openat = func(dirfd int, path string, flags int, mode uint32) (int, error) {
+				calls++
+				if calls == 1 {
+					// The directory goes away after its descriptor is held, before the create.
+					if sub != "" {
+						os.Remove(filepath.Join(dir, sub))
+					}
+					os.Remove(dir)
+				}
+				return real(dirfd, path, flags, mode)
+			}
+			t.Cleanup(func() { openat = real })
+			_, err = openNoFollowLeaf(root, name, os.O_RDWR|os.O_CREATE, 0o600)
+			if !errors.Is(err, syscall.ENOENT) {
+				t.Fatalf("err = %v, want ENOENT", err)
+			}
+			if calls != 1 {
+				t.Fatalf("openat calls = %d, want 1 (a removed directory is not retried)", calls)
+			}
+		})
+	}
+}
+
 func TestEndlessENOENTInALiveDirectoryIsBounded(t *testing.T) {
 	root, err := os.OpenRoot(t.TempDir())
 	if err != nil {

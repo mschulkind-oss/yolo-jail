@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -15,15 +16,27 @@ import (
 // a kernel that does not lose it.
 var openat = unix.Openat
 
-// fdIsLiveDir reports whether fd is a directory that is still linked. A removed directory
-// stays open and stays a directory, with no links left, so a genuine ENOENT is not retried
-// forever (the retries are also bounded).
-func fdIsLiveDir(fd int) bool {
+// fstatFD is unix.Fstat; a test replaces it with an APFS stand-in, which reports a removed
+// directory with a directory mode and a link count of 2.
+var fstatFD = unix.Fstat
+
+// fdIsLiveDir reports whether fd, the open directory Root holds for the directory rel names
+// under r, is still the directory at that name. It compares the descriptor's (dev, ino) with
+// those of the name as r resolves it from outside (rootDirOutside). The link count and the
+// directory mode are not used: on macOS APFS fstat of a removed directory's descriptor still
+// reports nlink=2 and a directory mode (measured on macOS 26.5 on 2026-11-24), so only the name tells a removed
+// directory from a live one. A descriptor on a removed directory matches nothing, and so a genuine ENOENT is not retried (the retries are also bounded).
+func fdIsLiveDir(r *os.Root, rel string, fd int) bool {
 	var st unix.Stat_t
-	if err := unix.Fstat(fd, &st); err != nil {
+	if err := fstatFD(fd, &st); err != nil {
 		return false
 	}
-	return st.Mode&unix.S_IFMT == unix.S_IFDIR && st.Nlink > 0
+	out, err := rootDirOutside(r, rel)
+	if err != nil {
+		return false
+	}
+	o, ok := out.Sys().(*syscall.Stat_t)
+	return ok && uint64(o.Dev) == uint64(st.Dev) && uint64(o.Ino) == uint64(st.Ino)
 }
 
 // openNoFollowLeaf opens the final component relative to the directory Root actually
@@ -56,7 +69,7 @@ func openNoFollowLeaf(r *os.Root, name string, flag int, perm fs.FileMode) (*os.
 		}
 		// A creating open that reports ENOENT while its directory is still there lost a race
 		// the kernel should not have lost: see retryCreateENOENT.
-		if err == unix.ENOENT && flag&os.O_CREATE != 0 && tries < createRetries && fdIsLiveDir(int(anchor.Fd())) {
+		if err == unix.ENOENT && flag&os.O_CREATE != 0 && tries < createRetries && fdIsLiveDir(r, filepath.Dir(name), int(anchor.Fd())) {
 			tries++
 			continue
 		}

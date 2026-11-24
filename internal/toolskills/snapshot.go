@@ -146,7 +146,7 @@ func Publish(opts Options, skills []Skill) (Snapshot, error) {
 	}
 	defer unix.Close(snapFD)
 
-	unlock, err := lockFile(snapFD, opts.LockPath)
+	unlock, err := lockFile(yoloFD, snapFD, opts.LockPath)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("cannot take the snapshot lock: %w", err)
 	}
@@ -296,17 +296,32 @@ func statAt(parent int, name string) (unix.Stat_t, error) {
 	return st, err
 }
 
+// openat is unix.Openat; a test replaces it to count the lock's create attempts.
+var openat = unix.Openat
+
+// snapDirIsLive reports whether snapFD is still the directory at SnapshotDirName under
+// yoloFD. It compares (dev, ino) with the name rather than reading the link count: on macOS
+// APFS fstat of a removed directory's descriptor still reports nlink=2 and a directory mode.
+func snapDirIsLive(yoloFD, snapFD int) bool {
+	var in, out unix.Stat_t
+	if unix.Fstat(snapFD, &in) != nil || unix.Fstatat(yoloFD, SnapshotDirName, &out, unix.AT_SYMLINK_NOFOLLOW) != nil {
+		return false
+	}
+	return uint64(in.Dev) == uint64(out.Dev) && uint64(in.Ino) == uint64(out.Ino)
+}
+
 // lockFile takes the exclusive lock and returns its release.
-func lockFile(snapFD int, path string) (func(), error) {
+func lockFile(yoloFD, snapFD int, path string) (func(), error) {
 	var f *os.File
 	if path == "" {
 		// A creating openat racing another creator of the same name has returned ENOENT on
-		// macOS although the file now exists (paths.OpenRootCreate); try again a few times.
+		// macOS although the file now exists (paths.OpenRootCreate); try again a few times, while the
+		// snapshot directory is still there.
 		var fd int
 		var err error
 		for tries := 0; ; tries++ {
-			fd, err = unix.Openat(snapFD, ".lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
-			if err == unix.EINTR || (err == unix.ENOENT && tries < 8) {
+			fd, err = openat(snapFD, ".lock", unix.O_RDWR|unix.O_CREAT|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+			if err == unix.EINTR || (err == unix.ENOENT && tries < 8 && snapDirIsLive(yoloFD, snapFD)) {
 				continue
 			}
 			break
