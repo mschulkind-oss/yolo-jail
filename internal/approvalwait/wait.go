@@ -184,7 +184,7 @@ func (o Opts) lock() (unlock func(), held bool, err error) {
 		return nil, false, err
 	}
 	defer dir.Close()
-	f, err := dir.OpenFile(o.ID+".lock", os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	f, err := paths.OpenRootCreate(dir, o.ID+".lock", os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, false, err
 	}

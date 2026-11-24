@@ -381,7 +381,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 	}
 	defer replicas.Close()
 	// All publishers and cleaners of this destination take the same advisory lock.
-	lock, err := replicas.OpenFile(".launch-input.lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	lock, err := paths.OpenRootCreate(replicas, ".launch-input.lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err == nil {
 		var info os.FileInfo
 		info, err = lock.Stat()
@@ -804,7 +804,7 @@ func (o *Options) removeLaunchInput(name, path string, published os.FileInfo) {
 		return
 	}
 	defer root.Close()
-	lock, err := root.OpenFile(".launch-input.lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
+	lock, err := paths.OpenRootCreate(root, ".launch-input.lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0o600)
 	if err != nil {
 		o.warnLaunchInputCleanup()
 		return

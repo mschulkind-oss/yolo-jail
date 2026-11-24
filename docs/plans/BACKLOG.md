@@ -774,13 +774,19 @@ table instead of the live one would remove the race. Found 2026-10-18.
 ### <a id="mcpauth-records-lock-enoent-darwin"></a>🔧 **`records.lock: no such file or directory` in the two-broker test on a Mac, after the shared-clock race was fixed**
 
 The Mac run of 2026-11-24 at `6551bbc6f` failed `TestOutcomeTwoBrokersAdoptOneSingleUseToken` 8 of 10 times as
-separate processes and 0 of 10 at `GOMAXPROCS=1`, always with `slack: openat records.lock: no such file or
-directory`. The same run's `-race` build reported a data race on the test's shared `fakeClock`, which is fixed
-(each broker has its own clock, and the clock and the fixture's event list are locked). Linux never showed the
-ENOENT, so whether the fix removed it is **unverified**: nothing traced how a broker's wait reaches the
-canonical directory's `records.lock` (`paths.OpenLockFileBeneath`, `internal/paths/statefile_open_unix.go`). Next
-step, on a Mac: rerun the test as 10 separate processes at current main; if it still fails, log the directory's
-`Stat` when the `openat` fails.
+separate processes, always with `slack: openat records.lock: no such file or directory`. The shared-clock data race
+was fixed, but the failure stayed at `042a00ab2`: macOS 26.5 APFS returns ENOENT to one of two concurrent
+`openat(dirfd, name, O_CREAT)` of a new name, `os.Root` included
+([lab report, section 1](../lab-reports/2026-11-24-mac-openat-create-race-and-ac-stopped-halves.md#1-the-mcpauth-two-broker-failure-is-a-darwin-openat-race)).
+
+**Fix built, unconfirmed on a Mac.** `openNoFollowLeaf` (`internal/paths/statefile_open_unix.go`) repeats a creating
+`openat` that reports ENOENT, at most `createRetries` times and only while the directory descriptor is still a linked
+directory, through the same no-follow and regular-file checks; `paths.OpenRootCreate` does the same for `os.Root`
+callers (the approval-wait lock, the trace-store admission file, the launch-input lock, the nix-roots registry lock),
+and `internal/toolskills`' snapshot lock has its own bounded loop. Linux cannot show the race, so the tests inject it.
+
+Next step, on a Mac, to confirm: run `go test -count=1 -run TestOutcomeTwoBrokersAdoptOneSingleUseToken ./internal/mcpauth`
+as 10 separate processes. Delete this entry only after all 10 pass.
 
 ### <a id="env-set-unset-advice"></a>🔧 **`yolo config unset env.set.<NAME>` advises `env.unset`, which hides the variable instead of removing the key**
 
