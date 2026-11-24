@@ -225,12 +225,12 @@ func TestAStandInAndItsSleepBothShowTheirHome(t *testing.T) {
 	if dir := envVisibleShellDir(t); dir != "" {
 		sh = filepath.Join(dir, "sh")
 	}
-	cmd := exec.Command(sh, "-c", standInScript)
+	cmd := inOwnGroup(exec.Command(sh, "-c", standInScript))
 	cmd.Env = append(os.Environ(), "HOME="+home, "PATH="+path)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() { killGroup(cmd); _ = cmd.Wait() }) // the stand-in's sleep too
 	shell := cmd.Process.Pid
 	sleeper := 0
 	for deadline := time.Now().Add(10 * time.Second); sleeper == 0; time.Sleep(10 * time.Millisecond) {

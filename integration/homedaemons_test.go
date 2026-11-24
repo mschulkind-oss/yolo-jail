@@ -130,8 +130,8 @@ func fakeHomeDaemon(t *testing.T, name, home string, life time.Duration) *exec.C
 		t.Skip("the harness identifies a daemon's HOME through /proc, which this host lacks " +
 			"(homedaemons_test.go's header); it waits for nothing here, so there is nothing to test")
 	}
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("sleep %.1f; :", life.Seconds()),
-		"internal", "daemon", name)
+	cmd := inOwnGroup(exec.Command("sh", "-c", fmt.Sprintf("sleep %.1f; :", life.Seconds()),
+		"internal", "daemon", name))
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -139,7 +139,7 @@ func fakeHomeDaemon(t *testing.T, name, home string, life time.Duration) *exec.C
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
+		killGroup(cmd) // the shell's sleep too, not just the shell
 		<-exited
 	})
 	// Until the exec lands, /proc shows neither the argv nor the HOME (see the comment this

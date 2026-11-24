@@ -230,12 +230,16 @@ step() {
     trap - EXIT
     printf '' | "$@" >"$out" 2>"$err" &
     pid=$!
+    # The watchdog leads a process group of its own (set -m), so ending it ends the sleep it
+    # waits in too: killing the subshell alone left that sleep running past the probe.
+    set -m
     ( sleep "$secs"; kill -TERM "$pid" 2>/dev/null; sleep 2; kill -KILL "$pid" 2>/dev/null ) >/dev/null 2>&1 &
     dog=$!
+    set +m
     trap 'rm -rf "$pbdir"' EXIT
     rc=0
     wait "$pid" || rc=$?
-    kill "$dog" 2>/dev/null
+    kill -- -"$dog" 2>/dev/null || kill "$dog" 2>/dev/null
     wait "$dog" 2>/dev/null
     echo "STEP $name rc=$rc"
     awk '{ print "  | " $0 }' "$out"

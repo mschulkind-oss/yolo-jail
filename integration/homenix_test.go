@@ -112,7 +112,7 @@ func fakeHomeNix(t *testing.T, home string) int {
 		t.Skip("the harness identifies a nix's HOME through /proc, which this host lacks " +
 			"(homenix_test.go's header); it stops nothing here, so there is nothing to test")
 	}
-	cmd := exec.Command("sh", "-c", `trap 'kill $!; exit 130' INT; sleep 600 & wait`)
+	cmd := inOwnGroup(exec.Command("sh", "-c", `trap 'kill $!; exit 130' INT; sleep 600 & wait`))
 	cmd.Args[0] = "nix"
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	if err := cmd.Start(); err != nil {
@@ -121,7 +121,7 @@ func fakeHomeNix(t *testing.T, home string) int {
 	exited := make(chan struct{})
 	go func() { _ = cmd.Wait(); close(exited) }()
 	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
+		killGroup(cmd) // the shell's sleep too: a SIGKILLed shell runs no trap
 		<-exited
 	})
 	// As fakeHostDaemonProcess: /proc/<pid>/environ reads empty for a moment after Start. And
