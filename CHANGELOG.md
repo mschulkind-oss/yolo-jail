@@ -20,6 +20,8 @@ You can run your own clone of a pack, skills from your mise tools reach your age
 
 **Skills from your mise tools reach your agents.** When a tool in your user config's mise tools ships skills, yolo delivers them to your agents one session after the tool installs. The launch says which skills it delivered, which a built-in or pack skill replaced, and which it skipped.
 
+**Ignore or replace a repository's own agent instructions.** Set `repo_instructions.mode` to `ignore`, and Claude Code, Codex and pi stop reading the instruction files a repository ships for agents, such as its `CLAUDE.md`. With `replace`, they read a file you name instead. Other agents keep reading the files, and each launch says so. See [Keep, ignore or replace a repository's own instruction files](userguide/guides/agent-settings.md#keep-ignore-or-replace-a-repositorys-own-instruction-files).
+
 ### Changed
 
 - **Launches check for updates at every start.** Each launch asks the remote whether a branch pack, a patched fork or a Git skill import has moved, instead of at most once an hour. The check stops after five seconds, and the launch then runs the copy it has and says so. Agent launchers, MCP server refreshes and pi extension updates now run the first time you use them after each jail start. Relaunch the jail to pick up a new release. See [Keep agents and packs up to date](userguide/guides/packs-and-skills.md#keep-agents-and-packs-up-to-date).
@@ -39,6 +41,8 @@ You can run your own clone of a pack, skills from your mise tools reach your age
 - On a Mac, the keychain message now says that choosing Always Allow also lets later reads over ssh through.
 - Two jails that share an install folder no longer install into it at once on systems whose `mkdir` is from uutils coreutils.
 - On a Mac, two yolo processes that create the same lock file at once no longer fail with "no such file or directory".
+- A launch that refreshes an agent no longer leaves a `sleep` process running for a minute afterward.
+- Several jails launched at once no longer fail because another launch updated a patched fork's build state; the launch rereads it and goes on.
 
 ## [0.19.0] - 2026-11-19
 
