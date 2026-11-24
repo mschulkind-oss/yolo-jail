@@ -54,10 +54,9 @@ func frozenOperationPolicy(source string, cells []loopholedecl.CallBrokerCell, e
 			case setting.Decision == "run" && setting.Request != "ask":
 				ask, ceiling = brokerpolicy.True, brokerpolicy.Always
 			default:
-				ask, ceiling = brokerpolicy.True, brokerpolicy.OnRequest
-				if setting.Request == "ask" {
-					ask = brokerpolicy.Ask
-				}
+				// A frozen "ask" always holds: a true ask under an on_request ceiling would
+				// run (brokerpolicy.Combine), which is what an absent request must not do.
+				ask, ceiling = brokerpolicy.Ask, brokerpolicy.OnRequest
 			}
 			origin := "launch input " + cell.Name + "." + table
 			asks = append(asks, brokerpolicy.Rule{Source: source, Kind: brokerpolicy.Write, Cell: cell.Name, Table: table, Value: ask, Origin: origin})
