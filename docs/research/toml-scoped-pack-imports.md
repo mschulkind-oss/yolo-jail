@@ -66,7 +66,7 @@ manual modern rewrite, not an automatic widening conversion.
 [Content governance](../../internal/packload/governance.go) still discovers conventional
 skills and briefing contributions; pack loading separately discovers home and overlay content.
 
-[collectSkills](../../internal/hostskills/deliver.go#L695-L738) enumerates immediate child
+[OrdinarySkillDirectories](../../internal/packload/skilldirectories.go#L12-L17) enumerates immediate child
 directories of governed source trees, later sources winning a name. It follows directory
 links with `Stat`, ignores loose files, and does **not** require a marker. A tree
 `skills/core-tools/skill-a/SKILL.md` consequently contributes `core-tools`, not a portable

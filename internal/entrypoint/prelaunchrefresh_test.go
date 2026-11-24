@@ -60,7 +60,7 @@ LOCK=` + q(lock) + `
 if [ "${1:-}" = "update" ]; then
     echo "REFRESH" >> "$LOG"
     for a in "$@"; do printf 'ARG:%s\n' "$a" >> "$LOG"; done
-    [ -d "$LOCK" ] && echo "LOCKED" >> "$LOG"
+    [ -e "$LOCK" ] && echo "LOCKED" >> "$LOG"
     if IFS= read -r line; then echo "STDIN:$line" >> "$LOG"; fi
     echo "REFRESH-STDOUT"
     if [ -n "${FAKE_REFRESH_WAIT:-}" ]; then
@@ -68,7 +68,7 @@ if [ "${1:-}" = "update" ]; then
         for _ in $(seq 1 400); do [ -e "$FAKE_REFRESH_WAIT" ] && break; sleep 0.05; done
     fi
     if [ -n "${FAKE_REFRESH_STEAL:-}" ]; then
-        printf 'someone-else\n' > "$LOCK/` + probeOwner + `"
+        printf 'someone-else\n' > "$LOCK"
     fi
     exit "${FAKE_REFRESH_RC:-0}"
 fi
@@ -405,10 +405,7 @@ func TestPrelaunchRefreshSkipsWhileAnotherHoldsTheLock(t *testing.T) {
 // died (§4.2, "Stale Lock (Crashed Jail)"), so it is removed and the refresh proceeds.
 func TestPrelaunchRefreshBreaksAStaleLock(t *testing.T) {
 	p := newPrelaunchProbe(t, false)
-	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(p.lockPath(), probeOwner), []byte("dead-jail\n"), 0o644); err != nil {
+	if err := os.WriteFile(p.lockPath(), []byte("dead-jail\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	backdatePath(t, p.lockPath(), 20*time.Minute)
@@ -467,14 +464,16 @@ func TestPrelaunchRefreshReportsAMissingStoreAsSuch(t *testing.T) {
 }
 
 // TestPrelaunchRefreshNamesWhatToCheckWhenTheStoreIsThereButTheLockIsNot: the store exists, but
-// something that is not a directory sits at the lock's path (or the store refuses the write,
+// something unusable sits at the lock's path (a dangling link) (or the store refuses the write,
 // which a root test process cannot produce), so the lock cannot be taken. That is not a missing
 // mount, and the line names the command that shows which of the two it is, its paths quoted for
 // a home with a space in it.
 func TestPrelaunchRefreshNamesWhatToCheckWhenTheStoreIsThereButTheLockIsNot(t *testing.T) {
 	for _, native := range []bool{false, true} {
 		p := newPrelaunchProbe(t, native)
-		if err := os.WriteFile(p.lockPath(), []byte("not a lock\n"), 0o644); err != nil {
+		// A dangling symlink: nothing exists there to be a holder (-e is false), and O_EXCL still
+		// refuses the path, so the claim fails with no one to wait for.
+		if err := os.Symlink(filepath.Join(p.home, "nowhere"), p.lockPath()); err != nil {
 			t.Fatal(err)
 		}
 		stdout, stderr := p.run(t, "")
@@ -588,7 +587,7 @@ func TestPrelaunchRefreshIsBoundedByUpdateTimeout(t *testing.T) {
 func TestPrelaunchRefreshLeavesAStolenLockAlone(t *testing.T) {
 	p := newPrelaunchProbe(t, false)
 	p.run(t, "", "FAKE_REFRESH_STEAL=1")
-	got, err := os.ReadFile(filepath.Join(p.lockPath(), probeOwner))
+	got, err := os.ReadFile(p.lockPath())
 	if err != nil {
 		t.Fatalf("the new holder's lock was deleted by the old one: %v", err)
 	}

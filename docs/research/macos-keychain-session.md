@@ -28,7 +28,7 @@ The owner's follow-up, the same day, is answered in [§3.2](#32-route-4-in-depth
 
 It builds on, and does not repeat, the
 [Copilot keychain-boundary research](../research/copilot-keychain-boundary.md) ([§1.2](../research/copilot-keychain-boundary.md#12-what-allowing-that-one-service-exposes), [§1.5](../research/copilot-keychain-boundary.md#15-run-as-you-versus-the-dedicated-account), option
-(b)) and the [10-30 witness run](../lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md)
+(b)) and the [10-30 witness run](copilot-keychain-boundary.md#mac-results-2026-10-30)
 (W1, W5, W6).
 
 ## Terms
@@ -56,7 +56,7 @@ It builds on, and does not repeat, the
   [`seatbeltdeny.go`](../../internal/macosuser/seatbeltdeny.go)).
 - **p0, p2, vd**: the run-as-you profile; p0 plus `com.apple.SecurityServer`; p2 plus read of
   `SystemRootCertificates.keychain` and `SystemTrustSettings.plist`. They are defined in the
-  [10-30 report](../lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md).
+  [10-30 results](copilot-keychain-boundary.md#mac-results-2026-10-30).
 - **Session host**: coined here. It is a small yolo process that launchd starts in a fresh audit
   session, which then starts the jail, so that everything the jail runs inherits the fresh session
   instead of the owner's ([§3](#3-every-way-to-break-the-chain)).
@@ -116,15 +116,15 @@ scope of "lock everything" and of "who sees the dialog". So the agent cannot rea
 keychain, but it can lock it and make it ask the owner for a password. Cutting that takes a new
 session, which only root or launchd can make.
 
-### 1.4 A correction to the 10-30 report
+### 1.4 A correction to the retired 10-30 report
 
-The [10-30 report §5](../lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md#5-w5-session-routines)
-says "Account mode's own profile still denies SecurityServer." The source says otherwise: the
+The 10-30 lab report (retired into the [boundary research results](copilot-keychain-boundary.md#mac-results-2026-10-30))
+said in its W5 section "Account mode's own profile still denies SecurityServer." The source says otherwise: the
 account profile is `(allow default)` and denies no Mach service, as the
-[audit §1](../lab-reports/2026-10-29-mac-securityserver-audit.md#1-the-boundary-as-shipped-and-what-b4b5-established)
+[Mac evidence, the boundary](../design/macos-native-tls.md#mac-evidence-boundary)
 table also records. So **the shipped account-mode agent itself, not only an unconfined process of
-`_yolojail`, can call lock-all on the owner's session** **[S, I; U: R3b]**. The report's sentence
-should be corrected when this lands.
+`_yolojail`, can call lock-all on the owner's session** **[S, I; U: R3b]**. The results section does not
+repeat that sentence.
 
 ## 2. Re-verification witnesses
 
@@ -137,7 +137,7 @@ owner's session, the real login keychain included, and must be run deliberately.
 
 1. Recreate `yolo-witness` (A) and `yolo-witness2` (B) with `/Users/Shared/yolo/witness-account.sh`,
    A with the owner's admin authorization so that it can log in at the desktop, as in
-   [10-30 §8](../lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md#8-w6-sessioncreate).
+   [10-30 §8](copilot-keychain-boundary.md#mac-results-2026-10-30).
 2. Give A a rule **shaped like yolo's**, so the hop matches the crossing (the 10-30 rule named
    `/usr/bin/security` instead):
 
@@ -288,7 +288,7 @@ $KC "$S"; $KC ~/Library/Keychains/login.keychain-db    # both expected unlocked
 | Row | Command | Expected |
 | :--- | :--- | :--- |
 | R3a | `sudo -n -u _yolojail /usr/bin/env /usr/bin/security lock-keychain -a` | `$KC` shows `$S` **and** the login keychain locked |
-| R3b | (re-unlock `$S` and the login keychain first) in an account-mode workspace: `yolo -- /usr/bin/security lock-keychain -a` | the same: the shipped agent can do it ([§1.4](#14-a-correction-to-the-10-30-report)) |
+| R3b | (re-unlock `$S` and the login keychain first) in an account-mode workspace: `yolo -- /usr/bin/security lock-keychain -a` | the same: the shipped agent can do it ([§1.4](#14-a-correction-to-the-retired-10-30-report)) |
 | R3c | (re-unlock) the same command over an SSH login of the owner | the desktop's `$S` stays **unlocked** |
 
 Re-unlock the login keychain with `security unlock-keychain ~/Library/Keychains/login.keychain-db`
@@ -598,7 +598,7 @@ and the R2 keychain `$K` unlocked in A's desktop session before each lock row:
 | H1d | the R4 dialog command through `$H account --`, and `… /usr/bin/security authorize -u system.preferences` | no dialog on A's screen; an interaction-not-allowed error |
 | H1e | `sudo -n $H self -- /Users/Shared/yolo/sid/newsess /usr/bin/true` | `setaudit_addr: Operation not permitted`: the jail cannot make or reflag a session |
 | H1f | `sudo -n $H self -- /bin/zsh -i`; inside: `tty`, `stty size`, `less /etc/hosts`, Ctrl-C a `sleep 100`, resize the window | all behave as in a plain shell |
-| H1g | in A's workspace, `sudo -n $H self -- /usr/bin/sandbox-exec -f "$W/vd.sb" "$W/copilot" update`, as in [W2](../lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md#2-w2-copilots-own-tls) | a version line; no dialog |
+| H1g | in A's workspace, `sudo -n $H self -- /usr/bin/sandbox-exec -f "$W/vd.sb" "$W/copilot" update`, as in [W2](copilot-keychain-boundary.md#mac-results-2026-10-30) | a version line; no dialog |
 | H1h | the W4 outside hard link of A's unlocked `$K`, read under vd through `$H self --` | **rc 36 or 152, never the secret, no dialog** |
 | H1i | the W5 `SecKeychainResetLogin` probe under vd through `$H self --` (optional, as R5) | refused, as in W5 |
 | H1j | negative: a relative path; mode `root`; from B's SSH login (no rule); from a root shell (`SUDO_UID` unset); `DYLD_INSERT_LIBRARIES=/x sudo -n $H …`; after `sudo cp /usr/bin/true $H` | each refused; the last one by sudo, on the digest |
@@ -612,7 +612,7 @@ and the R2 keychain `$K` unlocked in A's desktop session before each lock row:
 1. **Run R1–R4 first** (R3 at a moment the owner picks). They turn the two inherited claims, W1 and
    W5, into measurements of the shipped launch path, with the cross-session control W5 lacked.
 2. **Disclose now**, whatever else is chosen. Account mode as shipped already exposes lock-all and
-   dialogs ([§1.4](#14-a-correction-to-the-10-30-report)), so the launch should say so. A draft line:
+   dialogs ([§1.4](#14-a-correction-to-the-retired-10-30-report)), so the launch should say so. A draft line:
 
    > macos-user (account mode): this jail shares your login's security session. It can lock your
    > keychains and make macOS ask you for your password; it cannot read your keychains.
@@ -670,7 +670,7 @@ and the R2 keychain `$K` unlocked in A's desktop session before each lock row:
 - yolo: [`privilege.go`](../../internal/macosuser/privilege.go), [`mode.go`](../../internal/macosuser/mode.go),
   [`macosuser.go`](../../internal/macosuser/macosuser.go), [`seatbelt.go`](../../internal/macosuser/seatbelt.go),
   [`seatbeltdeny.go`](../../internal/macosuser/seatbeltdeny.go); the
-  [10-30 witness run](../lab-reports/2026-10-30-mac-copilot-keychain-witnesses-and-issue-66.md), the
-  [10-29 runbook run](../lab-reports/2026-10-29-mac-native-witnesses-runbook.md), the
-  [SecurityServer audit](../lab-reports/2026-10-29-mac-securityserver-audit.md) and the
+  [10-30 witness run](copilot-keychain-boundary.md#mac-results-2026-10-30), the
+  [10-29 runbook run](../design/macos-native-tls.md#mac-evidence-witness-run), the
+  [SecurityServer audit](../design/macos-native-tls.md#mac-evidence-boundary) and the
   [boundary research](../research/copilot-keychain-boundary.md).

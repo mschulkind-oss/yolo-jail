@@ -98,3 +98,28 @@ func TestAllowPackNudgesWarnsLoginNoProfileOnTheHost(t *testing.T) {
 		t.Fatalf("host findings = %+v, want one login-no-profile for aws-auth", got)
 	}
 }
+
+// A login pack's profile may be set the legacy way, `loopholes.<loophole>.settings.<setting>`,
+// which the loophole honors; the nudge must not say the pack names no profile then (the
+// 2026-10-30 Mac run, a JSONC config on aws-auth).
+func TestAllowPackNudgesAcceptsTheLegacyLoopholeSettingProfile(t *testing.T) {
+	layerHome(t, `{"packs": ["aws-auth"], "loopholes": {"aws-auth": {"settings": {"profile": "p1"}}}}`)
+	t.Setenv(UserLayerEnv, "")
+	t.Setenv("YOLO_VERSION", "")
+
+	user, src, err := UserScopeConfigWithSources(true, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := ListedPackNames(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := EmbeddedAllowPackFacts(listed)
+	if facts.LoginProfile["aws-auth"] == "" || !readableSet(listed)["aws-auth"] {
+		t.Fatalf("fixture does not exercise the finding: listed=%v login=%v", listed, facts.LoginProfile)
+	}
+	for _, n := range AllowPackNudges(user, src, facts) {
+		t.Errorf("a profile set under loopholes.aws-auth.settings still drew %q: %s", n.Kind, n.Message())
+	}
+}

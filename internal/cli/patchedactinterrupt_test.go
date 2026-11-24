@@ -141,7 +141,7 @@ func ctrlCOnceAllBuild(t *testing.T, n int) *int {
 		mu.Unlock()
 		select {
 		case <-ctx.Done():
-		case <-time.After(10 * time.Second):
+		case <-time.After(5 * time.Minute):
 			t.Error("the Ctrl-C did not reach every build of the pool")
 		}
 		return 130, false

@@ -27,7 +27,14 @@ import (
 const (
 	fixtureIdentity       = "synthetic-pack-broker-fixture-v1"
 	fixtureRequestTimeout = 2 * time.Second
+	// defaultFixtureShutdownTimeout is how long a stopping fixture lets its in-flight
+	// requests drain before it closes its listeners and reports a failed shutdown.
+	defaultFixtureShutdownTimeout = time.Second
 )
+
+// fixtureShutdownTimeout is the drain budget above; a test that holds a request open across a
+// stop on a loaded machine widens it, and a test pins that production keeps its value.
+var fixtureShutdownTimeout = defaultFixtureShutdownTimeout
 
 type fixtureItem struct {
 	ID      string `json:"id"`
@@ -408,7 +415,7 @@ func serveWithRedirectBeforeWriteAndFatal(args []string, beforeWrite func(), fat
 	go func() { redirectServeDone <- redirectSrv.Serve(redir) }()
 	go func() {
 		<-ctx.Done()
-		c, stop := context.WithTimeout(context.Background(), time.Second)
+		c, stop := context.WithTimeout(context.Background(), fixtureShutdownTimeout)
 		defer stop()
 		var shutdownErrs []error
 		if err := srv.Shutdown(c); err != nil {

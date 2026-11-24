@@ -510,10 +510,10 @@ func (s staleRefresh) refresh(parent context.Context, stale []serverPkg) error {
 	// leave the two able to write that prefix at the same moment while both believed they
 	// had serialized. A launcher calls this AFTER dropping its own lock, so this cannot
 	// deadlock against its caller.
-	held := map[string]bool{}
+	held := map[string]string{}
 	defer func() {
-		for dir := range held {
-			releasePrefixLock(dir)
+		for dir, token := range held {
+			releasePrefixLock(dir, token)
 		}
 	}()
 
@@ -523,8 +523,9 @@ func (s staleRefresh) refresh(parent context.Context, stale []serverPkg) error {
 	}
 	for _, p := range stale {
 		lockDir := serverLockDir(s.e, p.kind)
-		if !held[lockDir] {
-			if !acquirePrefixLock(lockDir, s.now()) {
+		if _, ok := held[lockDir]; !ok {
+			token := acquirePrefixLock(lockDir, s.now())
+			if token == "" {
 				// PROCEED WITHOUT UPDATING AND SAY SO — §3.5 forbids both waiting and
 				// failing here, and a busy lock checked nothing (PD-NF5). No stamp: nothing
 				// was attempted, so the next invocation should still try.
@@ -535,7 +536,7 @@ func (s staleRefresh) refresh(parent context.Context, stale []serverPkg) error {
 				}
 				continue
 			}
-			held[lockDir] = true
+			held[lockDir] = token
 		}
 		if !s.strict {
 			stop, r := s.refreshOne(ctx, p)
@@ -716,36 +717,92 @@ func serverLockDir(e *Env, kind serverKind) string {
 // refreshes for the life of the home. Ten times the bound on one attempt.
 const serverStaleLockAge = 10 * ServerRefreshTimeout
 
-// acquirePrefixLock is a NON-BLOCKING mkdir, which is the launchers' `_take_lock` in Go and
-// is a ruling rather than a shortcut: there is no flock in the image and none on a stock
-// macOS, and §3.5 requires an invocation that cannot take the lock to proceed without
-// updating.
-func acquirePrefixLock(dir string, now time.Time) bool {
-	if err := os.Mkdir(dir, 0o755); err == nil {
-		return true
+// acquirePrefixLock is a NON-BLOCKING O_EXCL claim, the launchers' `_take_lock` (lockShellFns) in
+// Go and the SAME protocol, since a launcher and this refresh take the one lock path. It is a
+// ruling rather than a shortcut: there is no flock in the image and none on a stock macOS, and
+// §3.5 requires an invocation that cannot take the lock to proceed without updating. It is not
+// mkdir, which uutils coreutils lets two racers both win. It returns the owner token it wrote,
+// or "" when another holds the lock.
+//
+// A lock older than serverStaleLockAge is reaped by the one caller that wins an O_EXCL claim on
+// `<lock>.reap.<token>.<mtime>`, which re-checks the instance before removing it; a directory
+// left by an earlier version is removed when stale and claimed like any other.
+func acquirePrefixLock(dir string, now time.Time) string {
+	token := fmt.Sprintf("go.%d.%d", os.Getpid(), time.Now().UnixNano())
+	if claimLockFile(dir, token) {
+		return token
 	}
 	st, err := os.Stat(dir)
 	if err != nil {
-		return false
+		return ""
 	}
-	if now.Sub(st.ModTime()) <= serverStaleLockAge*time.Second {
-		return false
+	stale := func(st os.FileInfo) bool { return now.Sub(st.ModTime()) > serverStaleLockAge*time.Second }
+	if !stale(st) {
+		return ""
 	}
-	// The remove's error is dropped because the Mkdir on the next line is the real
-	// answer: if the stale lock could not be cleared, the Mkdir fails and this returns
-	// false, which is the whole contract — "could not take the lock" — and §3.5 requires
-	// an invocation that cannot take it to proceed without updating.
+	if st.IsDir() {
+		// rmdir is atomic and fails on a file, so of two reapers one proceeds; a failed remove
+		// leaves the claim below to fail, which is "could not take the lock".
+		_ = os.Remove(filepath.Join(dir, ".yolo-lock-owner"))
+		if os.Remove(dir) != nil || !claimLockFile(dir, token) {
+			return ""
+		}
+		return token
+	}
+	seen := lockOwner(dir)
+	name := seen
+	if name == "" {
+		name = "none"
+	}
+	reap := fmt.Sprintf("%s.reap.%s.%d", dir, name, st.ModTime().Unix())
+	if !claimLockFile(reap, token) {
+		if rst, err := os.Stat(reap); err == nil && stale(rst) {
+			_ = os.Remove(reap)
+		}
+		return ""
+	}
+	defer os.Remove(reap)
+	if cur, err := os.Stat(dir); err != nil || !stale(cur) || lockOwner(dir) != seen {
+		return ""
+	}
 	_ = os.Remove(dir)
-	return os.Mkdir(dir, 0o755) == nil
+	if claimLockFile(dir, token) {
+		return token
+	}
+	return ""
 }
 
-// releasePrefixLock drops the lock dir. The error stays dropped and the staleness
-// rule above is why: a lock that fails to release is indistinguishable from one held
+// claimLockFile creates path with O_CREAT|O_EXCL holding token, and reports whether it won.
+func claimLockFile(path, token string) bool {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return false
+	}
+	_, _ = f.WriteString(token + "\n")
+	_ = f.Close()
+	return true
+}
+
+// lockOwner reads a lock's owner token, "" when there is none.
+func lockOwner(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// releasePrefixLock drops the lock this process took, and only while it is still ours: a lock
+// another launcher broke as stale and re-took survives. The error stays dropped and the
+// staleness rule above is why: a lock that fails to release is indistinguishable from one held
 // by a process that died, and acquirePrefixLock already breaks any lock older than
-// serverStaleLockAge. So the worst case is one refresh interval of no refreshes,
-// which self-heals — and a warning about it would fire on a path the user cannot act
-// on anyway.
-func releasePrefixLock(dir string) { _ = os.Remove(dir) }
+// serverStaleLockAge. So the worst case is one refresh interval of no refreshes, which
+// self-heals — and a warning about it would fire on a path the user cannot act on anyway.
+func releasePrefixLock(dir, token string) {
+	if token != "" && lockOwner(dir) == token {
+		_ = os.Remove(dir)
+	}
+}
 
 // currentJailStart reads the jail-start record the boot wrote, "" when there is none (an older
 // boot, a failed write).

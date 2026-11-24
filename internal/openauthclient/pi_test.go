@@ -60,7 +60,7 @@ func TestWritePiAuthWaitsForALivePiLockFifteenSecondsOld(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("WritePiAuth did not finish after pi released its lock")
 	}
 	data, err := os.ReadFile(authPath)

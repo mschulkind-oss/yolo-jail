@@ -463,12 +463,12 @@ func TestABackgroundRefreshThatTimesOutIsRetriedAtTheNextLaunch(t *testing.T) {
 }
 
 // TestABackgroundJobThatCannotTakeItsLockSaysSoOnce: a store the job cannot take its lock in —
-// here a FILE where the lock directory goes, which passes the launch's checks and fails the
-// job's mkdir — is "cannot take", never "another holds". The job stamps, so the store says so
+// here a dangling link where the lock goes, which passes the launch's checks and fails the
+// job's claim — is "cannot take", never "another holds". The job stamps, so the store says so
 // once an hour rather than on every launch, and leaves that for the next launch to say once.
 func TestABackgroundJobThatCannotTakeItsLockSaysSoOnce(t *testing.T) {
 	p := newTimingProbe(t, false, false)
-	if err := os.WriteFile(p.lockPath(), nil, 0o644); err != nil {
+	if err := os.Symlink(filepath.Join(p.home, "nowhere"), p.lockPath()); err != nil {
 		t.Fatal(err)
 	}
 	_, stderr := p.run(t, "")
@@ -506,7 +506,7 @@ func startBlockedJob(t *testing.T, p *prelaunchProbe) (release string, pgid int)
 	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o644) })
 	p.run(t, "", "FAKE_REFRESH_WAIT="+release)
 	mustAppear(t, release+".started", "the background refresh starting")
-	tok, err := os.ReadFile(filepath.Join(p.lockPath(), probeOwner))
+	tok, err := os.ReadFile(p.lockPath())
 	if err != nil {
 		t.Fatalf("the running job's lock has no owner token: %v", err)
 	}
@@ -544,10 +544,7 @@ func TestAStoppedBackgroundJobReleasesItsLockAndIsSaid(t *testing.T) {
 	}
 
 	// Another launcher takes the free lock before this home launches again.
-	if err := os.Mkdir(p.lockPath(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(p.lockPath(), probeOwner), []byte("someone-else\n"), 0o644); err != nil {
+	if err := os.WriteFile(p.lockPath(), []byte("someone-else\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, stderr := p.run(t, "")
@@ -591,7 +588,7 @@ func TestABackgroundJobKilledWithItsJailIsSaidOnceItsLockIsStale(t *testing.T) {
 	if err := os.WriteFile(release, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(p.lockPath(), probeOwner)); err != nil {
+	if _, err := os.Stat(p.lockPath()); err != nil {
 		t.Fatalf("a killed job leaves its lock and token behind, which this cell is about: %v", err)
 	}
 

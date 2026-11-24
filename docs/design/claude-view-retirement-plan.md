@@ -6,7 +6,7 @@ next: "Root combined gate and native macOS lifecycle verification"
 
 # Stop maintaining a Claude view when its next jail launch selects Off
 
-**Status:** 2026-10-29. Metadata-retirement implementation is built in the reviewed candidate and assembled for the combined gate. **UNMEASURED:** native macOS On→Off behavior remains outstanding; the matched-launcher nested smoke passed only an isolated empty-pack shell startup and does not witness Claude retirement. The earlier inherited-config smoke failed before verifying the candidate launch.
+**Status:** 2026-10-29. Metadata-retirement implementation is built in the reviewed candidate and assembled for the combined gate. **Measured natively 2026-10-29** ([Mac evidence](macos-native-tls.md#mac-evidence-witness-run), [OQ-MT9](macos-native-tls.md#OQ-MT9)): On then Off retired the workspace's registration (2 views to 1; run at `6f651f8c4`); the matched-launcher nested smoke passed only an isolated empty-pack shell startup and does not witness Claude retirement. The earlier inherited-config smoke failed before verifying the candidate launch.
 
 **Status:** 2026-10-29. Written against `8c0bc42f3a72e19b9f27a06f33b1fdf4a63c4679`;
 production keeper Off transition reproduced with private fake tokens.

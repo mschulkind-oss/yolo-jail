@@ -12,7 +12,7 @@ tags: [macos-user, claude, credentials]
 
 ## Evidence and accepted behavior
 
-The [login-session report](../lab-reports/2026-10-25-mac-claude-login-session.md), including its four follow-up measurements, demonstrates the mechanisms. The [latest verification](../lab-reports/2026-10-27-mac-verification.md) confirms the self-mode view path is already repaired, but the temp adapter is absent. These reports are historical evidence and are not edited by this work.
+The [login-session record](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section), including its four follow-up measurements, demonstrates the mechanisms. The 2026-10-27 Mac verification (at `12acfa691`) confirmed the self-mode view path was already repaired (`829717e46`) and the temp adapter absent; the full macos-user suite passed (162 passed, 0 failed, 4 skipped). Both are historical evidence and are not edited by this work.
 
 - A selected Claude pack declares its native sandbox temp-variable adaptation. The final macos-user launch points `CLAUDE_CODE_TMPDIR` at its existing sandbox `TMPDIR`, without adding a shared `/tmp` grant or putting Claude-specific environment into unselected launches. An explicit override survives only when safe within existing temp validation.
 - Account-mode Claude gets a write-only, nontransient `security` compatibility adapter: `add-generic-password` fails promptly with exit 50, allowing its measured file fallback. Account reads remain untouched. Self mode gets no adapter.

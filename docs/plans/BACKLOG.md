@@ -73,15 +73,6 @@ restated in [roadmap.md](roadmap.md) instead of linked from it.
 
 ---
 
-## The launchers' mkdir lock is not exclusive on uutils (found 2026-11-23)
-
-The install-prefix lock in both launcher shell templates (`_take_lock`, `internal/entrypoint/shims.go`) and the
-pre-launch refresh lock (`internal/entrypoint/prelaunchrefresh.go`) treat a successful `mkdir` as owning the lock.
-On CI's ubuntu-26.04 runners, uutils coreutils' `mkdir` succeeds on a racing create (recorded 2026-11-14), so two
-launchers sharing a prefix can both install into it; GNU coreutils in the jail hides it. Candidate fix: an
-`O_EXCL` file or an `ln -s` claim, keeping the owner token and the stale rule. Apple Container's shared host
-directories need the owner's Mac to verify. Context: [`launcher-update-per-jail-start.md`](../design/launcher-update-per-jail-start.md#found-out-of-scope).
-
 ## Where the reasoning lives
 
 | Doc | Answers | Read it when |
@@ -780,6 +771,46 @@ again. It failed once on `/var/lib/containers/storage/overlay` while integration
 jail were adding and removing podman mounts (`internal/entrypoint/fsx_test.go`). A fixture mount
 table instead of the live one would remove the race. Found 2026-10-18.
 
+### <a id="mcpauth-two-brokers-darwin"></a>🔧 **`TestOutcomeTwoBrokersAdoptOneSingleUseToken` fails under `-count` on a Mac**
+
+On the owner's Mac at `fe37424b3` it failed 39 of 40 repetitions under `-count=20` with
+`slack: openat records.lock: no such file or directory` (`internal/mcpauth/outcome_concurrency_test.go`),
+but passed alone and in one full run. On Linux at current main it passes 20 of 20, so it is not
+reproduced here. The lock is opened by `paths.OpenLockFileBeneath` through `openNoFollowLeaf`
+(`internal/paths/statefile_open_unix.go`): an `unix.Openat` with `O_CREAT|O_NOFOLLOW|O_NONBLOCK`
+against a directory descriptor, which returns ENOENT only if that directory vanished or the kernel
+reports a create race that way. Two hypotheses, neither confirmed: (1) darwin returns ENOENT for two
+concurrent `O_CREAT` opens of one new name through `openat`; (2) state shared across repetitions.
+Next step, on a Mac: run with `-count=1 -race` in a loop, and log the directory's `Stat` when the
+openat fails; if (1), retry the open once on ENOENT while the directory still exists.
+
+### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
+
+It failed once in the full `just test-fast` on a Mac (`status=-1 out=""`: the CLI was killed after
+`decisionWaitDelay`, five seconds, rather than interrupted) and passed alone
+(`internal/approvalnotify/main_test.go`). The fixture waits on a FIFO event, so the cause is not
+in the wait. One unconfirmed hypothesis: a signal ignored on entry to a non-interactive `sh` (as when the suite itself
+runs from a background job) cannot be trapped, so the trap never prints and Go falls through to the
+kill. Next step: have the fixture print and exit from `trap` through `exec` of a child that resets
+SIGINT, or fail the test with the inherited disposition named; confirm by running it from `cmd &`.
+
+### <a id="callbroker-revoked-native-parent-flake"></a>🔧 **`TestSelectedHTTPWriteRevokedReadOrChangedNativeParentCannotSpend/pack_deselected` fails once under load**
+
+On a Mac's full gate it failed once (`rc=64`, *"HTTP broker refused: This is a bug in the selected
+pack's HTTP classifier"*, `internal/callbroker/http_host_test.go`) and passed 3 of 3 alone, with and
+without a `yolo host` caller's env. Not touched here because another lane owns `internal/callbroker`.
+Next step: read how the classifier's refusal can fire on a deselected pack when the test's helper
+process answers late, and wait on that helper's readiness line.
+
+### <a id="unset-env-set-one-verb"></a>🔧 **`yolo config unset env.set.<NAME>` has no single-edit removal**
+
+Its schema removal is `RemovalUnsetList`: the entry leaves `env.set` and its name joins `env.unset`,
+two edits in one file, and `configedit` plans one mutation. Since 2026-11-23 the refusal names the verb
+for the second half (`yolo config add env.unset '"NAME"'`) instead of telling the user to hand-edit.
+Still open: whether `unset` should itself do both edits (needs a multi-mutation plan in
+`internal/configedit`), or remove only this file's line (`RemovalUnspecified`), letting a lower file's
+value show through. Found by the Mac run of 2026-11-23.
+
 ### <a id="worker-sigterm-capture-jail"></a>🔧 **A stopped preparation worker leaves its capture jail's keeper running**
 
 A shared-demand worker that gets SIGTERM while a `program-capture-jail` runs exits without waiting
@@ -820,6 +851,55 @@ writer to matter; `yolo config apply` closes the same gap for the running case. 
 `brokerscope.ReplaceRepos` rewrites `repos` only, so on a scope file a build before WW-D12 wrote, a
 repository listed under `widened` and removed from the config is never narrowed live. Such a file
 belongs to a broker that cannot take live scope anyway. Found 2026-10-18.
+
+### <a id="account-mode-copilot-tls"></a>🔧 **Account mode denies `com.apple.SecurityServer`, so Copilot 1.0.93+ cannot make HTTPS requests there**
+
+Measured on a Mac 2026-11-04 at main `723b75754` (installed `0.16.1+35`). Slice 12a moved
+`seatbelt-yolo-account` onto the deny-by-default profile, whose closing block denies the service
+(`internal/macosuser/seatbeltdeny.go`, the `service-deny` block, per
+[MT-D7](../design/macos-native-tls.md#decision-ledger)). The Sandbox log named `copilot deny(1)
+mach-lookup com.apple.SecurityServer` and the system trust settings; `copilot update` failed with
+`error sending request` in account mode and passed on 12a's parent `467d785d9`. Three places still
+say account mode is fine: the `PARITY` comment on `nativeCompatibilityShell`
+(`internal/entrypoint/programcompatibility.go`) and its gate, which refuses only in self mode;
+the refusal's route list (`_yolo_self_mode_next_steps`), whose first route is
+`yolo config set setup seatbelt-yolo-account --user`; and the account-mode boundary text in
+[`copilot-keychain-boundary.md`](../research/copilot-keychain-boundary.md). The same failure stops
+witness [W-KC5](../design/keychain-from-a-jail.md#W-KC5) one request short of its answer. Smallest next
+step, an owner ruling that needs no new facts: grant account mode the trust-evaluation lookups
+Copilot needs (reopens MT-D7 and
+[OQ-MT12](../design/macos-native-tls.md#OQ-MT12)), or gate account mode too (a failing test that
+launches the gate with an account-mode context and expects the refusal; then drop that route from
+the next steps).
+
+### <a id="apple-container-copy-header"></a>🔧 **The generated user-config copy says edits are overwritten, but an Apple Container relaunch refuses an edited one**
+
+`config.InheritHeader` (`internal/config/inherit.go`) writes "your edits are overwritten on the
+next launch". Since `45ad8d15b`, an Apple Container relaunch replaces the copy only while it is yolo's
+own (the owner's, one link, first line unchanged); an edited copy refuses the launch and names the
+`mv` step (Mac run 2026-11-06 at `c5990cf51`, W8). The header's first line is how a later launch
+recognises the copy, so only the second line may change. Smallest next step: reword it to say an
+edit makes the next launch stop and name the `mv`, with the header's golden test updated first.
+
+### <a id="legacy-move-adoption-lines"></a>🔧 **The launch that moves a legacy home re-adopts two host-file surfaces**
+
+Mac run 2026-11-06 at `c5990cf51`, `seatbelt-yolo-account`: the launch that moved
+`.yolo/home` to `.yolo/setups/<setup>/home` printed `…/.config/mcp/mcp.json: adopted; the file as
+yolo found it is archived at …` and the same for `.codex/config.toml`, and spent 40 s in
+`launch.build_home_overlay`; the first and third launches printed neither. Probable cause, not
+checked: the adoption state (`FirstMigration`, `internal/entrypoint/adoptionarchive.go`) is keyed
+by a path the move changes. Smallest next step: a Linux test that moves a home after one render and
+asserts the next render does not report a first migration.
+
+### <a id="nightly-macos-witnesses"></a>🔧 **Two nightly-macOS witnesses only a CI runner can settle**
+
+From the 2026-11-06 triage. The image-build failure behind the old `hello` fixture (a plain
+build failing, then the Linux-builder offload not starting) did not reproduce on the owner's Mac
+(its nix does not use the Cachix substituter), so whether it is a `internal/containerbuilder`
+defect or the runner's podman machine is unanswered; `0ec931135` makes the next occurrence's
+report name the reason. And `TestTheJailsYoloCarriesItsMatchedBundleStamp` has passed on the on-tag
+form only locally (at `v0.17.1`), never in a scheduled nightly, because a scheduled run tests the
+last pushed commit. Next step for each: read the failing run's report the next time it appears.
 
 ### <a id="pi-paste-freeze"></a>🔧 **A long Kitty paste froze Pi's display twice; the cause is unknown and the work is parked**
 
@@ -1008,16 +1088,54 @@ access-control entry, with text saying it was "MOVED or copied into /Users/Share
 `yolo macos-fix-permissions <workspace>` succeeds, but the sandbox account still cannot get past the
 parent, so the next launch fails six boot steps with `permission denied` and names the same
 command again. The sharing precondition checks only the workspace's own entry, never its
-parents. Found natively on 2026-10-29
-([lab report §4](../lab-reports/2026-10-29-mac-native-fix-checks-and-unshared-ancestor.md#4-new-defect-a-workspace-under-a-private-parent-loops)).
+parents. Found natively on 2026-10-29 at `3cad08c6a`, in a scratch directory under `/private/tmp/claude-501`
+and in a plain `mktemp -d` under `$TMPDIR` (both `drwx------`); the second launch failed six boot steps with
+`mkdir …/T/tmp.XXXX: permission denied`.
 
-### <a id="it-dangling-layout-links"></a>🔧 **macos-user integration runs leave dangling layout links in the real account home**
+**Code pointer:** `PreconditionWorkspaceShared` in `internal/macosuser/preconditions.go` runs one
+`WorkspaceGrantedScript` check on the workspace directory itself, and its refusal text assumes the project was
+moved into the shared root. `yolo yolo-account share <path>` applies the entry to that tree only.
+**Next step (a design choice, so no test yet):** either refuse a workspace outside the shared root with a plain
+message that it must live under `/Users/Shared/yolo`, or check that every parent can be entered and name the one
+that blocks the sandbox account. Self mode skips this precondition by design.
 
-Each macos-user test that selects a pack with a state folder lays a link such as `~/.oh-omp` from
-`/Users/_yolojail` into its temporary `yolo-it-*` workspace, and nothing removes it when the workspace
-is deleted. On 2026-10-30 a dangling `~/.gemini` left by an Oct 18 run refused a real launch whose
-pack delivers files under `.gemini`, until the maintainer ran `sudo rm` on it
-([lab report §2](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#2-dangling-layout-links-from-integration-runs)).
+### <a id="claude-auth-status-signed-out-view"></a>🔧 **`yolo claude-auth status` cannot tell a signed-out view from one never written**
+
+After a `/logout` in one workspace, the broker records `logged_out` only on its next refresh (the background tick
+rewrites views near expiry), so until then `status` lists the view as `no view file yet` with `logged_out: false`
+(`internal/oauthbroker/hostverbs.go`). Seen natively on 2026-10-29 at `d159a57f0`. **Next step:** have `status`
+check the view file's absence against the registration's `written` flag and say "signed out in its jail"; a
+Linux test can drive the broker store.
+
+### <a id="apple-container-start-in-macos-user-workspace"></a>🔧 **Apple Container cannot start in a workspace macos-user already used**
+
+Launching Apple Container (the default runtime on that Mac) in a workspace whose `.yolo/home` holds the
+macos-user layout failed at container start with `mount failed with errno 17: failed to create directory
+'.claude-shared-credentials'` (`EEXIST`), and the error names no next step. Seen 2026-10-29 at `d159a57f0`;
+not investigated and not reproduced since. **Next step:** reproduce by launching macos-user then Apple
+Container in one workspace, find which layout entry (probably the `.claude-shared-credentials` link) blocks the
+mount, and either repair it or refuse naming `yolo --setup` for the one backend that workspace used.
+
+### <a id="host-launch-invalid-context-recheck"></a>🔧 **Re-check `yolo host` on a Mac for the "invalid macos-user launch context" refusal**
+
+On 2026-10-29 at `d159a57f0`, `yolo host -- claude` printed `invalid macos-user launch context` and its Copilot
+capture failed (`YOLO_USE_INSTALLED=copilot` was the way around it). The capture path was repaired by
+`662d9103b` and a native `yolo capture copilot` then passed, but the unconfined `yolo host` launch was not
+re-run. The entrypoint treats `YOLO_DARWIN_WORKSPACE` as native
+(`internal/entrypoint/shims.go`), and a host launch that sets it without
+`YOLO_MACOS_USER_TMPDIR_CONTEXT` would hit the refusal. **Next step:** a Mac check, `yolo host -- true` with
+the Copilot pack selected, at main `662d9103b` or later; if it refuses, write the Linux test first.
+
+### <a id="it-dangling-layout-links"></a>🔧 **Dangling layout links left in the real account home by earlier integration runs**
+
+Before account mode kept its home per workspace (slice 12a,
+[MMP-D25](../design/macos-user-model-plan.md#MMP-D25)), each macos-user test that selected a pack with a
+state folder laid a link such as `~/.oh-omp` from `/Users/_yolojail` into its temporary `yolo-it-*`
+workspace, and nothing removed it when the workspace was deleted. On 2026-10-30 a dangling `~/.gemini`
+left by an Oct 18 run refused a real launch until the maintainer ran `sudo rm` on it. New launches no
+longer lay these links, so what remains is the old ones: `yolo check` and `yolo prune` housekeeping is
+[OQ-FS5](../design/pack-files-for-agent-state.md#OQ-FS5), and the evidence is the
+[Mac run appendix](../design/pack-files-for-agent-state.md#appendix-the-2026-10-30-mac-run).
 
 ### <a id="files-into-foreign-state-dir"></a>🔧 **A pack's files under another pack's state folder lock that pack out of the account home**
 
@@ -1025,16 +1143,95 @@ A `files` contribution into `.gemini/config/agents` (the maintainer's `matt-agen
 without `agy`, creates a real `/Users/_yolojail/.gemini`. Every later launch selecting `agy`, whose
 state folder that is, is then refused by `darwin_home_layout`, with the next step
 `sudo rm -rf /Users/_yolojail` rather than the one folder. The refused launch still writes agy's
-generated config into the real folder, and nothing warns ahead of time
-([lab report §3](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#3-a-files-delivery-into-another-packs-state-folder); designed in [`pack-files-for-agent-state.md`](../design/pack-files-for-agent-state.md)).
+generated config into the real folder, and nothing warns ahead of time. The addressing amendment
+(FS-D6) is built; the refusal wording, the stop-the-boot step and the warning are designed and unbuilt
+in [`pack-files-for-agent-state.md`](../design/pack-files-for-agent-state.md)
+([evidence](../design/pack-files-for-agent-state.md#appendix-the-2026-10-30-mac-run)).
 
-### <a id="check-nudge-false-warnings"></a>🔧 **Two `yolo check` warnings name fixes that do not apply**
+### <a id="dns-under-vpn"></a>🔧 **Pants (a static musl binary) cannot resolve `github.com` in a podman jail on a coworker's Mac under the VPN**
 
-The aws-auth login nudge reads only `allow.aws-auth.profile`, so it warns on a JSONC config that
-sets the legacy `loopholes.aws-auth.settings.profile`, which the loophole honours. The `stages 0
-files` warning tells the user to fix `only`/`exclude` filters in a `packs` entry for the empty
-conventional local pack, which has neither
-([lab report §4](../lab-reports/2026-10-30-mac-sandbox-home-collisions-and-check-nudges.md#4-false-check-warnings)).
+Measured 2026-10-19 on two arm64 Macs, both on the company VPN: pants' first run bootstraps on the
+maintainer's jail and fails on the coworker's with `Could not resolve host: github.com`, while `curl`
+and `ping` in the same shell reach it. scie-pants is a static musl binary, so its downloads resolve
+through musl's `getaddrinfo`. A stub DNS server in one container, misbehaving one way at a time,
+with `socket.getaddrinfo("github.com", 443)` run from `python:3.12-alpine` (musl) and
+`python:3.12-slim` (glibc): musl fails and glibc succeeds when the upstream answers the `AAAA` query
+with `NXDOMAIN` (at once), `SERVFAIL` or `REFUSED` (after 5 s), or when a second listed server answers
+everything `NXDOMAIN` at once; both fail when the first listed server does. Both jail nameservers
+(`169.254.1.1`, pasta's forwarder, and `192.168.127.1`, gvproxy) relay the Mac's own resolver, so the
+race between them cannot happen; every hop on the maintainer's Mac answers `NOERROR` for both
+record types. The remaining suspect is the coworker's internet resolver. **His output was never
+recorded.** It comes from, run outside any jail with the podman machine up:
+
+```bash
+scutil --dns | grep -E 'nameserver|search domain' | sort -u
+for s in $(scutil --dns | awk '/nameserver/{print $3}' | sort -u); do echo "$s: $(dig +time=3 +tries=1 @$s github.com AAAA | grep -o 'status: [A-Z]*')"; done
+podman run --rm docker.io/library/alpine:3.20 sh -c 'apk add -q bind-tools; dig @192.168.127.1 github.com AAAA | grep -o "status: [A-Z]*"'
+podman run --rm docker.io/library/python:3.12-alpine python3 -c 'import socket; print(socket.getaddrinfo("github.com", 443, 0, socket.SOCK_STREAM)[0][4])'
+```
+
+The maintainer's baseline is `10.19.0.2: status: NOERROR`, gvproxy `NOERROR` and
+`('140.82.114.3', 443)`. A `gaierror` on the last line reproduces the failure outside yolo; a
+non-`NOERROR` status names the bad server. A workaround measured on the maintainer's Mac: a musl
+container with `--dns 10.19.0.2` resolves both internal and outside names (in a running jail,
+`echo 'nameserver 10.19.0.2' > /etc/resolv.conf`, lost on restart). A failed fetch also leaves a
+zero-byte archive in pants' cache (`rm -rf ~/.cache/nce/5c8db1c2*`). **Next step:** get the output, then
+decide among a config key for a launch's nameservers (none exists: no `dns` key in `internal/config`,
+and the launcher passes podman no `--dns`), a launcher that writes the one nameserver it can tell
+works, or documenting the edit. Whether Apple Container's missing internet under the VPN is the same
+cause is part of that decision.
+
+### <a id="mac-claude-login-residue"></a>🔧 **Mac observations from the 2026-10-24 to 10-27 sessions that no fix or design covers**
+
+Each was seen once on the maintainer's Mac (macOS 26.5, arm64) and not reproduced since; re-check the
+first on main before acting. The Claude repairs the same sessions asked for are built
+([`mac-claude-lab-followups-plan.md`](../design/mac-claude-lab-followups-plan.md)); these are the rest.
+
+1. **The first interactive Claude run in a fresh sandbox home stops at "Select login method"** in both
+   macos-user modes even with a live view, while `claude -p` answers; Esc does not leave it. Setting
+   `hasCompletedOnboarding: true` and `theme` in the sandbox's `claude.json` let the session run.
+   (`internal/storage/claudejson.go` seeds `hasCompletedOnboarding` from the host's file.)
+2. **The canonical login lost metadata.** After a `/login` in a podman jail the canonical file held
+   only `accessToken, refreshToken, expiresAt, refreshTokenExpiresAt, scopes`, while the shared file
+   also held `subscriptionType`, `subscriptionTypeSource` and `rateLimitTier`. Views project from the
+   canonical file, so the plan type may be missing where Claude reads it from the view.
+3. **A host `/login`'s banner read `API Usage Billing`** before the login, with the store empty: some
+   other credential was found; which one was not traced.
+4. **`yolo claude-auth refresh` wrote views without a `view: wrote` line** (the broker's own writes log
+   it, `internal/oauthbroker/views.go`), so the runbook's witness line is absent after a CLI refresh.
+5. **A workspace macos-user has used cannot launch on Apple Container**: its `.yolo/home` keeps
+   `.claude-shared-credentials` as a symlink into `/Users/_yolojail`, and the mount fails with
+   `errno 17: failed to create directory '.claude-shared-credentials'`.
+6. **A `board` capture recorded for linux/arm64 was materialized on darwin** for `yolo host` and self
+   mode (`capture materialize: entry c5dafe0445128f70 is a linux/arm64 capture and this is
+   darwin/arm64`, `internal/capture/materialize.go`), blocking launches unless
+   `YOLO_ALLOW_MISSING_PROGRAMS=1`.
+7. **The CI runner's `apple-container.yml` leaves a `yolo-jail` image per commit** on the maintainer's
+   Mac and nothing prunes them (the data volume hit 99% on 2026-10-24).
+8. **Apple Container jails had no egress on 2026-10-24 and 10-27** (fresh `curlimages/curl` containers
+   timed out to `claude.ai`, `1.1.1.1` and the network's own gateway `192.168.64.1`, while podman reached
+   `claude.ai`); `sysctl net.inet.ip.forwarding` printed `0` and the application firewall was on. Untested
+   hypothesis: vmnet's NAT needs forwarding. The CI runner's jobs passed meanwhile, so whether they had
+   network is unknown. **Ask:** should the launch's egress probe on Apple Container name the sysctl?
+9. **`xcode_shim_make_runs`** (`integration/macosuserdenydefault_test.go`) skips on a Command-Line-Tools-only
+   Mac, so the profile's Xcode license allow (`seatbeltdeny.go`) is unmeasured on hardware with Xcode.
+   `macos_log_store_read_refused` skips on a managed Mac whose unified log is closed to a non-admin, so a
+   Seatbelt-deny witness through `log show` needs an admin.
+10. **Six orphaned `signal-nix` shell loops** (the stand-in nix in `internal/cli/check/signalcleanup_test.go`)
+    were left with ppid 1 after two 2026-10-23 runs; a later run left none. The test's own comment says a
+    failed case's deferred SIGKILL skips cleanup by design.
+
+### <a id="nightly-42372802408-residue"></a>🔧 **Two nightly failures that passed on the Mac, and two witnesses still open**
+
+From Nightly macOS Integration run 42372802408 at `4b26d1dfc` (2026-11-07): shard 5
+`TestAJailLaunchesOnTOMLFiles` hung for its 20-minute timeout on the runner (`podman run` still going)
+and passes in 16 s on the owner's Mac, the same `hello` image build trouble the CI-triage witnesses
+leave open; shard 18 `TestBedrockTakesTheRegionOfTheHostsAWSConfig` failed with only *"selected sealed
+npm producer failed (status 1)"* and passes in 25 s on the Mac (the producer log was not in the job
+output, so the cause is unknown). Triage witness W5 (the version stamp on a tag commit) passed only on the
+off-tag form `0.17.0+82`; the on-tag form needs a nightly on the tag commit. W6 (the 60-minute step cap)
+has one reading: the longest integration step was 59 minutes (shard 5, inflated by that 20-minute hang;
+about 39 without it, the next longest 37), and it asks for a second scheduled run.
 
 ### Settled, kept for the record
 
@@ -1341,3 +1538,20 @@ pack rows and are bounded below. No credential or live model call is needed to r
    `WithModelNotes`, then align the unscoped row-identity check with the existing
    readable lowerer's `readableModelID` rule. This is a baseline defect, not introduced
    by agent-scoped views; do not silently claim scoped/unscoped equality for this shape.
+
+## Carried from retired lab reports (2026-11-23)
+
+- **Unidentified temporary-directory survivors on the Mac.** The 2026-10-21 prior-session
+  inventory (row 53) records survivors with unknown owner and timing.
+  `integration/detachedwriters_test.go` covers detached writers, and
+  `integration/preparationworkers_test.go` says a host without `/proc` cannot identify or
+  stop them. Smallest next step: on the Mac, capture a bounded failure-time manifest
+  (relative paths, types, owners, active-writer evidence) tied to the exact source, test and
+  cleanup error before any deletion. Do not sleep, kill by name, or remove unknown or live
+  bytes.
+- **Two work-control defects in the owner's matt pack, unverified from this repository.** A
+  2026-10-21 reading of the installed Pi extension `work-control.ts` (not part of this
+  checkout) found that production feeds `after` edges to a diagnostic index that reads only
+  `blockedBy:` lines, and that a frozen `source: title` criterion still classifies as
+  "criterion is a topic" after a criterion is appended. Smallest next step: re-read the
+  current extension in the pack's own repository; fix there if still present.

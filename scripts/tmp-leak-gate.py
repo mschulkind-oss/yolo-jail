@@ -26,6 +26,7 @@ There is no switch to turn it off: a leak is a test bug, and the fix is in the t
 """
 import os
 import re
+import select
 import shutil
 import signal
 import stat
@@ -70,6 +71,82 @@ def remove_tree(path):
         shutil.rmtree(path, onexc=on_error)
     else:
         shutil.rmtree(path, onerror=lambda f, p, e: on_error(f, p, e))
+
+
+def proc_state(pid):
+    """(state letter, session id) of a pid from /proc/<pid>/stat, or None when it is gone."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            line = f.read()
+    except OSError:
+        return None
+    # "pid (comm) state ppid pgrp session ...": comm may hold spaces and parens.
+    fields = line.rsplit(")", 1)[1].split()
+    return fields[0], int(fields[3])
+
+
+def belongs_to_run(pid, private, session):
+    """Whether a live process is the command's: it sits in the command's session, its environment
+    names the private TMPDIR, or its cwd is inside it. Reads /proc only; adopts nothing."""
+    if pid == os.getpid():
+        return False
+    st = proc_state(pid)
+    if st is None or st[0] in ("Z", "X"):
+        return False  # already dead: a zombie is its parent's to collect, not a survivor
+    if st[1] == session:
+        return True
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            if f"TMPDIR={private}".encode() in f.read().split(b"\0"):
+                return True
+    except OSError:
+        pass
+    try:
+        cwd = os.readlink(f"/proc/{pid}/cwd")
+        return cwd == private or cwd.startswith(private + os.sep)
+    except OSError:
+        return False
+
+
+def find_survivors(private, session):
+    """Pids of processes of this run still alive, found by a /proc scan (Linux)."""
+    try:
+        names = os.listdir("/proc")
+    except OSError:
+        return []
+    return sorted(int(n) for n in names if n.isdigit() and belongs_to_run(int(n), private, session))
+
+
+def wait_dead(pid):
+    """Block until pid has died, on its pidfd (readable at exit, whoever reaps it): no sleep loop.
+    A pid that is already gone returns at once."""
+    try:
+        fd = os.pidfd_open(pid)
+    except (OSError, AttributeError):
+        return  # gone, or no pidfd here: SIGKILL was sent and the TMPDIR scan decides
+    try:
+        select.select([fd], [], [])
+    finally:
+        os.close(fd)
+
+
+def reap_survivors(private, session):
+    """Kill every process the command left running, without adopting it: the gate is NOT a
+    subreaper, so a process a test killed is collected by its real parent or init exactly as it
+    would be outside the gate (an adopted one stays a zombie that kill(pid, 0) calls alive). A
+    survivor keeps writing into the private TMPDIR while the gate scans and removes it, so the gate
+    waits for each death before it looks at the directory. Returns the pids it had to kill."""
+    if not sys.platform.startswith("linux"):
+        return []
+    killed = find_survivors(private, session)
+    for pid in killed:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    for pid in killed:
+        wait_dead(pid)
+    return killed
 
 
 def describe(private, name):
@@ -162,6 +239,15 @@ def main(argv):
         if rc < 0:  # killed by a signal: the shell's spelling of it
             rc = 128 - rc
         leaked = False
+        survivors = reap_survivors(private, proc.pid)
+        if survivors:
+            print(f"\nTMPDIR LEAK: the command exited but left {len(survivors)} process(es) of its own "
+                  f"running (pids {', '.join(map(str, survivors))}), killed now. A process that outlives "
+                  "go test (a self-exec'd daemon, a helper re-exec, or a test binary orphaned when go "
+                  "test was killed) keeps writing into TMPDIR, so what is left there is not a verdict "
+                  "on the tests. Find the test that starts it and make it wait for the child's exit "
+                  "before it returns.", file=sys.stderr)
+            leaked = True
         found = session_leftovers(proc.pid, start)
         if found:
             report_session_leftovers(found, "the run")
@@ -176,7 +262,16 @@ def main(argv):
             leaked = True
         return (rc or 1) if leaked else rc
     finally:
-        remove_tree(private)
+        removal_error = None
+        try:
+            remove_tree(private)
+        except OSError as err:
+            removal_error = err
+        if removal_error is not None:
+            # Never a traceback that hides the report above: say what stopped it, and fail.
+            print(f"TMPDIR LEAK: the gate could not remove its private TMPDIR {private}: {removal_error}",
+                  file=sys.stderr)
+            sys.exit(1)
 
 
 if __name__ == "__main__":

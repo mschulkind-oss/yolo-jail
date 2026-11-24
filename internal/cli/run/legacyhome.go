@@ -16,11 +16,15 @@ package run
 // .yolo/home and creates no .yolo/setups/<name>/home, so a deferred or left home is never
 // stranded behind a fresh one, and a printed manual move never lands inside one.
 //
-// THE CALL SITE is Run, right after resolveSetup and before anything reads or prepares a home
-// (selectHome below; slice 6a-ii). selectHome also decides which home the launch binds, and every
-// reader of this launch's home asks o.homeDir() rather than spelling a path, so the move and the
-// switch cannot drift apart: a launch that moved .yolo/home and still bound it would start on an
-// empty home. TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome fails if the call is deleted.
+// THE MOVE IS TWO CALLS (slice 6a-ii, then the late move). selectHome, early in Run, PLANS it
+// (mutating nothing) and decides which home the launch binds; commitHome, called by each arm once the
+// launch can no longer be refused (the config approval, the image build, pack staging all ran) and
+// before anything writes in the home, performs it. A launch declined or failed in between moves
+// nothing. Every reader of this launch's home asks o.homeDir() rather than spelling a path, so the
+// move and the switch cannot drift apart: a launch that moved .yolo/home and still bound it would
+// start on an empty home. TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome fails if commitHome is
+// never called, TestADeclinedLaunchLeavesTheLegacyHomeInPlace if it runs before the approval, and
+// TestEveryArmCommitsTheHomeBeforeItWritesIt pins each arm's call site.
 
 import (
 	"errors"
@@ -99,10 +103,13 @@ const (
 	// Container setup laid it and this setup is not one. This setup starts its own home, and the
 	// line names the setup that moves it.
 	legacyHomeOthers
+	// legacyHomeWillMove: only a PLAN answers this (commit false): every check that does not
+	// mutate passed and a commit would move the home. Nothing was moved.
+	legacyHomeWillMove
 )
 
 func (r legacyHomeResult) String() string {
-	return [...]string{"absent", "not ours", "deferred", "moved", "left", "another setup's"}[r]
+	return [...]string{"absent", "not ours", "deferred", "moved", "left", "another setup's", "will move"}[r]
 }
 
 // legacyHomeRename is the destination-exclusive rename; a test swaps it to reach the failures
@@ -123,6 +130,18 @@ func readsLegacyHome(s setup.Setup) bool {
 // adoptLegacyHome moves the legacy home to its setup's home when SUP-D9 allows, and returns the
 // one line the launch prints ("" when there is nothing to say).
 func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
+	return adoptLegacyHomeStep(r, true)
+}
+
+// planLegacyHome is adoptLegacyHome's decision with nothing moved or made: it answers every way the
+// move is refused or deferred that can be known without trying, and legacyHomeWillMove when a
+// commit would move the home. The launch plans at its home selection and commits (commitHome) once
+// the launch is committed, so a launch declined or failed in between moves nothing.
+func planLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
+	return adoptLegacyHomeStep(r, false)
+}
+
+func adoptLegacyHomeStep(r legacyHomeRequest, commit bool) (legacyHomeResult, string) {
 	if !readsLegacyHome(r.Setup) {
 		return legacyHomeNotOurs, ""
 	}
@@ -179,11 +198,19 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 	}
 	// Minor-5 of the 6a-i review: the owner is named as "an Apple Container setup", since a user's
 	// own Apple Container setup may carry any name; the example names the built-in.
-	if r.Setup.Confinement != setup.ConfinementAppleContainer && r.AppleContainerLaid != nil && r.AppleContainerLaid(src) {
+	switch {
+	case r.Setup.Confinement != setup.ConfinementAppleContainer && r.AppleContainerLaid != nil && r.AppleContainerLaid(src):
 		return legacyHomeOthers, fmt.Sprintf("This project's home %s was laid by an Apple Container "+
 			"setup, so the %s setup starts with its own home and leaves that one in place. To move "+
 			"it to its owner, launch an Apple Container setup with no jail of the project running, "+
 			"for example `yolo run --setup apple-container-self`", src, r.Setup.Name)
+	case r.Setup.Confinement == setup.ConfinementAppleContainer && (r.AppleContainerLaid == nil || !r.AppleContainerLaid(src)) && podmanLaidHome(src):
+		// The reverse case: Podman binds dot-stripped directories and Apple Container reads dotted
+		// ones, so a home Podman laid would show this setup none of its sessions.
+		return legacyHomeOthers, fmt.Sprintf("This project's home %s was laid by a Podman setup, whose "+
+			"layout the %s setup cannot read, so it starts with its own home and leaves that one in "+
+			"place. To move it to its owner, launch a Podman setup with no jail of the project "+
+			"running, for example `yolo run --setup podman-self`", src, r.Setup.Name)
 	}
 
 	if r.Jails != projectJailsStopped {
@@ -194,6 +221,25 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 		return legacyHomeDeferred, fmt.Sprintf("This project's home %s moves to %s once no jail of "+
 			"the project runs; %s, so the %s setup keeps using it until then. Run `yolo stop` "+
 			"and launch again to move it.", src, dest, why, r.Setup.Name)
+	}
+
+	if !commit {
+		// What the commit would meet, read without touching anything: a destination holding
+		// something, and a home that is its own mount (a rename cannot cross it).
+		if fi, err := os.Lstat(dest); err == nil {
+			if entries, rerr := os.ReadDir(dest); !fi.IsDir() || rerr != nil || len(entries) != 0 {
+				return left("%s already holds something, so this project's home %s was left in place. "+
+					"To give the %s setup the old home, move what is there aside and launch again with "+
+					"no jail of the project running: `%s`", dest, src, r.Setup.Name,
+					shquote.JoinDisplay([]string{"mv", "-n", dest, dest + ".aside"}))
+			}
+		}
+		var parent unix.Stat_t
+		if err := unix.Fstat(yolo, &parent); err == nil && parent.Dev != st.Dev {
+			return left("This project's home %s is its own mount, so yolo cannot rename it and left "+
+				"it in place. Move it yourself while no jail of the project runs: `%s`", src, manual)
+		}
+		return legacyHomeWillMove, ""
 	}
 
 	setupDir, err := paths.EnsureSetupStateDir(r.Workspace, r.Setup.Name)
@@ -262,41 +308,88 @@ func adoptLegacyHome(r legacyHomeRequest) (legacyHomeResult, string) {
 // seatbelt-yolo-account launch ran in (SUP-D31). A var so a test off macOS can stand it in.
 var legacyHomeAccountUID = macosuser.SandboxUID
 
-// selectHome is the launch's half of SUP-D9 and SUP-D21: it moves the legacy home to the selected
-// setup's home when the move is allowed, prints the move's one line, and records which home this
-// launch binds (o.homeState). Run calls it once every launch gate has passed, before anything reads or
-// prepares a home. It never refuses the launch.
+// selectHome is the launch's early half of SUP-D9 and SUP-D21: it PLANS the move of the legacy home
+// to the selected setup's home (planLegacyHome, which mutates nothing), prints the plan's line when
+// it declines to move, and records which home this launch binds (o.homeState). It never refuses the
+// launch and never moves the home: commitHome does, once the launch is committed.
+//
+// While a move is planned (o.homeMovePending), homeState is the path the move WILL produce, the
+// setup's home. Every reader between here and commitHome (the briefing facts, the session's
+// environment, the keeper's plan, the mount plan) takes the path and reads nothing from it, so
+// they agree with what commitHome leaves and nothing sees a half-moved home; a reader that needs
+// the home's contents, or writes in it, runs after commitHome.
 //
 // WHILE A LEGACY HOME IS IN PLACE it decides under the PROJECT lock (holdHomeLock), the launch
 // lock file of the project key that every jail of the workspace was keyed by before
-// setup-qualified names (named-setups-plan.md SUP-D36). The launch holds it, beside its own jail's
+// setup-qualified names (named-setups-plan.md SUP-D36). The launch holds it, across commitHome too, beside its own jail's
 // launch lock, until its jail is up and answers the probe (releaseHomeLock), so a launch of another
 // setup the legacy home is attributed to cannot move it between this launch's decision and its
 // bind (6a-ii review m2): without it, the first would recreate an empty .yolo/home and start on
 // it. Once the home has moved this takes no lock, so only the launches that might move it wait.
 func (o *Options) selectHome() {
 	o.homeState = ""
+	o.homeMovePending = false
 	legacy := paths.LegacyHomeState(o.Workspace)
 	if _, err := os.Lstat(legacy); err == nil && readsLegacyHome(o.Setup) {
 		o.holdHomeLock()
-		r := legacyHomeRequest{
-			Workspace:          o.Workspace,
-			Setup:              o.Setup,
-			UID:                os.Geteuid(),
-			Jails:              o.projectJails(),
-			AppleContainerLaid: appleContainerLaidHome,
-		}
-		if o.Setup.Confinement == setup.ConfinementSeatbelt && o.Setup.RunAs != setup.RunAsSelf {
-			if uid, err := legacyHomeAccountUID(); err == nil {
-				account := int(uid)
-				r.AccountUID = &account
-			}
-		}
-		if _, line := adoptLegacyHome(r); line != "" {
+		res, line := planLegacyHome(o.legacyHomeRequest())
+		if line != "" {
 			o.pr(o.Stderr).print(richtext.Escape(line))
+		}
+		if res == legacyHomeWillMove {
+			o.homeMovePending = true
+			o.homeState = paths.SetupHomeState(o.Workspace, o.Setup.Name)
+			return
 		}
 	}
 	o.homeState = o.currentHome()
+}
+
+// legacyHomeRequest is what the move asks of this launch.
+func (o *Options) legacyHomeRequest() legacyHomeRequest {
+	r := legacyHomeRequest{
+		Workspace:          o.Workspace,
+		Setup:              o.Setup,
+		UID:                os.Geteuid(),
+		Jails:              o.projectJails(),
+		AppleContainerLaid: appleContainerLaidHome,
+	}
+	if o.Setup.Confinement == setup.ConfinementSeatbelt && o.Setup.RunAs != setup.RunAsSelf {
+		if uid, err := legacyHomeAccountUID(); err == nil {
+			account := int(uid)
+			r.AccountUID = &account
+		}
+	}
+	return r
+}
+
+// commitHome is selectHome's late half: it moves the legacy home when selectHome planned the move,
+// prints the move's one line and settles o.homeState on what the move left. Run calls it once the
+// launch is committed (no gate, approval, build or staging can refuse it any more) and before
+// anything writes in the home. Idempotent; true when nothing is pending. The project lock
+// selectHome took is held across the move. A move the kernel refuses after all (a filesystem that
+// cannot rename, a race) returns false with the line naming the manual move: the readers that ran
+// since selectHome took the setup's path, and the launch must not start on the other one.
+func (o *Options) commitHome() bool {
+	if !o.homeMovePending {
+		return true
+	}
+	o.homeMovePending = false
+	res, line := adoptLegacyHome(o.legacyHomeRequest())
+	if line != "" {
+		o.pr(o.Stderr).print(richtext.Escape(line))
+	}
+	switch res {
+	case legacyHomeMoved, legacyHomeAbsent:
+		// Absent: another launch of the project moved it first, to the home this path names.
+		o.homeState = paths.SetupHomeState(o.Workspace, o.Setup.Name)
+		return true
+	}
+	o.homeState = o.currentHome()
+	o.pr(o.Stderr).print("[bold red]Refusing to launch: the project's home could not be moved to the " +
+		"setup's home after all, and this launch had already planned on the setup's. Nothing was " +
+		"launched; make the move named above, then launch again.[/bold red]")
+	return false
 }
 
 // homeDir is the host directory this launch binds as its home: the one selectHome chose, or, for a
@@ -319,8 +412,7 @@ func (o *Options) homeDir() string {
 func (o *Options) currentHome() string {
 	legacy := paths.LegacyHomeState(o.Workspace)
 	if readsLegacyHome(o.Setup) {
-		if fi, err := os.Lstat(legacy); err == nil && fi.IsDir() &&
-			(o.Setup.Confinement == setup.ConfinementAppleContainer || !appleContainerLaidHome(legacy)) {
+		if fi, err := os.Lstat(legacy); err == nil && fi.IsDir() && legacyHomeIsLaidFor(o.Setup, legacy) {
 			return legacy
 		}
 	}
@@ -426,6 +518,41 @@ func (o *Options) jailRuns(cname string) (answer projectJails, how string) {
 // projectContainerRuntimes are the container runtimes a jail of a project can run in: podman's
 // and Apple Container's `container`.
 var projectContainerRuntimes = []string{"podman", "container"}
+
+// legacyHomeIsLaidFor reports whether the legacy home src is one the setup s can read, which is
+// what attributes it to s (the guard adoptLegacyHome applies, spelled once for currentHome): an
+// Apple Container setup reads the dotted layout and not a Podman-laid home, unless an Apple
+// Container signal says it laid it too; every other setup reads all but an Apple-Container-laid one.
+func legacyHomeIsLaidFor(s setup.Setup, src string) bool {
+	if s.Confinement == setup.ConfinementAppleContainer {
+		return appleContainerLaidHome(src) || !podmanLaidHome(src)
+	}
+	return !appleContainerLaidHome(src)
+}
+
+// podmanBindSourceDirs are the undotted directories every Podman launch makes at the root of a
+// home (preparePodmanBindSources: the core overlay's bind sources). They are Podman's layout
+// marker without core naming any agent: Apple Container binds its home whole and makes none of
+// them (prepareWsState), so a home holding one was laid by Podman. A home with none of them, empty
+// or with only dotted directories (Apple Container's, and Seatbelt's, which shares that layout),
+// carries no Podman marker.
+var podmanBindSourceDirs = []string{"ssh", "npm-global", "local", "yolo-bin", "config"}
+
+// podmanLaidHome reports whether home carries Podman's layout marker (podmanBindSourceDirs). Like
+// appleContainerLaidHome it reads only beneath a root that refuses a link at `.yolo` and below.
+func podmanLaidHome(home string) bool {
+	r, err := paths.OpenWorkspaceHomeRoot(filepath.Dir(filepath.Dir(home)), home)
+	if err != nil {
+		return false
+	}
+	defer r.Close()
+	for _, name := range podmanBindSourceDirs {
+		if fi, err := r.Lstat(name); err == nil && fi.IsDir() {
+			return true
+		}
+	}
+	return false
+}
 
 // appleContainerLaidHome is the Apple Container layout signal (SUP-D20) for home, one of a
 // workspace's homes: a generated user-config copy of the shape an Apple Container launch leaves

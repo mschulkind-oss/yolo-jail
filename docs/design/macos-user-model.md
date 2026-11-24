@@ -15,7 +15,7 @@ vantage:
 **Status:** 2026-11-03 — the model is ruled ([§7](#7-the-ruled-model-two-modes-one-profile)).
 Ten of [the plan](macos-user-model-plan.md)'s thirteen slices are built, opt-in behind
 `macos_user_mode = "self"`. [Slice 12a](macos-user-model-plan.md#MMP-D25), built 2026-11-03 and
-witnessed on a Mac by W1b and W1c ([the lab report](../lab-reports/2026-11-03-mac-slice-12a-witness-w1.md)), moves the production default, the second account, onto the same
+witnessed on a Mac by W1b and W1c (the lab report), moves the production default, the second account, onto the same
 deny-by-default profile with a home per workspace, so a second workspace launches beside a running
 session instead of being refused. The
 [§6](#6-what-a-prototype-must-show) prototype passed in both modes on 2026-10-23. This document
@@ -228,8 +228,8 @@ yet rerun.
 
 **Both modes after the rulings (2026-10-23, later the same day).** With loopback open and the shared
 `/tmp` closed as built, `--profile-from-yolo` passed with no FAIL in self mode (43 PASS) and in account
-mode (42 PASS), the account crossing through yolo's own run-as rule with no password. Details and the
-skips are in [the lab report](../lab-reports/2026-10-23-native-mac-verification.md#1-the-prototype-both-modes-against-the-generated-profile).
+mode (42 PASS), the account crossing through yolo's own run-as rule with no password. Skipped: b7 (clipboard
+empty), g8 (no colima or Docker socket) and f1 (opt-in) in both modes, and e1 in account mode (self mode only).
 
 ## 7. The ruled model: two modes, one profile
 

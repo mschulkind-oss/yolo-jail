@@ -201,7 +201,7 @@ func TestCopilotStatusLineDefaultLandsInSettingsJSON(t *testing.T) {
 }
 
 // copilot105Header is the two lines Copilot CLI 1.0.105 writes at the top of its own
-// ~/.copilot/config.json (docs/lab-reports/2026-11-03-mac-slice-12a-witness-w1.md §14).
+// ~/.copilot/config.json (the retired lab report 2026-11-03-mac-slice-12a-witness-w1 (git log --follow) §14).
 const copilot105Header = "// User settings belong in settings.json.\n// This file is managed automatically.\n"
 
 // A config.json Copilot itself wrote, comment header and all, must be read, get the pack's

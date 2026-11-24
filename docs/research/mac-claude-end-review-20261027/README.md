@@ -23,6 +23,6 @@ A separate preserved actual 47B formal final output was REJECTED for missing ALL
 
 ## Findings and limits
 
-The review found no credential, Keychain, Seatbelt, or bare-host/API-key widening. Relevant authority and follow-up context are the [implemented Claude security source](../../../internal/claudesecurity/claudesecurity.go), [Mac Claude lab follow-ups](../../design/mac-claude-lab-followups.md), and [2026-10-27 Mac verification report](../../lab-reports/2026-10-27-mac-verification.md). These sources, not this historical review, carry implementation and lab details.
+The review found no credential, Keychain, Seatbelt, or bare-host/API-key widening. Relevant authority and follow-up context are the [implemented Claude security source](../../../internal/claudesecurity/claudesecurity.go), [Mac Claude lab follow-ups](../../design/mac-claude-lab-followups.md), and [2026-10-27 Mac verification](../../design/mac-claude-lab-followups.md) (recorded there). These sources, not this historical review, carry implementation and lab details.
 
 Native macOS account/self/Keychain/logout/shell, rootless delivery, reachability, and actual Kitty remain unrun. Nested Linux is not native certification. No publication is claimed. The complete opinion retains the precise run and custody limitations.

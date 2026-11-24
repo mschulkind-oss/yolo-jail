@@ -11,7 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/provision"
 )
 
-// The account-mode stop of docs/lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md §3:
+// The account-mode stop of the retired lab report 2026-11-13-mac-keychain-tmp-stores-bedrock (git log --follow) §3:
 // the provisioning stage found no `yolo` on its PATH, the first `yolo internal log-append` failed
 // with `command not found`, and the stop said "repair workspace .yolo permissions or free disk
 // space", which named neither the cause nor a step that helps. The only `yolo` the stage's PATH

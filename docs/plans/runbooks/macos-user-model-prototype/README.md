@@ -2,7 +2,7 @@
 title: "The macos-user model prototype"
 status: accepted
 stage: CURRENT
-next: "Done: both modes passed against the generated profile on 2026-10-23 (docs/lab-reports/2026-10-23-native-mac-verification.md)"
+next: "Done: both modes passed against the generated profile on 2026-10-23 (self 43 PASS, account 42 PASS, no FAIL)"
 tags: [runbook, macos-user, seatbelt, safehouse, prototype]
 summary: "A hand-written deny-by-default Seatbelt profile and a check script that prove or disprove the ruled macos-user model on a Mac, with no yolo code involved"
 ---

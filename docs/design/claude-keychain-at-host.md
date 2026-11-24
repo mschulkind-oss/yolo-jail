@@ -15,7 +15,7 @@ vantage:
 
 **Status:** 2026-11-12. Nothing built. Claude's storage code read from the Claude Code 2.1.323
 bundle installed in this jail (its JavaScript is the same on every platform; [KE3](#KE3)); the
-Keychain item's facts come from the [2026-10-25 Mac lab report](../lab-reports/2026-10-25-mac-claude-login-session.md)
+Keychain item's facts come from the [2026-10-25 Mac session](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section)
 and the sources in [Appendix A](#appendix-a--evidence). No Claude was run and no Keychain was
 touched for this design.
 
@@ -308,7 +308,7 @@ that and stops; the sign-in is the owner's, at the Mac.
 **Report:** the three outputs and the Claude version (`claude --version`). **Decides:** whether
 [§2](#2-what-claude-does-on-a-mac) items 1–3 hold; the byte count against the 1.9 KB limit is [OQ-KH2](#OQ-KH2)'s stakes.
 
-*Run 2026-11-13 on 2.1.325* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#1-w-kh1-to-w-kh3)): the item is named as expected and is 560 bytes, with keys `['claudeAiOauth']` and no `mcpOAuth`: host Claude is not signed in to Slack, so the witness stops at its setup.
+*Run 2026-11-13 on 2.1.325* (lab report): the item is named as expected and is 560 bytes, with keys `['claudeAiOauth']` and no `mcpOAuth`: host Claude is not signed in to Slack, so the witness stops at its setup.
 
 ### W-KH2
 
@@ -373,7 +373,7 @@ the guard is not there.
 lock is skipped for something other than a diskless launch, [§3.9](#39-risks)'s first risk is real,
 and the design stops.
 
-*Run 2026-11-13 on 2.1.325* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#1-w-kh1-to-w-kh3)): **the guard is there**, `if(await r,K())return await Be.run(!0,e)` before the `.storage-write` lock; the variable is `Gje`, and the chunk imports `{F,K}`. As written the commands fail: `command -v claude` is yolo's host wrapper, and both ugrep and macOS grep reject the patterns.
+*Run 2026-11-13 on 2.1.325* (lab report): **the guard is there**, `if(await r,K())return await Be.run(!0,e)` before the `.storage-write` lock; the variable is `Gje`, and the chunk imports `{F,K}`. As written the commands fail: `command -v claude` is yolo's host wrapper, and both ugrep and macOS grep reject the patterns.
 
 *Linux half, read 2026-11-13 on 2.1.325* (`~/.local/share/claude/versions/2.1.325` in the jail, `2.1.325 (Claude Code)`, read with the Python search above): **`K` is the diskless-launch check.** The lock call at byte 303909903 reads `if(await r,K())return await Be.run(!0,e)`, the same guard the Mac read; its chunk imports `import{F,ge,K}from"/$bunfs/root/chunk-r3adsed5.js"` and defines no `K` of its own. The one chunk in the binary that exports a `K` (it exports `F`, `K` and `ge` among 788 names) defines, at byte 300829639, `function K(){return Gt()}function Gt(){return n().host.launchOptions.diskless()}`, and registers `isDiskless:()=>K()`. The credentials chunk (the one that starts `import{F,K}from…`) uses the same `K` as `function QTe(){return K()?null:P4()}`, which is the plain-text fallback being nulled that [§2](#2-what-claude-does-on-a-mac) item 5's inference rested on. 2.1.323 reads the same way (`function K(){return on()}function on(){return n().host.launchOptions.diskless()}`). The Linux and darwin builds of 2.1.325 minify other names differently (Linux `J3r` and `chunk-r3adsed5`, the Mac's `Gje` and `chunk-m8nhymg4`), so the Mac's own `K` is confirmed only by step 2's line 3 on the Mac.
 
@@ -389,7 +389,7 @@ security delete-generic-password -a yolo-kh3 -s yolo-kh3-probe
 Expected: `n=1900` stores 1900 bytes; `n=2100` (a 4.2 KB command) fails or stores something
 shorter. **Report:** both lines and the read-back counts. **Decides:** the stdin cap's real value.
 
-*Run 2026-11-13* ([lab report](../lab-reports/2026-11-13-mac-keychain-tmp-stores-bedrock.md#1-w-kh1-to-w-kh3)): n=1900 stores whole; n=2100 exits 1 after **silently storing 2,019 bytes**, because `security -i` cuts the command line at 4,095 characters.
+*Run 2026-11-13* (lab report): n=1900 stores whole; n=2100 exits 1 after **silently storing 2,019 bytes**, because `security -i` cuts the command line at 4,095 characters.
 
 ## Decision Ledger
 
@@ -406,5 +406,5 @@ shorter. **Report:** both lines and the read-back counts. **Decides:** the stdin
 | <a id="KE1"></a>KE1 | SOURCED | Service and account naming | Claude Code 2.1.323 bundle, `var hzr="-credentials"` at byte 300148478: `GOe` and `SY` |
 | <a id="KE2"></a>KE2 | SOURCED | One store object; the lock wrapper around every write, skipped only for a diskless launch (confirmed on Linux; the Mac's minified names differ, so the Mac's [W-KH2](#w-kh2) step 2 confirms its own); the 30 s read cache | 2.1.323 bundle at byte 300186544 (`fgn`, `Re`), and `var TTa=30000` before it; the diskless check in 2.1.325, read in [W-KH2](#w-kh2)'s Linux half |
 | <a id="KE3"></a>KE3 | INFERRED | The bundle's storage JavaScript is the same on macOS | The macOS branches (`security`, `O()==="macos"`) are present in the Linux build; [W-KH2](#w-kh2) checks the darwin binary |
-| <a id="KE4"></a>KE4 | SOURCED, MEASURED | `security -i` with hex on stdin up to 4032 bytes, the argv beyond | [keychain-from-a-jail E10](keychain-from-a-jail.md#E10); [lab report, defect 3](../lab-reports/2026-10-25-mac-claude-login-session.md#3-a-sandbox-login-cannot-save-in-account-mode-with-the-view-on-or-off-c1) |
+| <a id="KE4"></a>KE4 | SOURCED, MEASURED | `security -i` with hex on stdin up to 4032 bytes, the argv beyond | [keychain-from-a-jail E10](keychain-from-a-jail.md#E10); [Mac session, C1](../plans/runbooks/mac-claude-login-session.md#what-the-table-abbreviates-the-2026-10-25-lab-report-retired-into-this-section) |
 | <a id="KE5"></a>KE5 | SOURCED | The item's access list holds only `/usr/bin/security` | [`macos-keychain-exposure-by-program.md`](../research/macos-keychain-exposure-by-program.md#table) |
