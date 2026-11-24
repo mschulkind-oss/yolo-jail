@@ -684,7 +684,7 @@ func (a *advance) replaySnapshot() (packsrc.ReplaySnapshot, error) {
 func (a *advance) recordReplay(snapshot packsrc.ReplaySnapshot, walk packsrc.WalkResult) packsrc.RecordReplayResult {
 	a.replayRecordAuthorized = false
 	result := a.packs.RecordReplay(snapshot, a.yolo, walk, patchedNow())
-	if result.Err != nil {
+	if result.Err != nil && !errors.Is(result.Err, packsrc.ErrStaleReplay) {
 		a.warn("%s: recording the replay: %v", a.f.Label(), result.Err)
 	}
 	if errors.Is(result.Err, packsrc.ErrStaleReplay) {
@@ -2294,6 +2294,25 @@ func (a *advance) recordsYoloStep() bool {
 // (not the series' base alone), whose apply error finish records (PF-D45). It takes what is left of
 // the replay's bound (PF-D44).
 func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult {
+	w := a.walkOnce(list, ofList)
+	for reread := 0; reread < maxReplayRereads && errors.Is(w.Err, packsrc.ErrStaleReplay) && !a.interrupted(); reread++ {
+		// ANOTHER YOLO PROCESS CHANGED THE CHECK AUTHORITY between this walk's read and its write (several
+		// launches of one fork at once). recordReplay has already reread the record into a.rec, so the walk
+		// binds a fresh snapshot of it and replays again: nothing stale is trusted, and the launch proceeds
+		// on the other process's result instead of stopping for a relaunch.
+		a.patchFailure = nil
+		w = a.walkOnce(list, ofList)
+	}
+	return w
+}
+
+// maxReplayRereads bounds how many times a walk rereads changed check authority before it stops.
+const maxReplayRereads = 3
+
+// replayRecordHook is a test seam called after a walk's replay and before its record is written.
+var replayRecordHook func()
+
+func (a *advance) walkOnce(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult {
 	defer advanceSpan(a.f, "replay").End() // the series replayed onto each candidate on the list
 	a.replayRecordAuthorized = false
 	start := time.Now()
@@ -2334,6 +2353,9 @@ func (a *advance) walk(list []packsrc.ListEntry, ofList bool) packsrc.WalkResult
 		if err := a.walkErr(w); w.Fit < 0 && w.Base == nil && err != nil {
 			a.applyErr = &packsrc.ApplyError{Seq: snapshot.Seq, Error: oneLineErr(err)}
 		}
+	}
+	if replayRecordHook != nil {
+		replayRecordHook()
 	}
 	recorded := a.recordReplay(snapshot, w)
 	if errors.Is(recorded.Err, packsrc.ErrStaleReplay) {
