@@ -130,7 +130,7 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
    your sessions, through one unified home beside a small slice per setup. Rulings
    [OQ-UH1](../design/unified-workspace-home.md#OQ-UH1), [OQ-UH2](../design/unified-workspace-home.md#OQ-UH2),
    [OQ-UH3](../design/unified-workspace-home.md#OQ-UH3), [OQ-UH4](../design/unified-workspace-home.md#OQ-UH4) and
-   [OQ-UH5](../design/unified-workspace-home.md#OQ-UH5) hold the plan; the container-setup slice is buildable once ruled.
+   [OQ-UH5](../design/unified-workspace-home.md#OQ-UH5) are ruled (2026-11-24); the container-setup slice is planned in [its build hand-off](../design/unified-workspace-home-plan.md) and ready to build.
 
 4. Calls filed 2026-11-12, each holding a build: [OQ-GW16](../design/github-write-scopes.md#OQ-GW16), on REST deletes,
    holds [the GitHub work-kinds plan](../design/github-write-scopes-plan.md)'s Task 2 (Task 1 is built);
