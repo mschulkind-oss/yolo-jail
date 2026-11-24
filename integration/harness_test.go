@@ -1117,6 +1117,12 @@ func runYoloCLI(t *testing.T, dir string, args ...string) result {
 // (named-setups-plan.md SUP-D10). Errors are ignored; the hash-only name is not tried (it named
 // pre-rename Python-era containers only).
 func forceRemoveContainer(dir string) {
+	if testing.Short() {
+		// A -short run launches no jail (requireJail skips), so there is nothing to remove, and a
+		// rootless `podman rm` would start the user's podman pause process (catatonit), which
+		// outlives the run and fails the TMPDIR leak gate.
+		return
+	}
 	rt := detectRuntime()
 	if rt == "" {
 		return

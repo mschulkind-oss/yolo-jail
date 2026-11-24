@@ -87,6 +87,10 @@ func TestMain(m *testing.M) {
 	// TestMain again and exits, execs away or is killed before its own removals run, so its
 	// directories and t.TempDirs go in a private TMPDIR this process removes.
 	releaseTmp := testtmp.Isolate()
+	// NO TEST RUNS THE MACHINE'S PODMAN (testsupport.StubPodman): a rootless one leaves its pause
+	// process behind, which the TMPDIR leak gate fails the run for. A test that wants podman to
+	// answer puts a fake of its own first on PATH.
+	releasePodman := testsupport.StubPodman()
 	// THE PINNED YOLO (hostpin.go) of a host launch under test is a script that runs this test binary
 	// as `yolo` (above): the host-side bundle every launch here resolves, in place of the real one.
 	removeYoloStandIn := installYoloStandIn()
@@ -138,6 +142,7 @@ func TestMain(m *testing.M) {
 	releaseSingletons := testsupport.IsolateHostSingletons()
 	code := m.Run()
 	removePatchedTemplate()
+	releasePodman()
 	removeYoloStandIn()
 	releaseSingletons()
 	releaseStagedTree()
