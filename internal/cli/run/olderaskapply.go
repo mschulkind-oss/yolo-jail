@@ -117,46 +117,8 @@ func (o *Options) checkOlderAsksLocked(lp *loopholes.Loophole, sf brokerscope.Fi
 	if json.Unmarshal(old.Asks.Requests, &raw) != nil {
 		return errors.New("complete delivered source requests unknown")
 	}
-	workspace := jsonx.NewOrderedMap()
-	requests := jsonx.NewOrderedMap()
-	if source, present := raw["source"]; present {
-		decoded, err := jsonx.Decode(source)
-		if err != nil {
-			return err
-		}
-		requests.Set(sf.Source, decoded)
-	}
-	workspace.Set("requests", requests)
-	user, allows, allow := jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
-	lists := map[string][]any{"always": {}, "on_request": {}}
-	if len(input.EffectiveCells) != len(input.Cells) {
-		return errors.New("old delivered cell slots incomplete")
-	}
-	for _, cell := range input.Cells {
-		policy, exists := input.EffectiveCells[cell.Name]
-		if !exists || len(policy.Tables) != len(cell.Tables) {
-			return errors.New("old delivered table slots incomplete")
-		}
-		for _, table := range cell.Tables {
-			value, exists := policy.Tables[table]
-			if !exists {
-				return errors.New("old delivered table absent")
-			}
-			if value.Ceiling == "always" || value.Ceiling == "on_request" {
-				lists[value.Ceiling] = append(lists[value.Ceiling], table+"."+cell.Name)
-			} else if value.Ceiling != "off" {
-				return errors.New("old delivered ceiling unknown")
-			}
-		}
-	}
-	for field, list := range lists {
-		allow.Set(field, list)
-	}
-	allows.Set(sf.Source, allow)
-	user.Set("allow", allows)
-	reconciled, err := config.EffectiveCallBrokerCells(sf.Source, &loopholedecl.CallBroker{Source: sf.Source, Cells: input.Cells}, user, workspace)
-	if err != nil || !reflect.DeepEqual(reconciled, input.EffectiveCells) {
-		return errors.New("complete delivered asks do not reconcile frozen cell requests/decisions")
+	if err := reconcileFrozenCells(sf.Source, input.Cells, input.EffectiveCells, raw["source"]); err != nil {
+		return err
 	}
 	proposed, exists := o.callBrokerDelivered[lp.Name]
 	if !exists {
@@ -253,4 +215,59 @@ func unclassifiedSourceLifetime(source string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// reconcileFrozenCells rebuilds the user and workspace config a frozen cell table could have come
+// from, using only the frozen requests and ceilings, and requires the rebuilt decisions to equal
+// the frozen ones. A frozen ceiling of off with a refuse decision is a `never` or a narrower false
+// (EffectiveCallBrokerCells forces exactly that pair), so it is rebuilt as a `never` on that table
+// and cell: the same refusal, never a run, so an unreconcilable difference still fails closed.
+func reconcileFrozenCells(source string, cells []loopholedecl.CallBrokerCell, frozen map[string]config.CallBrokerCellPolicy, requestsSource json.RawMessage) error {
+	workspace := jsonx.NewOrderedMap()
+	requests := jsonx.NewOrderedMap()
+	if len(requestsSource) != 0 {
+		decoded, err := jsonx.Decode(requestsSource)
+		if err != nil {
+			return err
+		}
+		requests.Set(source, decoded)
+	}
+	workspace.Set("requests", requests)
+	user, allows, allow := jsonx.NewOrderedMap(), jsonx.NewOrderedMap(), jsonx.NewOrderedMap()
+	lists := map[string][]any{"always": {}, "on_request": {}, "never": {}}
+	if len(frozen) != len(cells) {
+		return errors.New("old delivered cell slots incomplete")
+	}
+	for _, cell := range cells {
+		policy, exists := frozen[cell.Name]
+		if !exists || len(policy.Tables) != len(cell.Tables) {
+			return errors.New("old delivered table slots incomplete")
+		}
+		for _, table := range cell.Tables {
+			value, exists := policy.Tables[table]
+			if !exists {
+				return errors.New("old delivered table absent")
+			}
+			switch {
+			case value.Ceiling == "always" || value.Ceiling == "on_request":
+				lists[value.Ceiling] = append(lists[value.Ceiling], table+"."+cell.Name)
+			case value.Ceiling == "off" && value.Decision == "refuse":
+				lists["never"] = append(lists["never"], table+"."+cell.Name)
+			case value.Ceiling != "off":
+				return errors.New("old delivered ceiling unknown")
+			}
+		}
+	}
+	for field, list := range lists {
+		if field != "never" || len(list) != 0 {
+			allow.Set(field, list)
+		}
+	}
+	allows.Set(source, allow)
+	user.Set("allow", allows)
+	reconciled, err := config.EffectiveCallBrokerCells(source, &loopholedecl.CallBroker{Source: source, Cells: cells}, user, workspace)
+	if err != nil || !reflect.DeepEqual(reconciled, frozen) {
+		return errors.New("complete delivered asks do not reconcile frozen cell requests/decisions")
+	}
+	return nil
 }

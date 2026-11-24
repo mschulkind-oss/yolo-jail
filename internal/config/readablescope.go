@@ -112,7 +112,7 @@ func readableScopeCheckWithSettings(workspace string, brokers []ScopeBroker, rea
 	}
 	applyLegacyReadableWorkspace(read, user, brokers, &gate)
 	check := scopeCheckFromReadable(workspace, brokers, gate)
-	projection := scopeCheckFromReadableProjection(workspace, brokers, gate, true)
+	projection := scopeProjectionFor(workspace, brokers, gate, true)
 	record, _, _, err := readScopeRecords(workspace)
 	if err != nil {
 		return readableScopeFailure(workspace, brokers, err), true
@@ -817,6 +817,10 @@ func scopeSourceFiles(sources *Sources, parts ...string) []string {
 	}
 	return files
 }
+
+// scopeProjectionFor builds the independent projection the policy-pending pairing reads; a test
+// replaces it to hand the pairing a projection whose order differs from the check's.
+var scopeProjectionFor = scopeCheckFromReadableProjection
 
 func scopeCheckFromReadable(workspace string, brokers []ScopeBroker, input ReadableGateInput) *ScopeCheck {
 	return scopeCheckFromReadableProjection(workspace, brokers, input, false)
