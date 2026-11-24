@@ -264,6 +264,13 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
     [stateful-surface comments](BACKLOG.md#OQ-E4), [the upstream mise issue](../design/jail-state-separation-design.md),
     and [the `cache_relocations` level](cache-relocation.md#OQ-CR1).
 
+5. [Repository instruction files: keep, ignore or replace](../design/workspace-instruction-files.md) — the owner's
+   request (2026-11-24): stop an agent reading a repository's `AGENTS.md` and kin, per user or workspace, through
+   each agent's own setting, with a mask only as a narrow fallback. Rulings
+   [OQ-IF1](../design/workspace-instruction-files.md#OQ-IF1) and
+   [OQ-IF2](../design/workspace-instruction-files.md#OQ-IF2) hold the build's hand-off
+   ([its seed](../design/workspace-instruction-files-plan.md)).
+
 ## Waiting on a Mac, CI, a rootless host or an outside account
 
 Native Git payload/registration delivery and separate AWS compatibility limits remain
