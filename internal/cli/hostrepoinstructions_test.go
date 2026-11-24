@@ -45,10 +45,7 @@ func TestHostLaunchHandsClaudeItsSettingsFlagAndSaysSo(t *testing.T) {
 	launch := &hostComposition{cfg: hostRepoInstrConfig("ignore"), packs: packs, workspace: ws}
 	var errw bytes.Buffer
 	applyHostRepoInstructions(launch, "claude", &errw)
-	var settings []string
-	for _, f := range packload.LaunchFlagsFor(packs, false)["claude"] {
-		settings = append(settings, f)
-	}
+	settings := packload.LaunchFlagsFor(packs, false)["claude"]
 	joined := strings.Join(settings, " ")
 	if !strings.Contains(joined, "--settings") || !strings.Contains(joined, `"claudeMdExcludes":["`+ws+`/**/AGENTS.md"`) {
 		t.Errorf("claude's host flags = %v, want --settings JSON anchored at %s", settings, ws)
