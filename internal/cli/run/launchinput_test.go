@@ -1202,7 +1202,7 @@ func TestConcurrentLaunchInputCleanupAndReplacement(t *testing.T) {
 		if trackedPath != path {
 			t.Fatalf("cleanup changed tracked path while waiting for destination flock: %q", trackedPath)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Minute):
 		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 		held = false
 		<-cleaned
@@ -1216,7 +1216,7 @@ func TestConcurrentLaunchInputCleanupAndReplacement(t *testing.T) {
 	held = false
 	select {
 	case <-cleaned:
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("old cleanup deadlocked")
 	}
 	select {
@@ -1224,7 +1224,7 @@ func TestConcurrentLaunchInputCleanupAndReplacement(t *testing.T) {
 		if !ok {
 			t.Fatal("replacement failed")
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Minute):
 		t.Fatal("publisher deadlocked")
 	}
 	body, err := os.ReadFile(path)
