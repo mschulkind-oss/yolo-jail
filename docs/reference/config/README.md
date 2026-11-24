@@ -120,7 +120,7 @@ prints and what every refusal names.
 | To remove | Spelling | Example |
 | :--- | :--- | :--- |
 | a table-valued thing a lower layer declared (an MCP or LSP server, a provider, a variant, a mise tool, everything a project requests of one pack) | the string `"off"` in the table's place | `mcp_servers.tavily = "off"` |
-| an environment variable | its name in `env.unset` | `unset = ["AWS_PROFILE"]` |
+| an environment variable another layer sets (your own `env.set` line is removed with `yolo config unset env.set.NAME`) | its name in `env.unset` | `unset = ["AWS_PROFILE"]` |
 | every item of certain lists | an empty list, which replaces rather than unions | `security.blocked_tools = []` |
 | an agent's provider | `"native"`: the agent is left to its own login | `claude = "native"` |
 
