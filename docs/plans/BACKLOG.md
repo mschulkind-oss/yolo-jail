@@ -782,14 +782,6 @@ canonical directory's `records.lock` (`paths.OpenLockFileBeneath`, `internal/pat
 step, on a Mac: rerun the test as 10 separate processes at current main; if it still fails, log the directory's
 `Stat` when the `openat` fails.
 
-### <a id="env-set-unset-advice"></a>🔧 **`yolo config unset env.set.<NAME>` advises `env.unset`, which hides the variable instead of removing the key**
-
-On the Mac run of 2026-11-24 the refusal names `yolo config add env.unset '"PUBLIC_A"'`, and running it leaves the dead
-`PUBLIC_A = "a"` line in `env.set` and also cancels a `PUBLIC_A` that another layer (such as the user config) sets
-([RC-D50](../reference/config/rulings.md#RC-D50)'s walk order: merged `env.set`, then the union of `env.unset`).
-Decide whether removing an `env.set` key should delete it from the layer's file or whether hiding it is the intended
-answer, and say what it does to other layers in the refusal. Needs a config-owner ruling first.
-
 ### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
 
 It failed once in the full `just test-fast` on a Mac (`status=-1 out=""`: the CLI was killed after
