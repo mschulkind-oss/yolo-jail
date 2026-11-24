@@ -24,7 +24,7 @@ continues and discloses ([IF-D15](workspace-instruction-files.md#10-decision-led
 - The claude entries need `${workspace}` substitution in a list entry; check that `config-list` bodies take it
   the way `config` map keys do.
 - `yolo host -- claude --settings '<json>'`: the 2.1.331 binary reads `claudeMdExcludes` from the merged settings,
-  which include the `--settings` source (design Appendix A); a Mac witness is still unrecorded.
+  which include the `--settings` source (design Appendix A); a Mac witness is still unrecorded and needs a live `claude` session, so it waits for the owner (a Mac pass on 2026-11-24 could not run it).
 - Codex's `-c` handoff already exists as the `launch_selection` `each` form; reuse its argv placement rules.
 - pi's redelivery is the briefing file handed back through `--append-system-prompt`, so no second destination
   is composed.

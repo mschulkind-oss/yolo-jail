@@ -771,29 +771,16 @@ again. It failed once on `/var/lib/containers/storage/overlay` while integration
 jail were adding and removing podman mounts (`internal/entrypoint/fsx_test.go`). A fixture mount
 table instead of the live one would remove the race. Found 2026-10-18.
 
-### <a id="mcpauth-records-lock-enoent-darwin"></a>🔧 **`records.lock: no such file or directory` in the two-broker test on a Mac, after the shared-clock race was fixed**
+### <a id="excl-create-enoent-darwin"></a>🔧 **Does the macOS APFS create race reach an `O_EXCL` create?**
 
-The Mac run of 2026-11-24 at `6551bbc6f` failed `TestOutcomeTwoBrokersAdoptOneSingleUseToken` 8 of 10 times as
-separate processes, always with `slack: openat records.lock: no such file or directory`. The shared-clock data race
-was fixed, but the failure stayed at `042a00ab2`: macOS 26.5 APFS returns ENOENT to one of two concurrent
-`openat(dirfd, name, O_CREAT)` of a new name, `os.Root` included. Measured on the owner's Mac (macOS 26.5, APFS) by a
-standalone probe with no yolo code: in 2,000 trials, each a fresh directory with two goroutines opening one new name
-together, one of the two got ENOENT in 1968 to 1999 pairs, whatever the other flags; one opener alone, and two racing
-`open(2)` calls by absolute path, got 0. At the failing open the directory was intact and the file already existed,
-created by the other opener. Evidence: `/Users/Shared/yolo/evidence/2026-11-24b/` on that Mac (`creatprobe/`,
-`creatprobe.txt`, `mcpauth-diag.log`).
-
-**Fix built, unconfirmed on a Mac.** `openNoFollowLeaf` (`internal/paths/statefile_open_unix.go`) repeats a creating
-`openat` that reports ENOENT, at most `createRetries` times and only while the directory descriptor is still a linked
-directory, through the same no-follow and regular-file checks; `paths.OpenRootCreate` does the same for `os.Root`
-callers (the approval-wait lock, the trace-store admission file, the launch-input lock, the nix-roots registry lock),
-and `internal/toolskills`' snapshot lock has its own bounded loop. Linux cannot show the race, so the tests inject it.
-
-Next step, on a Mac, to confirm: run `go test -count=1 -run TestOutcomeTwoBrokersAdoptOneSingleUseToken ./internal/mcpauth`
-as 10 separate processes. Delete this entry only after all 10 pass. Also still open: fixed-name `O_EXCL` claims made
-through a directory descriptor (the MCP teardown and retire claims, `wsstatebeneath`, `storage/ensure.go`,
-`stateguard/rescue.go`) are not retried, since a retry would turn the ENOENT into EEXIST and read as losing the claim.
-Whether the race reaches an `O_EXCL` create needs the same probe with `O_EXCL` on the Mac.
+macOS 26.5 APFS returns ENOENT to one of two concurrent `openat(dirfd, name, O_CREAT)` of a new name, with the
+directory intact and the file already made by the other opener (measured 2026-11-24, 1968 to 1999 of 2,000 pairs).
+The plain creating opens are retried while the directory is still the one at its name
+(`internal/paths/statefile_open_unix.go`, `paths.OpenRootCreate`, `internal/toolskills/snapshot.go`), which fixed
+`TestOutcomeTwoBrokersAdoptOneSingleUseToken` on the Mac. Fixed-name `O_EXCL` claims made through a directory
+descriptor (the MCP teardown and retire claims, `wsstatebeneath`, `storage/ensure.go`, `stateguard/rescue.go`) are
+not retried, because a retry would turn the ENOENT into EEXIST and read as losing the claim. Next step, on a Mac:
+run the same two-goroutine probe with `O_EXCL` and see whether one opener gets ENOENT.
 
 ### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
 
