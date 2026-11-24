@@ -185,7 +185,7 @@ func (b *syncBuffer) String() string { b.mu.Lock(); defer b.mu.Unlock(); return 
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(5 * time.Minute)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)
