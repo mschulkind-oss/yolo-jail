@@ -338,6 +338,10 @@ func ReadableSchemaKeys() []SchemaKey {
 		{Path: "repos.*.requests.*", Scope: workspace, Type: SchemaTypeAny},
 		{Path: "repos.*.requests.read", Scope: workspace, Type: SchemaTypeMixed},
 		{Path: "repos.*.requests.*.read", Scope: workspace, Type: SchemaTypeMixed},
+		{Path: "repos.*.requests.*.read.*", Scope: workspace, Type: SchemaTypeMixed},
+		// Every other cell of a named repository's broker table is typed by the capability it
+		// names, as requests.*.* is: the typed read rows above must not make it a closed table.
+		{Path: "repos.*.requests.*.*", Scope: workspace, Type: SchemaTypeAny},
 		{Path: "requests.github.repos", Scope: workspace, Type: SchemaTypeList},
 		{Path: "requests.github.repos.*", Scope: workspace, Type: SchemaTypeString},
 		{Path: "requests.github.create_pr", Scope: workspace, Type: SchemaTypeBoolean},
