@@ -1,7 +1,7 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Keep mapped execution refused. The prototype review is done; collect the native witness it lists (delegation, child creation and readback, placement, lifetime) on a real rootless Linux host before building the real Brief 3 writer or connecting any writer to launch; complete combined and native evidence gates before claiming enforcement."
+next: "Per the owner's RG-R5 (2026-11-24): build the real Brief 3 child writer and Brief 4 launch placement and wire them into mapped launches, keeping every observed-authority refusal; then the owner delegates io and provisions a batch slice, and the host witness validates after landing"
 depends-on: [resource-groups.md]
 ---
 
@@ -97,6 +97,20 @@ An independent review at high scrutiny of [`pinnedio_linux.go`](../../internal/r
 2. **Child creation and readback.** `mkdirat` of both children succeeds under the delegated cgroup, and the children are owned by the user. Each child has an `io.max`. A write through the pinned descriptor reads back as written. This step needs owner authorization because it writes.
 3. **Placement.** Nothing moves a process yet. A move into `yolo-agent` needs write access to the destination's `cgroup.procs` and to the common ancestor's `cgroup.procs`. Witness: `/proc/<pid>/cgroup` after the move, and the refusal when the common ancestor is not delegated.
 4. **Lifetime.** Record what happens when the unit stops while a child holds a live member, when an empty child is removed and recreated, and when a write goes through a descriptor whose cgroup was removed. Also confirm on that host kernel that a rename of a child is refused.
+
+**Read-only witness, 2026-11-24 (the owner's Arch host, systemd 262.2, kernel 7.3.4, rootless Podman
+with the systemd cgroup manager).** Item 1 is answered, and it blocks items 2 to 4 on this host as
+configured. `user@1000.service` has `Delegate=yes`, `DelegateControllers=cpu memory pids` and
+`DelegateSubgroup=init.scope`. The root cgroup enables `io` for its children, but `user.slice`'s
+`cgroup.subtree_control` is `cpu memory pids`, and so is every cgroup below it; Podman reports the same
+three controllers. Nothing under the user manager can carry an `io.max`. The request's `batch.slice`,
+`batch-yolo.slice`, `batch-forms.slice` and `batch-other.slice` are not provisioned: each is inactive with
+no `ControlGroup`. The disks are `nvme0n1` (259:0, kyber) and `sda` (8:0, bfq, USB). **The unlock is the
+owner's host setup, not code:** delegate `io` to the user manager (a `user@.service` drop-in adding `io`
+to `Delegate=`, which also needs `io` in `user.slice` and `user-1000.slice`), then provision the batch
+slices with finite `IO*Max` limits. Until a re-run of this witness shows `io` in the user manager's
+`cgroup.subtree_control` and an active batch slice, a mapped launch on this host refuses on what it observes. The owner's [RG-R5](resource-groups.md#RG-R5) lets the writer and placement be built and wired before that witness. The script is
+`.yolo/durable/rg-native-witness.sh` in the owner's workspace; it only reads.
 
 **Settled — do not re-open:** only existing verified user-manager delegated rights or an authorized manager-owned child route may place work. Never write owner parents or unrelated siblings, elevate privilege, widen the jail delegate protocol, move jobs between owner groups, or delete active/uncertain Yolo children. Without verified authority/membership, mapped starts refuse as unsupported/unknown.
 

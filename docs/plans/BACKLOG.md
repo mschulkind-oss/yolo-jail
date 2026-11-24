@@ -771,18 +771,24 @@ again. It failed once on `/var/lib/containers/storage/overlay` while integration
 jail were adding and removing podman mounts (`internal/entrypoint/fsx_test.go`). A fixture mount
 table instead of the live one would remove the race. Found 2026-10-18.
 
-### <a id="mcpauth-two-brokers-darwin"></a>🔧 **`TestOutcomeTwoBrokersAdoptOneSingleUseToken` fails under `-count` on a Mac**
+### <a id="mcpauth-records-lock-enoent-darwin"></a>🔧 **`records.lock: no such file or directory` in the two-broker test on a Mac, after the shared-clock race was fixed**
 
-On the owner's Mac at `fe37424b3` it failed 39 of 40 repetitions under `-count=20` with
-`slack: openat records.lock: no such file or directory` (`internal/mcpauth/outcome_concurrency_test.go`),
-but passed alone and in one full run. On Linux at current main it passes 20 of 20, so it is not
-reproduced here. The lock is opened by `paths.OpenLockFileBeneath` through `openNoFollowLeaf`
-(`internal/paths/statefile_open_unix.go`): an `unix.Openat` with `O_CREAT|O_NOFOLLOW|O_NONBLOCK`
-against a directory descriptor, which returns ENOENT only if that directory vanished or the kernel
-reports a create race that way. Two hypotheses, neither confirmed: (1) darwin returns ENOENT for two
-concurrent `O_CREAT` opens of one new name through `openat`; (2) state shared across repetitions.
-Next step, on a Mac: run with `-count=1 -race` in a loop, and log the directory's `Stat` when the
-openat fails; if (1), retry the open once on ENOENT while the directory still exists.
+The Mac run of 2026-11-24 at `6551bbc6f` failed `TestOutcomeTwoBrokersAdoptOneSingleUseToken` 8 of 10 times as
+separate processes and 0 of 10 at `GOMAXPROCS=1`, always with `slack: openat records.lock: no such file or
+directory`. The same run's `-race` build reported a data race on the test's shared `fakeClock`, which is fixed
+(each broker has its own clock, and the clock and the fixture's event list are locked). Linux never showed the
+ENOENT, so whether the fix removed it is **unverified**: nothing traced how a broker's wait reaches the
+canonical directory's `records.lock` (`paths.OpenLockFileBeneath`, `internal/paths/statefile_open_unix.go`). Next
+step, on a Mac: rerun the test as 10 separate processes at current main; if it still fails, log the directory's
+`Stat` when the `openat` fails.
+
+### <a id="env-set-unset-advice"></a>🔧 **`yolo config unset env.set.<NAME>` advises `env.unset`, which hides the variable instead of removing the key**
+
+On the Mac run of 2026-11-24 the refusal names `yolo config add env.unset '"PUBLIC_A"'`, and running it leaves the dead
+`PUBLIC_A = "a"` line in `env.set` and also cancels a `PUBLIC_A` that another layer (such as the user config) sets
+([RC-D50](../reference/config/rulings.md#RC-D50)'s walk order: merged `env.set`, then the union of `env.unset`).
+Decide whether removing an `env.set` key should delete it from the layer's file or whether hiding it is the intended
+answer, and say what it does to other layers in the refusal. Needs a config-owner ruling first.
 
 ### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
 

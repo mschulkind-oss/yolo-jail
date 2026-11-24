@@ -280,8 +280,7 @@ agent runs its witnesses on main; no branch or real account probe is implied.
 
 2. The owner's Mac and the Mac runner, for work whose code is in: [named setups](../design/named-setups-plan.md)' W-SU4
    step and the Mac witnesses of slices 11d to 11f, after which the Mac default moves to `seatbelt-self` when the owner calls the Seatbelt path ready;
-   [the account mode](../design/macos-user-model.md)'s remaining slices and witnesses, with
-   [W-TMP1](../design/macos-user-model-plan.md#W-TMP1) for its shared `/tmp`; [the Seatbelt profile's disclosure on a
+   [the account mode](../design/macos-user-model.md)'s remaining slices and witnesses (its shared `/tmp`, [W-TMP1](../design/macos-user-model-plan.md#W-TMP1), passed 2026-11-24); [the Seatbelt profile's disclosure on a
    real launch](../research/agent-safehouse.md); [the keychain witness
    W-KC5](../design/keychain-from-a-jail.md); [the native TLS witnesses](../design/macos-native-tls.md);
    [the provisioner's Mac confirmations](../design/provisioner-sets.md), before its nix closure is built;

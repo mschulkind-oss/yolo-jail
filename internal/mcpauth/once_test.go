@@ -85,6 +85,7 @@ type onceFixture struct {
 	src    OnceSource
 	server OnceServer
 	events []Event
+	evMu   sync.Mutex // Audit runs from every broker goroutine
 	broker *OnceBroker
 }
 
@@ -119,7 +120,13 @@ func (f *onceFixture) newBroker(canonicalDir string) *OnceBroker {
 	if err != nil {
 		f.t.Fatal(err)
 	}
-	return &OnceBroker{Canonical: store, Now: f.clock.Now, Audit: func(e Event) { f.events = append(f.events, e) }}
+	return &OnceBroker{Canonical: store, Now: f.clock.Now, Audit: f.audit}
+}
+
+func (f *onceFixture) audit(e Event) {
+	f.evMu.Lock()
+	defer f.evMu.Unlock()
+	f.events = append(f.events, e)
 }
 
 func (f *onceFixture) writeEntry(entry map[string]any) {

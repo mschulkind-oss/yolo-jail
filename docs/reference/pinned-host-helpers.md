@@ -292,13 +292,17 @@ witness.
 
 Linux runs the keeper's self-execs through `/proc/self/exe`, so a nested jail and the integration
 suite never reach the pin-path exec, its `stat` check, or the darwin bundle. These witnesses settle
-them on a Mac. All five passed on 2026-11-10 at main `5a69dd0b4` (darwin/arm64, installed build
+them on a Mac. All five first passed on 2026-11-10 at main `5a69dd0b4` (darwin/arm64, installed build
 `0.17.1+197.g5a69dd0b4075`). W-PH2 and W-PH3 need `podman-self`, because git-broker is inert on
 Apple Container; W-PH4 uses `seatbelt-self`. Re-run them after a change to the pin's macOS path.
 
 On 2026-11-23 at main `fe37424b3` (installed `0.19.0+61.gfe37424b3605`) W-PH1, W-PH5 and the dry-run half of
-W-PH4 passed again. W-PH2, W-PH3 and W-PH4's live half did not run: they need a running `podman-self` jail
-and a `seatbelt-self` session.
+W-PH4 passed again. On 2026-11-24, after `just install` (installed `0.19.0+148.g3264dd695740`), W-PH1, W-PH2,
+W-PH3 and W-PH4, live and dry-run, passed: every `internal daemon` ran from the installed generation's
+`bin/darwin-arm64/yolo`, the start lines carried that build, and after a `touch` of the pinned file and a
+`pkill` of git-broker the keeper gave up and said so (*"not restarting it: the yolo this jail was launched
+with is no longer at"* the pinned path), with no second start line. All five are satisfied; re-run them after
+a change to the pin's macOS path.
 
 | ID | What it shows | How |
 | :--- | :--- | :--- |

@@ -15,10 +15,19 @@ import (
 func TestOutcomeTwoBrokersAdoptOneSingleUseToken(t *testing.T) {
 	f := outcomeFixture(t)
 	other := f.newBroker(f.broker.Canonical.Dir)
+	// Each broker waits on its own clock: with one shared, a waiting broker's Sleep moved the
+	// other's time past the source lock's Stale and Wait limits.
+	otherClock := newFakeClock()
+	otherSrc := f.src
+	otherSrc.Store = otherClock.source(f.dir)
+	other.Now = otherClock.Now
 	start := make(chan struct{})
 	done := make(chan error, 2)
-	for _, broker := range []*OnceBroker{f.broker, other} {
-		go func(b *OnceBroker) { <-start; done <- b.Pass(context.Background(), f.src, []OnceServer{f.server}) }(broker)
+	for _, run := range []struct {
+		b   *OnceBroker
+		src OnceSource
+	}{{f.broker, f.src}, {other, otherSrc}} {
+		go func() { <-start; done <- run.b.Pass(context.Background(), run.src, []OnceServer{f.server}) }()
 	}
 	close(start)
 	for range 2 {
