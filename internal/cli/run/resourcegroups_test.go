@@ -293,6 +293,9 @@ func TestMappedLaunchUsesResourceGroupPlanBeforePrewarm(t *testing.T) {
 // A placed launch records what the placement established, so the container argv asks the
 // runtime for the same group; deleting the gate's call leaves it nil and this fails.
 func TestPlacedResourceGroupIsRecordedForTheLaunch(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("placement is linux-only; authority_other.go answers unsupported elsewhere")
+	}
 	workspace := canonicalTempDir(t)
 	t.Setenv("HOME", canonicalTempDir(t))
 	group := jsonx.NewOrderedMap()

@@ -50,7 +50,9 @@ func bootWithRepoInstructions(t *testing.T, wire string) (*Env, string) {
 	t.Helper()
 	e, _ := overlayRenderEnv(t)
 	e.Vars["YOLO_PACK_ROOT"] = stagedInstructionsPack(t)
-	e.Workspace = "/workspace"
+	// A temporary workspace, never the literal /workspace: CI's runner has none and cannot make one,
+	// while a jail has one, so the literal passed in a jail and failed in CI.
+	e.Workspace = t.TempDir()
 	if wire != "" {
 		e.Vars[repoinstr.EnvName] = wire
 	}
@@ -72,8 +74,9 @@ func excludesAt(t *testing.T, home string) []any {
 }
 
 func TestBootRendersClaudesExclusionsAnchoredAtTheWorkspaceBesideTheUsersOwn(t *testing.T) {
-	_, home := bootWithRepoInstructions(t, `{"mode":"ignore"}`)
-	want := []any{"/mine/**/CLAUDE.md", "/workspace/**/AGENTS.md", "/workspace/**/CLAUDE.md"}
+	e, home := bootWithRepoInstructions(t, `{"mode":"ignore"}`)
+	ws := e.Workspace
+	want := []any{"/mine/**/CLAUDE.md", ws + "/**/AGENTS.md", ws + "/**/CLAUDE.md"}
 	if got := excludesAt(t, home); !reflect.DeepEqual(got, want) {
 		t.Errorf("claudeMdExcludes = %#v, want the user's entry then the workspace-anchored ones %#v", got, want)
 	}
