@@ -100,6 +100,7 @@ var denyDefaultRules = []seatbeltRule{
 			"pidinfo is already refused", "b13_pidinfo_of_your_process_refused")},
 	{id: "same-sandbox-pidinfo-allow"},
 	{id: "mach-lookup-allow"},
+	{id: "posix-sem-allow"},
 	{id: "network-allow"},
 	{id: "loopback-allow"},
 	{id: "unix-socket-allow"},
@@ -177,6 +178,8 @@ type denyDefaultFixtures struct {
 	// holding an endpoint file; sibling is another session's, granted by nothing (MMP-D15).
 	services, sibling string
 	python            string // a python3 the profile lets run (Homebrew or nix), or ""
+	hostSem           string // a named semaphore of yours, made OUTSIDE the sandbox (MMP-D37), or ""
+	hostSemWhy        string // why it could not be made
 	listener          string // a launchd Listeners socket path, or "" when none exists
 	keychainService   string // the throwaway login-keychain item (b4), "" when not added
 	keychainSecret    string
@@ -248,6 +251,46 @@ else:
 `
 
 const denyDefaultProbeRan = "DD_PROBE_RAN"
+
+// denyDefaultSemProbePy is written into the workspace: the POSIX named-semaphore calls, through
+// the module Python's own multiprocessing locks with, so no compiler is needed. `lmdb NAME` is
+// the sequence LMDB runs when it sets up a store's locks on macOS and a second opener's after
+// it; `open NAME` is that second opener alone, for a semaphore something else made. `make` and
+// `unlink` are the fixture's, run outside the sandbox.
+const denyDefaultSemProbePy = `import sys, _multiprocessing as mp
+what, name = sys.argv[1], sys.argv[2]
+def unlink():
+    try:
+        mp.sem_unlink(name)
+    except FileNotFoundError:
+        pass
+if what == "lmdb":
+    unlink()                                # a stale semaphore of an earlier run
+    s = mp.SemLock(1, 1, 1, name, False)    # sem_open(O_CREAT|O_EXCL)
+    s.acquire(); s.release()                # sem_wait, sem_post
+    o = mp.SemLock._rebuild(0, 1, 1, name)  # a second opener: sem_open(name, 0)
+    o.acquire(); o.release()
+    mp.sem_unlink(name)
+elif what == "open":
+    o = mp.SemLock._rebuild(0, 1, 1, name)
+    o.acquire(); o.release()
+elif what == "make":
+    unlink()
+    mp.SemLock(1, 1, 1, name, False)
+elif what == "unlink":
+    unlink()
+else:
+    sys.exit("unknown probe " + what)
+`
+
+// needsHostSemaphore skips a case on a host where the fixture could not make a semaphore outside
+// the sandbox.
+func needsHostSemaphore(f denyDefaultFixtures) string {
+	if f.hostSem == "" {
+		return "no semaphore made outside the sandbox: " + f.hostSemWhy
+	}
+	return ""
+}
 
 // unixConnectProbe exits 0 only when a unix-socket connect to the path succeeded.
 func unixConnectProbe(p string) string {
@@ -926,6 +969,62 @@ func denyDefaultCases() []denyDefaultCase {
 			script: func(denyDefaultFixtures) string { return unixBindConnectProbe(".dd.sock") },
 			want:   wantAllowed,
 		},
+		// --- POSIX named semaphores (MMP-D37).
+		{
+			name: "posix_semaphore_lmdb_lock_sequence",
+			id:   "posix-sem-allow",
+			why: "LMDB locks a store on macOS with a pair of named semaphores (/MDBr…, /MDBw…): it " +
+				"unlinks a stale one, creates it exclusively, waits and posts, and a second opener " +
+				"opens it by name. Refused any step, Pants cannot open its local store.",
+			needs: needsPython,
+			script: func(f denyDefaultFixtures) string {
+				return sh(f.python) + " " + sh(f.ws+"/.ddsem.py") + " lmdb " + sh("/MDBr"+f.nonce) + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "python_multiprocessing_lock_and_process_pool",
+			id:   "posix-sem-allow",
+			why: "Python's multiprocessing makes a named semaphore per Lock, and a process pool is " +
+				"built on Locks; under (deny default) each raised PermissionError.",
+			needs: needsPython,
+			script: func(f denyDefaultFixtures) string {
+				return sh(f.python) + ` -c 'import multiprocessing as m
+from concurrent.futures import ProcessPoolExecutor
+if __name__ == "__main__":
+    l = m.Lock(); l.acquire(); l.release()
+    with ProcessPoolExecutor(1) as p:
+        assert p.submit(abs, -3).result() == 3' && echo ` + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "posix_semaphore_of_yours_opens_by_name",
+			id:   "posix-sem-allow",
+			why: "the sandbox's Pants and yours share one store in the run-as-you mode, and take the " +
+				"same pair of semaphores: the sandbox must open one a process outside it made. It is " +
+				"also what the allow opens, stated as a case: a semaphore of yours is reachable by name.",
+			needs: needsHostSemaphore,
+			script: func(f denyDefaultFixtures) string {
+				return sh(f.python) + " " + sh(f.ws+"/.ddsem.py") + " open " + sh(f.hostSem) + " && echo " + seatbeltOK
+			},
+			want: wantAllowed,
+		},
+		{
+			name: "posix_shared_memory_create_refused",
+			id:   "deny-default",
+			why: "the semaphore allow is semaphores alone: shared memory carries data, and the " +
+				"profile's one shm rule is libnotify's read.",
+			needs: needsPython,
+			script: func(f denyDefaultFixtures) string {
+				return sh(f.python) + ` -c 'import _posixshmem, os, sys
+n = sys.argv[1]
+os.close(_posixshmem.shm_open(n, os.O_CREAT | os.O_EXCL | os.O_RDWR, mode=0o600))
+_posixshmem.shm_unlink(n)' ` + sh("/yolo-dd-shm-"+f.nonce)
+			},
+			want:    wantRefused,
+			refusal: "Operation not permitted",
+		},
 		// --- This session's host-services dir (MMP-D15).
 		{
 			name: "own_session_endpoint_readable_without_shared_tmp",
@@ -1378,6 +1477,7 @@ func denyDefaultFixture(t *testing.T) denyDefaultFixtures {
 	for p, content := range map[string]string{
 		filepath.Join(f.ws, "seed"):                                            seatbeltOK + "\n",
 		filepath.Join(f.ws, ".ddprobe.py"):                                     denyDefaultProbePy,
+		filepath.Join(f.ws, ".ddsem.py"):                                       denyDefaultSemProbePy,
 		filepath.Join(f.outside, "secret"):                                     "a sibling checkout's private file\n",
 		filepath.Join(f.skills, "demo", "SKILL.md"):                            "demo skill\n",
 		filepath.Join(f.stateDir, "CLAUDE.md"):                                 "the briefing\n",
@@ -1446,7 +1546,25 @@ func denyDefaultFixture(t *testing.T) denyDefaultFixtures {
 	listenAccepting(t, "unix", filepath.Join(f.fakeHome, ".docker", "run", "docker.sock"))
 	listenAccepting(t, "unix", filepath.Join(f.fakeHome, ".ssh", "agent", "s"))
 	f.keychainService, f.keychainSecret, f.keychainWhy = addThrowawayKeychainItem(t, f)
+	f.hostSem, f.hostSemWhy = makeHostSemaphore(t, f)
 	return f
+}
+
+// makeHostSemaphore makes a named semaphore as you, outside the sandbox, the way a program of
+// yours that locks with one does, and unlinks it at cleanup whatever the test's outcome: a named
+// semaphore outlives the process that made it. It returns the name, or why it could not make one.
+func makeHostSemaphore(t *testing.T, f denyDefaultFixtures) (string, string) {
+	t.Helper()
+	if why := needsPython(f); why != "" {
+		return "", why
+	}
+	name := "/yolo-dd-" + f.nonce // well under macOS's 31-character limit on a semaphore name
+	probe := filepath.Join(f.ws, ".ddsem.py")
+	if out, err := exec.Command(f.python, probe, "make", name).CombinedOutput(); err != nil {
+		return "", fmt.Sprintf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	t.Cleanup(func() { _ = exec.Command(f.python, probe, "unlink", name).Run() })
+	return name, ""
 }
 
 // denyDefaultServicesDirs makes two session-shaped host-services dirs under /private/tmp, each

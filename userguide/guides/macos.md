@@ -273,6 +273,10 @@ What you give up:
   yolo while the command runs, TCP only, and a `network.ports` remap also publishes whatever else
   listens on the Mac's `127.0.0.1` at that port; `127.0.0.1:8000:3000` keeps it on the Mac. Not
   yet tried on a Mac.
+- **Named semaphores are the Mac's.** macOS keeps one set of POSIX named semaphores for the whole
+  Mac, and the sandbox may use them: Pants and Python's `multiprocessing` lock with them and do
+  not run otherwise. A semaphore holds no data, but in a jail running as you, a process that
+  knows the name of one of yours can hold or remove it.
 - **Soft resource limits.** `resources.memory` stops the session's largest process when the
   session goes over, `resources.cpus` sets common build tools' parallelism, and `resources.io`
   lowers the session's disk priority. None is enforced by the kernel, so a runaway build can still
