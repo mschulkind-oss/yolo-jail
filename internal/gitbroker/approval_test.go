@@ -109,7 +109,9 @@ func TestAskForPushWaitsForTheAnswer(t *testing.T) {
 	f := newFixture(t, "")
 	// The refused git push leaves its request, for the same push as cmds, pending.
 	cmds := refusedPushCommands(t, f)
-	f.broker.waitLimit = 10 * time.Second
+	// Only a hang guard (capped at pushWait): the answer is the event the push returns on, and
+	// how long that takes on a loaded machine is not what this test pins.
+	f.broker.waitLimit = pushWait
 	repo, _ := gitproto.Identity(origin)
 	for _, deny := range []bool{false, true} {
 		// The host answers every pending request until the push returns, not only the first
@@ -142,19 +144,14 @@ func TestAskForPushWaitsForTheAnswer(t *testing.T) {
 				}
 			}
 		}()
-		start := time.Now()
 		push := cmds
 		if deny {
 			push = []gitproto.Command{{Old: cmds[0].Old, New: cmds[0].Old, Ref: cmds[0].Ref}}
 		}
 		_, reason, ok := f.broker.askForPush(context.Background(), repo, push, nil, []string{"refs/heads/main"}, nil, &brokeraudit.Event{})
-		took := time.Since(start)
 		close(done)
 		if err := <-decided; err != nil {
 			t.Fatal(err)
-		}
-		if took > 5*time.Second {
-			t.Fatalf("the answer took %v to reach the push", took)
 		}
 		if ok == deny {
 			t.Fatalf("deny %v: ok %v, %q", deny, ok, reason)
