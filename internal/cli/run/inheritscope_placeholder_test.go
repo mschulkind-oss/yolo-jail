@@ -10,6 +10,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/hostfloor/floortest"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // ISSUE #66, AFTER SLICE 12a: a workspace that once ran under podman keeps, in its sidecar, the
@@ -135,7 +136,7 @@ func TestMacosUserKeepsRefusingAnythingButAnUnsharedEmptyFile(t *testing.T) {
 				t.Errorf("the refusal moved something to %s.podman-placeholder (err %v)", path, err)
 			}
 			if tc.mv {
-				want := "mv " + path + " " + path + ".moved-aside"
+				want := "mv " + shquote.Quote(path) + " " + shquote.Quote(path+".moved-aside")
 				if !strings.Contains(stderr.String(), want) {
 					t.Errorf("the refusal does not name the command %q:\n%s", want, stderr.String())
 				}
