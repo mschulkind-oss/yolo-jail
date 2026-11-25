@@ -257,7 +257,8 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 	return &keeperPlan{
 		Build: keeperBuildStamp(), Pin: o.pinOrZero(), Workspace: o.Workspace, Cname: cname, Runtime: rt, Setup: o.Setup.Name, Home: o.homeDir(),
 		Network: o.Network, OrbStack: o.orbStackPodman && o.Getenv(hostLoopbackOptOutEnv) == "",
-		Color: o.streamColor(), Config: raw,
+		ResourceGroupSlice: o.placedAgentSlice(),
+		Color:              o.streamColor(), Config: raw,
 		PackTree: staged.root, Packs: names, Services: services,
 		Settings: o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
 		Payload:        payload,
@@ -2018,4 +2019,14 @@ func (o *Options) awaitSignalledSessions(key string, signalled map[string]bool) 
 		}
 		time.Sleep(keeperPoll)
 	}
+}
+
+// placedAgentSlice is the agent child slice this launch placed itself in (resource_groups), "" when
+// it is in no resource group. The keeper's scope is created in it, so host-service I/O is inside the
+// group's io.max too.
+func (o *Options) placedAgentSlice() string {
+	if o.resourceGroupPlaced == nil {
+		return ""
+	}
+	return o.resourceGroupPlaced.Child
 }

@@ -135,6 +135,10 @@ type keeperPlan struct {
 	// PerfRecording is the launch's timing recording gate (timingRecording): the keeper records
 	// its own spans, Window A among them, into the same host-perf.log.
 	PerfRecording bool `json:"perf_recording,omitempty"`
+	// ResourceGroupSlice is the agent child slice (batch-yolo-agent.slice) the launch placed itself
+	// in under resource_groups, "" when it is in none. The keeper's transient scope names it as its
+	// Slice, so the host services' I/O is charged to the same group.
+	ResourceGroupSlice string `json:"resource_group_slice,omitempty"`
 	// Uncounted says the launch could not take its session lock (holdSessionLock warned), so its
 	// first session is in the jail with the count not holding it. The keeper then never drains on
 	// the count, whose zero would not be zero sessions ("could not count" is never zero, JL-P3), and
