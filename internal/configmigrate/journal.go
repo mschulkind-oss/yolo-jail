@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 )
@@ -413,6 +414,8 @@ func Resume(journal string) (*ApplyResult, error) {
 	if err := j.finish(journal, res); err != nil {
 		return res, err
 	}
+	// A migration finished by the verb after a kill leaves the same line an uninterrupted one does.
+	recordChanges("yolo config migrate", res, time.Now())
 	return res, nil
 }
 

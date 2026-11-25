@@ -59,6 +59,10 @@ not do that work by guessing.
   maintainer: *"I did want to write a normal non-linked file, because we can't know how their
   dotfiles work or if it is like mine. just do the dumb thing."* This replaced an earlier reading
   that converted the file inside the dotfiles tree and re-pointed the link.
+  Every migration appends one line per file it moved or wrote to `~/.local/share/yolo-jail/logs/config-changes.log`
+  (when, which command, the link text moved, the regular file written), and `yolo check` warns, naming the
+  two-command restore, when a user config is a regular file with a `<name>.pre-migrate` link beside it.
+  The launch's offer names every file a yes will rewrite, a user config rewritten for ceiling lines included.
 - **[RC-D70](config/rulings.md#RC-D70) (2026-11-06).** A side-file tool re-created the
   moved link after migration, and the launch refused because both formats were present. The fix
   improved the refusal's wording and left the migration as it was. When a link-aware migration was

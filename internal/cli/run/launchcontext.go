@@ -411,8 +411,36 @@ func packIdentity(p *packload.Pack) string {
 	return origin + " " + shortHex(d)
 }
 
-// fileIdentity is a config file's record: its modification time and digest, or "absent".
+// userConfigRecordFile is the user config file a launch record watches: the one the loader
+// reads (config.toml, else a legacy name), not paths.UserConfigPath, which knows only the legacy
+// names and so recorded a TOML host's config as "(absent)" on every launch.
+func userConfigRecordFile() string {
+	p, _ := config.UserConfigFile()
+	return p
+}
+
+// fileIdentity is a config file's record: whether it is a symlink (with the link's text, read
+// with Readlink and never interpreted) or a regular file, its modification time and its digest,
+// or "absent". The kind is part of the identity, so a link that became a regular file with the
+// same bytes still shows as CHANGED.
 func fileIdentity(path string) string {
+	kind := ""
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if text, err := os.Readlink(path); err == nil {
+				kind = "symlink to " + text + ", "
+			} else {
+				kind = "symlink, "
+			}
+		} else if info.Mode().IsRegular() {
+			kind = "regular file, "
+		}
+	}
+	return kind + contentIdentity(path)
+}
+
+// contentIdentity is a file's modification time and digest, or "absent".
+func contentIdentity(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -659,7 +687,7 @@ func (o *Options) recordLaunchContext(cfg *jsonx.OrderedMap, packs []*packload.P
 	o.logRecord("profile: %s", ProfileRecord(o.profileFold(cfg, packs), config.ReceiversOf(packs).Bins,
 		config.ConfigActiveSelection(cfg), o.jailProfileFlag))
 	if snap, err := config.SnapshotJSON(cfg); err == nil {
-		files := []string{paths.UserConfigPath(), filepath.Join(o.Workspace, config.WorkspaceConfigName)}
+		files := []string{userConfigRecordFile(), filepath.Join(o.Workspace, config.WorkspaceConfigName)}
 		for _, line := range configChangeRecords(workspaceStateStore{o.Workspace}, snap, packs, files, time.Now()) {
 			o.logRecord("%s", line)
 		}

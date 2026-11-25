@@ -194,7 +194,7 @@ func TestTheLaunchLogRecordsTheLaunchsArchaeology(t *testing.T) {
 		"  jail: " + macosUserJailName(ws, macosuser.ModeAccount) + "  runtime=macos-user",
 		"  profile: acme=none (config profile.acme)",
 		"  config: no previous launch recorded\n",
-		"  config files: " + userCfg + " (modified ",
+		"  config files: " + userCfg + " (regular file, modified ",
 		"  packs: ",
 		"(no previous launch recorded)\n",
 		"  captured edits: mise/config",
