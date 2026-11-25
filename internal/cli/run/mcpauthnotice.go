@@ -76,7 +76,7 @@ func (o *Options) noteMCPAuthShare(in LaunchInputContext, data []byte) {
 			}
 			return
 		}
-		o.pr(o.Stderr).print("MCP sign-ins: user-level provenance could not be proved, so no sign-in was shared. Retry the launch after checking the selected user packs with yolo pack ls.")
+		o.pr(o.Stderr).print(mcpUnprovenLine(in.MCPUnproven))
 		return
 	}
 	names := make([]string, 0, len(in.MCPScopes))
@@ -99,4 +99,15 @@ func (o *Options) noteMCPAuthShare(in LaunchInputContext, data []byte) {
 		}
 		o.pr(o.Stderr).print("MCP sign-in " + name + " kept to this workspace (" + scope.Reason + "). Inspect it with yolo config why mcp_servers." + name + " before moving its declaration into user config.")
 	}
+}
+
+// mcpUnprovenLine is the launch's one line when it could not tell which MCP servers are the
+// user's own: no sign-in is shared, WHY (the reason frozenMCPForLaunch or the selection snapshot
+// recorded, which names the pack and the check and ends in the next step), and a fallback next
+// step only when no reason was recorded.
+func mcpUnprovenLine(why string) string {
+	if why == "" {
+		return "MCP sign-ins: no sign-in was shared, because which of your packs and servers are yours could not be proved. Retry the launch; if it recurs, check your packs with yolo pack ls."
+	}
+	return "MCP sign-ins: no sign-in was shared, because " + why + "."
 }

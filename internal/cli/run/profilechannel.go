@@ -58,6 +58,8 @@ type packChannel struct {
 	// spelling that selects none for it there (config.ProfileDeselection). The profile
 	// disclosure's warning prints it (noteUseProfiles); nil names the -p form alone.
 	deselect func(agent, profile string) string
+	// deselectAll is deselect for several programs sharing one reason, one spelling for them all.
+	deselectAll func(agents []string, profile string) string
 	// workerNotes is the line, one per worker, for every macos-user PURE WORKER with no jail
 	// daemon that this launch does not start (planMacosUserWorkers; host-notch-services.md
 	// HS-D29), recorded when the composition planned the workers and printed where the arm opens
@@ -239,6 +241,9 @@ func (o *Options) composePackChannel(cfg *jsonx.OrderedMap, packs []*packload.Pa
 				key, flags := config.ConfigActiveSelection(cfg), o.ProfileFlags()
 				c.deselect = func(agent, _ string) string {
 					return config.ProfileDeselection(key, flags, agent)
+				}
+				c.deselectAll = func(agents []string, _ string) string {
+					return config.ProfileDeselectionAll(key, flags, agents)
 				}
 				c.viaNotes = viaNotes
 			}

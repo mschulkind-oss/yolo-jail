@@ -247,7 +247,7 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		forwardDir = ""
 	}
 	var teardownID string
-	if slices.Contains(services, selectedMCPHostService) && o.frozenLaunchMCPForKeeper() != nil {
+	if slices.Contains(services, selectedMCPHostService) && o.launchInputMCP.Proven {
 		var nonce [16]byte
 		if _, err := rand.Read(nonce[:]); err != nil {
 			return nil, fmt.Errorf("could not identify this MCP teardown: %w; retry the launch", err)

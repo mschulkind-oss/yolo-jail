@@ -1645,13 +1645,14 @@ func (o *Options) noteUseProfiles(channel *packChannel, loadedPacks []*packload.
 	out := o.pr(o.Stderr)
 	sets := packload.ProfileSets(channel.profiles)
 	for _, d := range packload.ProfileDisclosures(packload.ProfileDisclosureInput{
-		Table:     packload.ProfileTable(channel.profiles),
-		Sets:      sets,
-		Packs:     loadedPacks,
-		Resolved:  channel.resolvedProfiles,
-		Providers: channel.providers,
-		Scope:     channel.scope,
-		Deselect:  channel.deselect,
+		Table:       packload.ProfileTable(channel.profiles),
+		Sets:        sets,
+		Packs:       loadedPacks,
+		Resolved:    channel.resolvedProfiles,
+		Providers:   channel.providers,
+		Scope:       channel.scope,
+		Deselect:    channel.deselect,
+		DeselectAll: channel.deselectAll,
 		Reaches: func(agent, name string) bool {
 			if v, found := argvPairs[name]; found && v != "" {
 				return true

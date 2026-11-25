@@ -369,8 +369,8 @@ func TestNoteUseProfilesWarnsWhereTheSelectionReachesNothing(t *testing.T) {
 // ruling: "if you don't direct it at a specific agent, then we should print out a message
 // showing you … these will only get the first one and the others will be ignored"). copilot and
 // agy have no Bedrock client of their own and no bridge carries them here, so a bare
-// `-p bedrock` reaches nothing for either; the launch says so once, naming both, and keeps each
-// agent's next step (the `-p <agent>=<name>` pair). It used to print one warning line per agent.
+// `-p bedrock` reaches nothing for either; the launch says so once, naming both, and gives the group one
+// next step (the `-p <agent>=` pairs). It used to print one warning line per agent.
 // Driven through noteUseProfiles, so deleting the combining call fails this test too.
 func TestABareProfileNamesEveryAgentItDoesNotReachOnOneLine(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "copilot"),
@@ -390,7 +390,7 @@ func TestABareProfileNamesEveryAgentItDoesNotReachOnOneLine(t *testing.T) {
 	line := unreached[0]
 	for _, want := range []string{
 		`Warning: profile "bedrock" reaches nothing for agy and copilot`,
-		"(`-p agy=<name>`)", "(`-p copilot=<name>`)",
+		"`-p agy= -p copilot=`", "-p <program>=<name>",
 	} {
 		if !strings.Contains(line, want) {
 			t.Errorf("the one line must say %q:\n%s", want, line)

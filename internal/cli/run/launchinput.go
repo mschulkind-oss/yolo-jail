@@ -41,7 +41,9 @@ type LaunchInputContext struct {
 	UserOnlyMCPServers  *jsonx.OrderedMap
 	MCPScopes           map[string]packload.Scope
 	MCPProven           bool
-	MCPSignIn           *mcpsignin.Launch
+	// MCPUnproven is why MCPProven is false, in the words the launch prints; "" when unknown.
+	MCPUnproven string
+	MCPSignIn   *mcpsignin.Launch
 	// SharedCredentialDir is the absolute host directory this launch bridges Claude's credential
 	// store into (CL-D22, claudeSecureStorageDir), or "" when it does not (the credential view,
 	// or no selected pack links it): the machine-wide store a one-sign-in server's sign-in is
@@ -272,6 +274,7 @@ func (o *Options) writeLaunchInput(lp *loopholes.Loophole, cname string) bool {
 		frozen.CallBroker = input
 	}
 
+	frozen.MCPUnproven = o.launchInputMCP.Unproven
 	if o.launchInputMCP.Proven {
 		effective, effectiveErr := jsonx.Decode([]byte(o.launchInputMCP.EffectiveJSON))
 		userOnly, userErr := jsonx.Decode([]byte(o.launchInputMCP.UserOnlyJSON))

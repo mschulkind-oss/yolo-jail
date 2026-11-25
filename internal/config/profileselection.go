@@ -457,11 +457,33 @@ func ProfileKeySpelling(s ProfileSelection) string {
 // the key being user-scope only), and only here, on the warning's path; a scope read from no
 // file is named without one.
 func ProfileDeselection(key, flag ProfileSelection, cli string) string {
-	if _, named := flag.Named[cli]; named || len(flag.Default) > 0 {
-		return "the selection is this launch's `-p`, so add `-p " + cli + "=` to it"
+	return ProfileDeselectionAll(key, flag, []string{cli})
+}
+
+// ProfileDeselectionAll is ProfileDeselection for several CLIs at once: the one spelling, in the
+// one place the selection was written, that selects none for every one of them, so programs that
+// share a reason for being unreached get one next step rather than one each.
+func ProfileDeselectionAll(key, flag ProfileSelection, clis []string) string {
+	pairs := profilePairs(clis)
+	for _, cli := range clis {
+		if _, named := flag.Named[cli]; named {
+			return "the selection is this launch's `-p`, so add `" + pairs + "` to it"
+		}
 	}
-	return "the selection is " + profileKeyFix(key, cli, "launch") + ", or add `-p " + cli +
-		"=` for one launch"
+	if len(flag.Default) > 0 {
+		return "the selection is this launch's `-p`, so add `" + pairs + "` to it"
+	}
+	return "the selection is " + profileKeyFix(key, clis, "launch") + ", or add `" + pairs +
+		"` for one launch"
+}
+
+// profilePairs is the `-p <cli>=` spelling, repeated, that selects none for each cli.
+func profilePairs(clis []string) string {
+	pairs := make([]string, len(clis))
+	for i, cli := range clis {
+		pairs[i] = "-p " + cli + "="
+	}
+	return strings.Join(pairs, " ")
 }
 
 // HostProfileDeselection is ProfileDeselection for `yolo host --` and `yolo host env`, whose -p
@@ -476,12 +498,12 @@ func ProfileDeselection(key, flag ProfileSelection, cli string) string {
 // too, by making it `-p <cli>=`, with the key's fix after it.
 func HostProfileDeselection(key ProfileSelection, typed, keyReaches bool, cli string) string {
 	if !typed {
-		return "the selection is " + profileKeyFix(key, cli, "command") + ", or add `-p " + cli +
+		return "the selection is " + profileKeyFix(key, []string{cli}, "command") + ", or add `-p " + cli +
 			"=` for one command"
 	}
 	if keyReaches {
 		return "the selection is this command's `-p`, so make it `-p " + cli + "=`; without it the " +
-			"selection is " + profileKeyFix(key, cli, "command")
+			"selection is " + profileKeyFix(key, []string{cli}, "command")
 	}
 	return "the selection is this command's `-p`, so leave it out"
 }
@@ -500,16 +522,25 @@ func HostProfileDeselection(key ProfileSelection, typed, keyReaches bool, cli st
 // (OQ-RC20), at the agent's entry, which its named verb writes: `yolo active-provider <cli>
 // native` (docs/reference/config/editing.md#the-commands). The legacy `profile` key has no verb, so its fix
 // stays the key respelled.
-func profileKeyFix(key ProfileSelection, cli, every string) string {
+func profileKeyFix(key ProfileSelection, clis []string, every string) string {
 	keyName := ProfileKey
-	spelling := "`" + ProfileKeySpelling(withNoProfileFor(key, cli)) + "`"
+	cli := clis[0]
+	sel := key
+	for _, c := range clis {
+		sel = withNoProfileFor(sel, c)
+	}
+	spelling := "`" + ProfileKeySpelling(sel) + "`"
 	here, onHost := "write "+spelling+" there", "write "+spelling+" in your user config on the host"
 	if key.Key == ActiveProviderKey {
 		keyName = ActiveProviderKey
-		run := "run `yolo active-provider " + shquote.Quote(cli) + " " + NativeProvider + "`"
+		runs := make([]string, len(clis))
+		for i, c := range clis {
+			runs[i] = "`yolo active-provider " + shquote.Quote(c) + " " + NativeProvider + "`"
+		}
+		run := "run " + strings.Join(runs, " and ")
 		here, onHost = run, run+" on the host"
 	}
-	none := " to select none for " + cli + " on every " + every
+	none := " to select none for " + strings.Join(clis, ", ") + " on every " + every
 	loc := selectionKeyLocation(key, cli)
 	if inJail() && !locatedInUserLayer(loc) {
 		where := "your host config's `" + keyName + "` key"

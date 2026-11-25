@@ -59,6 +59,11 @@ type ProfileDisclosureInput struct {
 	// not: a jail launch passes config.ProfileDeselection, and `yolo host`
 	// config.HostProfileDeselection. nil names the -p form alone.
 	Deselect func(agent, profile string) string
+	// DeselectAll is Deselect for SEVERAL agents at once: where the selection that reached them
+	// came from and the one spelling that selects none for every one of them there. It is what
+	// lets agents sharing a reason (ProfileReach.Cause) get one next step rather than one each;
+	// nil lists the `-p <agent>=` pairs alone.
+	DeselectAll func(agents []string, profile string) string
 }
 
 // ProfileReach is one agent's answer: the provider its selection resolved to, how the agent
@@ -72,7 +77,22 @@ type ProfileReach struct {
 	// Unreached is the clause after "reaches nothing for <agent>: ", kept apart from Warnings so
 	// ProfileDisclosure.Warnings names every unreached agent of one profile on one line.
 	Unreached string
-	Warnings  []string
+	// Cause is Unreached's reason with the agent left out, written with {who} for the agent and
+	// {whose} for its possessive, "" when the reason is the agent's own words. Agents of one
+	// profile with the SAME Cause share one sentence of it (ProfileDisclosure.Warnings): a bare
+	// profile over nine programs said the same reason nine times.
+	Cause    string
+	Warnings []string
+}
+
+// causeFor renders a Cause for one agent, the way its own Unreached sentence reads it.
+func causeFor(cause, agent string) string {
+	return strings.NewReplacer("{who}", agent, "{whose}", agent+"'s").Replace(cause)
+}
+
+// causeForGroup renders a Cause for agents sharing it.
+func causeForGroup(cause string) string {
+	return strings.NewReplacer("{who}", "these programs", "{whose}", "their").Replace(cause)
 }
 
 // Lines is this agent's warning lines on their own: its "reaches nothing" line first, if any,
@@ -99,6 +119,8 @@ type ProfileDisclosure struct {
 	// undeclared name refuses the launch before this line).
 	User   bool
 	Agents []ProfileReach
+
+	deselectAll func(agents []string, profile string) string
 }
 
 // Head is the line's label, "Profile <name>:".
@@ -139,18 +161,66 @@ func (d ProfileDisclosure) Warnings() []string {
 			unreached = append(unreached, a)
 		}
 	}
-	switch len(unreached) {
-	case 0:
-	case 1:
+	// Agents sharing a Cause are one clause, in the order the first of each appears.
+	type clause struct {
+		agents []ProfileReach
+		cause  string
+	}
+	var clauses []*clause
+	byCause := map[string]*clause{}
+	for _, a := range unreached {
+		if a.Cause == "" {
+			clauses = append(clauses, &clause{agents: []ProfileReach{a}})
+			continue
+		}
+		c := byCause[a.Cause]
+		if c == nil {
+			c = &clause{cause: a.Cause}
+			byCause[a.Cause] = c
+			clauses = append(clauses, c)
+		}
+		c.agents = append(c.agents, a)
+	}
+	// text is one clause's reason and next step: the agent's own words for one agent, and for
+	// agents sharing a cause the cause once, then ONE next step for them all.
+	text := func(c *clause) string {
+		if len(c.agents) == 1 {
+			return c.agents[0].Unreached
+		}
+		names := make([]string, len(c.agents))
+		pairs := make([]string, len(c.agents))
+		for i, a := range c.agents {
+			names[i] = a.Agent
+			pairs[i] = "-p " + a.Agent + "="
+		}
+		none := "add `" + strings.Join(pairs, " ") + "`"
+		if d.deselectAll != nil {
+			none = d.deselectAll(names, d.Name)
+		}
+		return causeForGroup(c.cause) + ". Select a profile whose provider they reach (`-p <program>=<name>`), or none for them: " + none
+	}
+	switch {
+	case len(unreached) == 0:
+	case len(unreached) == 1:
 		out = append(out, unreachedLine(d.Name, unreached[0].Agent, unreached[0].Unreached))
 	default:
 		names := make([]string, len(unreached))
-		whys := make([]string, len(unreached))
 		for i, a := range unreached {
 			names[i] = a.Agent
-			whys[i] = fmt.Sprintf("For %s: %s.", a.Agent, a.Unreached)
 		}
 		list := strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+		if len(clauses) == 1 {
+			out = append(out, fmt.Sprintf("Warning: profile %q reaches nothing for %s: %s", d.Name, list, text(clauses[0])))
+			break
+		}
+		whys := make([]string, len(clauses))
+		for i, c := range clauses {
+			who := make([]string, len(c.agents))
+			for k, a := range c.agents {
+				who[k] = a.Agent
+			}
+			whys[i] = fmt.Sprintf("For %s: %s.", strings.Join(who, ", "), text(c))
+		}
 		out = append(out, fmt.Sprintf("Warning: profile %q reaches nothing for %s. %s",
 			d.Name, list, strings.Join(whys, " ")))
 	}
@@ -193,7 +263,7 @@ func ProfileDisclosures(in ProfileDisclosureInput) []ProfileDisclosure {
 	sort.Strings(names)
 	out := make([]ProfileDisclosure, 0, len(names))
 	for _, name := range names {
-		d := ProfileDisclosure{Name: name}
+		d := ProfileDisclosure{Name: name, deselectAll: in.DeselectAll}
 		for _, p := range in.Packs {
 			if p != nil && p.Decl != nil && (p.Decl.ProfileFor(name) != nil || declaresProviderNamed(p, name)) {
 				d.Declared = append(d.Declared, p.Name)
@@ -300,12 +370,12 @@ func profileReach(in ProfileDisclosureInput, agent, profile string) ProfileReach
 		if in.Deselect != nil {
 			none += ": " + in.Deselect(agent, profile)
 		}
-		r.Unreached = fmt.Sprintf("provider %q names no endpoint, only platform %q, and no "+
-			"selected pack gives %s a client of that platform (a pack binds a platform by shipping "+
+		r.Cause = fmt.Sprintf("provider %q names no endpoint, only platform %q, and no "+
+			"selected pack gives {who} a client of that platform (a pack binds a platform by shipping "+
 			"a provider of it, needing a pack that does, or declaring its program's switch or "+
-			"region for it), so nothing this profile configures reaches %s's own client. Select a "+
-			"profile whose provider %s reaches (`-p %s=<name>`), or %s", r.Provider, platform,
-			agent, agent, agent, agent, none)
+			"region for it), so nothing this profile configures reaches {whose} own client", r.Provider, platform)
+		r.Unreached = fmt.Sprintf("%s. Select a profile whose provider %s reaches (`-p %s=<name>`), or %s",
+			causeFor(r.Cause, agent), agent, agent, none)
 	default:
 		r.Route = "on its own client, which the provider re-points nowhere (it names no endpoint)"
 	}
