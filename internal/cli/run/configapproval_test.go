@@ -619,11 +619,31 @@ func TestConfigApprovalDisplayTreatsMarkupAsLiteralValue(t *testing.T) {
 	if o.checkConfigChanges(nil, "podman") {
 		t.Fatal("changed config without a terminal must refuse")
 	}
-	if !strings.Contains(out.String(), `"literal \u005Bbold\u005D and \u005Bred\u005D text"`) {
+	if !strings.Contains(out.String(), `"literal [bold] and [red] text"`) {
 		t.Fatalf("rich-text markup in a value was not rendered as an ASCII-safe literal:\n%s", out.String())
 	}
 	if strings.ContainsRune(out.String(), '\u2060') {
 		t.Fatal("rich-text escaping added non-ASCII to the approval presentation")
+	}
+}
+
+func TestConfigApprovalDisplayShowsBracketsLiterallyInKeysAndValues(t *testing.T) {
+	ws := t.TempDir()
+	o, out := approvalOptions(t, ws, false)
+	approveWorkspaceConfigThroughGate(t, o, ws, `{"agents_md_extra":"old"}`, out)
+	const key = `github:pantsbuild/scie-pants[rename_exe=pants]`
+	writeWorkspaceConfig(t, ws, `{"agents_md_extra":"x [bold]x[/bold] y","mise_tools":{"`+key+`":"latest"}}`)
+	if o.checkConfigChanges(nil, "podman") {
+		t.Fatal("changed config without a terminal must refuse")
+	}
+	output := out.String()
+	for _, want := range []string{`"` + key + `"`, `"x [bold]x[/bold] y"`} {
+		if !strings.Contains(output, want) {
+			t.Errorf("display missing literal %q:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, `\u005`) || strings.ContainsRune(output, '\u2060') {
+		t.Errorf("display still escapes brackets:\n%s", output)
 	}
 }
 

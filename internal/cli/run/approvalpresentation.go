@@ -11,7 +11,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
-	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
 )
 
@@ -479,10 +478,6 @@ func tomlBasicString(value string) string {
 			b.WriteString(`\f`)
 		case '\r':
 			b.WriteString(`\r`)
-		case '[':
-			b.WriteString(`\u005B`)
-		case ']':
-			b.WriteString(`\u005D`)
 		default:
 			if r < 0x20 || r == 0x7f || r >= 0x80 && r <= 0xffff {
 				fmt.Fprintf(&b, `\u%04X`, r)
@@ -567,13 +562,13 @@ func printApprovalPresentation(out printer, changes *config.ApprovalChangeSet, c
 		for _, line := range approvalPresentationLines(changes, accepted, width) {
 			switch {
 			case strings.HasPrefix(line, "Interpreted"), strings.HasPrefix(line, "Exact"):
-				out.printf("[bold]%s[/bold]", richtext.Escape(line))
+				out.verbatim("[bold]", line, "[/bold]")
 			case strings.Contains(line, "] added "), strings.Contains(line, "] adds "), strings.Contains(line, "        added "):
-				out.printf("[green]%s[/green]", richtext.Escape(line))
+				out.verbatim("[green]", line, "[/green]")
 			case strings.Contains(line, "] removed "), strings.Contains(line, "] removes "), strings.Contains(line, "        removed "):
-				out.printf("[red]%s[/red]", richtext.Escape(line))
+				out.verbatim("[red]", line, "[/red]")
 			default:
-				out.print(richtext.Escape(line))
+				out.verbatim("", line, "")
 			}
 		}
 	}
