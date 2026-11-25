@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 func TestHTTPClassifierAcceptsThreeLookupRoundsButNotFour(t *testing.T) {
@@ -145,7 +146,7 @@ func TestHTTPClassifierBodyBudgetsAndCanonicalDigest(t *testing.T) {
 	bodySHA := digestHTTPBody(true, body)
 	inputFile := filepath.Join(canonicalTempDir(t), "classifier-input")
 	answer := fixtureHTTPAnswer(true, bodySHA, "", "original")
-	script := "test -z \"$HTTP_CLASSIFIER_MUST_NOT_INHERIT\" || exit 15\n" + scriptAnswer(t, answer, inputFile) + "\ntest \"$(wc -c < " + inputFile + ")\" -gt 4194304"
+	script := "test -z \"$HTTP_CLASSIFIER_MUST_NOT_INHERIT\" || exit 15\n" + scriptAnswer(t, answer, inputFile) + "\ntest \"$(wc -c < " + shquote.Quote(inputFile) + ")\" -gt 4194304"
 	classifier := fixtureHTTPClassifier(t, script)
 	t.Setenv("HTTP_CLASSIFIER_MUST_NOT_INHERIT", "credential-value")
 	result, err := classifier.ClassifyHTTP(context.Background(), fixtureHTTPCall(body, true), []string{"Content-Type", "content-type"})
