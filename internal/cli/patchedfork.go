@@ -301,30 +301,47 @@ func checkPatchedFork(pr richtext.Printer, errw io.Writer, store *packsrc.Store,
 		boundSnapshot = *retrySnapshot
 	}
 	var reportedFailure *packsrc.PatchFailure
-	walk, recorded, _ := recordExplicitWalk(store, f, series, res.Inputs, list,
-		patchedYoloVersion(), spent, boundSnapshot, func(failure *packsrc.PatchFailure) {
-			reportedFailure = failure
-			writePatchFailure(errw, failure, f, explicitPatchBypass(f, series, rec), "")
-		}, func(err error) {
-			if err != nil {
-				fmt.Fprintf(errw, "yolo pack: %s: its clean replay was recorded, but the matching detached failure evidence could not be resolved (%v) — the next launch checks it again\n",
-					f.Label(), err)
-			}
-		})
-	if errors.Is(recorded.Err, packsrc.ErrStaleReplay) {
+	var walk packsrc.WalkResult
+	var recorded packsrc.RecordReplayResult
+	for reread := 0; ; reread++ {
+		reportedFailure = nil
+		walk, recorded, _ = recordExplicitWalk(store, f, series, res.Inputs, list,
+			patchedYoloVersion(), spent, boundSnapshot, func(failure *packsrc.PatchFailure) {
+				reportedFailure = failure
+				writePatchFailure(errw, failure, f, explicitPatchBypass(f, series, rec), "")
+			}, func(err error) {
+				if err != nil {
+					fmt.Fprintf(errw, "yolo pack: %s: its clean replay was recorded, but the matching detached failure evidence could not be resolved (%v) — the next launch checks it again\n",
+						f.Label(), err)
+				}
+			})
+		if !errors.Is(recorded.Err, packsrc.ErrStaleReplay) {
+			break
+		}
 		fresh, readErr := store.LoadCheckRecord(f.Key())
 		if readErr != nil {
 			fmt.Fprintf(errw, "yolo pack: %s: replay authority changed and the current check record could not be read: %v\n",
 				f.Label(), readErr)
 			return 1
 		}
-		fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
 		if current := fresh.CurrentPatchFailure(res.Inputs, series.Digest); current != nil {
+			fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
 			return reportExplicitPatchFailure(pr, errw, f, series, fresh, current, rc,
 				reportedFailure != nil && reflect.DeepEqual(reportedFailure, current))
 		}
-		fmt.Fprintf(errw, "yolo pack: %s: replay authority changed during its forced check; run `yolo pack update` again\n", f.Label())
-		return 1
+		next, ok := explicitRereadSnapshot(fresh, res.Inputs, series, list, atBase)
+		if reportedFailure != nil || !ok || reread >= maxReplayRereads {
+			// A failure this attempt already disclosed is not said twice, and a check that no longer
+			// lists what was replayed is not this act's to rebind: stop and name the next step.
+			fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
+			fmt.Fprintf(errw, "yolo pack: %s: replay authority changed during its forced check; run `yolo pack update` again\n", f.Label())
+			return 1
+		}
+		// ANOTHER YOLO PROCESS RECHECKED THIS FORK between this act's read and its record (several
+		// launches at once): nothing this walk produced is trusted. Rebind to the reread check, which
+		// still lists every replayed entry under the same series, and replay again; nothing has been
+		// printed yet, so the report below is said once.
+		rec, boundSnapshot = fresh, next
 	}
 	if recorded.Err != nil {
 		fmt.Fprintf(errw, "yolo pack: %s: recording the replay: %v\n", f.Label(), recorded.Err)
@@ -404,6 +421,9 @@ func recordExplicitWalk(store *packsrc.Store, f packload.Fork, series *packsrc.S
 		if beforeRecord != nil {
 			beforeRecord(failure)
 		}
+	}
+	if replayRecordHook != nil {
+		replayRecordHook()
 	}
 	recorded := store.RecordReplay(snapshot, yolo, walk, patchedNow())
 	if recorded.Recorded && recorded.Err == nil {
@@ -853,4 +873,28 @@ func followLabel(follow string) string {
 		return packsrc.DefaultFollow + " (the default)"
 	}
 	return follow
+}
+
+// explicitRereadSnapshot binds `yolo pack update`'s replay again to fresh, the check record another
+// process wrote while it ran. ok is false unless fresh still holds a finished, problem-free check
+// that lists every entry the act replayed (or, at the base, still builds nothing yet and names the
+// base on its branch) under the act's own inputs and series.
+func explicitRereadSnapshot(fresh *packsrc.CheckRecord, inputs packsrc.CheckInputs, series *packsrc.Series,
+	list []packsrc.ListEntry, atBase bool) (packsrc.ReplaySnapshot, bool) {
+	if fresh == nil || fresh.Check == nil || fresh.Read != inputs || fresh.Check.Problem != "" {
+		return packsrc.ReplaySnapshot{}, false
+	}
+	if atBase {
+		if fresh.Good != nil || !fresh.Check.BaseOnBranch {
+			return packsrc.ReplaySnapshot{}, false
+		}
+	} else {
+		for _, e := range list {
+			if !onList(fresh.Check.List, e.Commit) {
+				return packsrc.ReplaySnapshot{}, false
+			}
+		}
+	}
+	snapshot, err := fresh.ReplaySnapshot(inputs, series.Digest)
+	return snapshot, err == nil
 }

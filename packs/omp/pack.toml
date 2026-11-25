@@ -8,6 +8,11 @@ name = "omp"
 # bun:sqlite 3.53.0), its user files and its state directories.
 session_homes = [{ dir = ".oh-omp/agent", env = "PI_CODING_AGENT_DIR", shared = ["agent.db", "history.db", "models.db", "tool-results.db", "concept-graph.db", "mcp.json", "ssh.json", "secrets.yml", "workspace-trust.yml", "smithery.json", "kimi-device-id", "keybindings.json", "omp-crash.log", "oh-omp-debug.log", "sessions/", "blobs/", "search-db/", "memories/", "terminal-sessions/", "tools/", "prompts/", "modules/", "themes/", "commands/", "cache/", "agents/", "pycache/", "python-gateway/", "webcache/", "tasks.lance/"] }]
 
+# WHAT EACH SETUP KEEPS IN ITS OWN HOME (docs/design/unified-workspace-home.md §6.3, UH-D7): omp's
+# SQLite stores, until a measurement shows two kernels (a container's and a macOS process's) can
+# share one database's locks. They are the `*.db` names the session_homes list above shares.
+per_setup_state = [{ dir = ".oh-omp", paths = ["agent/agent.db", "agent/history.db", "agent/models.db", "agent/tool-results.db", "agent/concept-graph.db"] }]
+
 [[program]]
 bin = "oh-omp"
 # omp's own providers, read from the oh-omp 0.15.3 linux-x64 binary's strings on 2026-10-05,

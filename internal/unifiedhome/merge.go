@@ -29,6 +29,9 @@ type Options struct {
 	Rename func(oldDir int, old string, newDir int, new string) error
 	// OwnerUID, when set, leaves a source state directory that another user owns.
 	OwnerUID *uint32
+	// Symlink makes the link Compose lays: target, the directory descriptor, the name. Nil means
+	// symlinkat(2). A test injects the failure of a slice that cannot hold links.
+	Symlink func(target string, dirFd int, name string) error
 }
 
 // LeftEntry is something a merge did not move.
@@ -123,11 +126,24 @@ func (m *merger) fail(p string, err error) {
 }
 
 // level merges the directory sfd names into the one dfd names; rel is the source path for reports.
-func (m *merger) level(sfd, dfd int, rel string) {
+func (m *merger) level(sfd, dfd int, rel string) { m.levelOnly(sfd, dfd, rel, nil) }
+
+// levelOnly is level restricted to the source children in only (all of them when nil). Only the
+// top level is restricted: a directory taken is merged whole.
+func (m *merger) levelOnly(sfd, dfd int, rel string, only map[string]bool) {
 	srcE, err := list(sfd)
 	if err != nil {
 		m.fail(rel, err)
 		return
+	}
+	if only != nil {
+		kept := srcE[:0]
+		for _, e := range srcE {
+			if only[e.Name] {
+				kept = append(kept, e)
+			}
+		}
+		srcE = kept
 	}
 	dstE, err := list(dfd)
 	if err != nil {

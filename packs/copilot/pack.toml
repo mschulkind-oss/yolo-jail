@@ -8,6 +8,11 @@ name = "copilot"
 # nothing and runs nothing; a user may also select it without copilot, beside pi.
 needs = [{ pack = "copilot-auth" }]
 
+# WHAT EACH SETUP KEEPS IN ITS OWN HOME (docs/design/unified-workspace-home.md §6.3, UH-D7): the
+# session store database and its write-ahead files, until a measurement shows two kernels (a
+# container's and a macOS process's) can share one SQLite database's locks.
+per_setup_state = [{ dir = ".copilot", paths = ["session-store.db", "session-store.db-wal", "session-store.db-shm"] }]
+
 # ON macos-user COPILOT GETS THE HOST'S OWN LOGIN THROUGH COPILOT_GITHUB_TOKEN
 # (docs/design/keychain-from-a-jail.md OQ-KC5): darwin Copilot calls Security.framework on the
 # sandbox account's keychain, which does not exist, so the launch's host side reads this item
