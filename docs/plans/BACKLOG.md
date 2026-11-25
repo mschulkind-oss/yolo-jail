@@ -771,29 +771,6 @@ again. It failed once on `/var/lib/containers/storage/overlay` while integration
 jail were adding and removing podman mounts (`internal/entrypoint/fsx_test.go`). A fixture mount
 table instead of the live one would remove the race. Found 2026-10-18.
 
-### <a id="excl-create-enoent-darwin"></a>🔧 **Does the macOS APFS create race reach an `O_EXCL` create?**
-
-macOS 26.5 APFS returns ENOENT to one of two concurrent `openat(dirfd, name, O_CREAT)` of a new name, with the
-directory intact and the file already made by the other opener (measured 2026-11-24, 1968 to 1999 of 2,000 pairs).
-The plain creating opens are retried while the directory is still the one at its name
-(`internal/paths/statefile_open_unix.go`, `paths.OpenRootCreate`, `internal/toolskills/snapshot.go`), which fixed
-`TestOutcomeTwoBrokersAdoptOneSingleUseToken` on the Mac. Fixed-name `O_EXCL` claims made through a directory
-descriptor (the MCP teardown and retire claims, `wsstatebeneath`, `storage/ensure.go`, `stateguard/rescue.go`) are
-not retried, because a retry would turn the ENOENT into EEXIST and read as losing the claim. Next step, on a Mac:
-run the same two-goroutine probe with `O_EXCL` and see whether one opener gets ENOENT.
-
-### <a id="mac-local-check-ci-failures"></a>🔧 **`just check-ci` on a contributor's Mac fails tests that pass on macOS CI**
-
-PR #79's author ran `just check-ci` on Apple silicon, macOS 26.7.2, at main `9d002cafd`, with no `yolo` on PATH.
-These failed there and fail the same way on unmodified main, but do not fail `check-macos` in CI:
-`scripts/test_matched_bundle.py` (one error, which stops `lint-ci`) and `TestEveryKeyAdviceNamesForUnsetIsRemovable`
-(`internal/cli`). Seven more `internal/callbroker` tests and one each in `internal/mcpauth`, `internal/gitremote` and
-`internal/hostprocesses` failed only in the full run and passed alone; the PR does not name them. The TMPDIR leak gate
-also reported podman's `storage-run-501/libpod`. (Its `TestPlacedResourceGroupIsRecordedForTheLaunch` and
-`TestClassifierNegotiation…` failures are fixed, in `765b1e6e9` and `abc9bfc0f`.) Next step, on the owner's Mac at
-main `765b1e6e9` or later: run `just check-ci` with no `yolo` on PATH, and for each failure paste its output and say
-whether it fails alone; for the leak, whether podman on PATH is what creates `storage-run-501`.
-
 ### <a id="approvalnotify-decision-flake"></a>🔧 **`TestDecisionInterruptsAnInFlightCLIRatherThanKillingIt` fails once under load**
 
 It failed once in the full `just test-fast` on a Mac (`status=-1 out=""`: the CLI was killed after
