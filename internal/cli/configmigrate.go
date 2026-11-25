@@ -173,7 +173,7 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 			return 1
 		}
 	}
-	result, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})
+	result, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{Command: "yolo config migrate"})
 	if err != nil {
 		fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
 		return 1
@@ -316,7 +316,7 @@ func configMigrateLayers(base configmigrate.Request, workspace string, layers []
 	}
 	var next []string
 	for i, plan := range plans {
-		result, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})
+		result, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{Command: "yolo config migrate"})
 		if err != nil {
 			fmt.Fprintf(errw, "yolo config migrate: %v\n", err)
 			if i > 0 {

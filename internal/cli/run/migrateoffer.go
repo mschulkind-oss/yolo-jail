@@ -128,7 +128,10 @@ func (o *Options) offerConfigMigration() bool {
 	// A linked file is never written through: the link moves aside, a regular file takes its
 	// place, and the file it points at is not changed, so a dotfiles manager needs the new file
 	// copied in by hand (RC-D41).
-	if w := configmigrate.LinkWarning(graph.Linked()); w != "" {
+	// Read before Plan, which marks the user config for a ceiling rewrite and so changes what
+	// Linked answers: the links said here are the ones the discovery knew.
+	saidLinked := graph.Linked()
+	if w := configmigrate.LinkWarning(saidLinked); w != "" {
 		pr.print(richtext.Escape(w))
 		pr.print("")
 	}
@@ -142,6 +145,29 @@ func (o *Options) offerConfigMigration() bool {
 		}
 		pr.print(richtext.Escape(configmigrate.RenamesClosing(plan.Renames)))
 		pr.print("")
+	}
+	// Every other file the plan rewrites in place, a TOML file already, is named with the reason
+	// and what happens to it, link or not: a yes must cover every file it moves. The one thing the
+	// list above cannot show is a file only the plan knows it rewrites (a ceiling line, a renamed
+	// pack), which is why this reads the plan's targets, not the graph.
+	if planErr == nil {
+		linked := map[string]bool{}
+		for _, l := range saidLinked {
+			linked[l.Link] = true
+		}
+		for _, t := range plan.Targets {
+			why := t.Why()
+			if why == "" {
+				continue
+			}
+			pr.printf("Converting also rewrites [cyan]%s[/cyan] in place: %s. The original is kept as [cyan]%s[/cyan].",
+				richtext.Escape(t.New), richtext.Escape(why), richtext.Escape(t.Backup))
+			if t.LinkText != "" && !linked[t.Old] {
+				pr.print(richtext.Escape(fmt.Sprintf("%s is a link to %s. The rewritten file is a regular file at %s, the link is kept as %s, and %s is not changed; "+
+					"if a dotfiles manager keeps it, copy the new file into it yourself.", t.Old, t.File.Physical, t.New, t.Backup, t.File.Physical)))
+			}
+			pr.print("")
+		}
 	}
 	// A TOML user config the conversion writes ceiling lines into (LG-D16) is named, with the
 	// lines, before the question: it is the one file outside the ones listed above it changes, and
@@ -178,7 +204,7 @@ func (o *Options) offerConfigMigration() bool {
 			ceiling = nil
 		}
 	}
-	res, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{})
+	res, err := configmigrate.Apply(plan, configmigrate.ApplyOptions{Command: "launch offer"})
 	if err != nil {
 		fmt.Fprintf(o.Stderr, "%v\n", err)
 		var partWay *configmigrate.PartWayError

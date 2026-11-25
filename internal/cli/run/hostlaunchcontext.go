@@ -83,7 +83,7 @@ func (l *HostLaunchLog) RecordContext(c HostLaunchContext) {
 	if snap, err := config.SnapshotJSON(c.Config); err == nil {
 		store := dirStateStore{dir: HostLaunchStateDir(),
 			prefix: paths.JailShortHash(runtime.FromWorkspace(c.Workspace)) + "-"}
-		for _, line := range configChangeRecords(store, snap, c.Packs, []string{paths.UserConfigPath()}, time.Now()) {
+		for _, line := range configChangeRecords(store, snap, c.Packs, []string{userConfigRecordFile()}, time.Now()) {
 			l.record(line)
 		}
 	}

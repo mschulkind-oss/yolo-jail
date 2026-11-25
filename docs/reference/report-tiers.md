@@ -594,7 +594,7 @@ order (`launchcontext.go`):
   invocation: yolo -p bedrock -- claude --resume
   jail: yolo-002-43017c6e  runtime=podman  notch=jail
   profile: claude=bedrock (-p bedrock), pi=bedrock (-p bedrock)
-  config files: ~/.config/yolo-jail/config.jsonc (modified 2026-10-11T12:30:01-0400, sha256 378115d2c078) CHANGED, was (modified 2026-10-11T12:16:40-0400, sha256 2c1add6aa0ba); <workspace>/yolo-jail.jsonc (absent)
+  config files: ~/.config/yolo-jail/config.toml (regular file, modified 2026-10-11T12:30:01-0400, sha256 378115d2c078) CHANGED, was (symlink to ../../dotfiles/yolo/config.toml, modified 2026-10-11T12:16:40-0400, sha256 378115d2c078); <workspace>/yolo-jail.jsonc (absent)
   config: effective config changed since the previous launch (2026-10-11T12:16:02-0400):
     --- previous launch (2026-10-11T12:16:02-0400)
     +++ this launch
@@ -621,7 +621,7 @@ order (`launchcontext.go`):
 - **`config:`** and **`packs:`** — a unified diff of the effective config in `yolo config dump`'s
   canonical form against the previous launch's, a key's value redacted where its name says it may
   be a credential and the diff cut at 200 lines; the packs added, removed or changed by origin and
-  content digest; and each config file's modification time and digest. The first launch says `no
+  content digest; and each config file's kind, modification time and digest. The user config watched is the file the loader reads (`config.toml`, else a legacy name), and a symlink is recorded with its link text (read, never followed for meaning), so a link that became a regular file reads CHANGED even when its bytes are the same. The first launch says `no
   previous launch recorded`. The comparison's inputs are `<workspace>/.yolo/last-launch-config.json`
   (the snapshot, so `diff` against `yolo config dump` works by hand) and `last-launch.json`, which
   every launch that reaches the record rewrites, an attach included.

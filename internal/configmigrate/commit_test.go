@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -49,6 +50,9 @@ func normalized(t *testing.T, home, ws string) map[string]string {
 	for root, state := range map[string]map[string]string{"home": treeState(t, home), "ws": treeState(t, ws)} {
 		for k, v := range state {
 			v = strings.ReplaceAll(strings.ReplaceAll(v, home, "<home>"), ws, "<ws>")
+			if strings.HasSuffix(k, ConfigChangesLogName) { // each line starts with its time
+				v = regexp.MustCompile(`(?m)^\S+ `).ReplaceAllString(v, "<time> ")
+			}
 			out[root+"/"+k] = v
 		}
 	}

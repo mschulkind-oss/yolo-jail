@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"golang.org/x/sys/unix"
@@ -18,6 +19,9 @@ type ApplyOptions struct {
 	// StopAfter is a test seam for a kill: it runs after each commit step, numbered from 0, and
 	// true stops the migration there exactly as a kill would, journal and all.
 	StopAfter func(step int, name string) bool
+	// Command names who ran the migration in the config-changes log: "yolo config migrate" for
+	// the verb, "launch offer" for the launch's offer. Empty reads as the verb.
+	Command string
 }
 
 // ErrInterrupted is Apply stopped part way by its test seam: the files are as a kill there would
@@ -139,6 +143,7 @@ func Apply(p *MigrationPlan, opts ApplyOptions) (*ApplyResult, error) {
 	if err := j.finish(journal, res); err != nil {
 		return res, err
 	}
+	recordChanges(opts.Command, res, time.Now())
 	return res, nil
 }
 

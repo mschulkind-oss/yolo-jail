@@ -600,6 +600,7 @@ func (o *Options) sectionConfigFilesWithStrictness(r *reporter, workspace string
 		failed = true
 	} else if o.PathExists(userPath) {
 		r.okPath("Parsed user config: ", userPath, "")
+		o.reportDetachedConfig(r, userPath)
 	} else {
 		r.okPath("No user config found: ", userPath, "")
 	}

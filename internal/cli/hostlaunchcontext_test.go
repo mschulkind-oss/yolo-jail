@@ -46,7 +46,7 @@ func TestAHostLaunchRecordsItsInvocationAndWhatChanged(t *testing.T) {
 		id + "   invocation: yolo host -- mytool <1 argument>\n",
 		id + "   profile: ",
 		id + "   config: no previous launch recorded\n",
-		id + "   config files: " + filepath.Join(home, ".config", "yolo-jail", "config.jsonc") + " (modified ",
+		id + "   config files: " + filepath.Join(home, ".config", "yolo-jail", "config.jsonc") + " (regular file, modified ",
 		id + "   packs: ",
 		id + "   captured edits: none",
 	} {
