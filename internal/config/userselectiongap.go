@@ -16,7 +16,8 @@ func UserScopeSelectionGap() string {
 	}
 	resolved := SelectedPackDeclarationsDetailed(entries, UserScopeSelection(), nil, packload.EmbeddedFS())
 	embeddedNames := packload.EmbeddedNames()
-	for _, u := range resolved.Unresolved {
+	if len(resolved.Unresolved) > 0 {
+		u := resolved.Unresolved[0]
 		reason := "its declaration does not read: " + oneLineErr(u.Err)
 		next := "check it with `yolo pack ls`, or drop it with `yolo pack remove " + u.Entry.Name + "`"
 		if missing, source := vanishedLocalPack(u.Entry, embeddedNames); missing {

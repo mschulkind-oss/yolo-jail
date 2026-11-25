@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"path/filepath"
 	"strings"
@@ -659,7 +660,11 @@ func TestRejectedConnectionNeverReachesADaemon(t *testing.T) {
 // swallowed, warned about once, and disabled, with every byte of the crossing
 // delivered and the NEXT crossing still working.
 func TestSinkPanicCannotBreakTheDataPath(t *testing.T) {
-	logs := captureLogger(t)
+	logs := &syncBuf{}
+	warned := make(chan struct{})
+	prevLogger := Logger
+	Logger = log.New(&notifyWriter{w: logs, needle: "crossing audit", hit: warned}, "", 0)
+	t.Cleanup(func() { Logger = prevLogger })
 	prev := CrossingSink()
 	t.Cleanup(func() { SetCrossingSink(prev) })
 	SetCrossingSink(func(Crossing) { panic("sink exploded") })
@@ -683,9 +688,13 @@ func TestSinkPanicCannotBreakTheDataPath(t *testing.T) {
 		_ = conn.Close()
 	}
 
-	// One warning, and the sink is off afterwards.
-	if !strings.Contains(logs.String(), "crossing audit") {
-		t.Errorf("no warning logged for the panicking sink; logs:\n%s", logs.String())
+	// A crossing is recorded when the server side of the connection finishes, which
+	// can be after the client has read its reply, so wait for the warning itself
+	// (written before the sink is uninstalled) rather than checking at once.
+	select {
+	case <-warned:
+	case <-time.After(time.Minute):
+		t.Fatalf("no warning logged for the panicking sink; logs:\n%s", logs.String())
 	}
 	if CrossingSink() != nil {
 		t.Error("a sink that panicked is still installed; it must be disabled after one warning")
@@ -832,4 +841,20 @@ func TestAnUnscopedRecorderKeepsNothing(t *testing.T) {
 		t.Fatalf("an unscoped recorder kept %d crossings (%+v), want none — scoping "+
 			"must be what OPENS the recorder, not what narrows an open one", len(got), got)
 	}
+}
+
+// notifyWriter passes writes to w and closes hit the first time a write contains needle.
+type notifyWriter struct {
+	w      io.Writer
+	needle string
+	hit    chan struct{}
+	once   sync.Once
+}
+
+func (n *notifyWriter) Write(p []byte) (int, error) {
+	written, err := n.w.Write(p)
+	if strings.Contains(string(p), n.needle) {
+		n.once.Do(func() { close(n.hit) })
+	}
+	return written, err
 }
