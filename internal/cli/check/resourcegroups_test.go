@@ -97,7 +97,7 @@ func TestCheckResourceGroupsInJailDoesNotProbeHostPolicy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(assigned, "io.max"), []byte("8:0 rbps=101 wbps=20\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mount)
+	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", strings.NewReplacer(`\`, `\134`, " ", `\040`).Replace(mount))
 	managerCalls, mountInfoCalls := 0, 0
 	opts.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 0 && argv[0] == "systemctl" {
@@ -203,7 +203,7 @@ func TestCheckResourceGroupsFiniteAssignedPlan(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(assigned, "io.max"), []byte("8:0 rbps=101 wbps=20 riops=max wiops=1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mount)
+	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", strings.NewReplacer(`\`, `\134`, " ", `\040`).Replace(mount))
 	var queried []string
 	opts.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
 		if len(argv) > 0 && argv[0] == "systemctl" {

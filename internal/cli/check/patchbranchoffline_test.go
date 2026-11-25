@@ -15,6 +15,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 func TestCheckSaysWhenAPatchBranchsRefWasNeverResolved(t *testing.T) {
@@ -38,7 +39,7 @@ func TestCheckSaysWhenAPatchBranchsRefWasNeverResolved(t *testing.T) {
 	}
 
 	report, r := run()
-	want := "extension acme/pi-subagents: ref not resolved (offline) — `yolo pack lint --online " + dir + "` checks it"
+	want := "extension acme/pi-subagents: ref not resolved (offline) — `yolo pack lint --online " + shquote.Quote(dir) + "` checks it"
 	if r.failed != 0 || !strings.Contains(report, want) {
 		t.Fatalf("check of a never-resolved patch branch: failed=%d, want %q\n%s", r.failed, want, report)
 	}

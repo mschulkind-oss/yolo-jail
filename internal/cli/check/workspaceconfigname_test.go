@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The parse line names the `.json` files a workspace keeps its config in, as it names the
@@ -133,7 +134,7 @@ func TestCheckFailsOnADanglingConfigLink(t *testing.T) {
 	if want := "[FAIL] " + link + " is a symbolic link to swarf/.links/yolo-jail.jsonc, which does not exist\n"; !strings.Contains(got, want) {
 		t.Errorf("check does not FAIL with the launch's sentence (want %q):\n%s", want, got)
 	}
-	if want := "Restore the target (if a dotfiles manager keeps this file, sync it on this machine), or remove the link: rm " + link + "; " + recheck; !strings.Contains(got, want) {
+	if want := "Restore the target (if a dotfiles manager keeps this file, sync it on this machine), or remove the link: rm " + shquote.Quote(link) + "; " + recheck; !strings.Contains(got, want) {
 		t.Errorf("check's note does not name both ways out (want %q):\n%s", want, got)
 	}
 	if strings.Contains(got, "Parsed workspace config") {

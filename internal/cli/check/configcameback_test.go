@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The owner's report of 2026-11-06: a JSONC link that came back after `yolo config migrate`.
@@ -46,7 +47,7 @@ func TestCheckSaysAJSONCCameBackAfterMigration(t *testing.T) {
 	if want := "[FAIL] " + link + " came back after you migrated to yolo-jail.toml"; !strings.Contains(got, want) {
 		t.Errorf("check does not FAIL with the launch's sentence (want %q):\n%s", want, got)
 	}
-	if want := "\n" + noteContPrefix + "    rm " + link + "\n"; !strings.Contains(got, want) {
+	if want := "\n" + noteContPrefix + "    rm " + shquote.Quote(link) + "\n"; !strings.Contains(got, want) {
 		t.Errorf("check's note does not give the removal on its own line (want %q):\n%s", want, got)
 	}
 	if want := "\n" + noteContPrefix + recheck + "\n"; !strings.Contains(got, want) {
