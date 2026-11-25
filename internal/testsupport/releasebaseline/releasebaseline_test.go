@@ -168,3 +168,15 @@ func write(t *testing.T, root, name, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestCompareOrdersReleaseTags(t *testing.T) {
+	if c, ok := Compare("v0.19.0", "v0.20.0"); !ok || c != -1 {
+		t.Fatalf("Compare(v0.19.0, v0.20.0) = %d, %v", c, ok)
+	}
+	if c, ok := Compare("v0.20.0", "v0.20.0"); !ok || c != 0 {
+		t.Fatalf("equal tags = %d, %v", c, ok)
+	}
+	if _, ok := Compare("v0.20.0", "nightly"); ok {
+		t.Fatal("an invalid tag must report !ok")
+	}
+}
