@@ -184,7 +184,7 @@ func TestPerJailStartupReasonEarlyExitRetainsQueuedRefusal(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
 	}
-	_, handles, refusal, output := runPerJailReasonFixture(t, "exit", 2*time.Second, false, 0)
+	_, handles, refusal, output := runPerJailReasonFixture(t, "exit", readyFixtureBudget(t), false, 0)
 	if len(handles) != 0 || refusal == nil ||
 		refusal.reason != "fixture settings were refused" ||
 		refusal.remedy != "correct the user settings and retry" {
@@ -200,7 +200,7 @@ func TestPerJailNonConfigurationRefusalIsPrintedBeforeTheDerivedSymptom(t *testi
 		t.Skip("spawns a host process")
 	}
 	t.Setenv(perJailReasonChildClassEnv, "dependency")
-	_, handles, refusal, output := runPerJailReasonFixture(t, "exit", 2*time.Second, false, 0)
+	_, handles, refusal, output := runPerJailReasonFixture(t, "exit", readyFixtureBudget(t), false, 0)
 	if len(handles) != 0 || refusal != nil {
 		t.Fatalf("a dependency refusal changed severity: handles=%d refusal=%+v", len(handles), refusal)
 	}

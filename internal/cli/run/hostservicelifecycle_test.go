@@ -502,7 +502,7 @@ func TestPerJailDaemonizingWrapperWithStartupReasonIsReady(t *testing.T) {
 	}
 	exited := filepath.Join(t.TempDir(), "wrapper-exited")
 	t.Setenv(perJailWrapperExitedEnv, exited)
-	o, handles, refusal, output := runPerJailReasonFixture(t, "daemonize", 3*time.Second, false, 0)
+	o, handles, refusal, output := runPerJailReasonFixture(t, "daemonize", readyFixtureBudget(t), false, 0)
 	if len(handles) != 1 || refusal != nil || len(o.startupOutcomes) != 1 {
 		t.Fatalf("daemonizing wrapper was not started: handles=%d refusal=%+v outcomes=%+v\n%s",
 			len(handles), refusal, o.startupOutcomes, output)

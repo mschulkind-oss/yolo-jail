@@ -15,6 +15,9 @@ func TestPerJailStartupOutcomeKeepsTheReapedExitStatus(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("spawns a host process")
 	}
+	// Every case ends on an event, never on the clock: the exit cases when the child exits, the
+	// reason case when its accepted record ends the wait. The budget is only a failure guard.
+	budget := readyFixtureBudget(t)
 	for _, tc := range []struct {
 		mode    string
 		timeout time.Duration
@@ -22,10 +25,10 @@ func TestPerJailStartupOutcomeKeepsTheReapedExitStatus(t *testing.T) {
 		known   bool
 		status  int
 	}{
-		{"exit", 2 * time.Second, hostservice.StartupProcessExited, true, 2},
-		{"exit0", 2 * time.Second, hostservice.StartupProcessExited, true, 0},
-		{"signal", 2 * time.Second, hostservice.StartupProcessExited, false, 0},
-		{"reason", 150 * time.Millisecond, hostservice.StartupProcessAlive, false, 0},
+		{"exit", budget, hostservice.StartupProcessExited, true, 2},
+		{"exit0", budget, hostservice.StartupProcessExited, true, 0},
+		{"signal", budget, hostservice.StartupProcessExited, false, 0},
+		{"reason", budget, hostservice.StartupProcessAlive, false, 0},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			o, handles, _, output := runPerJailReasonFixture(t, tc.mode, tc.timeout, false, 0)
