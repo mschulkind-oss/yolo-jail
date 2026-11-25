@@ -10,6 +10,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // guardFixture is a workspace with a .yolo (homes, a launch log, a durable dir), a fake real
@@ -51,7 +52,7 @@ func newGuardFixture(t *testing.T) *guardFixture {
 		t.Fatal(err)
 	}
 	for _, tool := range []string{"mv", "rm"} {
-		body := "#!/bin/sh\nprintf '%s\\n' \"" + tool + " $*\" > " + f.record + "\n"
+		body := "#!/bin/sh\nprintf '%s\\n' \"" + tool + " $*\" > " + shquote.Quote(f.record) + "\n"
 		if err := os.WriteFile(filepath.Join(bin, tool), []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
