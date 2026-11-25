@@ -890,7 +890,7 @@ func isGroupedKind(group string, value any) bool {
 		return true
 	}
 	switch group {
-	case "name", "description", "skills_tier", "selected_by_default", "supersedes", "needs", "mcp_remote_transports", "formerly", "model_list_check", "provider_keys", "provider_env", "launch_computed", "session_homes", "host_keychain_env":
+	case "name", "description", "skills_tier", "selected_by_default", "supersedes", "needs", "mcp_remote_transports", "formerly", "model_list_check", "provider_keys", "provider_env", "launch_computed", "session_homes", "per_setup_state", "host_keychain_env":
 		return false
 	}
 	_, isArray := value.([]any)

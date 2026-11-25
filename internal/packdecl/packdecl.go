@@ -195,6 +195,12 @@ type Manifest struct {
 	// contribution. Read it through SessionHomes().
 	SessionHomeDecls []SessionHome `json:"session_homes,omitempty"`
 
+	// PerSetupStateDecls are the pack's carve-outs from the unified workspace home, spelled
+	// `per_setup_state` (persetupstate.go; docs/design/unified-workspace-home.md §6.3): the paths
+	// in a workspace state directory that each setup keeps in its own home. Top-level for the
+	// reason `session_homes` is. Read it through PerSetupState().
+	PerSetupStateDecls []PerSetupState `json:"per_setup_state,omitempty"`
+
 	// Contributes is the pack's effects: one list of typed contributions, each with
 	// an explicit `kind` from the closed set (see contributes.go / kinds.go). It
 	// each with an explicit kind from the closed core-owned set
@@ -1032,6 +1038,7 @@ func (m *Manifest) Validate() []string {
 	problems = append(problems, m.validateProviderKeys()...)
 	problems = append(problems, m.validateProviderEnv()...)
 	problems = append(problems, m.validateSessionHomes()...)
+	problems = append(problems, m.validatePerSetupState()...)
 	problems = append(problems, m.validateHostKeychainEnv()...)
 	return append(problems, m.validateMCP()...)
 }

@@ -44,6 +44,12 @@ mcp_header_form = "bare"
 # points at ~/.agents when that exists, which is stock behavior.
 session_homes = [{ dir = ".pi/agent", env = "PI_CODING_AGENT_DIR", shared = ["auth.json", "models-store.json", "mcp-auth.json", "trust.json", "run-history.jsonl", "sessions/", "bin/", "tools/", "npm/", "git/"], prefer = { "agents/" = "~/.agents" } }]
 
+# WHAT EACH SETUP KEEPS IN ITS OWN HOME (docs/design/unified-workspace-home.md §6.3): every other
+# child of ~/.pi is shared across the workspace's setups (sessions among them). These are installs
+# a setup builds for its own platform: a Linux and a macOS node_modules, a git checkout, a native
+# binary must never be one directory.
+per_setup_state = [{ dir = ".pi", paths = ["agent/npm", "agent/git", "agent/bin", "agent/tools"] }]
+
 # Where each install hint's name came from, one line per manager, checked 2026-10-02.
 #   brew: https://formulae.brew.sh/api/formula/pi-coding-agent.json (bin/pi in its formula source)
 #   dnf: https://packages.fedoraproject.org/pkgs/pi-coding-agent/pi-coding-agent/fedora-rawhide.html#files (/usr/bin/pi; only in Fedora 45, unreleased on 2026-10-02, and Rawhide, so dnf finds no such package on Fedora 43 or 44)

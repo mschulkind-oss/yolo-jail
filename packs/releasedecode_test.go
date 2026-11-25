@@ -175,6 +175,21 @@ const pinAttachLeavesAnOlderJailsTree = "TestAnAttachToAJailTheLastReleaseLaunch
 // provider declares api_key_env_name as a list where v0.10.0's packdecl declares a string, and pi
 // declares two hooks v0.10.0 does not know.
 var knownReleaseBreaks = []knownReleaseBreak{
+	// Measured against v0.20.0 on 2026-11-24: pi, copilot and omp declare the pack-wide
+	// `per_setup_state` carve-outs (docs/design/unified-workspace-home.md §6.3). The older
+	// grouped-kind TOML reader takes any array-valued root key for a contribution kind and skips
+	// it as unknown, so an old jail handed the tree shares and composes nothing, which is what it
+	// did before the key. An old jail keeps its staged tree on attach, and a fresh launch uses
+	// this tree's binaries.
+	{release: "v0.20.0", pack: "pi", problem: `unknown kind "per-setup-state"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("per_setup_state")},
+	{release: "v0.20.0", pack: "copilot", problem: `unknown kind "per-setup-state"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("per_setup_state")},
+	{release: "v0.20.0", pack: "omp", problem: `unknown kind "per-setup-state"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("per_setup_state")},
 	// Measured against v0.19.0 on 2026-11-24: every agent pack declares which repository
 	// instruction files its agent reads (docs/design/workspace-instruction-files.md, IF-D7), a
 	// kind v0.19.0 skips. Skipping it only leaves repo_instructions unrendered in an older jail,
