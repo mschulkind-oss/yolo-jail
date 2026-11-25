@@ -24,12 +24,14 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/brokerlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
@@ -48,6 +50,10 @@ var (
 	// missingFetchJoined is told when an evaluation joins a fetch already under way; tests wait on it.
 	missingFetchJoined = func(PackEntry) {}
 )
+
+// errFetchUnderBrokerLock is the "fetch" an evaluation gets when it runs while a broker store lock
+// is held: every other approval on the host waits on that lock, and a fetch can take minutes.
+var errFetchUnderBrokerLock = errors.New("not fetched now, because a broker store lock is held and a fetch must never run under it; the next check outside the lock fetches it")
 
 // missingFetchCall is one fetch under way, shared by every evaluation that wants the same pack.
 type missingFetchCall struct {
@@ -84,6 +90,14 @@ func fetchMissingPackNow(entry PackEntry) (attempted bool, err error) {
 	if log == nil {
 		missingFetchMu.Unlock()
 		return false, nil
+	}
+	// No fetch, and no wait on one under way, while ANY broker store lock is held (brokerlock is
+	// the one place every broker lock is taken): an evaluation inside a store transaction, such as
+	// the late-coverage recheck of a push, would otherwise stall every approval on the host for up
+	// to missingFetchGuard. The evaluations that run before a transaction opens do the fetching.
+	if brokerlock.Held() {
+		missingFetchMu.Unlock()
+		return true, errFetchUnderBrokerLock
 	}
 	key := entry.Name + "\x00" + entry.Source + "\x00" + paths.PacksDir()
 	if call, running := missingFetching[key]; running {
