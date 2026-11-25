@@ -33,6 +33,17 @@ func LatestBefore(repo, candidate string) (string, error) {
 	return selectTag(repo, candidate, true)
 }
 
+// Compare orders two release tags by version: -1, 0 or 1. ok is false when either is not a valid
+// vX.Y.Z[-prerelease] tag.
+func Compare(a, b string) (c int, ok bool) {
+	va, okA := parseVersion(a)
+	vb, okB := parseVersion(b)
+	if !okA || !okB {
+		return 0, false
+	}
+	return compare(va, vb), true
+}
+
 func selectTag(repo, candidate string, excludeCandidate bool) (string, error) {
 	var candidateCommit string
 	if excludeCandidate {

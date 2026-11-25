@@ -10,8 +10,8 @@ summary: "On the owner's Mac at main 898222bc6, `just check-ci` with no yolo on 
 **Checked 2026-11-24 and 2026-11-25 on the owner's Mac** (macOS 26.5, darwin/arm64, Go 1.26.7),
 at main `898222bc6`. Nothing in yolo was changed. This report answers the Mac next steps of two
 backlog items:
-[`mac-local-check-ci-failures`](../plans/BACKLOG.md#mac-local-check-ci-failures) and
-[`excl-create-enoent-darwin`](../plans/BACKLOG.md#excl-create-enoent-darwin).
+`mac-local-check-ci-failures` and `excl-create-enoent-darwin`, both since closed and deleted from
+the backlog (see Open).
 
 ## Observed
 
@@ -107,17 +107,19 @@ Nothing. This report only.
 
 ## Open
 
-1. **The release-decode test goes red in a clone whose newest tag lags the tree.** It fails
-   after a release is tagged, until each developer fetches tags. It is not macOS-specific. One
-   way to fix it: pick the release from the tags reachable from HEAD and also check against the
-   newest tag in the known-breaks table, or have the test say "fetch tags" instead of listing
-   breaks. *Decision needed:* whether this is a test defect to fix, or acceptable with a clearer
-   failure message.
-2. **`mac-local-check-ci-failures`:** on this Mac none of #79's failures reproduce, and podman
-   on PATH does not leak. *Decision needed:* whether the contributor's environment had something
-   this one lacks, or whether the backlog item can close.
-3. **`excl-create-enoent-darwin`:** `O_EXCL` creates are not affected. *Decision needed:*
-   whether to close the item, since the non-retried `O_EXCL` claims need no retry.
+Each item was decided by the orchestrator on 2026-11-25:
+
+1. **The release-decode test goes red in a clone whose newest tag lags the tree.** Fixed as a
+   test defect in commit `f38d3b41c`: a break listed under release R now applies to every
+   baseline up to and including R, a break under an older release never excuses a newer
+   baseline, and the failure message says to run `git fetch --tags` when the baseline is older
+   than a release the table names.
+2. **`mac-local-check-ci-failures`:** closed. None of #79's failures reproduced here at
+   `898222bc6` and podman on PATH did not leak, so the item had nothing left to track; its
+   backlog entry is deleted (git history is the archive) and this report is the evidence.
+3. **`excl-create-enoent-darwin`:** closed. `O_EXCL` creates never got ENOENT in 6,000 racing
+   pairs, so the non-retried `O_EXCL` claims need no retry; its backlog entry is deleted and this
+   report is the evidence.
 
 ## Evidence
 

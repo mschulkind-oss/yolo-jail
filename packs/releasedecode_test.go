@@ -22,7 +22,11 @@ package packs_test
 // A KNOWN BREAK IS LISTED WITH ITS GUARD: what keeps an old jail from ever reading the new
 // manifest. An unlisted break fails. So does a listed one that no longer breaks, since its guard
 // line is then describing nothing. Entries are keyed by release, so the next release tag
-// retires them without an edit: they become inert and are logged as removable.
+// retires them without an edit: they become inert and are logged as removable. A break listed
+// under release R says readers up to and including R lack the kind, so it applies to every
+// baseline <= R: a clone whose newest local tag lags the tree (say v0.19.0 while the table
+// names v0.20.0) still excuses it, while an entry under an OLDER release never excuses a newer
+// baseline. Only an entry for the baseline itself must still occur.
 //
 // A BREAK THAT STOPS THE DECODE CARRIES A REPAIR. The old reader returns at the first
 // encoding/json refusal (a field whose type grew, a surface field it does not know), so every
@@ -41,6 +45,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -687,7 +692,7 @@ func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {
 		pack, problem, _ := strings.Cut(key, "\x00")
 		matched := false
 		for i, b := range knownReleaseBreaks {
-			if b.release == release && b.pack == pack && strings.Contains(problem, b.problem) {
+			if breakApplies(b.release, release) && b.pack == pack && strings.Contains(problem, b.problem) {
 				used[i], matched = true, true
 			}
 		}
@@ -695,15 +700,15 @@ func TestShippedPacksDecodeUnderTheLastRelease(t *testing.T) {
 			t.Errorf("a jail %s launched cannot boot on pack %q as this tree ships it:\n\t%s\n"+
 				"Its boot treats any decode problem as fatal. Either keep the manifest readable by "+
 				"%s's reader, or add a knownReleaseBreaks entry whose guard says what keeps such "+
-				"a jail from ever reading it.", release, pack, problem, release)
+				"a jail from ever reading it.%s", release, pack, problem, release, staleBaselineHint(knownReleaseBreaks, release))
 		}
 	}
 	for i, b := range knownReleaseBreaks {
 		switch {
-		case b.release != release:
+		case !breakApplies(b.release, release):
 			t.Logf("inert: the known break %s/%q is for %s, not the last release %s — removable",
 				b.pack, b.problem, b.release, release)
-		case !used[i]:
+		case b.release == release && !used[i]:
 			t.Errorf("the known break %s/%q no longer occurs under %s's reader; remove the entry, "+
 				"whose guard now describes nothing", b.pack, b.problem, release)
 		}
@@ -885,12 +890,50 @@ func runReleaseProbe(t *testing.T, probe, tree, release string) map[string]map[s
 
 // knownBreakFor returns the index of the allowlist entry that covers problem, or -1.
 func knownBreakFor(release, pack, problem string) int {
-	for i, b := range knownReleaseBreaks {
-		if b.release == release && b.pack == pack && strings.Contains(problem, b.problem) {
+	return breakIn(knownReleaseBreaks, release, pack, problem)
+}
+
+// breakApplies reports whether an entry listed under entryRelease excuses a decode by the
+// baseline release's reader. A break listed under R says readers up to and including R lack the
+// kind, so it applies to every baseline <= R: a clone whose newest tag lags the tree still sees
+// the break listed under the newer release. An entry under an older release never excuses a
+// newer baseline.
+func breakApplies(entryRelease, baseline string) bool {
+	if entryRelease == baseline {
+		return true
+	}
+	c, ok := releasebaseline.Compare(baseline, entryRelease)
+	return ok && c <= 0
+}
+
+// breakIn is knownBreakFor over a given table: the exact release's entry wins, else the first
+// entry listed under a newer release that still applies.
+func breakIn(table []knownReleaseBreak, release, pack, problem string) int {
+	found := -1
+	for i, b := range table {
+		if b.pack != pack || !strings.Contains(problem, b.problem) || !breakApplies(b.release, release) {
+			continue
+		}
+		if b.release == release {
 			return i
 		}
+		if found < 0 {
+			found = i
+		}
 	}
-	return -1
+	return found
+}
+
+// staleBaselineHint names the likely cause when the baseline tag is older than a release the
+// known-breaks table names, which is what a clone that has not fetched tags looks like.
+func staleBaselineHint(table []knownReleaseBreak, baseline string) string {
+	for _, b := range table {
+		if c, ok := releasebaseline.Compare(baseline, b.release); ok && c < 0 {
+			return fmt.Sprintf(" (the newest local tag is %s, older than %s, which the known-breaks table names: "+
+				"run `git fetch --tags` if this clone is behind)", baseline, b.release)
+		}
+	}
+	return ""
 }
 
 // knownSkippedBreakFor recognizes only a listed unknown-field or unknown-kind diagnostic for the exact released
@@ -911,7 +954,7 @@ func knownSkippedBreakFor(release, pack, skipped string) int {
 		return -1
 	}
 	for i, b := range knownReleaseBreaks {
-		if b.release != release || b.pack != pack || !strings.Contains(skipped, b.problem) {
+		if !breakApplies(b.release, release) || b.pack != pack || !strings.Contains(skipped, b.problem) {
 			continue
 		}
 		if (fieldSkip && (strings.HasPrefix(b.problem, `unknown field "`) ||
@@ -1267,4 +1310,39 @@ func TestUntarIntoReadsTheWholeStream(t *testing.T) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// TestAKnownBreakAppliesToEveryBaselineUpToItsRelease pins the cumulative lookup: a clone whose
+// newest local tag (v0.19.0) lags a break listed under v0.20.0 is still excused, and a break
+// listed under an older release (v0.18.0) never excuses a newer baseline.
+func TestAKnownBreakAppliesToEveryBaselineUpToItsRelease(t *testing.T) {
+	table := []knownReleaseBreak{
+		{release: "v0.20.0", pack: "pi", problem: `unknown kind "per-setup-state"`},
+		{release: "v0.18.0", pack: "pi", problem: `unknown field "mcp_header_form"`},
+	}
+	if got := breakIn(table, "v0.19.0", "pi", `unknown kind "per-setup-state"`); got != 0 {
+		t.Errorf("a v0.19.0 baseline must be excused by a break listed under v0.20.0, got %d", got)
+	}
+	if got := breakIn(table, "v0.20.0", "pi", `unknown kind "per-setup-state"`); got != 0 {
+		t.Errorf("the exact release must match, got %d", got)
+	}
+	if got := breakIn(table, "v0.20.0", "pi", `unknown field "mcp_header_form"`); got != -1 {
+		t.Errorf("a break listed under v0.18.0 must not excuse a v0.20.0 baseline, got %d", got)
+	}
+	if got := breakIn(table, "v0.18.0", "pi", `unknown field "mcp_header_form"`); got != 1 {
+		t.Errorf("a break listed under v0.18.0 must excuse a v0.18.0 baseline, got %d", got)
+	}
+	if got := breakIn(table, "v0.19.0", "claude", `unknown kind "per-setup-state"`); got != -1 {
+		t.Errorf("another pack must not be excused, got %d", got)
+	}
+}
+
+func TestAStaleBaselineSaysToFetchTags(t *testing.T) {
+	table := []knownReleaseBreak{{release: "v0.20.0", pack: "pi", problem: "x"}}
+	if got := staleBaselineHint(table, "v0.19.0"); !strings.Contains(got, "git fetch --tags") {
+		t.Errorf("a baseline older than the table's newest release must suggest fetching tags: %q", got)
+	}
+	if got := staleBaselineHint(table, "v0.20.0"); got != "" {
+		t.Errorf("a current baseline needs no hint: %q", got)
+	}
 }
