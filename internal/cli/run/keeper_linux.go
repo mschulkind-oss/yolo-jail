@@ -36,7 +36,7 @@ const keeperScopeTimeout = 5 * time.Second
 // in its own process and stop it being the launch's child. Where there is no user bus, no busctl,
 // or the call fails, the keeper keeps the session of its own that its spawn gave it, and the
 // returned line, which the keeper logs, says which (JL-D61).
-func (o *Options) moveKeeperIntoScope(cname string) (scope, line string) {
+func (o *Options) moveKeeperIntoScope(cname, slice string) (scope, line string) {
 	if o.inContainer() {
 		return "", "keeper: no systemd user bus inside a container, so it runs in a session of its own and no scope of its own"
 	}
@@ -46,18 +46,26 @@ func (o *Options) moveKeeperIntoScope(cname string) (scope, line string) {
 	}
 	pid := strconv.Itoa(o.Getpid())
 	unit := "yolo-jail-keeper-" + cname + "-" + pid + ".scope"
-	res := o.Exec([]string{busctl, "--user", "call", "org.freedesktop.systemd1",
+	// A launch placed in a resource group's agent child slice puts the keeper's scope there too, so
+	// the host services' I/O is inside the group's io.max; with no group the scope is unchanged.
+	props := []string{"2", "PIDs", "au", "1", pid}
+	if slice != "" {
+		props = []string{"3", "PIDs", "au", "1", pid, "Slice", "s", slice}
+	}
+	argv := append([]string{busctl, "--user", "call", "org.freedesktop.systemd1",
 		"/org/freedesktop/systemd1", "org.freedesktop.systemd1.Manager", "StartTransientUnit",
-		"ssa(sv)a(sa(sv))", unit, "fail", "2",
-		"PIDs", "au", "1", pid,
-		"Description", "s", "yolo jail keeper for " + cname,
-		"0"}, "", nil, keeperScopeTimeout)
+		"ssa(sv)a(sa(sv))", unit, "fail"}, props...)
+	argv = append(argv, "Description", "s", "yolo jail keeper for "+cname, "0")
+	res := o.Exec(argv, "", nil, keeperScopeTimeout)
 	if !res.Ran || res.Timeout || res.RC != 0 {
 		why := strings.TrimSpace(res.Stderr)
 		if why == "" {
 			why = execFailure(res)
 		}
 		return "", "keeper: could not move into a systemd user scope (" + why + "), so it runs in a session of its own and no scope of its own"
+	}
+	if slice != "" {
+		return unit, "keeper: moved into the systemd user scope " + unit + " in the resource group's slice " + slice
 	}
 	return unit, "keeper: moved into the systemd user scope " + unit
 }

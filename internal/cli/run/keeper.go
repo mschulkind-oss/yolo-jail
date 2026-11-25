@@ -398,7 +398,7 @@ func (k *keeper) run() int {
 	defer k.releaseReservedPorts()
 	k.pid = o.Getpid()
 	o.initPerf(p.Cname)
-	scope, line := o.moveKeeperIntoScope(p.Cname)
+	scope, line := o.moveKeeperIntoScope(p.Cname, p.ResourceGroupSlice)
 	k.scope = scope
 
 	live, err := awaitLivenessLock(k.stateKey(), keeperLivenessWait)

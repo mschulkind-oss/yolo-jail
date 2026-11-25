@@ -17,6 +17,6 @@ func setChildDeathSignal(*syscall.SysProcAttr) {}
 
 // moveKeeperIntoScope does nothing off Linux: there is no systemd, so the keeper has the session of
 // its own its spawn gave it, and no scope.
-func (o *Options) moveKeeperIntoScope(string) (scope, line string) {
+func (o *Options) moveKeeperIntoScope(string, string) (scope, line string) {
 	return "", "keeper: no systemd on this platform, so it runs in a session of its own and no scope of its own"
 }
