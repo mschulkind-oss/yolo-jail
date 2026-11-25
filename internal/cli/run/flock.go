@@ -356,8 +356,11 @@ func (o *Options) releaseLaunchLock() {
 // takes it, whatever its setup, and so did every launch of an older yolo, whose jail name it was.
 //
 // It is released with the launch lock this launch takes next (workspaceLock.ride): when the jail
-// is up, or at the launch's end. A launch that hands its launch lock to a keeper keeps it until
-// the keeper says the jail is up (releaseHomeLock), and Run releases it at every return.
+// is up, or at the launch's end. A launch that hands its launch lock to a keeper releases it
+// (releaseHomeLock) the moment the keeper says it started, which is after the keeper holds the
+// jail's liveness lock, so a peer that takes the lock next sees that keeper; it must not wait for
+// ready, which only this process can relay (a stopped or hung launch would hold every other
+// launch of the workspace). Run releases it at every return.
 //
 // The order is always this lock, then the launch lock. A launch whose jail name IS the legacy
 // name (a caller that resolved no setup) takes its launch lock instead: one process cannot take
@@ -375,8 +378,14 @@ func (o *Options) holdHomeLock() {
 	path := launchLockPath(legacy)
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	lock, err := acquireWorkspaceLock(path, o.Workspace, lockNotices{
-		warn:    func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
-		waiting: func(msg string) { out.printf("[bold cyan]%s[/bold cyan]", msg) },
+		warn: func(msg string) { out.printf("[dim]Warning: %s[/dim]", msg) },
+		// A launch that waited for the project lock waited for another launch of the workspace as
+		// surely as one that waited for its launch lock: if it then finds the jail, that is a raced
+		// attach (attachExisting), not a plain one.
+		waiting: func(msg string) {
+			o.launchLockWaited = true
+			out.printf("[bold cyan]%s[/bold cyan]", msg)
+		},
 	})
 	if err != nil {
 		out.printf("[dim]Warning: could not open the workspace lock (%s); concurrent launches "+

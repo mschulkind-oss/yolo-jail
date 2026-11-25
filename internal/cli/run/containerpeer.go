@@ -9,9 +9,9 @@ package run
 // line names the setup and the launch goes on.
 //
 // THE CALL SITE is commitHome's first statement (UHP-D5): after every refusal and before the first
-// write, under the project lock selectHome took (UHP-D4). The lock is released only after the
-// keeper, which takes the jail's liveness lock before it says ready, answers; a second launch that
-// then takes the lock finds the first one's keeper
+// write, under the project lock selectHome took (UHP-D4). The lock is released only once the
+// keeper, which takes the jail's liveness lock before it says started, has said so; a second launch
+// that then takes the lock finds the first one's keeper
 // (TestTheKeeperIsRegisteredBeforeTheProjectLockIsReleased). There is no lock file in `.yolo` and
 // no hatch.
 

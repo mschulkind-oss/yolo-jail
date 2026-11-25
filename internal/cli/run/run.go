@@ -2808,6 +2808,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	ready := kp.relay(o.Stdout, o.Stderr, o.jailStdout(), o.jailStderr(), keeperEvents{
 		started: func(pid int) {
 			keeperStarted = true
+			// The keeper took the jail's liveness lock before it said started (keeper.run), so a
+			// launch that takes the project lock next sees it (UHP-D20). This launch's own relay
+			// of ready is not a condition of that, and a stopped launch must not hold the lock.
+			o.releaseHomeLock()
 			o.pr(o.Stderr).printf("[dim]keeper: started, pid %d[/dim]", pid)
 		},
 		spawned: func() {

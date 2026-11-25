@@ -91,13 +91,18 @@ func TestStopStopsEverySetupsJail(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(dir, releaseName), []byte("go\n"), 0o644)
 	})
 	runs := map[string]*bgRun{}
+	// Two container setups share the workspace's home, so a second one is refused while the first
+	// runs (UH-D5). `lab` therefore launches with --fresh-home, whose home shares nothing and which
+	// the rule skips, after podman-self is up; the test is about the stop, not the rule.
 	for _, name := range []string{"podman-self", "lab"} {
-		runs[name] = startYoloBackground(t, name, dir,
+		var flags []string
+		if name == "lab" {
+			flags = []string{"--fresh-home"}
+		}
+		runs[name] = startYoloBackgroundWith(t, name, dir, flags,
 			`echo "UP-IN-$YOLO_SETUP"; for _ in $(seq 1 300); do [ -f /workspace/`+releaseName+` ] && break; sleep 0.5; done`,
 			"YOLO_SETUP="+name)
-	}
-	for name, r := range runs {
-		awaitOutput(t, r, regexp.MustCompile(`UP-IN-`+name+`\n`))
+		awaitOutput(t, runs[name], regexp.MustCompile(`UP-IN-`+name+`\n`))
 	}
 
 	list := runCommand(t, dir, []string{"setup", "list"}, withHostSemantics(), withEnv("YOLO_SETUP=podman-self"))

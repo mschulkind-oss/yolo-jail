@@ -295,9 +295,9 @@ func funcCalls(t *testing.T, file, fn string) map[string][]token.Pos {
 
 // TestTheKeeperIsRegisteredBeforeTheProjectLockIsReleased pins the race the rule rests on (UH §7.2):
 // launch X passes under the project lock and its keeper takes the jail's liveness lock BEFORE it says
-// ready, and X releases the project lock only after ready, so launch Y, which then takes the project
+// ready, and X releases the project lock only once its keeper's started frame (which follows the liveness lock) arrives, so launch Y, which then takes the project
 // lock, sees X's keeper flock. Two call orders: the keeper takes its liveness lock before it waits for
-// ready, and runContainer releases the project lock only after the keeper's ready relay returns.
+// ready, and runContainer releases the project lock only inside the keeper's relay, never before it.
 func TestTheKeeperIsRegisteredBeforeTheProjectLockIsReleased(t *testing.T) {
 	k := funcCalls(t, "keeper.go", "run")
 	live, ready := k["awaitLivenessLock"], k["beforeReady"]
@@ -311,7 +311,7 @@ func TestTheKeeperIsRegisteredBeforeTheProjectLockIsReleased(t *testing.T) {
 	}
 	for _, p := range release {
 		if p < relay[0] {
-			t.Errorf("runContainer releases the project lock before the keeper's ready relay returns")
+			t.Errorf("runContainer releases the project lock before the keeper's relay")
 		}
 	}
 }

@@ -263,6 +263,7 @@ func TestConcurrentLaunchesInOneWorkspace(t *testing.T) {
 	// second off both launches.
 	dir := writeProject(t, `{}`)
 	cname := jailName(dir)
+	projectLock := naming.FromWorkspace(dir)
 	lockPath := filepath.Join(paths.GlobalStorage(), "locks", cname+".lock")
 
 	// Take the workspace launch lock from THIS process before either launch starts. The locks
@@ -335,17 +336,15 @@ func TestConcurrentLaunchesInOneWorkspace(t *testing.T) {
 	awaitAll("Waiting for concurrent jail launch", "printed the waiting notice")
 	for _, l := range launches {
 		got := l.combined()
-		var missing []string
-		for _, want := range []string{
-			dir,             // which workspace is ahead of you
-			cname + ".lock", // and which lock file to look at
-		} {
-			if !strings.Contains(got, want) {
-				missing = append(missing, want)
-			}
+		if !strings.Contains(got, dir) { // which workspace is ahead of you
+			t.Errorf("%s's waiting notice does not name the workspace %q:\n%s", l.name, dir, got)
 		}
-		if len(missing) > 0 {
-			t.Errorf("%s's waiting notice is missing %q:\n%s", l.name, missing, got)
+		// And which lock file to look at. A launch waits on the PROJECT lock first (every container
+		// launch takes it, UHP-D4) and on its own launch lock second, so the launch that lost the
+		// project lock never reaches the second and names only the first.
+		if !strings.Contains(got, cname+".lock") && !strings.Contains(got, projectLock+".lock") {
+			t.Errorf("%s's waiting notice names neither the launch lock %s.lock nor the project lock %s.lock:\n%s",
+				l.name, cname, projectLock, got)
 		}
 	}
 
