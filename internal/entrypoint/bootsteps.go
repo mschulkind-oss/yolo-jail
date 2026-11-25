@@ -17,7 +17,11 @@ package entrypoint
 // of which only a container boot has, and which bracket the table rather than sit in it.
 
 import (
+	"strings"
+
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/perf"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 )
 
 // bootTarget names which boot a step table run is: the container entrypoint or the
@@ -62,6 +66,9 @@ type bootStep struct {
 	// text is why. The main process's boot, a jail with no hold, and the macos-user bootstrap
 	// (which has no attach) run it.
 	notSessionPass string
+	// ownProgress marks a step that opens a progress line of its own (Env.progress), so the
+	// runner's per-step line does not print a second one for the same wait.
+	ownProgress bool
 }
 
 // excludedFrom returns why t does not run the step, or "" when it does.
@@ -131,6 +138,14 @@ func runSteps(b *bootRun, steps []bootStep) {
 		// this start line. Every step that runs is traced, a noMark one included.
 		span := "boot." + s.name
 		b.e.trace.Start(span)
+		// A STEP THAT RUNS PAST A SECOND SAYS SO: one `<step>: done (N.Ns)` line, with a start
+		// line before it, through the same progress line the steps that wait on something use.
+		// A step with its own line keeps it (ownProgress). The grace is perf.SlowSpanThreshold,
+		// so the host never needs its own `took` notice for a boot step the jail already said.
+		var stepLine *progress.Line
+		if !s.ownProgress {
+			stepLine = b.e.progressWithGrace(bootStepLabel(s), perf.SlowSpanThreshold)
+		}
 		switch {
 		case s.gen != nil:
 			label := s.label
@@ -142,6 +157,7 @@ func runSteps(b *bootRun, steps []bootStep) {
 		case s.run != nil:
 			s.run(b)
 		}
+		stepLine.Done("")
 		b.e.trace.End(span)
 		if b.perf != nil && !s.noMark {
 			mark := s.perf
@@ -151,6 +167,16 @@ func runSteps(b *bootRun, steps []bootStep) {
 			b.perf.mark(mark)
 		}
 	}
+}
+
+// bootStepLabel is the phrase a slow step's progress line carries: its label, else its name
+// with underscores spelled as spaces ("report durable dir").
+func bootStepLabel(s bootStep) string {
+	label := s.label
+	if label == "" {
+		label = strings.ReplaceAll(s.name, "_", " ")
+	}
+	return "Boot step " + label
 }
 
 // bootSteps is the table. A function rather than a package var, because several steps close
@@ -602,10 +628,11 @@ func bootSteps() []bootStep {
 			// Start the jail-daemon supervisor (child of PID 1; kernel-reaped on exit). A
 			// `run`, not a generator: its failures are SERVICE refusals, which the reachability
 			// hatch reaches when a required service did not start (requiredservice.go, OQ-R8).
-			name:      "start_jail_daemon_supervisor",
-			run:       startJailDaemons,
-			perf:      "jail_daemon_supervisor",
-			notDarwin: "the macos-user launch starts the guest's supervisor itself, confined by its Seatbelt profile, after this bootstrap exits (macosuser.JailDaemonArgv)",
+			name:        "start_jail_daemon_supervisor",
+			ownProgress: true,
+			run:         startJailDaemons,
+			perf:        "jail_daemon_supervisor",
+			notDarwin:   "the macos-user launch starts the guest's supervisor itself, confined by its Seatbelt profile, after this bootstrap exits (macosuser.JailDaemonArgv)",
 		},
 		{
 			// The nix root watcher (nixrootwatcher.go): keeps, for the host, the roots the
@@ -623,7 +650,8 @@ func bootSteps() []bootStep {
 			// WARNING, never a refusal: it records nothing on the refusal gate. Here, just above
 			// the service witness, so a boot's two network findings read together; under a
 			// progress line, silent when quick, which it nearly always is by now.
-			name: "report_egress",
+			name:        "report_egress",
+			ownProgress: true,
 			run: func(b *bootRun) {
 				line := b.e.progress("Checking that the jail can reach the internet")
 				reportEgressStep(b)
@@ -642,7 +670,8 @@ func bootSteps() []bootStep {
 			// every problem. See reachability.go. A healthy probe answers in milliseconds, but a
 			// blackholed service costs a dial of up to 30 s plus retries, so it runs under a
 			// progress line — line-oriented (boot.log is half of e.Stderr) and silent when quick.
-			name: "probe_service_reachability",
+			name:        "probe_service_reachability",
+			ownProgress: true,
 			run: func(b *bootRun) {
 				reach := b.e.progress("Checking that the jail can reach its host services")
 				ProbeServiceReachability(b.e)

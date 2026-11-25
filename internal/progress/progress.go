@@ -82,6 +82,12 @@ type Config struct {
 	Immediate bool
 	// Heartbeat overrides DefaultHeartbeat (0 => DefaultHeartbeat).
 	Heartbeat time.Duration
+	// OnShown, when set, is called once for each line the moment it first becomes
+	// visible (after the grace period, or at Start for Immediate). A caller uses it
+	// to learn that a phase has its own progress line, so a second report of the
+	// same time (the slow-span notice) can be withheld. It runs with the line's lock
+	// held: it must be quick and must not call back into the line.
+	OnShown func()
 	// Now and Tick are test seams. nil => time.Now and a real one-second ticker.
 	Now  func() time.Time
 	Tick <-chan time.Time
@@ -249,7 +255,14 @@ func (l *Line) Tick() {
 // shown ends with a persistent line naming its result and how long it took:
 // "Copying the image into podman: done — 92 of 92 layers, 3.2 GB (12.8s)".
 // result "" means "done".
-func (l *Line) Done(result string) {
+func (l *Line) Done(result string) { l.finish(result, true) }
+
+// Abandon ends the step without a result line: a live line is erased and nothing replaces it.
+// For a step that failed and printed its own message, which must stay the last thing said (a
+// refusal names its next step, and a "failed (1.3s)" under it would bury it).
+func (l *Line) Abandon() { l.finish("", false) }
+
+func (l *Line) finish(result string, say bool) {
 	if l == nil {
 		return
 	}
@@ -267,6 +280,11 @@ func (l *Line) Done(result string) {
 	}
 	if l.shown {
 		l.erase()
+		if !say {
+			l.mu.Unlock()
+			<-l.stopped
+			return
+		}
 		if result == "" {
 			result = "done"
 		}
@@ -285,6 +303,9 @@ func (l *Line) Done(result string) {
 // start line. Callers hold mu.
 func (l *Line) show() {
 	l.shown = true
+	if l.cfg.OnShown != nil {
+		l.cfg.OnShown()
+	}
 	now := l.cfg.Now()
 	l.lastBeat = now
 	if l.cfg.Live {

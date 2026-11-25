@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/agentcfg/manifest"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailtrace"
@@ -239,6 +240,17 @@ func (e *Env) warn(msg string) {
 	if e.Stderr != nil {
 		_, _ = io.WriteString(e.Stderr, msg+"\n")
 	}
+}
+
+// progressWithGrace is progress with the grace period set to grace when the Env's own
+// rendering sets none, so the runner's per-step line can show a step at one second where the
+// steps that wait on something keep the two-second default.
+func (e *Env) progressWithGrace(label string, grace time.Duration) *progress.Line {
+	cfg := e.progressCfg
+	if cfg.Grace <= 0 && !cfg.Immediate {
+		cfg.Grace = grace
+	}
+	return cfg.Start(e.Stderr, label)
 }
 
 // progress starts one slow boot step's progress line on e.Stderr (internal/progress).
