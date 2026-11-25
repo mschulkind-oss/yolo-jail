@@ -10,6 +10,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-11-25
+
+Git pushes keep their permission when a selected pack is missing, a linked config file stays linked through a migration, and slow launch steps now say what they are doing.
+
+### Added
+
+**Give groups of your own processes a share of the processor.** With the `cgroup-delegate` pack, `yolo-cglimit --weight N --name NAME -- COMMAND` runs a command in a named group with a relative CPU weight from 1 to 10000. `yolo-cglimit --name NAME --join PID` moves a running process of the jail into a group. A weight only matters when the processor is busy, and it never holds work back on an idle machine. See [loopholes](userguide/guides/loopholes.md).
+
+**Slow launch steps show progress.** Every launch step that takes longer than a second now prints a line, such as `Staging packs` or `Composing the launch`, and says how long it took. A step that prints its own line no longer prints a second timing line.
+
+### Changed
+
+- **Two container setups that share a workspace's home no longer run at once.** A launch of one while the other is running is refused, and the message names the command that stops the running one.
+- **A resource group must be a systemd slice.** Its two children are now systemd child slices of the unit you name, such as `batch-yolo-agent.slice` for `batch-yolo.slice`. If `yolo check` refuses your unit, name a slice with `yolo config set --user resource_groups.default`.
+
+### Fixed
+
+- A selected pack that is deleted or not yet fetched no longer takes away git push permission in every workspace. The launch fetches the pack, and only a failed fetch leaves the old permission rules in force.
+- When an approval cannot read your pack selection, `yolo approve` names each failing pack and its error.
+- `yolo config migrate` keeps a symlinked config file linked and writes through the link, with its backup beside the real file.
+- `yolo check` warns when your user config is no longer linked to its original file and prints the two commands that restore it.
+- The config approval view shows `[` and `]` in values as written, instead of `\u005B` and `\u005D`.
+- The launch's skill import notice is one line.
+- When an MCP server's sign-in is not shared into the jail, the launch says why and what to do.
+- A profile that reaches several programs for the same reason now gets one warning for all of them.
+- `yolo pack update` and a fork build no longer fail when another launch changes the pack's checks at the same time.
+- The host setup check no longer times out on a busy machine.
+
 ## [0.20.0] - 2026-11-24
 
 You can run your own clone of a pack, skills from your mise tools reach your agents, and every launch now checks for newer packs instead of waiting up to an hour.
