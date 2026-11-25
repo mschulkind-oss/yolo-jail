@@ -104,8 +104,8 @@ ports, hashes and paths (`dryrun.diff`):
 
 The host nvim line prints in **both** runs, because it depends on the host having
 `~/.config/nvim`, not on the config: `Host nvim config (~/.config/nvim) is not delivered on
-macos-user: … an open design question ([OQ-ED2](../design/baked-editor-preference.md#OQ-ED2)), so there is nothing to change until it is
-ruled.`
+macos-user: the sandbox's nvim starts with its own.` It names the open question it waits on,
+[OQ-ED2](../design/baked-editor-preference.md#OQ-ED2).
 
 The control prints none of the device or tmpfs lines. Every line names its next step.
 
