@@ -103,6 +103,13 @@ reading first saves a slow, human-gated round-trip.
 on the host to inspect a raw selection, then omit `--dry-run` to write the user TOML
 entry:
 `{ pack = "local/corpus", skills = { dir = "skills/core-tools", only = ["skill-a"] } }`
+The same entry can be written with the editing verb instead of `yolo pack add`. User scope is
+the host's, so `yolo config add` run in the jail stops and prints a host-run line; the human runs:
+`yolo config add packs '{ pack = "local/corpus", skills = { dir = "skills/core-tools", only = ["skill-a"] } }' --user --dry-run`,
+then the same command without `--dry-run`. If the human says their user config's source lives in
+this workspace (a dotfiles repository, say), they may have you add that same TOML line to the
+`packs` list in that source file, then run `yolo config check`. Do not write
+`~/.config/yolo-jail/config.toml` from the jail.
 The entry applies across workspaces, not through this project's config. Omit `--skills-dir` for
 typed candidate-name selectors; `--subdir` alone still imports a whole pack.
 Scoped entries activate no programs, hooks, briefing, native plugins or host
