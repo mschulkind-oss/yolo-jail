@@ -21,30 +21,69 @@ func vanishedPackNote(entry PackEntry, source string) string {
 }
 
 // UserScopeSelectedPacksWithNotes is UserScopeSelectedPacks for a reader of broker declarations
-// (the approval hook, the timed-offer cap): an entry whose local source directory is gone
-// (vanishedLocalPack) is not an incomplete selection, it is named in notes; every other
-// unresolved entry, and any closure error, still makes complete false, and each is named in
-// problems with its own error, so a caller that fails closed can say what to repair.
+// (the approval hook, the timed-offer cap): an entry whose artifact is missing
+// (skippableMissingPack: a vanished local directory, a remote the store has not fetched) is not
+// an incomplete selection, it is named in notes (a remote is fetched in line first, and noted only
+// when that fetch fails);
+// every other unresolved entry, and any closure error, still makes complete false, and each is
+// named in problems with its own error, so a caller that fails closed can say what to repair.
 func UserScopeSelectedPacksWithNotes() (packs []*packload.Pack, notes, problems []string, complete bool) {
 	entries, err := LoadPacks(func(string) {})
 	if err != nil {
 		return nil, nil, []string{"read the user-scope pack list: " + err.Error()}, false
 	}
-	resolved := SelectedPackDeclarationsDetailed(entries, UserScopeSelection(), nil, packload.EmbeddedFS())
+	selection := UserScopeSelection()
+	resolved := SelectedPackDeclarationsDetailed(entries, selection, nil, packload.EmbeddedFS())
 	embeddedNames := packload.EmbeddedNames()
+	// A remote the store lacks is fetched, here, as a launch would; when any fetch lands the
+	// selection is resolved again, so the missing state normally just disappears.
+	fetchErrs := map[string]error{}
+	fetched := false
+	for _, u := range resolved.Unresolved {
+		if _, fetchable, ok := skippableMissingPack(u.Entry, u.Err, nil, entries, embeddedNames); ok && fetchable {
+			if attempted, ferr := fetchMissingPackNow(u.Entry); attempted {
+				if ferr == nil {
+					fetched = true
+				} else {
+					fetchErrs[u.Entry.Name] = ferr
+				}
+			}
+		}
+	}
+	if fetched {
+		resolved = SelectedPackDeclarationsDetailed(entries, selection, nil, packload.EmbeddedFS())
+	}
 	complete = resolved.ClosureErr == nil
 	if resolved.ClosureErr != nil {
 		problems = append(problems, "pack selection: "+resolved.ClosureErr.Error())
 	}
+	var skipped []string
 	for _, u := range resolved.Unresolved {
-		if missing, source := vanishedLocalPack(u.Entry, embeddedNames); missing {
-			notes = append(notes, vanishedPackNote(u.Entry, source))
+		if note, _, ok := skippableMissingPack(u.Entry, u.Err, fetchErrs[u.Entry.Name], entries, embeddedNames); ok {
+			notes = append(notes, note)
+			skipped = append(skipped, u.Entry.Name)
 			continue
 		}
 		complete = false
 		problems = append(problems, fmt.Sprintf("pack %s: %v", u.Entry.Name, u.Err))
 	}
-	return resolved.Packs(), notes, problems, complete
+	packs = resolved.Packs()
+	if len(skipped) != 0 {
+		if user, uerr := UserScopeConfig(true, func(string) {}); uerr != nil {
+			complete = false
+			problems = append(problems, "read the user config: "+uerr.Error())
+		} else {
+			var own map[string]packload.UserProfile
+			if raw, present := user.Get("profiles"); present && raw != nil {
+				own, _ = checkProfiles(raw)
+			}
+			if perr := skippedProfileProblem(user, packs, own, skipped); perr != nil {
+				complete = false
+				problems = append(problems, perr.Error())
+			}
+		}
+	}
+	return packs, notes, problems, complete
 }
 
 // vanishedLocalPack reports a selected entry whose source is a local directory that does not

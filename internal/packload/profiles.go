@@ -761,3 +761,10 @@ func sortedOptionNames(m map[string]packdecl.OptionDefault) []string {
 	sort.Strings(out)
 	return out
 }
+
+// DeclaresProfile reports whether any of packs ships a profile named name, the question a reader
+// asks to learn whether a selected profile could live in a pack it could not read.
+func DeclaresProfile(packs []*Pack, name string) bool {
+	_, ok := packShippedProfiles(packs)[name]
+	return ok
+}
