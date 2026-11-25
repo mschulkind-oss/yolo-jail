@@ -47,6 +47,8 @@ type AuditEvent struct {
 	Op string
 	// Cgroup is the container cgroup the operation was scoped to.
 	Cgroup string
+	// Target is the HOST pid a join op was asked to move, 0 for every other op.
+	Target int
 	// OK is the answer the handler produced.
 	OK bool
 	// Err is the handler's error text when OK is false, or the reason a request
@@ -135,6 +137,9 @@ func (ev AuditEvent) line() string {
 		"op=" + sanitizeAuditField(op),
 		"cgroup=" + sanitizeAuditField(ev.Cgroup),
 		"result=" + result,
+	}
+	if ev.Target != 0 {
+		fields = append(fields, fmt.Sprintf("target=%d", ev.Target))
 	}
 	if ev.Err != "" {
 		fields = append(fields, "error="+sanitizeAuditField(ev.Err))

@@ -53,21 +53,48 @@ func ensureAgentCgroup(containerCgroup string) string {
 	return agentCg
 }
 
-// createAndJoin creates a child cgroup under agent/, applies limits, and moves
-// the caller (peerPID) into it.
-// cpu.max quota formula (pct*1000*nproc / 100000 period), the 1MB memory floor,
-// the pid range (1..1000000), and the warnings collection.
-func createAndJoin(containerCgroup, name string, r *Request, peerPID int) *jsonx.OrderedMap {
-	agentCg := ensureAgentCgroup(containerCgroup)
-	if agentCg == "" {
-		return errResp("Failed to set up agent cgroup hierarchy")
-	}
-	jobCg := filepath.Join(agentCg, name)
-	if err := os.Mkdir(jobCg, 0o755); err != nil && !os.IsExist(err) {
-		return errResp("Cannot create cgroup " + name + ": " + err.Error())
+// prepareJob creates (or reuses) the named child cgroup under agent/ and applies
+// the requested limits. It does NOT move any process. Every limit is optional
+// and a limit absent from the request leaves the group's existing value alone,
+// so a second call naming an existing group joins it and changes only what it
+// names: a different weight REPLACES the earlier one (last writer wins).
+//
+// fail is non-nil when the group could not be set up at all. errs are per-limit
+// problems the caller reports as warnings.
+func prepareJob(containerCgroup, name string, r *Request) (jobCg string, errs []string, fail *jsonx.OrderedMap) {
+	// A weight outside the kernel's range is refused BEFORE anything is created:
+	// unlike the hard limits below, a silently ignored weight leaves the caller
+	// believing its work has a priority it does not have.
+	var weight int64
+	hasWeight := r.present("weight")
+	if hasWeight {
+		w, ok := r.intField("weight")
+		if !ok || w < MinCPUWeight || w > MaxCPUWeight {
+			return "", nil, errResp("weight out of range: " + r.rawValue("weight") +
+				" (the kernel's cpu.weight range is " + strconv.Itoa(MinCPUWeight) + "-" + strconv.Itoa(MaxCPUWeight) + ")")
+		}
+		weight = w
 	}
 
-	var errs []string
+	agentCg := ensureAgentCgroup(containerCgroup)
+	if agentCg == "" {
+		return "", nil, errResp("Failed to set up agent cgroup hierarchy")
+	}
+	jobCg = filepath.Join(agentCg, name)
+	if err := os.Mkdir(jobCg, 0o755); err != nil && !os.IsExist(err) {
+		return "", nil, errResp("Cannot create cgroup " + name + ": " + err.Error())
+	}
+
+	// CPU weight: a relative share that only matters under contention, not a
+	// limit. ensureAgentCgroup enabled the cpu controller in the container's and
+	// the agent group's subtree_control, which is what makes cpu.weight exist
+	// in the job group.
+	if hasWeight {
+		if err := os.WriteFile(filepath.Join(jobCg, "cpu.weight"),
+			[]byte(strconv.FormatInt(weight, 10)), 0o644); err != nil {
+			errs = append(errs, "cpu.weight: "+err.Error())
+		}
+	}
 
 	// CPU: percentage of all CPUs -> cpu.max quota.
 	if r.present("cpu_pct") {
@@ -111,21 +138,34 @@ func createAndJoin(containerCgroup, name string, r *Request, peerPID int) *jsonx
 			errs = append(errs, "pids.max: "+err.Error())
 		}
 	}
+	return jobCg, errs, nil
+}
 
-	// Move the caller in.
+// moveInto writes pid into the job group's cgroup.procs and builds the answer.
+func moveInto(jobCg string, pid int, errs []string) *jsonx.OrderedMap {
 	if err := os.WriteFile(filepath.Join(jobCg, "cgroup.procs"),
-		[]byte(strconv.Itoa(peerPID)), 0o644); err != nil {
-		resp := errResp("Cannot move PID " + strconv.Itoa(peerPID) + " into cgroup: " + err.Error())
+		[]byte(strconv.Itoa(pid)), 0o644); err != nil {
+		resp := errResp("Cannot move PID " + strconv.Itoa(pid) + " into cgroup: " + err.Error())
 		resp.Set("limit_errors", strSlice(errs))
 		return resp
 	}
-
-	cgPath := relToCgroupRoot(jobCg)
-	resp := okResp("cgroup", cgPath)
+	resp := okResp("cgroup", relToCgroupRoot(jobCg))
 	if len(errs) > 0 {
 		resp.Set("warnings", strSlice(errs))
 	}
 	return resp
+}
+
+// createAndJoin creates (or rejoins) a child cgroup under agent/, applies
+// limits, and moves the CALLER (peerPID, from SO_PEERCRED) into it.
+// cpu.max quota formula (pct*1000*nproc / 100000 period), the 1MB memory floor,
+// the pid range (1..1000000), and the warnings collection.
+func createAndJoin(containerCgroup, name string, r *Request, peerPID int) *jsonx.OrderedMap {
+	jobCg, errs, fail := prepareJob(containerCgroup, name, r)
+	if fail != nil {
+		return fail
+	}
+	return moveInto(jobCg, peerPID, errs)
 }
 
 // destroy removes an empty child cgroup (idempotent).

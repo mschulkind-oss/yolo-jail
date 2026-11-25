@@ -66,6 +66,15 @@ it. What a pack may **do** is bounded by the origin gate
 user-scope act, and the most this name can buy is a capability you could grant yourself with
 one `yolo pack add`.
 
+## Weights and joining a running process
+
+`yolo-cglimit --weight N --name NAME -- COMMAND` sets the named group's `cpu.weight` (1-10000).
+A weight is not a limit and only matters under contention. The same `--name` again joins the
+group, and a later `--weight` replaces the earlier one. `yolo-cglimit --name NAME --join PID`
+moves a running process in: the client sends a pidfd, and the daemon refuses any process whose
+`/proc/<pid>/cgroup` is outside this container's cgroup subtree. The check and its residual
+window are in [`security-shim.md`](../../docs/reference/security-shim.md#2-cgroup-delegate).
+
 ## Verifying
 
 ```console

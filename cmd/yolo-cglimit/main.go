@@ -40,17 +40,28 @@ import (
 const usage = `yolo-cglimit — Run a command under cgroup v2 resource limits.
 
 Usage: yolo-cglimit [OPTIONS] -- COMMAND [ARGS...]
+       yolo-cglimit --name NAME --join PID [OPTIONS]
 
 Options:
   --cpu PCT       CPU limit as percentage of ALL CPUs (e.g. 75 = 75% of total)
   --memory LIMIT  Memory limit (e.g. 512m, 2g, 1073741824)
   --pids LIMIT    Max number of processes
-  --name NAME     Cgroup name (default: auto-generated from PID)
+  --weight N      Relative CPU share, 1-10000 (the kernel's cpu.weight; 100 is
+                  the default). Not a limit: it only matters while processes
+                  compete for CPU, and never holds work back on an idle machine.
+  --name NAME     Cgroup name (default: auto-generated from PID). A second
+                  command with the same NAME joins the same group; a later
+                  --weight (or other limit) for that NAME replaces the earlier one.
+  --join PID      Move the already running process PID (a PID in this jail)
+                  into the group NAME instead of running a command. The host
+                  daemon refuses a process that is not inside this jail.
 
 Examples:
   yolo-cglimit --cpu 75 -- python train.py           # 75% of all CPUs
   yolo-cglimit --cpu 50 --memory 2g -- make -j8      # 50% CPU + 2GB RAM
   yolo-cglimit --pids 100 -- ./fork-heavy-script.sh  # Max 100 processes
+  yolo-cglimit --weight 800 --name gates -- make test    # share 8x the default
+  yolo-cglimit --weight 800 --name gates --join 4321     # move a running process
 
 Resource limits are enforced by the kernel via cgroup v2 and cannot be exceeded.
 The host-side daemon handles all privileged cgroup operations securely.
@@ -79,11 +90,20 @@ const noDelegateMsg = "Error: cgroup delegation not available — host daemon so
 	"Then restart the jail. It needs a Linux host with cgroup v2; if the pack is already\n" +
 	"selected, the jail's launch output says why the delegate did not start.\n"
 
+// minWeight and maxWeight are the kernel's cpu.weight range. The daemon checks
+// them again: this copy only gives the answer before a socket is opened.
+const (
+	minWeight = 1
+	maxWeight = 10000
+)
+
 // options is the parsed command line.
 type options struct {
 	cpuPct  *int
 	memory  *string
 	pids    *int
+	weight  *int
+	join    *int
 	name    string
 	command []string
 }
@@ -98,6 +118,7 @@ type request struct {
 	CPUPct *int    `json:"cpu_pct,omitempty"`
 	Memory *string `json:"memory,omitempty"`
 	Pids   *int    `json:"pids,omitempty"`
+	Weight *int    `json:"weight,omitempty"`
 }
 
 func main() {
@@ -122,6 +143,10 @@ func run(args []string, stdout, stderr io.Writer) (int, []string) {
 		return code, nil
 	}
 
+	if opts.join != nil {
+		return runJoin(opts, stdout, stderr)
+	}
+
 	// ORDER IS PARITY: the retired script checked for a command BEFORE it
 	// checked for the socket, so `yolo-cglimit --cpu 50` in a jail with no
 	// delegate reports the usage error, not the unavailability one.
@@ -138,9 +163,9 @@ func run(args []string, stdout, stderr io.Writer) (int, []string) {
 	if name == "" {
 		name = "job-" + strconv.Itoa(os.Getpid())
 	}
-	req := request{Op: "create_and_join", Name: name, CPUPct: opts.cpuPct, Memory: opts.memory, Pids: opts.pids}
+	req := request{Op: "create_and_join", Name: name, CPUPct: opts.cpuPct, Memory: opts.memory, Pids: opts.pids, Weight: opts.weight}
 
-	resp, err := sendRequest(cgdSocket, req)
+	resp, err := sendRequest(cgdSocket, req, -1)
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: failed to contact cgroup daemon: %v\n", err)
 		return 1, nil
@@ -161,6 +186,50 @@ func run(args []string, stdout, stderr io.Writer) (int, []string) {
 	// read off the connection. The exec is the caller's, so the limits land on
 	// the command with this PID intact.
 	return 0, opts.command
+}
+
+// runJoin moves an already running process into the named group. The target is
+// sent as a PIDFD, never as a number: the PID this jail knows is meaningless in
+// the host's pid namespace, and the daemon must read, from the kernel, which
+// host process it really is before it checks that it belongs to this jail.
+func runJoin(opts options, stdout, stderr io.Writer) (int, []string) {
+	if opts.name == "" {
+		fmt.Fprintln(stderr, "Error: --join needs --name NAME, the group to move the process into.")
+		return 1, nil
+	}
+	if len(opts.command) != 0 {
+		fmt.Fprintln(stderr, "Error: --join moves a running process and takes no COMMAND.")
+		return 1, nil
+	}
+	if _, err := os.Stat(cgdSocket); err != nil {
+		fmt.Fprint(stderr, noDelegateMsg)
+		return 1, nil
+	}
+	fd, err := openPidfd(*opts.join)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: cannot open process %d: %v\n", *opts.join, err)
+		return 1, nil
+	}
+	defer closeFd(fd)
+	req := request{Op: "join", Name: opts.name, CPUPct: opts.cpuPct, Memory: opts.memory, Pids: opts.pids, Weight: opts.weight}
+	resp, err := sendRequest(cgdSocket, req, fd)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: failed to contact cgroup daemon: %v\n", err)
+		return 1, nil
+	}
+	if !truthy(resp["ok"]) {
+		msg := "unknown error"
+		if s, ok := resp["error"].(string); ok {
+			msg = s
+		}
+		fmt.Fprintf(stderr, "Error: %s\n", msg)
+		return 1, nil
+	}
+	for _, w := range warnings(resp) {
+		fmt.Fprintf(stderr, "Warning: %s\n", w)
+	}
+	fmt.Fprintf(stdout, "Moved process %d into cgroup %s\n", *opts.join, opts.name)
+	return 0, nil
 }
 
 // parseArgs mirrors the retired script's hand-rolled loop exactly, including
@@ -192,6 +261,23 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 			}
 			o.pids = &n
 			i += 2
+		case args[i] == "--weight" && i+1 < len(args):
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < minWeight || n > maxWeight {
+				fmt.Fprintf(stderr, "Error: --weight expects an integer from %d to %d (the kernel's cpu.weight range), got %q\n",
+					minWeight, maxWeight, args[i+1])
+				return o, 1, true
+			}
+			o.weight = &n
+			i += 2
+		case args[i] == "--join" && i+1 < len(args):
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 2 {
+				fmt.Fprintf(stderr, "Error: --join expects a process id, got %q\n", args[i+1])
+				return o, 1, true
+			}
+			o.join = &n
+			i += 2
 		case args[i] == "--name" && i+1 < len(args):
 			o.name = args[i+1]
 			i += 2
@@ -212,7 +298,10 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 // sendRequest performs the newline-JSON round trip: one request line, one
 // response line. The 8192-byte read cap is the retired script's and is kept —
 // it bounds what a compromised or wedged daemon can make this client allocate.
-func sendRequest(socket string, req request) (map[string]any, error) {
+//
+// fd, when not -1, is sent with the request line as SCM_RIGHTS ancillary data:
+// the pidfd of a join's target.
+func sendRequest(socket string, req request, fd int) (map[string]any, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -222,7 +311,11 @@ func sendRequest(socket string, req request) (map[string]any, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	if _, err := conn.Write(append(body, '\n')); err != nil {
+	if fd >= 0 {
+		if _, _, err := conn.(*net.UnixConn).WriteMsgUnix(append(body, '\n'), syscall.UnixRights(fd), nil); err != nil {
+			return nil, err
+		}
+	} else if _, err := conn.Write(append(body, '\n')); err != nil {
 		return nil, err
 	}
 	line, err := readLineCapped(conn, 8192)

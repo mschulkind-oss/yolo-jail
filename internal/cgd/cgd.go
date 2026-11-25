@@ -165,10 +165,25 @@ func errResp(msg string) *jsonx.OrderedMap {
 	return m
 }
 
+// Caller is who is asking: PID is the connecting process (SO_PEERCRED), and
+// Target, set only for a join, is the process to move.
+type Caller struct {
+	PID    int
+	Target *Target
+}
+
 // Handle dispatches one request against containerCgroup for the caller peerPID,
 // returning the response object.
 // _cgroup_delegate_handler (status / create_and_join / destroy / unknown).
 func Handle(r *Request, containerCgroup string, peerPID int) *jsonx.OrderedMap {
+	return HandleCaller(r, containerCgroup, Caller{PID: peerPID})
+}
+
+// HandleCaller is Handle with the extra, kernel-attested material the join op
+// needs: Caller.Target is built by the daemon from a pidfd the peer passed over
+// the socket, never from anything in the request body.
+func HandleCaller(r *Request, containerCgroup string, caller Caller) *jsonx.OrderedMap {
+	peerPID := caller.PID
 	op := ""
 	if v, ok := r.raw.Get("op"); ok {
 		if s, ok := v.(string); ok {
@@ -195,6 +210,15 @@ func Handle(r *Request, containerCgroup string, peerPID int) *jsonx.OrderedMap {
 			return errResp("Could not determine caller PID")
 		}
 		return createAndJoin(containerCgroup, name, r, peerPID)
+	case "join":
+		name := r.str("name")
+		if !ValidateCgroupName(name) {
+			return errResp("Invalid cgroup name: " + reprName(name))
+		}
+		if caller.Target == nil {
+			return errResp("join needs a pidfd for the process to move (none was passed)")
+		}
+		return joinPID(containerCgroup, name, r, caller.Target)
 	case "destroy":
 		name := r.str("name")
 		if !ValidateCgroupName(name) {

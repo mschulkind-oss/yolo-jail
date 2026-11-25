@@ -90,7 +90,11 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 			}
 			go func(c *net.UnixConn) {
 				defer c.Close()
-				line := readLineBounded(c, 4096)
+				line, passed := readRequestBounded(c, 4096)
+				// Every fd the peer passed is closed on every path out of here:
+				// the daemon owns what it receives, and a peer must not be able
+				// to leak descriptors into the host process by sending them.
+				defer closeFiles(passed)
 				if len(line) == 0 {
 					return
 				}
@@ -127,7 +131,8 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 					return
 				}
 				peerPID := cgdPeerPID(c)
-				resp := cgd.Handle(r, cg, peerPID)
+				caller, targetPID := cgdCaller(peerPID, passed)
+				resp := cgd.HandleCaller(r, cg, caller)
 				writeJSONLine(c, resp)
 				// Logged AFTER the answer so a slow disk cannot delay the reply, and
 				// with the handler's own verdict rather than a second derivation of it.
@@ -136,6 +141,7 @@ func (o *Options) startCgroupDelegateInProc(cname, rt, sockPath string) (func(),
 					PeerPID: peerPID,
 					Op:      cgd.RequestOp(line),
 					Cgroup:  cg,
+					Target:  targetPID,
 					OK:      ok2,
 					Err:     errText,
 				})
@@ -174,17 +180,48 @@ func cgdPeerPID(conn *net.UnixConn) int {
 	return pid
 }
 
-// readLineBounded reads until '\n' or cap bytes (the request framing).
-func readLineBounded(conn *net.UnixConn, cap int) []byte {
+// cgdCaller builds the handler's view of who is asking. The join target comes
+// ONLY from a pidfd the peer passed over the socket (SCM_RIGHTS): the kernel
+// attests which host process it names, where a pid typed into the request would
+// be a number in the jail's own pid namespace and mean nothing, or the wrong
+// process, on the host. targetPID is the resolved host pid, 0 when none.
+func cgdCaller(peerPID int, passed []*os.File) (caller cgd.Caller, targetPID int) {
+	caller = cgd.Caller{PID: peerPID}
+	if len(passed) > 0 {
+		// An fd that is not a pidfd, or whose process is already gone, leaves
+		// Target nil, which a join refuses.
+		if t, err := cgd.TargetFromPidfd(passed[0]); err == nil {
+			caller.Target = t
+			targetPID = t.PID
+		}
+	}
+	return caller, targetPID
+}
+
+func closeFiles(fs []*os.File) {
+	for _, f := range fs {
+		_ = f.Close()
+	}
+}
+
+// readRequestBounded reads one newline-terminated request line (the framing,
+// with a byte cap) and the file descriptors the peer passed with it (SCM_RIGHTS). At most one is accepted: the kernel discards any
+// beyond the control buffer's room, and none is ever read from or written to.
+func readRequestBounded(conn *net.UnixConn, cap int) ([]byte, []*os.File) {
 	buf := make([]byte, 0, 256)
 	tmp := make([]byte, 4096)
+	oob := make([]byte, syscall.CmsgSpace(4))
+	var files []*os.File
 	for len(buf) < cap {
-		n, err := conn.Read(tmp)
+		n, oobn, _, _, err := conn.ReadMsgUnix(tmp, oob)
+		if oobn > 0 {
+			files = append(files, unixRightsFiles(oob[:oobn])...)
+		}
 		if n > 0 {
 			buf = append(buf, tmp[:n]...)
 			for _, b := range buf {
 				if b == '\n' {
-					return buf
+					return buf, files
 				}
 			}
 		}
@@ -192,7 +229,25 @@ func readLineBounded(conn *net.UnixConn, cap int) []byte {
 			break
 		}
 	}
-	return buf
+	return buf, files
+}
+
+func unixRightsFiles(oob []byte) []*os.File {
+	msgs, err := syscall.ParseSocketControlMessage(oob)
+	if err != nil {
+		return nil
+	}
+	var out []*os.File
+	for _, m := range msgs {
+		fds, err := syscall.ParseUnixRights(&m)
+		if err != nil {
+			continue
+		}
+		for _, fd := range fds {
+			out = append(out, os.NewFile(uintptr(fd), "passed-fd"))
+		}
+	}
+	return out
 }
 
 func writeJSONLine(conn *net.UnixConn, m *jsonx.OrderedMap) {
