@@ -2,6 +2,7 @@ package brokercore
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokeraudit"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
@@ -80,4 +82,30 @@ func TestFakeSourceFilesGrantsAndAuditsThroughTheCore(t *testing.T) {
 	if !filed || !allowed || !spent {
 		t.Fatalf("audit log lacks linked exact request/decision/spend: filed=%t allowed=%t spent=%t grant=%s events=%+v", filed, allowed, spent, g.ID, events)
 	}
+}
+
+// Every host broker daemon turns the fetch of a missing selected pack on before its
+// source's handler runs, so the authority reads that handler makes see it.
+func TestTheDaemonEnablesTheMissingPackFetchBeforeItsHandlerRuns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("YOLO_USER_LAYER", "")
+	t.Chdir(t.TempDir()) // Main leaves the workspace for the broker's own directory
+	path, err := brokerscope.Write(brokerscope.File{Source: "fake", LaunchID: "fixture", PID: os.Getpid(),
+		Container: "fixture-container", Workspace: "/fixture", Repos: []string{"o/r"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.MissingPackFetchEnabled() {
+		t.Fatal("fetching is enabled before any daemon ran")
+	}
+	var enabled bool
+	code := Daemon{Name: "fake-broker", Source: "fake",
+		NewHandler: func(context.Context, string, brokerscope.File, string, io.Writer) (Launch, int) {
+			enabled = config.MissingPackFetchEnabled()
+			return Launch{}, 7
+		}}.Main([]string{"--socket", filepath.Join(t.TempDir(), "s"), "--scope-file", path})
+	if code != 7 || !enabled {
+		t.Fatalf("code %d, enabled in the handler %t; want the handler's code and fetching on", code, enabled)
+	}
+	config.EnableMissingPackFetch(nil) // the process-wide switch goes back off for the other tests
 }

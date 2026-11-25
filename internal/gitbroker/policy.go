@@ -157,8 +157,8 @@ func (b *Broker) coverForSnapshot(f brokerscope.File, repo string, say func(stri
 		return b.cover
 	}
 	kinds, canonical, skipped, authorityErr := config.BrokeredGrantKindsWithNotes(Source)
-	// A selected pack that cannot bear on git's policy (its local source is gone) costs no grant,
-	// but the push still says which pack and the next step.
+	// A selected pack the pack store lacks (a vanished local source, a remote not yet fetched)
+	// costs no grant, but the push still says which pack, its error and the next step.
 	for _, note := range skipped {
 		say(termsafe.Visible(note))
 	}

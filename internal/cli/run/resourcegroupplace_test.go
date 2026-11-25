@@ -50,7 +50,7 @@ func newRGFakeManager(t *testing.T) *rgFakeManager {
 }
 
 func (f *rgFakeManager) mountInfo() []byte {
-	return []byte(fmt.Sprintf("29 23 0:26 / %s rw - cgroup2 cgroup rw\n", f.root))
+	return []byte(fmt.Sprintf("29 23 0:26 / %s rw - cgroup2 cgroup rw\n", strings.NewReplacer(`\`, `\134`, " ", `\040`).Replace(f.root)))
 }
 
 func (f *rgFakeManager) query(argv []string) (string, error) {

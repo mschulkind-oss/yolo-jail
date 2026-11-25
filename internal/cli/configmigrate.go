@@ -181,6 +181,11 @@ func configMigrate(args []string, in io.Reader, interactive bool, out, errw io.W
 	// Every change is named here, so the closing line can say nothing else changed (RC-D34).
 	fmt.Fprintf(out, "Converted: %s.\n", strings.Join(result.Written, ", "))
 	printLinks(out, workspace, result.Links)
+	for _, t := range plan.Targets {
+		if t.File.LinkedTarget() != "" {
+			fmt.Fprintln(out, configmigrate.ThroughLinkReport(t.File.Logical, t.New))
+		}
+	}
 	if len(result.Backups) > 0 {
 		fmt.Fprintf(out, "Kept the %s as %s; delete %s once the new files work for you.\n",
 			plural(len(result.Backups), "original", "originals"), strings.Join(shownPaths(workspace, result.Backups), ", "),

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,7 +254,7 @@ func TestReadableDefaultPackResolvesLockedCommitAfterFreshProcessAndMirrorMove(t
 	if err != nil || string(version) != "first\n" {
 		t.Fatalf("fresh resolution did not use locked content: %q, %v", version, err)
 	}
-	if entry.Source != "git+file://"+filepath.ToSlash(remote)+"//tools" {
+	if entry.Source != "git+file://"+(&url.URL{Path: filepath.ToSlash(remote)}).EscapedPath()+"//tools" {
 		t.Errorf("resolving the pin rewrote authored source: %q", entry.Source)
 	}
 	selected, complete := SelectedPackDeclarations(entries, UserScopeSelection(), nil)

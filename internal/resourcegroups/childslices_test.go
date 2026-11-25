@@ -50,7 +50,7 @@ func newFakeUserManager(t *testing.T, assignedIOMax string) *fakeUserManager {
 }
 
 func (f *fakeUserManager) mountInfo() []byte {
-	return []byte(fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", f.root))
+	return []byte(fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mountInfoEscape(f.root)))
 }
 
 func (f *fakeUserManager) paths() IOPaths {
@@ -334,7 +334,7 @@ func TestObserveMemberDirMapsTheProcCgroupLine(t *testing.T) {
 	}
 	mount := filepath.Join(root, "cg")
 	mountInfo := filepath.Join(root, "mountinfo")
-	if err := os.WriteFile(mountInfo, []byte(fmt.Sprintf("29 23 0:26 / %s rw - cgroup2 cgroup rw\n", mount)), 0o644); err != nil {
+	if err := os.WriteFile(mountInfo, []byte(fmt.Sprintf("29 23 0:26 / %s rw - cgroup2 cgroup rw\n", mountInfoEscape(mount))), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	write := func(body string) {

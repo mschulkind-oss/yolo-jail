@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // checkoutAdvance is the patch branch advance fixture with the pack in "machine", a clone of a bare "origin"
@@ -133,7 +135,7 @@ func TestACheckoutPatchBranchBuildsTheNewestCopyAndEveryActSaysWhich(t *testing.
 	_, out, _ = c.launch(t, "podman")
 	mustContain(t, "the diverged launch", out, "⚠ fork forkpack/tool: patch branch mine  local "+shortSHA(local)+
 		"  diverged from origin: local "+shortSHA(local)+" has 1 commit origin lacks, origin "+shortSHA(pushed)+
-		" has 2 the local branch lacks — `git -C "+c.machine+" push --force-with-lease -- origin mine` (if you rebased)")
+		" has 2 the local branch lacks — `git -C "+shquote.Quote(c.machine)+" push --force-with-lease -- origin mine` (if you rebased)")
 
 	// A FAILED FETCH never refuses: the local branch builds, not verified, with the fetch to run by hand.
 	if err := os.Rename(c.origin, c.origin+".gone"); err != nil {
@@ -145,7 +147,7 @@ func TestACheckoutPatchBranchBuildsTheNewestCopyAndEveryActSaysWhich(t *testing.
 		t.Fatalf("a failed fetch handed nothing:\n%s", out)
 	}
 	mustContain(t, "the offline launch", out, "⚠ fork forkpack/tool: patch branch mine  local "+shortSHA(local),
-		"not verified (fetch failed: ", "last fetched 2 minutes ago", "`git -C "+c.machine+" fetch -- origin mine`")
+		"not verified (fetch failed: ", "last fetched 2 minutes ago", "`git -C "+shquote.Quote(c.machine)+" fetch -- origin mine`")
 	if exec.Command("git", "-C", c.machine, "show-ref", "--verify", "--quiet", "refs/remotes/origin/mine").Run() != nil {
 		t.Error("the user's remote-tracking ref is gone")
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The broker's own process runs the user's on_request (BB-D75): with the key in the user
@@ -28,7 +29,7 @@ func TestTheBrokerRunsTheUsersOnRequest(t *testing.T) {
 	if err := os.WriteFile(hook, []byte("#!/bin/sh\nprintf '%s' \"$YOLO_BIN\" >'"+binFile+"'\ncat >'"+stdin+"'\necho approve\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	p := startBrokerProcessWith(t, `{"on_request": `+strconv.Quote(hook)+`}`)
+	p := startBrokerProcessWith(t, `{"on_request": `+strconv.Quote(shquote.Quote(hook))+`}`)
 	f, err := brokerscope.ReadFile(p.scopeFile)
 	if err != nil {
 		t.Fatal(err)

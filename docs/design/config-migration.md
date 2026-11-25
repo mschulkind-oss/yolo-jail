@@ -187,9 +187,11 @@ Upgrade with `yolo update`, or `just install` from a checkout. Nothing was start
    workspace's one remote; any other stays, with its exact next step named.
 2. **Rewrites each file where it is, and never merges.** `config.jsonc` → `config.toml`, each
    include → its `.toml` twin with the include entries respelled. A file reached through a
-   symlink is never written through: the link itself moves to `<name>.pre-migrate`, the converted
-   file is a regular file at the new name beside the link, and the file the link points at (a
-   dotfiles copy, say) and its directory are not changed. A linked include whose own include
+   symlink is, when it is renamed, never written through: the link itself moves to
+   `<name>.pre-migrate`, the converted file is a regular file at the new name beside the link, and
+   the file the link points at (a dotfiles copy, say) and its directory are not changed. A TOML
+   file rewritten under its own name is written through its link to the link's target, and the
+   link stays ([RC-D75](../reference/config/rulings.md#RC-D75)). A linked include whose own include
    entries are read beside its target is refused, naming the fix
    ([RC-D41](../reference/config/rulings.md#RC-D41)); a file it cannot reach is listed with the command to run where it can;
    each original kept as `<name>.pre-migrate`, which the output says may be deleted once the new
@@ -295,7 +297,9 @@ moves and the hash of the bytes each one carries.
 | 7. Pack records | Moves each renamed pack's records to its new name (item 9) | The new layout plus the journal; refused as in step 3, and the next run moves what is left |
 | 8. Done | Removes the journal, reads the written files back the way a launch reads them, and respells the records only yolo reads | The new layout, loading exactly as after; a record left unrespelled asks once at the next launch |
 
-An original whose name is a symlink is moved as a link: a link with the same text is made at
+A rewrite in place of a linked TOML file replaces the link's resolved target (staged beside the
+target), keeps the original as `<target>.pre-migrate` there, and leaves the link
+([RC-D75](../reference/config/rulings.md#RC-D75)). An original whose name is a symlink and is renamed is moved as a link: a link with the same text is made at
 `<name>.pre-migrate`, then the old name is removed. Nothing is read or written through it, so the
 file it points at is never part of a step ([RC-D41](../reference/config/rulings.md#RC-D41)). A kill between
 the two finds the backup link made and removes the old name.

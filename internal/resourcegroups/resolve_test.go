@@ -24,7 +24,7 @@ func TestResolveSelectedIOPathsUsesOnlyTheSelectedManagerUnit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(mount, "owner.slice", "io.max"), []byte("8:0 rbps=1000\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mount)
+	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mountInfoEscape(mount))
 	var queries []string
 	readCount := 0
 	paths, err := ResolveSelectedIOPaths("work.slice", func(argv []string) (string, error) {
@@ -83,7 +83,7 @@ func TestResolveSelectedIOPathsRecordsUserManagerOnlyFromTheManagerReply(t *test
 	if err := os.WriteFile(filepath.Join(group, "io.max"), []byte("8:0 rbps=101\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mount)
+	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mountInfoEscape(mount))
 	paths, err := ResolveSelectedIOPaths("work.slice", func(argv []string) (string, error) {
 		if len(argv) > 1 && argv[1] == "--user" {
 			return "/user.slice/work.slice", nil
@@ -104,7 +104,7 @@ func TestResolveSelectedIOPathsDoesNotInferUserAuthorityIfSystemQueryFails(t *te
 	if err := os.WriteFile(filepath.Join(group, "io.max"), []byte("8:0 rbps=101\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mount)
+	mountInfo := fmt.Sprintf("29 23 0:26 / %s rw,nosuid - cgroup2 cgroup rw\n", mountInfoEscape(mount))
 	paths, err := ResolveSelectedIOPaths("work.slice", func(argv []string) (string, error) {
 		if len(argv) > 1 && argv[1] == "--user" {
 			return "/user.slice/work.slice", nil
@@ -125,4 +125,10 @@ func TestResolveSelectedIOPathsRefusesAmbiguousManagerOwnership(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "manager ownership is ambiguous") || calls != 2 {
 		t.Fatalf("ambiguous selected manager result: calls=%d err=%v", calls, err)
 	}
+}
+
+// mountInfoEscape spells a path as /proc/self/mountinfo does: a space, tab, newline or backslash
+// as a three-digit octal escape, so a temp dir with a space in it is one mountinfo field.
+func mountInfoEscape(p string) string {
+	return strings.NewReplacer(`\`, `\134`, " ", `\040`, "\t", `\011`, "\n", `\012`).Replace(p)
 }

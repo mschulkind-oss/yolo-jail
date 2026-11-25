@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/worktreereap"
 )
 
@@ -183,7 +184,7 @@ func TestPiDurableWorktreesExtensionStartsTheReaperOnItsOwnDirectory(t *testing.
 		home := t.TempDir()
 		bin := t.TempDir()
 		record := filepath.Join(bin, "args")
-		script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + record + ".tmp && mv " + record + ".tmp " + record + "\n"
+		script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shquote.Quote(record+".tmp") + " && mv " + shquote.Quote(record+".tmp") + " " + shquote.Quote(record) + "\n"
 		if err := os.WriteFile(filepath.Join(bin, "yolo-jaild"), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}

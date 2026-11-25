@@ -96,6 +96,10 @@ func (d Daemon) Main(argv []string) int {
 	if dir := paths.BrokerSourceDir(d.Source); os.MkdirAll(dir, 0o700) == nil {
 		_ = os.Chdir(dir)
 	}
+	// This host daemon's authority reads (the source's grants, the approval selection) fetch a
+	// selected pack the pack store lacks, in line, and skip it only when that fetch fails; the
+	// fetch logs to this process's stderr like the rest of the daemon.
+	config.EnableMissingPackFetch(os.Stderr)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	l, code := d.NewHandler(ctx, *scopeFile, sf, spawnCwd, os.Stderr)

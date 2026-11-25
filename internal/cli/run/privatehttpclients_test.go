@@ -30,6 +30,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 func TestSelectedHTTPClientPreparedInputUsesActualLaunchInputProducer(t *testing.T) {
@@ -616,7 +617,7 @@ prefix = "Bearer "
 		t.Fatal("a podman launch adopted another runtime's prepared-HTTP ownership record")
 	}
 	if got := output.String(); !strings.Contains(got, "container ls --all") || !strings.Contains(got, "container rm --force "+cname) ||
-		!strings.Contains(got, "rm -f -- "+ownerPath+" "+preparedPath) {
+		!strings.Contains(got, "rm -f -- "+shquote.Quote(ownerPath)+" "+shquote.Quote(preparedPath)) {
 		t.Fatalf("the other-runtime refusal does not name that runtime's commands and the files to remove:\n%s", got)
 	}
 	// With the record lost, the sweep must not take the other runtime's published generation for a
@@ -629,7 +630,7 @@ prefix = "Bearer "
 	if producer.writeLaunchInput(selected, cname) {
 		t.Fatal("a podman launch swept another runtime's published prepared generation")
 	}
-	if got := output.String(); !strings.Contains(got, "container rm --force "+cname) || !strings.Contains(got, "rm -f -- "+preparedPath) {
+	if got := output.String(); !strings.Contains(got, "container rm --force "+cname) || !strings.Contains(got, "rm -f -- "+shquote.Quote(preparedPath)) {
 		t.Fatalf("the other-runtime generation refusal does not name the next step:\n%s", got)
 	}
 	if data, err := os.ReadFile(preparedPath); err != nil {
@@ -671,7 +672,7 @@ prefix = "Bearer "
 		t.Fatal("a launch adopted a record naming an unverifiable generation")
 	}
 	if got := output.String(); !strings.Contains(got, "container is gone") || !strings.Contains(got, "deletes only what it can verify") ||
-		!strings.Contains(got, "rm -f -- "+ownerPath+" "+preparedPath) || strings.Contains(got, "not confirmed gone") {
+		!strings.Contains(got, "rm -f -- "+shquote.Quote(ownerPath)+" "+shquote.Quote(preparedPath)) || strings.Contains(got, "not confirmed gone") {
 		t.Fatalf("the unverifiable-file refusal does not name the files to remove by hand and why:\n%s", got)
 	}
 	if err := os.Remove(ownerPath); err != nil {

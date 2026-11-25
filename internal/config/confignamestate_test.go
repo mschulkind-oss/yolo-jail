@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // mintDir is t.TempDir with its symlinks resolved, minted once: on darwin t.TempDir is under
@@ -44,7 +45,7 @@ func TestADanglingConfigLinkRefusesTheLaunchNamingTheLinkAndItsTarget(t *testing
 		t.Fatal("a dangling yolo-jail.jsonc link beside a valid yolo-jail.toml was read as no file")
 	}
 	want := link + " is a symbolic link to swarf/.links/yolo-jail.jsonc, which does not exist. " +
-		"Restore the target (if a dotfiles manager keeps this file, sync it on this machine), or remove the link: rm " + link + ". Nothing was started."
+		"Restore the target (if a dotfiles manager keeps this file, sync it on this machine), or remove the link: rm " + shquote.Quote(link) + ". Nothing was started."
 	if err.Error() != want {
 		t.Fatalf("refusal =\n%s\nwant\n%s", err, want)
 	}
@@ -156,7 +157,7 @@ func TestAConfigNameThatIsALoopOrADirectoryOrUnreadableIsRefused(t *testing.T) {
 	loop := filepath.Join(dir, paths.WorkspaceConfigTOMLName)
 	symlink(t, paths.WorkspaceConfigTOMLName, loop)
 	if _, err := LoadWorkspaceConfig(dir, true, nil); err == nil ||
-		err.Error() != loop+" is a symbolic link that leads back to itself ("+paths.WorkspaceConfigTOMLName+"). Point it at the config file, or remove it: rm "+loop+"." {
+		err.Error() != loop+" is a symbolic link that leads back to itself ("+paths.WorkspaceConfigTOMLName+"). Point it at the config file, or remove it: rm "+shquote.Quote(loop)+"." {
 		t.Fatalf("link loop: %v", err)
 	}
 	if err := os.Remove(loop); err != nil {
@@ -208,8 +209,8 @@ func TestADanglingLegacyConfigLinkNamesItsTargetsTOMLTwin(t *testing.T) {
 	for _, want := range []string{
 		link + " is a symbolic link to ../../.dotfiles/yolo/config.jsonc, which does not exist",
 		twin,
-		"ln -s ../../.dotfiles/yolo/config.toml " + tomlName,
-		"rm " + link,
+		"ln -s ../../.dotfiles/yolo/config.toml " + shquote.Quote(tomlName),
+		"rm " + shquote.Quote(link),
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal does not name %q:\n%v", want, err)

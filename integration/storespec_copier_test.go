@@ -49,6 +49,21 @@ const hostileStorageConf = "[storage]\n" +
 	"[storage.options]\n" +
 	"mountopt = \"nodev\"\n"
 
+// refusedOnTheHostileStore reports whether a bare copy's output is the refusal issue #47
+// reports: the destination rejected because the storage.conf's graphroot cannot be made.
+// The copier's library spelled it "Invalid destination name containers-storage:<ref>"
+// until the 2026-11 nixpkgs bump, which spells it lowercase and appends the cause
+// ("...: mkdir /proc/yolo-issue-47: no such file or directory"). The old shape is accepted
+// as before; the new one counts only when it names the hostile graphroot, so a refusal
+// for any other reason does not pass.
+func refusedOnTheHostileStore(out, ref string) bool {
+	if strings.Contains(out, "Invalid destination name containers-storage:"+ref) {
+		return true
+	}
+	return strings.Contains(out, "invalid destination name containers-storage:"+ref) &&
+		strings.Contains(out, "/proc/yolo-issue-47")
+}
+
 // TestTheHarnessLoadsTheImageTheWayALaunchDoes pins ensureJailImage's own load to
 // the launch's argv: the harness is a delivery path, and a harness that went back
 // to a bare destination would fail only on a host already set up like #47's, as a
@@ -122,7 +137,7 @@ func TestTheCopierObeysANamedStoreOverStorageConf(t *testing.T) {
 
 	t.Run("a bare destination takes its store from storage.conf", func(t *testing.T) {
 		out, err := run(conf, "copy", src, image.ContainersStorageDest(ref))
-		if err == nil || !strings.Contains(out, "Invalid destination name containers-storage:"+ref) {
+		if err == nil || !refusedOnTheHostileStore(out, ref) {
 			t.Fatalf("the bare copy did not fail on the storage.conf's store (err=%v), so this "+
 				"test no longer reproduces issue #47's shape:\n%s", err, out)
 		}
@@ -208,7 +223,7 @@ func TestARootlessCopyLandsInPodmansStoreWhateverStorageConfSays(t *testing.T) {
 
 	bare := launchArgv(image.ContainersStorageDest(ref))
 	if out, err := execx.NixClosureCommand(bare[0], bare[1:]...).CombinedOutput(); err == nil ||
-		!strings.Contains(string(out), "Invalid destination name") {
+		!refusedOnTheHostileStore(string(out), ref) {
 		t.Fatalf("the bare destination did not fail on the storage.conf's store (err=%v), so "+
 			"this setup does not reproduce issue #47:\n%s", err, out)
 	}

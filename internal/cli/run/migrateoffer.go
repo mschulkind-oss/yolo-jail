@@ -125,13 +125,11 @@ func (o *Options) offerConfigMigration() bool {
 		pr.print("  Stop asking:  " + stop)
 	}
 	pr.print("")
-	// A linked file is never written through: the link moves aside, a regular file takes its
+	// A renamed link is never written through: the link moves aside, a regular file takes its
 	// place, and the file it points at is not changed, so a dotfiles manager needs the new file
-	// copied in by hand (RC-D41).
-	// Read before Plan, which marks the user config for a ceiling rewrite and so changes what
-	// Linked answers: the links said here are the ones the discovery knew.
-	saidLinked := graph.Linked()
-	if w := configmigrate.LinkWarning(saidLinked); w != "" {
+	// copied in by hand (RC-D41). A file rewritten under its own name is written through its
+	// link, which stays (RC-D75), and is said below with the other in-place rewrites.
+	if w := configmigrate.LinkWarning(graph.Linked()); w != "" {
 		pr.print(richtext.Escape(w))
 		pr.print("")
 	}
@@ -151,10 +149,6 @@ func (o *Options) offerConfigMigration() bool {
 	// list above cannot show is a file only the plan knows it rewrites (a ceiling line, a renamed
 	// pack), which is why this reads the plan's targets, not the graph.
 	if planErr == nil {
-		linked := map[string]bool{}
-		for _, l := range saidLinked {
-			linked[l.Link] = true
-		}
 		for _, t := range plan.Targets {
 			why := t.Why()
 			if why == "" {
@@ -162,9 +156,9 @@ func (o *Options) offerConfigMigration() bool {
 			}
 			pr.printf("Converting also rewrites [cyan]%s[/cyan] in place: %s. The original is kept as [cyan]%s[/cyan].",
 				richtext.Escape(t.New), richtext.Escape(why), richtext.Escape(t.Backup))
-			if t.LinkText != "" && !linked[t.Old] {
-				pr.print(richtext.Escape(fmt.Sprintf("%s is a link to %s. The rewritten file is a regular file at %s, the link is kept as %s, and %s is not changed; "+
-					"if a dotfiles manager keeps it, copy the new file into it yourself.", t.Old, t.File.Physical, t.New, t.Backup, t.File.Physical)))
+			if t.File.LinkedTarget() != "" {
+				pr.print(richtext.Escape(fmt.Sprintf("%s is a link to %s. The edit is made to %s, the link stays a link, and the original is kept beside the target as %s.",
+					t.File.Logical, t.New, t.New, t.Backup)))
 			}
 			pr.print("")
 		}

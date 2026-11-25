@@ -26,6 +26,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/hostservice"
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
 )
@@ -378,19 +379,19 @@ type fixture struct {
 func sshScript(record, srv, body string) string {
 	if body == "tee" {
 		body = `PATH="$(git --exec-path):$PATH"
-cd ` + srv + ` || exit 1
+cd ` + shquote.Quote(srv) + ` || exit 1
 last=$(printf '%s\n' "$last" | sed "s|'\\/o\\/r.git'|'` + srv + `/o/r.git'|")
-tee ` + record + `/stdin | sh -c "$last"`
+tee ` + shquote.Quote(record+"/stdin") + ` | sh -c "$last"`
 	}
 	if body == "" {
 		body = `PATH="$(git --exec-path):$PATH"
-cd ` + srv + ` || exit 1
+cd ` + shquote.Quote(srv) + ` || exit 1
 last=$(printf '%s\n' "$last" | sed "s|'\\/o\\/r.git'|'` + srv + `/o/r.git'|")
 exec sh -c "$last"`
 	}
 	return `#!/bin/sh
-printf '%s\n' "$@" >> ` + record + `/argv
-env > ` + record + `/env
+printf '%s\n' "$@" >> ` + shquote.Quote(record+"/argv") + `
+env > ` + shquote.Quote(record+"/env") + `
 for a in "$@"; do last=$a; done
 ` + body + "\n"
 }
@@ -1084,7 +1085,7 @@ func TestReceivePackForwardsTheTeedBytes(t *testing.T) {
 	if err := os.WriteFile(advFile, adv.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f := newFixture(t, "cat "+advFile+"\ncat > "+stdinFile)
+	f := newFixture(t, "cat "+shquote.Quote(advFile)+"\ncat > "+shquote.Quote(stdinFile))
 	f.broker.cover = func(c gitproto.Command) (string, string, bool) { return "create-branch", "create-branch", true }
 
 	const one, zero = "1111111111111111111111111111111111111111", "0000000000000000000000000000000000000000"

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The user part of an SSH remote reaches ssh's argv, where an ssh config's %r expands it: one
@@ -69,7 +70,7 @@ func TestEmptyPushForwardsOnlyTheJudgedBytes(t *testing.T) {
 	if err := os.WriteFile(advFile, adv.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	f := newFixture(t, "cat "+advFile+"\ncat > "+stdinFile)
+	f := newFixture(t, "cat "+shquote.Quote(advFile)+"\ncat > "+shquote.Quote(stdinFile))
 	f.helper(origin, serviceReceivePack, []byte("0000unjudged-bytes"))
 	got, err := os.ReadFile(stdinFile)
 	if err != nil || string(got) != "0000" {

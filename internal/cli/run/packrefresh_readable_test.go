@@ -1,6 +1,7 @@
 package run
 
 import (
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,7 +136,7 @@ func TestLaunchRefreshUsesReadableOmittedRefAndRecordsRemoteDefault(t *testing.T
 		t.Fatalf("fresh read-only resolution = %+v, %v", resolved, err)
 	}
 	version, err := os.ReadFile(filepath.Join(resolved.Pack.Root, "version"))
-	if err != nil || string(version) != "first\n" || entries[0].Source != "git+file://"+filepath.ToSlash(remote)+"//tools" {
+	if err != nil || string(version) != "first\n" || entries[0].Source != "git+file://"+(&url.URL{Path: filepath.ToSlash(remote)}).EscapedPath()+"//tools" {
 		t.Fatalf("resolution changed pinned content or authored source: version %q err %v source %q", version, err, entries[0].Source)
 	}
 }

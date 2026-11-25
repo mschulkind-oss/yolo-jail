@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
@@ -33,8 +34,10 @@ func validateReadableProfileSelection(value any) error {
 
 // readableBrokerSelection resolves one strict user snapshot to selected broker declarations.
 // Filtered roots stay leased through the closure and declaration reads; the returned metadata is detached.
-// A selected pack whose LOCAL source directory is gone is left out and named in notes
-// (vanishedLocalPack); every other failure to resolve a selected pack still fails the whole read.
+// A selected remote pack the store lacks is fetched in line and read (fetchMissingPackNow); one
+// whose artifact stays missing (a failed fetch, a vanished local directory) is left out and named
+// in notes (skippableMissingPack); every other failure to resolve a selected pack still fails the
+// whole read.
 func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string, []ReadableBrokerDeclaration, []ReadablePackDeclaration, []string, error) {
 	entries, problems := lowerReadablePackEntries(user, sources)
 	if len(problems) != 0 {
@@ -48,13 +51,20 @@ func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string
 			_ = os.RemoveAll(root)
 		}
 	}()
-	var notes []string
+	var notes, skipped []string
 	embeddedNames := packload.EmbeddedNames()
-	resolve := func(entry PackEntry) (*packload.Pack, error) {
-		if missing, source := vanishedLocalPack(entry, embeddedNames); missing {
-			notes = append(notes, vanishedPackNote(entry, source))
-			return nil, nil
+	skip := func(entry PackEntry, err, fetchErr error) bool {
+		note, _, ok := skippableMissingPack(entry, err, fetchErr, entries, embeddedNames)
+		if !ok {
+			return false
 		}
+		if !slices.Contains(notes, note) {
+			notes = append(notes, note)
+			skipped = append(skipped, entry.Name)
+		}
+		return true
+	}
+	resolveOnce := func(entry PackEntry) (*packload.Pack, error) {
 		spec := ResolvePackSpec{ReadOnlyStore: true}
 		if len(entry.Only) > 0 || len(entry.Exclude) > 0 {
 			root, err := os.MkdirTemp("", "yolo-readable-broker-pack-")
@@ -75,6 +85,32 @@ func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string
 			return nil, fmt.Errorf("pack %s declaration problems: %v", entry.Name, resolved.Problems)
 		}
 		return resolved.Pack, nil
+	}
+	resolve := func(entry PackEntry) (*packload.Pack, error) {
+		if skip(entry, nil, nil) {
+			return nil, nil
+		}
+		pack, err := resolveOnce(entry)
+		if err == nil {
+			return pack, nil
+		}
+		// A pack the store lacks is fetched, here, as a launch would, and read; the missing state
+		// normally just disappears. Only a fetch that fails leaves it skipped, with its error.
+		var fetchErr error
+		if _, fetchable, ok := skippableMissingPack(entry, err, nil, entries, embeddedNames); ok && fetchable {
+			if attempted, ferr := fetchMissingPackNow(entry); attempted {
+				if ferr == nil {
+					if pack, err = resolveOnce(entry); err == nil {
+						return pack, nil
+					}
+				}
+				fetchErr = ferr
+			}
+		}
+		if skip(entry, err, fetchErr) {
+			return nil, nil
+		}
+		return nil, err
 	}
 
 	var profileErr, profilesErr, viaErr error
@@ -149,6 +185,9 @@ func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string
 	}
 
 	packs := sel.Packs()
+	if err := skippedProfileProblem(user, packs, userProfiles, skipped); err != nil {
+		return nil, nil, nil, nil, err
+	}
 	selected := make([]string, 0, len(packs))
 	for _, pack := range packs {
 		if pack == nil || pack.Name == "" {

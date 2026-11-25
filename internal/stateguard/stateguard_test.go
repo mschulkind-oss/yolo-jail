@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // workspace makes a workspace with a `.yolo`, a durable dir and a setup home holding two bind
@@ -330,7 +331,7 @@ func TestTheWarningNamesTheStepForTheSetup(t *testing.T) {
 	}
 	f := Check(s)
 	mounted := strings.Join(Warning(f, ws, Mounted), "\n")
-	for _, want := range []string{"still intact inside the running jail", "mv <where you moved it> " + filepath.Join(ws, ".yolo"), filepath.Join(ws, ".yolo", "rescue")} {
+	for _, want := range []string{"still intact inside the running jail", "mv <where you moved it> " + shquote.Quote(filepath.Join(ws, ".yolo")), filepath.Join(ws, ".yolo", "rescue")} {
 		if !strings.Contains(mounted, want) {
 			t.Errorf("the mounted warning lacks %q:\n%s", want, mounted)
 		}

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // These tests hold the package to the real git: a local `git push` runs a fake receive-pack
@@ -126,7 +128,7 @@ func TestRealGitPushReadsAndIsRefused(t *testing.T) {
 			extraEnv = []string{helperEnv + "=1", "GITPROTO_TEST_BINARY=" + exe, "GITPROTO_HEAD=" + head,
 				"GITPROTO_RECORD=" + record}
 			t.Cleanup(func() { extraEnv = nil })
-			args := append([]string{"push", "--receive-pack=" + script, "file://" + filepath.Join(home, "nowhere")}, tc.args...)
+			args := append([]string{"push", "--receive-pack=" + shquote.Quote(script), "file://" + filepath.Join(home, "nowhere")}, tc.args...)
 			_, stderr, err := git(repo, args...)
 			if err == nil {
 				t.Fatalf("the refused push succeeded:\n%s", stderr)

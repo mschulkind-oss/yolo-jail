@@ -28,6 +28,9 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 	selected := map[string]*brokerstore.Store{}
 	owners := map[string]string{}
 	var diagnostics []string
+	// A selected pack the pack store lacks is fetched here, as a launch fetches it, so approvals
+	// keep working without a manual fetch; only a failed fetch leaves it skipped, with its error.
+	config.EnableMissingPackFetch(os.Stderr)
 	packs, skipped, problems, complete := config.UserScopeSelectedPacksWithNotes()
 	defer packload.ReleaseEmbedded()
 	// A pack whose local source is gone declares nothing, so it leaves the selection complete; it

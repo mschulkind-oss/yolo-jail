@@ -25,10 +25,11 @@ func TestTheOffersYesIsRecordedInTheConfigChangesLog(t *testing.T) {
 }
 
 // A linked user config the conversion rewrites for its ceiling lines is disclosed before the
-// question as what it is: a link that is replaced by a regular file, the link kept as
-// <name>.pre-migrate, and why it is touched at all. The owner answered y to an offer that named
-// only the workspace file and found the dotfiles link detached (2026-11-18).
-func TestTheOfferSaysAUserConfigLinkIsReplacedByARegularFile(t *testing.T) {
+// question as what it is: a file reached through a link whose target is edited in place, the link
+// staying a link, and why it is touched at all (RC-D75). The owner answered y to an offer that
+// named only the workspace file and found the dotfiles link detached (2026-11-18), then ruled a
+// same-name rewrite goes through the link (2026-11-24).
+func TestTheOfferSaysALinkedRespellEditsTheTarget(t *testing.T) {
 	var userPath, target string
 	l := runOfferLaunchWith(t, "{}\n", true, "", func(o *Options) {
 		o.Stdin = &lineReader{lines: []string{"n\n"}}
@@ -58,7 +59,7 @@ func TestTheOfferSaysAUserConfigLinkIsReplacedByARegularFile(t *testing.T) {
 		t.Fatalf("no question:\n%s", s)
 	}
 	before := s[:q]
-	for _, want := range []string{userPath + " is a link to " + target, "regular file", userPath + ".pre-migrate"} {
+	for _, want := range []string{userPath + " is a link to " + target, "the link stays a link", target + ".pre-migrate"} {
 		if !strings.Contains(before, want) {
 			t.Errorf("the offer does not say %q before the question:\n%s", want, before)
 		}

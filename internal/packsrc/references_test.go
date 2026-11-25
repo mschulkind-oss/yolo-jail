@@ -119,7 +119,7 @@ func TestParseNamedGitSourceRefFlowsThroughRefreshAndLock(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wantSource := "git+file://" + filepath.ToSlash(remote) + "//tools?ref=" + url.QueryEscape(tc.ref)
+			wantSource := "git+file://" + (&url.URL{Path: filepath.ToSlash(remote)}).EscapedPath() + "//tools?ref=" + url.QueryEscape(tc.ref)
 			if ref.Source != wantSource || ref.AllowDefaultRef {
 				t.Fatalf("named git reference = %+v, want source %q with default-ref disabled", ref, wantSource)
 			}

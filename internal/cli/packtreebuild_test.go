@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The placement script is pinned whole, then RUN through bash in a temp HOME with a fake staged
@@ -41,7 +42,7 @@ make
 	writeFile(t, filepath.Join(src, "VERSION"), "7\n")
 	// A trailing comment on the build line must not swallow the placement after it.
 	build := `mkdir -p dist && printf '#!/bin/sh\necho board-%s\n' "$(cat VERSION)" > dist/board # make it`
-	script := strings.ReplaceAll(packTreePlacementScript("board", "dist/board", build), "/workspace/src", src)
+	script := strings.ReplaceAll(packTreePlacementScript("board", "dist/board", build), "/workspace/src", shquote.Quote(src))
 	cmd := exec.Command("bash", "-c", script)
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	if out, err := cmd.CombinedOutput(); err != nil {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // privatePathFixture is a bound jail's home with its launchers generated, a fake mise-installed
@@ -41,13 +43,14 @@ func newPrivatePathFixture(t *testing.T, bound bool) privatePathFixture {
 		t.Fatal(err)
 	}
 	stub := `#!/bin/sh
+fake=` + shquote.Quote(f.fake) + `
 case "$1" in
-env) echo 'export PATH=` + f.fake + `:"$PATH"' ;;
+env) echo 'export PATH="'"$fake"'":"$PATH"' ;;
 activate) cat <<'ACT'
-export PATH=` + f.fake + `:"$PATH"
-_mise_hook_prompt_command() { PATH=` + f.fake + `:"$PATH"; }
+export PATH=` + shquote.Quote(f.fake) + `:"$PATH"
+_mise_hook_prompt_command() { PATH=` + shquote.Quote(f.fake) + `:"$PATH"; }
 PROMPT_COMMAND="_mise_hook_prompt_command${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
-_mise_hook_chpwd() { PATH=` + f.fake + `:"$PATH"; }
+_mise_hook_chpwd() { PATH=` + shquote.Quote(f.fake) + `:"$PATH"; }
 chpwd_functions+=(_mise_hook_chpwd)
 cd() { builtin cd "$@" && for h in "${chpwd_functions[@]}"; do "$h"; done; }
 ACT

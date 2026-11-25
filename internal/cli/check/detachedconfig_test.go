@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // A user config that is a regular file with a <name>.pre-migrate symlink beside it is a config
@@ -32,8 +34,8 @@ func TestADetachedUserConfigIsAWarningNamingTheRestore(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("warned %d, want 1:\n%s", n, out)
 	}
-	for _, want := range []string{"../dotfiles/yolo/config.toml", "mv " + cfg + " " + cfg + ".detached",
-		"mv " + cfg + ".pre-migrate " + cfg} {
+	for _, want := range []string{"../dotfiles/yolo/config.toml", "mv " + shquote.Quote(cfg) + " " + shquote.Quote(cfg+".detached"),
+		"mv " + shquote.Quote(cfg+".pre-migrate") + " " + shquote.Quote(cfg)} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the finding lacks %q:\n%s", want, out)
 		}

@@ -54,6 +54,9 @@ func (p *MigrationPlan) Transcript() string {
 	for _, t := range p.Targets {
 		fmt.Fprintf(&b, "\n--- %s\n+++ %s\n", t.Old, t.New)
 		if t.New == t.Old {
+			if t.File.LinkedTarget() != "" {
+				fmt.Fprintf(&b, "  (%s is a link to this file and stays a link: the file it points at is edited in place)\n", t.File.Logical)
+			}
 			if len(t.Respelled) > 0 {
 				fmt.Fprintf(&b, "  (include %s respelled to its .toml twin)\n", strings.Join(t.Respelled, ", "))
 			}

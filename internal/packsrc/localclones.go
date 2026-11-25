@@ -39,6 +39,7 @@ import (
 	"sync"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // LocalClone is one clone the local clone map holds.
@@ -226,7 +227,7 @@ func (s *Store) chooseCloneFrom(c Addr, clones []LocalClone) cloneChoice {
 	if strings.TrimSpace(sha) == "" {
 		return notUsed("the clone has no " + tracking + ", so the branch is not one the published repository " +
 			"has as far as the clone knows (a local-only branch, or another remote's, never stands in for the " +
-			"URL) — if it is pushed, `git -C " + m.Clone.Dir + " fetch " + m.Remote.Name + "` and the next launch uses " +
+			"URL) — if it is pushed, `git -C " + shquote.QuoteDisplay(m.Clone.Dir) + " fetch " + m.Remote.Name + "` and the next launch uses " +
 			"the clone")
 	}
 	return cloneChoice{match: m, fetchURL: fetchURL}

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The guardrails pack's mv and rm guards reach the program `yolo host --` starts, protecting the
@@ -23,7 +25,7 @@ func TestHostLaunchGuardsTheLaunchDirectorysDotYolo(t *testing.T) {
 		if err != nil {
 			t.Fatalf("no %s guard in %s: %v", tool, blockDir, err)
 		}
-		if !strings.Contains(string(body), "_yg_ws="+ws+"\n") {
+		if !strings.Contains(string(body), "_yg_ws="+shquote.Quote(ws)+"\n") {
 			t.Errorf("the %s guard does not protect the launch directory %s:\n%s", tool, ws, body)
 		}
 	}

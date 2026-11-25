@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 func TestCheckAdvisesMigratingALegacyLocalPack(t *testing.T) {
@@ -44,7 +45,7 @@ func TestCheckAdvisesMigratingALegacyLocalPack(t *testing.T) {
 			if r.failed != 0 {
 				t.Fatalf("the pack failed the check:\n%s", out)
 			}
-			want := "`yolo pack migrate " + dir + "`"
+			want := "`yolo pack migrate " + shquote.Quote(dir) + "`"
 			if got := strings.Count(out, want); tc.advised && got != 1 {
 				t.Errorf("want one advice line naming %s, got %d:\n%s", want, got, out)
 			}

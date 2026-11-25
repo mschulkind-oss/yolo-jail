@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // fakeYolo is a `yolo` on PATH that records its argv, one line per call, and exits rc.
@@ -13,7 +15,7 @@ func fakeYolo(t *testing.T, rc string) (dir, calls string) {
 	t.Helper()
 	dir = t.TempDir()
 	calls = filepath.Join(t.TempDir(), "calls")
-	body := "#!/bin/sh\necho \"$*\" >> " + calls + "\nexit " + rc + "\n"
+	body := "#!/bin/sh\necho \"$*\" >> " + shquote.Quote(calls) + "\nexit " + rc + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "yolo"), []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}

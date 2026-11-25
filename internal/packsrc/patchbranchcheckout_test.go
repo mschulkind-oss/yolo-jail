@@ -179,7 +179,7 @@ func TestADivergedLocalBranchWinsWithTheWarningAndTheFix(t *testing.T) {
 	}
 	wantLine(t, r, f.now, "mine  local "+shortCommit(local), "diverged from origin",
 		"local "+shortCommit(local)+" has 1 commit origin lacks", "origin "+shortCommit(pushed)+" has 2 the local branch lacks",
-		"`git -C "+f.machine+" push --force-with-lease -- origin mine` (if you rebased)", "fetched just now")
+		"`git -C "+shquote.Quote(f.machine)+" push --force-with-lease -- origin mine` (if you rebased)", "fetched just now")
 }
 
 func TestAFailedFetchBuildsTheBestCopyAndSaysNotVerified(t *testing.T) {
@@ -199,7 +199,7 @@ func TestAFailedFetchBuildsTheBestCopyAndSaysNotVerified(t *testing.T) {
 		t.Errorf("a launch whose fetch failed changed the user's repository:\nbefore %s\nafter %s", before, after)
 	}
 	wantLine(t, r, f.now, "mine  origin "+shortCommit(tip), "not verified", "last fetched 3 hours ago",
-		"`git -C "+f.machine+" fetch -- origin mine`")
+		"`git -C "+shquote.Quote(f.machine)+" fetch -- origin mine`")
 
 	// With a local branch, the local branch answers a failed fetch.
 	local := f.localMine(t, tip, 1)
@@ -326,7 +326,7 @@ func TestABranchDeletedOnOriginWithNoLocalBuildsTheStaleTrackingRefLoudly(t *tes
 		t.Fatalf("resolved = %+v, want the stale tracking ref's %s, loud", r, stale)
 	}
 	wantLine(t, r, f.now, "mine  origin "+shortCommit(stale)+"  not on origin (stale tracking ref)",
-		"`git -C "+f.machine+" push -- origin refs/remotes/origin/mine:refs/heads/mine`")
+		"`git -C "+shquote.Quote(f.machine)+" push -- origin refs/remotes/origin/mine:refs/heads/mine`")
 }
 
 func TestAFailedFetchWithNoMirrorFallsBackToTheTrackingRefThenATagThenRefuses(t *testing.T) {

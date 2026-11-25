@@ -30,8 +30,8 @@ func commitFixture(t *testing.T) (string, string, Request) {
 		t.Fatal(err)
 	}
 	ws := realDir(t)
-	// The workspace's TOML file is a link too, so a respelled parent that is a link is moved
-	// aside and replaced by a regular file; the local file is a regular respelled parent.
+	// The workspace's TOML file is a link too, so a respelled parent that is a link is written
+	// through to its target and stays a link (RC-D75); the local file is a regular respelled parent.
 	write(t, filepath.Join(home, "dotfiles", "ws", "yolo-jail.toml"), "include_if_found = [\"extra.jsonc\"]\n")
 	if err := os.Symlink(filepath.Join(home, "dotfiles", "ws", "yolo-jail.toml"), filepath.Join(ws, "yolo-jail.toml")); err != nil {
 		t.Fatal(err)
@@ -73,7 +73,7 @@ func TestAKillAtEveryCommitStepRollsForward(t *testing.T) {
 		for _, s := range commitSteps(p.Targets) {
 			kinds[s.Kind+map[bool]string{true: "+link"}[s.Text != ""]] = true
 		}
-		for _, k := range []string{stepPlace, stepBackup, stepBackup + "+link", stepReplace, stepReplace + "+link"} {
+		for _, k := range []string{stepPlace, stepBackup, stepBackup + "+link", stepReplace} {
 			if !kinds[k] {
 				t.Errorf("the fixture makes no %s step; it must reach every kind (%v)", k, kinds)
 			}
@@ -82,8 +82,19 @@ func TestAKillAtEveryCommitStepRollsForward(t *testing.T) {
 			t.Fatal(err)
 		}
 		want = normalized(t, home, ws)
-		if got := treeState(t, filepath.Join(home, "dotfiles")); !reflect.DeepEqual(got, dots) {
-			t.Errorf("the conversion changed the dotfiles tree:\ngot  %v\nwant %v", got, dots)
+		// Only the respelled link's target, and its backup beside it, change in the dotfiles tree;
+		// the renamed link's target is untouched, and the respelled link is still a link.
+		got := treeState(t, filepath.Join(home, "dotfiles"))
+		for k, v := range dots {
+			if k != "ws/yolo-jail.toml" && got[k] != v {
+				t.Errorf("the conversion changed %s in the dotfiles tree: %q, want %q", k, got[k], v)
+			}
+		}
+		if got["ws/yolo-jail.toml"] != `include_if_found = ["extra.toml"]`+"\n" || got["ws/yolo-jail.toml.pre-migrate"] != dots["ws/yolo-jail.toml"] {
+			t.Errorf("the linked respell was not written through to its target: %v", got)
+		}
+		if _, err := os.Readlink(filepath.Join(ws, "yolo-jail.toml")); err != nil {
+			t.Errorf("the respelled workspace file is no longer a link: %v", err)
 		}
 	})
 	if steps < 8 {
