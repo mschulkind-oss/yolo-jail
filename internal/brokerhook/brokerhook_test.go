@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // fixture is a store whose decisions are recorded as the audit sees them, and a request to
@@ -47,7 +48,9 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
-// script writes an executable hook; its body runs under /bin/sh.
+// script writes an executable hook (its body runs under /bin/sh) and returns the shell command
+// that runs it: the path, quoted, since a hook is run as `/bin/sh -c command` and a temp dir may
+// hold a space.
 func (f *fixture) script(t *testing.T, name, body string) string {
 	t.Helper()
 	if _, err := os.Stat("/bin/sh"); err != nil {
@@ -57,7 +60,7 @@ func (f *fixture) script(t *testing.T, name, body string) string {
 	if err := os.WriteFile(p, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return p
+	return shquote.Quote(p)
 }
 
 // run starts a runner for lifetime "start" and returns its stop.
