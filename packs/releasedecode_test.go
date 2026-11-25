@@ -993,7 +993,7 @@ func TestKnownSkippedReleaseBreakMatchesOnlyTheListedField(t *testing.T) {
 		{"not a skipped program", "v0.15.1", "claude", `unknown field "sandbox_tmpdir_env"`},
 		{"a skipped provider's other field", "v0.15.1", "claude-auth", `skipping the provider contribution "anthropic" — unknown field "pinned_endpoint_typo"`},
 		{"a skipped kind the list does not name", "v0.15.1", "claude-auth", `skipping the loophole contribution "x" — unknown field "pinned_endpoint"`},
-		{"env wrong release", "v0.16.1", "pi", envDiagnostic},
+		{"env later release", "v0.17.1", "pi", envDiagnostic},
 		{"env wrong pack", "v0.17.0", "claude", envDiagnostic},
 		{"env different field", "v0.17.0", "pi", `skipping the env contribution — unknown field "jail_only_typo"`},
 		{"env not a skip", "v0.17.0", "pi", `unknown field "jail_only"`},
@@ -1019,7 +1019,7 @@ func TestKnownSkippedReleaseKindBreakMatchesOnlyTheListedKind(t *testing.T) {
 	for _, tc := range []struct {
 		name, release, pack, diagnostic string
 	}{
-		{"wrong release", "v0.16.0", "codex", diagnostic},
+		{"later release", "v0.16.2", "codex", diagnostic},
 		{"wrong pack", "v0.16.1", "claude", diagnostic},
 		{"different kind", "v0.16.1", "codex", `skipping unknown kind "mcp-auth-typo"`},
 		{"not an unknown-kind skip", "v0.16.1", "codex", `unknown kind "mcp-auth"`},
