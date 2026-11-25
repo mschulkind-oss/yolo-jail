@@ -13,6 +13,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 	"github.com/mschulkind-oss/yolo-jail/internal/skillimports"
 	"github.com/mschulkind-oss/yolo-jail/internal/testconfig"
 )
@@ -43,7 +44,7 @@ func TestSkillsJailedCommandsKeepHostStateOnHost(t *testing.T) {
 	} {
 		command := strings.Join(append([]string{"yolo", "skills"}, args[1:]...), " ")
 		rc, out, errOut := captureStd(t, func() int { return registry["skills"](args) })
-		if rc == 0 || out != "" || !strings.Contains(errOut, "nothing ran here") || !strings.Contains(errOut, "yolo host-run -C "+fx.workspace+" -- "+command) {
+		if rc == 0 || out != "" || !strings.Contains(errOut, "nothing ran here") || !strings.Contains(errOut, "yolo host-run -C "+shquote.Quote(fx.workspace)+" -- "+command) {
 			t.Fatalf("jailed %s rc=%d stdout=%q stderr=%q", args[1], rc, out, errOut)
 		}
 	}
@@ -61,7 +62,7 @@ func TestSkillsJailedListAndRemoveUseWorkspaceOnly(t *testing.T) {
 	t.Setenv("YOLO_WORKSPACE", fx.workspace)
 	t.Setenv("YOLO_HOST_DIR", fx.workspace)
 	rc, out, errOut := captureStd(t, func() int { return registry["skills"]([]string{"skills", "list"}) })
-	if rc != 0 || !strings.Contains(out, "acme: moving ref") || !strings.Contains(out, "host-side") || !strings.Contains(errOut, "yolo host-run -C "+fx.workspace+" -- yolo skills list") {
+	if rc != 0 || !strings.Contains(out, "acme: moving ref") || !strings.Contains(out, "host-side") || !strings.Contains(errOut, "yolo host-run -C "+shquote.Quote(fx.workspace)+" -- yolo skills list") {
 		t.Fatalf("jailed list rc=%d stdout=%q stderr=%q", rc, out, errOut)
 	}
 	if _, err := os.Stat(paths.GlobalStorage()); !os.IsNotExist(err) {

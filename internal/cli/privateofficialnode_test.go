@@ -69,6 +69,12 @@ func privateOfficialNode(ctx context.Context, home, floor, userConfig string, w 
 }
 
 func privateOfficialNodePair(root string) error {
+	// A temp root may sit under a symlink (macOS /var, a linked TMPDIR); the
+	// escape test compares against the root's own physical spelling.
+	physRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
 	for _, name := range []string{"node", "npm"} {
 		path := filepath.Join(root, "tools", name)
 		info, err := os.Lstat(path)
@@ -76,7 +82,7 @@ func privateOfficialNodePair(root string) error {
 			return fmt.Errorf("private node pair missing or linked: %s", name)
 		}
 		resolved, err := filepath.EvalSymlinks(path)
-		if err != nil || resolved != path {
+		if err != nil || resolved != filepath.Join(physRoot, "tools", name) {
 			return fmt.Errorf("private node pair escapes its owned anchor: %s", name)
 		}
 	}
