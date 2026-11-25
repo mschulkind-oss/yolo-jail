@@ -108,6 +108,23 @@ func TestFreshSourcedPayloadTreeAndRecordedAttachIgnoreDeletedCache(t *testing.T
 	if !o.prepareFreshSkillPayloads(cname, "podman", staged) {
 		t.Fatal(report.String())
 	}
+	// The launch discloses an import in ONE line: repository, short commit,
+	// selected skills and that the whole repository is readable as data; the
+	// full detail is `yolo check`'s (OQ-RO3).
+	launched := report.String()
+	for _, want := range []string{"skills from selected @ ", "1 of 1 (probe)", "repository readable as data", "1 executable files in it"} {
+		if !strings.Contains(launched, want) {
+			t.Fatalf("launch disclosure lacks %q:\n%s", want, launched)
+		}
+	}
+	for _, old := range []string{"payload deployment", "candidates:", "projection ", "origin:"} {
+		if strings.Contains(launched, old) {
+			t.Fatalf("launch prints verbose %q:\n%s", old, launched)
+		}
+	}
+	if n := strings.Count(strings.TrimSpace(launched), "\n"); n != 0 {
+		t.Fatalf("launch disclosure is %d lines, want 1:\n%s", n+1, launched)
+	}
 	row := selected.SourcedSkillRows()[0]
 	if !strings.HasPrefix(row.PayloadRoot, paths.ContextPacksDir+"/"+packload.SkillPayloadTreeDir+"/") {
 		t.Fatalf("podman target %q", row.PayloadRoot)
