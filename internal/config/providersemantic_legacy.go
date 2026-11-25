@@ -245,6 +245,7 @@ func legacyFactsToProviderModel(alias, wire string, flat map[string]*string, off
 	setIntegerAliases([]string{"context_window", "max_context_tokens"}, &model.Context)
 	setIntegerAliases([]string{"max_tokens", "max_output_tokens"}, &model.MaxTokens)
 	setBool("reasoning", &model.Reasoning)
+	setBool("strict_tools", &model.StrictTools)
 	if v, ok := flat["input"]; ok {
 		if v == nil {
 			add("input", "tombstones have no canonical fact-presence representation")
@@ -302,7 +303,7 @@ func legacyFactsToProviderModel(alias, wire string, flat map[string]*string, off
 		p := n
 		*prices[key] = &p
 	}
-	known := map[string]bool{"name": true, "description": true, "vendor": true, "api": true, "base": true, "extends": true, "context_window": true, "max_context_tokens": true, "max_tokens": true, "max_output_tokens": true, "reasoning": true, "input": true, "order": true, "wire_id": true, "cost_input": true, "cost_output": true, "cost_cache_read": true, "cost_cache_write": true}
+	known := map[string]bool{"name": true, "description": true, "vendor": true, "api": true, "base": true, "extends": true, "context_window": true, "max_context_tokens": true, "max_tokens": true, "max_output_tokens": true, "reasoning": true, "strict_tools": true, "input": true, "order": true, "wire_id": true, "cost_input": true, "cost_output": true, "cost_cache_read": true, "cost_cache_write": true}
 	for key := range flat {
 		if !known[key] {
 			add(key, "opaque legacy model fact has no declared canonical mapping")

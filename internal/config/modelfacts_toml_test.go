@@ -102,3 +102,34 @@ floor = { id = "acme/floor" }
 		t.Fatalf("TOML `id` on a row: err = %v, want the refusal to name model", err)
 	}
 }
+
+// A ROW AND A model_facts ENTRY READ `strict_tools` (docs/design/model-lists-and-pickers.md ML-D16):
+// a boolean saying whether the route takes `strict` on tool definitions, never a string.
+func TestAReadableRowAndModelFactsTakeStrictTools(t *testing.T) {
+	if err := loadUserTOML(t, `[providers.ion.every_model]
+strict_tools = true
+
+[providers.ion.models]
+a = { model = "ion/a", strict_tools = false, extends = "shared" }
+
+[model_facts.shared]
+strict_tools = false
+`); err != nil {
+		t.Fatalf("a readable strict_tools was refused: %v", err)
+	}
+	keys := schemaKeyMap(ReadableSchemaKeys())
+	for _, path := range []string{"providers.*.models.*.strict_tools", "providers.*.every_model.strict_tools", "model_facts.*.strict_tools"} {
+		if key, ok := keys[path]; !ok || key.Type != SchemaTypeBoolean || key.Scope != SchemaScopeBoth {
+			t.Errorf("readable schema %q = %+v (present %v), want a boolean in either scope", path, key, ok)
+		}
+	}
+	if err := loadUserTOML(t, "[providers.ion.models]\na = { model = \"ion/a\", strict_tools = \"no\" }\n"); err == nil {
+		t.Errorf("a string strict_tools was accepted")
+	}
+	if errs := modelFactsErrors(t, `{"model_facts": {"m": {"strict_tools": "no"}}}`); len(errs) == 0 {
+		t.Errorf("a string strict_tools in a model_facts entry passed validation")
+	}
+	if errs := modelFactsErrors(t, `{"model_facts": {"m": {"strict_tools": false}}}`); len(errs) != 0 {
+		t.Errorf("a boolean strict_tools in a model_facts entry was refused: %v", errs)
+	}
+}

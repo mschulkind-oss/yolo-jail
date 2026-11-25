@@ -398,6 +398,10 @@ func MergeProviderModel(base, overlay packdecl.ProviderModel) packdecl.ProviderM
 		value := *overlay.Reasoning
 		base.Reasoning = &value
 	}
+	if overlay.StrictTools != nil {
+		value := *overlay.StrictTools
+		base.StrictTools = &value
+	}
 	if overlay.Accepts != nil {
 		base.Accepts = modelRowStrings(overlay.Accepts)
 	}
@@ -555,6 +559,9 @@ func ProjectProviderModelsForLegacyDerives(models ReadableModels) (LegacyDeriveP
 		}
 		if facts.Reasoning != nil {
 			flat.Set("reasoning", strconv.FormatBool(*facts.Reasoning))
+		}
+		if facts.StrictTools != nil {
+			flat.Set("strict_tools", strconv.FormatBool(*facts.StrictTools))
 		}
 		if len(facts.Accepts) > 0 {
 			flat.Set("input", strings.Join(facts.Accepts, ","))

@@ -246,6 +246,19 @@ local function piModelFacts(mopts, prov, ctx, provName, statedCost)
     facts = facts or {}
     facts.reasoning = reasoning
   end
+  -- THE ROUTE REFUSES STRICT TOOLS (`strict_tools = false`, ML-D16): pi sends `strict` on a tool
+  -- whose schema allows it unless the row's compat says `supportsStrictMode: false`. A models.json
+  -- row carries pi's own compat spelling. A menu row (statedCost) carries the yolo fact and the
+  -- extension lowers it, merged over the catalog's compat as it does the OpenRouter pin.
+  local strictTools = piCompatBoolean(fact("strict_tools"))
+  if strictTools ~= nil then
+    facts = facts or {}
+    if statedCost then
+      facts.strict_tools = strictTools
+    else
+      facts.compat = { supportsStrictMode = strictTools }
+    end
+  end
   local input = fact("input")
   if type(input) == "string" and input ~= "" then
     local mods, seen = {}, {}
@@ -881,7 +894,8 @@ yolo.derive("pi", "models", function(ctx)
           -- here would otherwise be silently unpinned (`yolo check` names a pin no request carries).
           local routing = type(prov.model_routing) == "table" and prov.model_routing[alias] or nil
           if type(routing) == "table" and next(routing) ~= nil then
-            m.compat = { openRouterRouting = routing }
+            m.compat = m.compat or {}
+            m.compat.openRouterRouting = routing
           end
           -- A tombstoned fact (ML-D10) is left out, the provider-wide fallback included, so pi
           -- applies its own default for the field.
@@ -1804,11 +1818,12 @@ yolo.derive("pi", "model-lists", function(ctx)
     -- refuses a model outside it (OQ-MM3).
     local hasRouting = type(prov) == "table" and type(prov.model_routing) == "table" and
       next(prov.model_routing) ~= nil
-    -- So does a `wire_id` or a `base` on a provider pi has built in: pi writes no models.json row
+    -- So does a `strict_tools`, a `wire_id` or a `base` on a provider pi has built in: pi writes no models.json row
     -- for it (OQ-3), so a twin's client id or a variant's catalog base reaches pi only here.
     if not hasRouting and type(own) == "table" and type(prov.model_options) == "table" then
       for _, mo in pairs(prov.model_options) do
-        if type(mo) == "table" and (piWireId(mo) or (type(mo.base) == "string" and mo.base ~= "")) then
+        if type(mo) == "table" and (piWireId(mo) or piCompatBoolean(mo.strict_tools) ~= nil or
+            (type(mo.base) == "string" and mo.base ~= "")) then
           hasRouting = true
         end
       end

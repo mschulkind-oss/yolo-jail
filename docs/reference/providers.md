@@ -1920,6 +1920,16 @@ pi resolves `wireId` only in a build that reads it (stock pi 1.0.1 has no such f
 row's `id`), and no other agent reads it. There is no `variants` key: config validation refuses
 it, and pi's camelCase `wireId`, naming the alias-per-variant form and `wire_id`.
 
+<a id="strict-tools"></a>**A route that refuses strict tools: `strict_tools`.** pi sends `strict` on every
+tool definition whose schema allows it, and a gateway that rejects a request mixing strict and
+non-strict tools (the Ionstream route) refuses the first request of every fresh session until
+pi's adapter drops the keys and retries. A row, `every_model` or a `model_facts` entry says so in
+advance with `strict_tools = false` (`true` says the route takes them; leaving it out says
+nothing). packs/pi writes it as pi's own `compat.supportsStrictMode` on the `models.json` row,
+beside any `compat.openRouterRouting`, and the model-lists extension merges it into the
+registered model's compat the same way for a provider pi ships
+([ML-D16](../design/model-lists-and-pickers.md#ML-D16)). No other agent reads it.
+
 The provider's `options` is the **fallback**: a fact common to every model is declared once
 there, and a per-model value overrides it for that alias. The facts are **additive** — an alias
 that declares none renders the same `models.json` row it did before, leaving pi's own defaults

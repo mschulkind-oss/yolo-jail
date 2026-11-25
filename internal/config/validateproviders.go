@@ -321,6 +321,11 @@ func validateModelFactValues(entry *jsonx.OrderedMap, path string, errs *[]strin
 			add(errs, path+".reasoning: expected a boolean")
 		}
 	}
+	if v, ok := entry.Get("strict_tools"); ok && v != nil {
+		if !isBool(v) {
+			add(errs, path+".strict_tools: expected a boolean")
+		}
+	}
 	if v, ok := entry.Get("input"); ok && v != nil {
 		validateModelInput(v, path+".input", errs)
 	}
