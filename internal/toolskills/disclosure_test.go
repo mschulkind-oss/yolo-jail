@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The in-jail lines of docs/design/mise-tool-skills.md section 6.2, one test per row, through the
@@ -102,7 +104,7 @@ func TestRunStepEmptyFirstSnapshotIsSilent(t *testing.T) {
 func TestRunStepDeclaredButNotInstalledNamesMisesLineAndTheNextStep(t *testing.T) {
 	f := newFixture(t)
 	stderr, _ := filepath.Abs(filepath.Join("testdata", "ls-missing.stderr"))
-	m := fakeMise(t, "cat "+stderr+" >&2\necho '[]'")
+	m := fakeMise(t, "cat "+shquote.Quote(stderr)+" >&2\necho '[]'")
 	got := runStepOut(t, f, stepEnv(f, "", "packslip:github.com/jdx/hk"), m)
 	for _, want := range []string{"yolo: mise skills: packslip:github.com/jdx/hk declares skills that are not installed (",
 		"declares a skill hk-debug that is not installed", "Run `mise install` in the workspace, then start a new session."} {
@@ -118,7 +120,7 @@ func TestRunStepDeclaredButNotInstalledNamesMisesLineAndTheNextStep(t *testing.T
 func TestRunStepIgnoresAMissingSkillOfAToolNotOnTheAllowlist(t *testing.T) {
 	f := newFixture(t)
 	stderr, _ := filepath.Abs(filepath.Join("testdata", "ls-missing.stderr"))
-	m := fakeMise(t, "cat "+stderr+" >&2\necho '[]'")
+	m := fakeMise(t, "cat "+shquote.Quote(stderr)+" >&2\necho '[]'")
 	if got := runStepOut(t, f, stepEnv(f, "", "tool-a"), m); got != "" {
 		t.Fatalf("printed %q", got)
 	}

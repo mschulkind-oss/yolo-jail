@@ -13,6 +13,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/entrypoint"
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // mockDeps returns Deps wired to no-op probes with recording hooks. Callers
@@ -213,7 +214,7 @@ func TestAnUnusedReservedPackTreeIsUnsealedAndRemovedAsTheHost(t *testing.T) {
 	d.Run = func([]string) int { return 1 }
 	finishPackTree(d, printer{w: &out}, &packTreeUse{root: root, owned: true})
 	if !strings.Contains(out.String(), "Could not remove guest pack tree") ||
-		!strings.Contains(out.String(), chmodBin+" -R -- u+w "+root) || strings.Contains(out.String(), "sudo") {
+		!strings.Contains(out.String(), chmodBin+" -R -- u+w "+shquote.Quote(root)) || strings.Contains(out.String(), "sudo") {
 		t.Errorf("a failed removal does not name the host's commands:\n%s", out.String())
 	}
 }

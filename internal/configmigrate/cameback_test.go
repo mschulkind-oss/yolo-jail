@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // The owner's report of 2026-11-06: after a migration, a link manager re-created the
@@ -25,7 +27,7 @@ func TestConfigMigrateSaysAJSONCCameBackAsTheLaunchDoes(t *testing.T) {
 	if err == nil {
 		t.Fatal("discovery accepted a TOML beside the JSONC it was converted from")
 	}
-	for _, want := range []string{link + " came back after you migrated to yolo-jail.toml", "\n    rm " + link + "\n"} {
+	for _, want := range []string{link + " came back after you migrated to yolo-jail.toml", "\n    rm " + shquote.Quote(link) + "\n"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("migrate's refusal does not say %q:\n%v", want, err)
 		}

@@ -20,6 +20,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerscope"
 	"github.com/mschulkind-oss/yolo-jail/internal/gitproto"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // https_test.go serves the fixture's bare repository with `git http-backend` behind
@@ -247,8 +248,8 @@ func newHTTPSFixture(t *testing.T, o httpsOpts) *httpsFixture {
 				body = "printf 'username=" + httpsUser + "\\npassword=" + httpsPass + "\\n'"
 			}
 			writeExec(t, filepath.Join(credBin, "git"), `#!/bin/sh
-n=$(ls `+h.credRc+` | wc -l)
-d=`+h.credRc+`/$n-$2
+n=$(ls `+shquote.Quote(h.credRc)+` | wc -l)
+d=`+shquote.Quote(h.credRc)+`/$n-$2
 mkdir -p "$d"
 printf '%s\n' "$@" > "$d/argv"
 pwd > "$d/cwd"

@@ -47,7 +47,9 @@ func countingGit(t *testing.T) (bin string, counts func() map[string]int) {
 func countingGitWith(t *testing.T, body string) (bin string, counts func() map[string]int) {
 	t.Helper()
 	log := filepath.Join(t.TempDir(), "runs")
-	bin = wrappedGit(t, `printf '%s\n' "$*" >> `+shquote.Quote(log)+"\n"+body)
+	// One argument per \037-ended field: an argument may hold a space (a spaced TMPDIR), which
+	// splitting a space-joined line would take for several.
+	bin = wrappedGit(t, `{ for a do printf '%s\037' "$a"; done; echo; } >> `+shquote.Quote(log)+"\n"+body)
 	return bin, func() map[string]int {
 		data, err := os.ReadFile(log)
 		if err != nil && !os.IsNotExist(err) {
@@ -56,7 +58,7 @@ func countingGitWith(t *testing.T, body string) (bin string, counts func() map[s
 		got := map[string]int{}
 		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 			if line != "" {
-				got[gitLabel(strings.Fields(line))]++
+				got[gitLabel(strings.Split(strings.TrimSuffix(line, "\x1f"), "\x1f"))]++
 			}
 		}
 		return got

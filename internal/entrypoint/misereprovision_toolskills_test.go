@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // toolSkillsRun is a `run` for reprovisionMise that executes the stage bytes under sh with a fake
@@ -20,8 +22,8 @@ func toolSkillsRun(t *testing.T, allowlist, yoloRC string) (run func(*Env, strin
 			t.Fatal(err)
 		}
 	}
-	write("mise", "#!/bin/sh\necho \"mise $*\" >> "+log+"\nexit 0\n")
-	write("yolo", "#!/bin/sh\necho \"yolo $*\" >> "+log+"\nexit "+yoloRC+"\n")
+	write("mise", "#!/bin/sh\necho \"mise $*\" >> "+shquote.Quote(log)+"\nexit 0\n")
+	write("yolo", "#!/bin/sh\necho \"yolo $*\" >> "+shquote.Quote(log)+"\nexit "+yoloRC+"\n")
 	run = func(_ *Env, stage string) int {
 		cmd := exec.Command("sh", "-c", stage)
 		cmd.Env = []string{"PATH=" + bin + ":/bin:/usr/bin", "YOLO_MISE_SKILL_TOOLS=" + allowlist}

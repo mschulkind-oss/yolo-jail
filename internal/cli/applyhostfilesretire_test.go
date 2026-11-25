@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // THE CALL SITE of the `files` retire (entrypoint.RenderHostFiles): `yolo host apply --assert`,
@@ -146,7 +148,7 @@ func TestHostApplyGateShowsTheFilesRetire(t *testing.T) {
 			t.Fatalf("the gate refused:\n%s", errw.String())
 		}
 		out := errw.String()
-		for _, want := range []string{"~/.scratch/ext/b.ts: left in place", "rm " + b} {
+		for _, want := range []string{"~/.scratch/ext/b.ts: left in place", "rm " + shquote.Quote(b)} {
 			if !strings.Contains(out, want) {
 				t.Errorf("launch %d: the gate must name the left file (%q):\n%s", i+1, want, out)
 			}

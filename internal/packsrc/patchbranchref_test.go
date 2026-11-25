@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // fetchedOnlyFixture is the reported machine (yolo-fix-requests §28): a publishing repository
@@ -148,7 +150,7 @@ func TestAPatchBranchRefNothingAnswersNamesTheFetchCommand(t *testing.T) {
 	f := newFetchedOnlyFixture(t)
 	res := f.check(t, f.want("patch/missing"), true)
 	p := res.Record.Check.Problem
-	if !strings.Contains(p, "`git -C "+f.machine+" fetch -- origin patch/missing`") ||
+	if !strings.Contains(p, "`git -C "+shquote.Quote(f.machine)+" fetch -- origin patch/missing`") ||
 		!strings.Contains(p, "names no local branch, remote-tracking branch, tag or commit") {
 		t.Fatalf("the check's problem = %q, want the refusal naming the fetch that delivers the ref", p)
 	}

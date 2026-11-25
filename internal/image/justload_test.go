@@ -7,6 +7,8 @@ import (
 	goruntime "runtime"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // justLoadBody is the `load` recipe's shebang body from the repository's Justfile, with its
@@ -62,7 +64,7 @@ func TestJustLoadTakesTheLaunchsDeliveryBranch(t *testing.T) {
 			dir := t.TempDir()
 			bin := filepath.Join(dir, "fakebin")
 			log := filepath.Join(dir, "calls")
-			record := "#!/bin/sh\necho \"$(basename \"$0\") $*\" >> " + log + "\n"
+			record := "#!/bin/sh\necho \"$(basename \"$0\") $*\" >> " + shquote.Quote(log) + "\n"
 			for _, name := range []string{"podman", "container", "go"} {
 				writeExec(t, filepath.Join(bin, name), record)
 			}

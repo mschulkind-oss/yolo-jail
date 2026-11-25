@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // An unreadable identity index is refused naming the command that removes it and why that is
@@ -19,7 +21,7 @@ func TestAnUnreadableIdentityIndexNamesTheCommandThatRemovesIt(t *testing.T) {
 		t.Fatal("a corrupt index loaded")
 	}
 	msg := err.Error()
-	for _, want := range []string{"`rm " + path + "`", "removing it is safe", "next launch writes it again"} {
+	for _, want := range []string{"`rm " + shquote.Quote(path) + "`", "removing it is safe", "next launch writes it again"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal lacks %q: %s", want, msg)
 		}

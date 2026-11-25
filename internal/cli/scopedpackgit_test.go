@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,11 +54,11 @@ func TestDirectScopedGitMixedRowsUseCommonPayloadAndComposer(t *testing.T) {
 	put("corpus/skills/hidden/SKILL.md", "hidden\n")
 	put("elsewhere/remote/SKILL.md", "remote\n")
 	put("LICENSE", "fixture license\n")
-	put("corpus/pack.toml", fmt.Sprintf("[[program]]\nbin = 'poison'\nvia = 'npm'\npackage = 'must-not-install'\n[[skills]]\nsource = 'git+file://%s//elsewhere/remote?ref=main'\nas = 'remote'\n[[skills]]\nsource = 'git+https://example.invalid/never/fetch//skill?ref=main'\nas = 'unselected'\n", filepath.ToSlash(repo)))
+	put("corpus/pack.toml", fmt.Sprintf("[[program]]\nbin = 'poison'\nvia = 'npm'\npackage = 'must-not-install'\n[[skills]]\nsource = 'git+file://%s//elsewhere/remote?ref=main'\nas = 'remote'\n[[skills]]\nsource = 'git+https://example.invalid/never/fetch//skill?ref=main'\nas = 'unselected'\n", fileURLPath(repo)))
 	git("add", "--all")
 	git("-c", "commit.gpgsign=false", "commit", "-qm", "synthetic mixed rows")
 	commit := git("rev-parse", "HEAD")
-	user := testconfig.User(t, fmt.Sprintf("packs = [{ pack = 'demo/corpus', skills = { only = ['chosen', 'marked', 'remote'] } }]\n[pack_sources.demo]\ngit = 'file://%s'\nref = 'main'\n", filepath.ToSlash(repo)))
+	user := testconfig.User(t, fmt.Sprintf("packs = [{ pack = 'demo/corpus', skills = { only = ['chosen', 'marked', 'remote'] } }]\n[pack_sources.demo]\ngit = 'file://%s'\nref = 'main'\n", fileURLPath(repo)))
 	t.Setenv("HOME", user.Root)
 	t.Cleanup(func() { _ = packsrc.RemoveSealedSkillTree(user.Root, paths.PacksDir()) })
 	entries, problems, err := config.LoadPackEntries()
@@ -117,4 +118,10 @@ func TestDirectScopedGitMixedRowsUseCommonPayloadAndComposer(t *testing.T) {
 			t.Fatalf("selected data %s: %q %v", rel, got, err)
 		}
 	}
+}
+
+// fileURLPath is a path spelled for a file:// URL: slashes, with any space or other byte a URL
+// path may not carry percent-encoded, so a temp dir with a space in it still names one source.
+func fileURLPath(p string) string {
+	return (&url.URL{Path: filepath.ToSlash(p)}).EscapedPath()
 }

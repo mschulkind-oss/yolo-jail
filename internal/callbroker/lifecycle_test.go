@@ -4,12 +4,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/brokerstore"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // realMainEnv makes the test binary run the daemon's Main instead of its tests: the child
@@ -103,12 +105,12 @@ func TestScopedMainLifecycle(t *testing.T) {
 		f := selectedOnceFixtureForApply(t, false, true, false, false)
 		marker := filepath.Join(f.home, "hook-requests")
 		hook := filepath.Join(f.home, "hook.sh")
-		script := "#!/bin/sh\nprintf '%s\\n' \"$YOLO_REQUEST_ID\" >> '" + marker + "'\nprintf 'approved\\n'\n"
+		script := "#!/bin/sh\nprintf '%s\\n' \"$YOLO_REQUEST_ID\" >> " + shquote.Quote(marker) + "\nprintf 'approved\\n'\n"
 		if err := os.WriteFile(hook, []byte(script), 0700); err != nil {
 			t.Fatal(err)
 		}
 		user := mustRead(t, f.userPath)
-		if err := os.WriteFile(f.userPath, append([]byte("on_request = '"+hook+"'\n"), user...), 0600); err != nil {
+		if err := os.WriteFile(f.userPath, append([]byte("on_request = "+strconv.Quote(shquote.Quote(hook))+"\n"), user...), 0600); err != nil {
 			t.Fatal(err)
 		}
 		// The jail-readable record cannot be written: a regular file stands where its directory goes.

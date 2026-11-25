@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // darwinoverlay_test.go pins the overlay install's own rules (darwinoverlay.go): the
@@ -808,7 +809,7 @@ func TestOverlayInstallNamesAPlainRmInAHomeThatIsYours(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "`rm -r "+briefing+"`") || strings.Contains(out, "sudo") {
+	if !strings.Contains(out, "`rm -r "+shquote.Quote(briefing)+"`") || strings.Contains(out, "sudo") {
 		t.Errorf("the leftover's remedy in your own home is not a plain rm:\n%s", out)
 	}
 }

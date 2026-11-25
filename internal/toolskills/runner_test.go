@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // fakeMise writes an executable shell script and returns its path. The script is the stand-in
@@ -111,7 +113,7 @@ func TestListHangIsKilledOnTheInjectedDeadlineWithItsGrandchild(t *testing.T) {
 	// survives its exec of sleep), tells the test its pid through the "ready" fifo (which blocks
 	// until the test reads), then hangs. The kernel closes fd 9 only when the grandchild has
 	// actually exited, so EOF on "held" is the event "the grandchild is dead".
-	m := fakeMise(t, "sleep 1000 9>"+held+" &\necho $! > "+fifo+"\nwait")
+	m := fakeMise(t, "sleep 1000 9>"+shquote.Quote(held)+" &\necho $! > "+shquote.Quote(fifo)+"\nwait")
 	fire := make(chan time.Time)
 	released := make(chan struct{})
 	heldCh := make(chan *os.File, 1)
@@ -183,7 +185,7 @@ func TestListCallerCancellationStopsIt(t *testing.T) {
 		_, _ = os.ReadFile(fifo)
 		cancel()
 	}()
-	res := Runner{Mise: fakeMise(t, "echo up > "+fifo+"\nsleep 1000")}.List(ctx, t.TempDir())
+	res := Runner{Mise: fakeMise(t, "echo up > "+shquote.Quote(fifo)+"\nsleep 1000")}.List(ctx, t.TempDir())
 	if res.Outcome != OutcomeFailed || ctx.Err() == nil {
 		t.Fatalf("%+v", res)
 	}
