@@ -1920,6 +1920,17 @@ pi resolves `wireId` only in a build that reads it (stock pi 1.0.1 has no such f
 row's `id`), and no other agent reads it. There is no `variants` key: config validation refuses
 it, and pi's camelCase `wireId`, naming the alias-per-variant form and `wire_id`.
 
+<a id="thinking-levels"></a>**The thinking levels a row offers: `thinking`.** A row that carries a `base` or a
+`wire_id` is written to pi's `models.json` whole, which replaces the catalog entry of its id, and
+the derive cannot read pi's catalog to copy the catalog's `thinkingLevelMap` back, so a stock pi
+would clamp `--thinking xhigh` to `high` on it. A row says its own levels instead, with
+`thinking = ["minimal", "low", "medium", "high", "xhigh"]`: packs/pi writes pi's
+`thinkingLevelMap` with each listed level mapped to itself and every other level, `off` included,
+null (pi's "unsupported"), and pi offers `xhigh` and `max` only when they are mapped. A catalog-id
+row that lists levels is written whole for the same reason (a `modelOverrides` entry cannot carry
+the nulls). A row that lists none inherits what it did before. No other agent reads the fact
+([ML-D17](../design/model-lists-and-pickers.md#ML-D17)).
+
 <a id="strict-tools"></a>**A route that refuses strict tools: `strict_tools`.** pi sends `strict` on every
 tool definition whose schema allows it, and a gateway that rejects a request mixing strict and
 non-strict tools (the Ionstream route) refuses the first request of every fresh session until

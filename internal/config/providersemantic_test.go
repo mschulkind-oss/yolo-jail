@@ -447,9 +447,13 @@ func TestProjectProviderModelsReportsUnsupportedCanonicalFactsByName(t *testing.
 		t.Fatal(err)
 	}
 	// compact_at reaches every derive as the flat context_window (RC-D29), so it is not unsupported.
-	want := []string{"api", "images", "thinking"}
+	// `thinking` is lowered as the flat thinking_levels (ML-D17), so it is no longer unsupported.
+	want := []string{"api", "images"}
 	options, _ := projection.ProviderEntry.Get("model_options")
 	row, _ := options.(*jsonx.OrderedMap).Get("openai/model-x")
+	if got, _ := row.(*jsonx.OrderedMap).Get("thinking_levels"); got == nil || got == "" {
+		t.Fatalf("a non-empty thinking list must lower to the flat thinking_levels, got %#v", got)
+	}
 	if got, _ := row.(*jsonx.OrderedMap).Get("context_window"); got != "100" {
 		t.Fatalf("compact_at must lower to the flat context_window, got %#v", got)
 	}

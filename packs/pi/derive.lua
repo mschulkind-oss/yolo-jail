@@ -259,6 +259,30 @@ local function piModelFacts(mopts, prov, ctx, provName, statedCost)
       facts.compat = { supportsStrictMode = strictTools }
     end
   end
+  -- THE LEVELS A ROW OFFERS (`thinking`, flat `thinking_levels`, ML-D17): pi's own
+  -- `thinkingLevelMap`, each listed level naming itself and every other level null, "unsupported"
+  -- (pi-ai getSupportedThinkingLevels offers `xhigh` and `max` only when they are mapped). A row
+  -- that carries a `base` or `wire_id` is written whole and so loses the catalog's map, and this
+  -- derive cannot read the catalog to copy it back, so the row states its own. Read from the row
+  -- alone: a provider option `thinking_levels` is no fallback, a model fact is never provider-wide.
+  local levels = type(mopts) == "table" and mopts.thinking_levels or nil
+  if type(levels) == "string" and levels ~= "" then
+    local offered = {}
+    for token in string.gmatch(levels, "[^,%s]+") do offered[token] = true end
+    local map, any = {}, false
+    for _, level in ipairs({ "off", "minimal", "low", "medium", "high", "xhigh", "max" }) do
+      if offered[level] then
+        map[level] = level
+        any = true
+      else
+        map[level] = ctx.tombstone
+      end
+    end
+    if any then
+      facts = facts or {}
+      facts.thinkingLevelMap = map
+    end
+  end
   local input = fact("input")
   if type(input) == "string" and input ~= "" then
     local mods, seen = {}, {}
@@ -989,8 +1013,8 @@ yolo.derive("pi", "models", function(ctx)
   -- `modelOverrides` entry merges over that entry field by field (pi 1.0.1 core/provider-composer.js,
   -- applyModelOverride, which keeps the catalog's thinkingLevelMap and takes each cost rate
   -- separately). So a row is written as an override of the facts it states, and keeps every other
-  -- catalog fact in pi itself, with no patch and whether or not yolo's extension loads. Three rows
-  -- stay `models` rows, written in full: one naming a `base` (a variant id, which the catalog lacks
+  -- catalog fact in pi itself, with no patch and whether or not yolo's extension loads. Four rows
+  -- stay `models` rows, written in full: one stating `thinking` levels (the override layer cannot carry their nulls, ML-D17), one naming a `base` (a variant id, which the catalog lacks
   -- by its own declaration), one naming a `wire_id` (a client spelling, likewise), and one with a
   -- tombstone, which an override, merged over the catalog, cannot express. An id the catalog lacks
   -- and that says none of these is offered through the keep_catalog registration the model-lists
@@ -1005,7 +1029,8 @@ yolo.derive("pi", "models", function(ctx)
       local cw, maxTokens = tonumber(e.facts.context_window), tonumber(e.facts.max_tokens)
       local wireId = piWireId(e.facts)
       local hasBase = type(e.facts.base) == "string" and e.facts.base ~= ""
-      if not hasBase and not wireId and piTombstones(ctx, mopts) == nil then
+      local hasLevels = type(e.facts.thinking_levels) == "string" and e.facts.thinking_levels ~= ""
+      if not hasBase and not wireId and not hasLevels and piTombstones(ctx, mopts) == nil then
         local o = { name = e.facts.name, contextWindow = cw, maxTokens = maxTokens }
         local facts = piModelFacts(e.facts, p, ctx, bedrockName, true)
         if facts then

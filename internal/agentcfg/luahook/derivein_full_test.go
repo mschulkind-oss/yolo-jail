@@ -107,7 +107,7 @@ func TestDeriveLayer_InFullRefusals(t *testing.T) {
 		"non-table": {`return { x = ctx.in_full("nope") }`, "table expected"},
 		"array":     {`return { x = ctx.in_full({ "a", "b" }) }`, "not an object"},
 		"nested":    {`return { outer = { inner = ctx.in_full({ a = 1 }) } }`, "below the top level"},
-		"in-array":  {`return { outer = { ctx.in_full({ a = 1 }) } }`, "userdata"},
+		"in-array":  {`return { outer = { ctx.in_full({ a = 1 }) } }`, "below the top level"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
