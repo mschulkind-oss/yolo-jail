@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -147,17 +149,26 @@ func readBackChild(child, parentDir string, want map[string]map[Dimension]uint64
 	if err != nil {
 		return "", fmt.Errorf("%s io.max is ambiguous: %w; run yolo check --no-build", child, err)
 	}
-	for device, dims := range want {
-		for dim, value := range dims {
+	// In a fixed order (devices sorted, then rbps, wbps, riops, wiops), so a refusal always names
+	// the same first mismatch rather than whichever one map iteration reached first.
+	for _, device := range slices.Sorted(maps.Keys(want)) {
+		dims := want[device]
+		for _, dim := range dimensions {
+			value, planned := dims[dim]
+			if !planned {
+				continue
+			}
 			limit := observed[device][dim]
 			if !limit.Finite || limit.Value != value {
 				return "", fmt.Errorf("%s io.max reads back %s %s=%s, but %d was set; systemd did not realize the limit, so run `systemctl --user status %s`, then yolo check --no-build", child, device, dim, formatLimit(limit), value, child)
 			}
 		}
 	}
-	for device, dims := range observed {
-		for dim, limit := range dims {
-			if _, planned := want[device][dim]; limit.Finite && !planned {
+	for _, device := range slices.Sorted(maps.Keys(observed)) {
+		dims := observed[device]
+		for _, dim := range dimensions {
+			limit, present := dims[dim]
+			if _, planned := want[device][dim]; present && limit.Finite && !planned {
 				return "", fmt.Errorf("%s holds a finite %s %s that the assigned policy no longer yields; run `systemctl --user revert %s`, then yolo check --no-build", child, device, dim, child)
 			}
 		}
