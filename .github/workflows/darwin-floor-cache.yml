@@ -150,6 +150,9 @@ jobs:
           name: ${{ steps.cachix.outputs.cache }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: true
+          # The action's default install takes cachix from current nixpkgs, which throws on
+          # x86_64-darwin since 26.11; take it from the flake's pinned 26.05 darwin input there.
+          installCommand: ${{ matrix.system == 'x86_64-darwin' && 'nix profile install --inputs-from . nixpkgs-x86-darwin#cachix' || '' }}
 
       - name: Build the floor profile
         id: build

@@ -1023,6 +1023,9 @@ jobs:
           name: ${{ steps.cachix.outputs.cache }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: true
+          # Intel runner: current nixpkgs throws on x86_64-darwin since 26.11, so take cachix
+          # from the flake's pinned 26.05 darwin input instead of the action's default install.
+          installCommand: nix profile install --inputs-from . nixpkgs-x86-darwin#cachix
 
       - name: Set up Go
         if: steps.cachix.outputs.enabled == 'true'
