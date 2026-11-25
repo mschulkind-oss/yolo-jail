@@ -24,6 +24,14 @@ func (p printer) print(msg string) { p.rt.Print(msg) }
 // printf is print with a format string.
 func (p printer) printf(format string, args ...any) { p.rt.Printf(format, args...) }
 
+// verbatim prints text between head and tail, which are markup, byte for byte. A config value
+// is shown so a reader can compare it, and copy it, exactly: through the markup printer a
+// bracketed style word in it (`[bold]`) would be read as markup and dropped, and escaped it would
+// carry an invisible U+2060 into anything pasted from the screen.
+func (p printer) verbatim(head, text, tail string) {
+	_, _ = io.WriteString(p.rt.W, richtext.Render(head, p.rt.Color)+text+richtext.Render(tail, p.rt.Color)+"\n")
+}
+
 // noColorEnvArgs is the `-e NO_COLOR=<value>` pair that carries the launch
 // environment's NO_COLOR into the container, or nothing when it is unset or empty
 // (the convention's definition of "not set", https://no-color.org).
