@@ -330,6 +330,13 @@ func (o *Options) selectHome() {
 	o.homeState = ""
 	o.homeMovePending = false
 	legacy := paths.LegacyHomeState(o.Workspace)
+	// EVERY CONTAINER LAUNCH takes the project lock, with or without a legacy home (UHP-D4), so two
+	// launches of different setups cannot both pass the exclusion check (containerpeer.go).
+	// EVERY CONTAINER LAUNCH takes the project lock, with or without a legacy home (UHP-D4), so two
+	// launches of different setups cannot both pass the exclusion check (containerpeer.go).
+	if runsAsContainer(o.Setup) {
+		o.holdHomeLock()
+	}
 	if _, err := os.Lstat(legacy); err == nil && readsLegacyHome(o.Setup) {
 		o.holdHomeLock()
 		res, line := planLegacyHome(o.legacyHomeRequest())
@@ -371,6 +378,9 @@ func (o *Options) legacyHomeRequest() legacyHomeRequest {
 // cannot rename, a race) returns false with the line naming the manual move: the readers that ran
 // since selectHome took the setup's path, and the launch must not start on the other one.
 func (o *Options) commitHome() bool {
+	if o.refuseContainerPeer() {
+		return false
+	}
 	if !o.homeMovePending {
 		return true
 	}
@@ -489,16 +499,30 @@ func (o *Options) projectJailNames() []string {
 // how names what answered running (a runtime's name, "keeper" or "session"), for a refusal to name
 // the stop. A runtime not on PATH runs no jail, so it is not asked.
 func (o *Options) jailRuns(cname string) (answer projectJails, how string) {
-	answer = projectJailsStopped
-	for _, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
+	st := o.jailStatus(cname)
+	return st.Answer, st.How
+}
+
+// jailStatus is jailRuns with what the exclusion rule needs besides the answer (UHP-D2): the CLASS of
+// the witness that said running (the container's key or a runtime is a container, the macos-user and
+// guest keys a guest), the runtimes that could not be asked, and whether ONLY a runtime could not be
+// (every keeper lock and session record said not running), which OQ-UH3 lets a launch proceed past.
+// It is never cached: a stale "not running" would let a second container in.
+func (o *Options) jailStatus(cname string) jailAnswer {
+	st := jailAnswer{Answer: projectJailsStopped}
+	for i, key := range []string{cname, keeperKey(cname, keeperNotchMacosUser), keeperKey(cname, keeperNotchGuest)} {
+		class := peerClassContainer
+		if i > 0 {
+			class = peerClassGuest
+		}
 		switch probeKeeper(key) {
 		case keeperAlive:
-			return projectJailsRunning, "keeper"
+			return jailAnswer{Answer: projectJailsRunning, How: "keeper", Class: class}
 		case keeperUnknown:
-			answer = projectJailsUnknown
+			st.Answer, st.KeeperUnknown = projectJailsUnknown, true
 		}
 		if len(liveKeyedSessions(key)) > 0 {
-			return projectJailsRunning, "session"
+			return jailAnswer{Answer: projectJailsRunning, How: "session", Class: class}
 		}
 	}
 	for _, rt := range projectContainerRuntimes {
@@ -507,12 +531,14 @@ func (o *Options) jailRuns(cname string) (answer projectJails, how string) {
 		}
 		switch id, known := o.probeExistingContainer(cname, rt, trackingProbeTimeout); {
 		case id != "":
-			return projectJailsRunning, rt
+			return jailAnswer{Answer: projectJailsRunning, How: rt, Class: peerClassContainer}
 		case !known:
-			answer = projectJailsUnknown
+			st.Answer = projectJailsUnknown
+			st.Unasked = append(st.Unasked, rt)
 		}
 	}
-	return answer, ""
+	st.RuntimeOnly = st.Answer == projectJailsUnknown && !st.KeeperUnknown
+	return st
 }
 
 // projectContainerRuntimes are the container runtimes a jail of a project can run in: podman's
