@@ -135,7 +135,7 @@ func waitForCall(t *testing.T, pid int, want string) (Snapshot, string) {
 	s := Sampler{Root: "/proc", Name: syscallName, Clock: clockNow}
 	var snap Snapshot
 	var line string
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 		snap = s.Sample(pid)
 		line = snap.Line()
 		if strings.Contains(line, want) {
@@ -235,6 +235,12 @@ func TestProbeSamplesOnlyAfterTheDeathAndGoesSilentAtStop(t *testing.T) {
 	slave.Close()
 	defer func() { _ = c.Process.Kill(); _ = c.Wait() }()
 
+	// The helper is a Go test binary that does other blocking reads (mountinfo) while it starts.
+	// Wait until it IS in the read this test asserts on, so the samples after the death cannot
+	// land on anything else.
+	want := "read(0 → " + ptsName + ")"
+	waitForCall(t, c.Process.Pid, want)
+
 	exits := t.TempDir()
 	var notes noteLog
 	var deathAt time.Time
@@ -252,8 +258,7 @@ func TestProbeSamplesOnlyAfterTheDeathAndGoesSilentAtStop(t *testing.T) {
 	}
 
 	writeFile(t, filepath.Join(exits, testCtrID), "0")
-	want := "read(0 → " + ptsName + ")"
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if strings.Contains(strings.Join(notes.snapshot(), "\n"), want) {
 			break

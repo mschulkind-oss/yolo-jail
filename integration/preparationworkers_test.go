@@ -4313,8 +4313,17 @@ func TestStopHomeProcessesStopsWhatIsSpawnedDuringTheStop(t *testing.T) {
 		fmt.Sprintf("pid %d (internal preparation-scheduler)", scheduler),
 		fmt.Sprintf("pid %d (internal background-advance)", late),
 	}
-	if fmt.Sprint(stopped) != fmt.Sprint(want) {
-		t.Errorf("stopped = %v, want %v", stopped, want)
+	// Each stand-in runs `sleep 600 &` as a child that carries the same HOME. Whether the census
+	// lists that sleep before the stand-in's own TERM trap kills it is a race, and stopping it is
+	// correct either way (it is under the home), so the pin is on the stand-ins, not on sleeps.
+	var named []string
+	for _, s := range stopped {
+		if !strings.HasSuffix(s, " (sleep)") {
+			named = append(named, s)
+		}
+	}
+	if fmt.Sprint(named) != fmt.Sprint(want) {
+		t.Errorf("stopped = %v, want %v (plus any sleep children)", stopped, want)
 	}
 	if !processGone(late) {
 		t.Errorf("the worker spawned during the stop (pid %d) outlived it", late)
