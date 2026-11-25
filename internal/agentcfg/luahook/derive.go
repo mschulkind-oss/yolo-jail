@@ -1330,7 +1330,14 @@ func deriveNestedTableToGo(tbl *lua.LTable, sentinel, emptyArr *lua.LUserData) (
 	if len(strKeys) == 0 && !otherKey && len(intKeys) > 0 && contiguousFrom1(intKeys) {
 		outArr := make([]any, len(intKeys))
 		for i := 1; i <= len(intKeys); i++ {
-			gv, err := luaToGo(intKeys[i]) // array elements: no sentinel
+			// An element is never itself a sentinel, but an object inside it may hold one as a
+			// value: pi's models.json `models` is an array of rows whose `thinkingLevelMap` says a
+			// level is unsupported with a JSON null.
+			if ud, isUserdata := intKeys[i].(*lua.LUserData); isUserdata && (ud == sentinel || ud == emptyArr) {
+				return nil, fmt.Errorf("luahook: derive put a sentinel directly in an array; " +
+					"a sentinel is a value under a key")
+			}
+			gv, err := deriveValueToGo(intKeys[i], sentinel, emptyArr)
 			if err != nil {
 				return nil, err
 			}

@@ -523,6 +523,9 @@ func canonicalProviderModel(model packdecl.ProviderModel) *jsonx.OrderedMap {
 	if model.Reasoning != nil {
 		value.Set("reasoning", *model.Reasoning)
 	}
+	if model.StrictTools != nil {
+		value.Set("strict_tools", *model.StrictTools)
+	}
 	if model.Accepts != nil {
 		value.Set("accepts", stringSliceAny(model.Accepts))
 	}
@@ -830,6 +833,13 @@ func flattenModelFacts(obj *jsonx.OrderedMap) *jsonx.OrderedMap {
 			} else {
 				facts.Set("reasoning", "false")
 			}
+		}
+	}
+	if v, ok := obj.Get("strict_tools"); ok {
+		if v == nil {
+			facts.Set("strict_tools", nil)
+		} else if b, isBool := v.(bool); isBool {
+			facts.Set("strict_tools", strconv.FormatBool(b))
 		}
 	}
 	if v, ok := obj.Get("input"); ok {

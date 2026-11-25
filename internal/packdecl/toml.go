@@ -58,17 +58,21 @@ type ProviderModel struct {
 	// Model is the id a row keyed by a name lists and registers its model under
 	// (docs/design/model-facts-migration.md MF-D1); a row without it is the model its key names.
 	// It is a row's own, so `every_model` and a `model_facts` entry refuse it.
-	Model             string         `json:"model,omitempty"`
-	Name              string         `json:"name,omitempty"`
-	Description       string         `json:"description,omitempty"`
-	Vendor            string         `json:"vendor,omitempty"`
-	API               string         `json:"api,omitempty"`
-	Thinking          []string       `json:"thinking,omitempty"`
-	Images            *ProviderImage `json:"images,omitempty"`
-	Price             *ProviderPrice `json:"price,omitempty"`
-	Context           int64          `json:"context,omitempty"`
-	MaxTokens         int64          `json:"max_tokens,omitempty"`
-	Reasoning         *bool          `json:"reasoning,omitempty"`
+	Model       string         `json:"model,omitempty"`
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Vendor      string         `json:"vendor,omitempty"`
+	API         string         `json:"api,omitempty"`
+	Thinking    []string       `json:"thinking,omitempty"`
+	Images      *ProviderImage `json:"images,omitempty"`
+	Price       *ProviderPrice `json:"price,omitempty"`
+	Context     int64          `json:"context,omitempty"`
+	MaxTokens   int64          `json:"max_tokens,omitempty"`
+	Reasoning   *bool          `json:"reasoning,omitempty"`
+	// StrictTools says whether the model's route takes `strict` on tool definitions: false means
+	// it refuses them (a gateway rejecting a request that mixes strict and non-strict tools), nil
+	// says nothing. docs/design/model-lists-and-pickers.md ML-D16.
+	StrictTools       *bool          `json:"strict_tools,omitempty"`
 	Accepts           []string       `json:"accepts,omitempty"`
 	Base              string         `json:"base,omitempty"`
 	WireID            string         `json:"wire_id,omitempty"`
@@ -1071,7 +1075,7 @@ func unknownModelField(raw any, path string) string {
 	if !ok {
 		return ""
 	}
-	if key := firstUnknownKey(model, "model", "name", "description", "vendor", "api", "thinking", "images", "price", "context", "max_tokens", "reasoning", "accepts", "base", "wire_id", "extends", "openrouter_routing", "twin_of", "compact_at"); key != "" {
+	if key := firstUnknownKey(model, "model", "name", "description", "vendor", "api", "thinking", "images", "price", "context", "max_tokens", "reasoning", "strict_tools", "accepts", "base", "wire_id", "extends", "openrouter_routing", "twin_of", "compact_at"); key != "" {
 		return path + "." + key
 	}
 	if images, ok := model["images"].(map[string]any); ok {

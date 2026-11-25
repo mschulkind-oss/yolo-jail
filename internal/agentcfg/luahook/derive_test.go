@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -53,6 +54,35 @@ end)`
 	}
 	if v != nil {
 		t.Errorf("tombstone should decode to Go nil, got %#v", v)
+	}
+}
+
+// A tombstone is a VALUE under a key wherever that key sits, an object inside an array element
+// included: pi's models.json `models` is an array of rows, and a row's `thinkingLevelMap` says a
+// level is unsupported with a JSON null. A sentinel AS an element has no key to delete, and is
+// refused.
+func TestDerive_TombstoneInsideAnArrayElementObjectBecomesNil(t *testing.T) {
+	got, err := runDerive(t, "claude", "settings", `
+yolo.derive("claude", "settings", function(ctx)
+  return { rows = { { id = "a", levels = { off = ctx.tombstone, low = "low" } } } }
+end)`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := got["rows"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %#v", got["rows"])
+	}
+	levels, _ := rows[0].(map[string]any)["levels"].(map[string]any)
+	if v, present := levels["off"]; !present || v != nil || levels["low"] != "low" {
+		t.Errorf("levels = %#v, want off present as nil and low kept", levels)
+	}
+	_, err = runDerive(t, "claude", "settings", `
+yolo.derive("claude", "settings", function(ctx)
+  return { rows = { ctx.tombstone } }
+end)`, nil)
+	if err == nil || !strings.Contains(err.Error(), "sentinel directly in an array") {
+		t.Errorf("a sentinel as an array element: err = %v, want the refusal", err)
 	}
 }
 

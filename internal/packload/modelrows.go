@@ -398,6 +398,10 @@ func MergeProviderModel(base, overlay packdecl.ProviderModel) packdecl.ProviderM
 		value := *overlay.Reasoning
 		base.Reasoning = &value
 	}
+	if overlay.StrictTools != nil {
+		value := *overlay.StrictTools
+		base.StrictTools = &value
+	}
 	if overlay.Accepts != nil {
 		base.Accepts = modelRowStrings(overlay.Accepts)
 	}
@@ -556,6 +560,15 @@ func ProjectProviderModelsForLegacyDerives(models ReadableModels) (LegacyDeriveP
 		if facts.Reasoning != nil {
 			flat.Set("reasoning", strconv.FormatBool(*facts.Reasoning))
 		}
+		// The levels the model offers, in the flat vocabulary a derive reads. Named
+		// `thinking_levels` there and not `thinking`, which a profile already uses as an option
+		// (a level to run at), so the two never read as one another. ML-D17.
+		if len(facts.Thinking) > 0 {
+			flat.Set("thinking_levels", strings.Join(facts.Thinking, ","))
+		}
+		if facts.StrictTools != nil {
+			flat.Set("strict_tools", strconv.FormatBool(*facts.StrictTools))
+		}
 		if len(facts.Accepts) > 0 {
 			flat.Set("input", strings.Join(facts.Accepts, ","))
 		}
@@ -591,7 +604,9 @@ func ProjectProviderModelsForLegacyDerives(models ReadableModels) (LegacyDeriveP
 		if facts.API != "" {
 			fields = append(fields, "api")
 		}
-		if facts.Thinking != nil {
+		// An empty list says "no levels", which the flat vocabulary has no spelling for; a
+		// non-empty one is lowered above.
+		if facts.Thinking != nil && len(facts.Thinking) == 0 {
 			fields = append(fields, "thinking")
 		}
 		if facts.Images != nil {

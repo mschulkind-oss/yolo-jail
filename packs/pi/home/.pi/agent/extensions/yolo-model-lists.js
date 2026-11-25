@@ -179,13 +179,20 @@ function catalogFacts(builtin) {
 }
 
 function definition(provider, entry, lookup) {
-	const { base, openrouter_routing, tombstones, ...declared } = entry;
+	const { base, openrouter_routing, strict_tools, tombstones, ...declared } = entry;
 	const withRouting = (model) => {
 		if (openrouter_routing === null || typeof openrouter_routing !== "object" || Array.isArray(openrouter_routing)) {
 			return model;
 		}
 		return { ...model, compat: { ...(model.compat ?? {}), openRouterRouting: openrouter_routing } };
 	};
+	// `strict_tools`, when declared, is lowered into pi's `compat.supportsStrictMode`, merged over
+	// the catalog entry's own compat like the routing is (ML-D16): false makes pi send no `strict`
+	// key on the first request, true says the route takes it.
+	const withStrictTools = (model) =>
+		typeof strict_tools === "boolean"
+			? { ...model, compat: { ...(model.compat ?? {}), supportsStrictMode: strict_tools } }
+			: model;
 	const withoutTombstoned = (model) => {
 		if (!Array.isArray(tombstones)) return model;
 		const out = { ...model };
@@ -204,14 +211,14 @@ function definition(provider, entry, lookup) {
 	const builtin = lookup(provider, base ?? entry.id);
 	if (builtin) {
 		const facts = catalogFacts(builtin);
-		return withRouting(withoutTombstoned({ ...facts, ...declared, ...withCost(facts.cost), name: declared.name ?? builtin.name }));
+		return withStrictTools(withRouting(withoutTombstoned({ ...facts, ...declared, ...withCost(facts.cost), name: declared.name ?? builtin.name })));
 	}
-	return withRouting(withoutTombstoned({
+	return withStrictTools(withRouting(withoutTombstoned({
 		name: entry.id,
 		...structuredClone(LOADER_DEFAULTS),
 		...declared,
 		...withCost(LOADER_DEFAULTS.cost),
-	}));
+	})));
 }
 
 // withCatalog is the list a `keep_catalog` registration names: pi's own catalog for the

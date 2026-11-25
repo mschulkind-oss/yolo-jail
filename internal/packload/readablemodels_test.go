@@ -238,10 +238,10 @@ func TestAWireIDRowSendsItAndKeepsItsOwnFacts(t *testing.T) {
 // FACTS NO DERIVE READS YET are a note, not a refusal: the model still launches.
 func TestUnreadReadableFactsAreANoteNotARefusal(t *testing.T) {
 	var notes []string
-	got := composeReadable(t, `{"acme":{"models":{"acme/x":{"api":"openai-responses","thinking":["low"]}}}}`, nil,
+	got := composeReadable(t, `{"acme":{"models":{"acme/x":{"api":"openai-responses","images":{"max_width":1,"max_height":1,"max_bytes":1,"jpeg_quality":1}}}}}`, nil,
 		WithModelNotes(func(s string) { notes = append(notes, s) }))
 	wantSubstrings(t, got, `"acme/x": "acme/x"`)
-	if len(notes) != 1 || !strings.Contains(notes[0], "providers.acme.models.acme/x: api, thinking") {
+	if len(notes) != 1 || !strings.Contains(notes[0], "providers.acme.models.acme/x: api, images") {
 		t.Errorf("notes = %q", notes)
 	}
 }

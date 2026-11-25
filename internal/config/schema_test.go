@@ -374,6 +374,7 @@ func TestReadableSchemaModelFieldsMatchExecutableManifestModelTypes(t *testing.T
 		"name": "name", "description": "description", "reasoning": "reasoning",
 		"input": "accepts", "cost": "price", "context_window": "context",
 		"max_tokens": "max_tokens", "base": "base", "openrouter_routing": "openrouter_routing",
+		"strict_tools": "strict_tools",
 	}
 	modelFields := make(map[string]reflect.StructField, modelType.NumField())
 	for i := 0; i < modelType.NumField(); i++ {
