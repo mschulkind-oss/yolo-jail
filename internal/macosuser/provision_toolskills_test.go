@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // THE MACOS-USER STAGE TAKES THE TOOL-SKILLS STEP, after `mise install` and before the bootstrap
@@ -25,9 +27,9 @@ func runToolSkillsStage(t *testing.T, allowlist, yoloRC string) (rc int, order s
 	log := filepath.Join(dir, "order")
 	script := filepath.Join(dir, "yolo-bootstrap.sh")
 	for path, body := range map[string]string{
-		filepath.Join(dir, "mise"): "#!/bin/sh\necho \"mise $*\" >> " + log + "\nexit 0\n",
-		filepath.Join(dir, "yolo"): "#!/bin/sh\necho \"yolo $*\" >> " + log + "\nexit " + yoloRC + "\n",
-		script:                     "#!/bin/sh\necho bootstrap >> " + log + "\nexit 0\n",
+		filepath.Join(dir, "mise"): "#!/bin/sh\necho \"mise $*\" >> " + shquote.Quote(log) + "\nexit 0\n",
+		filepath.Join(dir, "yolo"): "#!/bin/sh\necho \"yolo $*\" >> " + shquote.Quote(log) + "\nexit " + yoloRC + "\n",
+		script:                     "#!/bin/sh\necho bootstrap >> " + shquote.Quote(log) + "\nexit 0\n",
 	} {
 		if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
