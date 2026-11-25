@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 type localCopyFixture struct {
@@ -107,14 +109,14 @@ func TestTheCopyDecisionOverRealClones(t *testing.T) {
 				f.push(t, "theirs.md")
 				return f.source, f.clone
 			},
-			lines: []string{"origin main %O (clone is 1 behind origin and clean — git -C %C pull)"}},
+			lines: []string{"origin main %O (clone is 1 behind origin and clean — git -C %Q pull)"}},
 		{name: "behind and dirty runs the working tree", copy: CopyWorkingTree, warn: true, rel: "behind",
 			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
 				f.push(t, "theirs.md")
 				write(t, filepath.Join(f.clone, "wip.md"), "wip")
 				return f.source, f.clone
 			},
-			lines: []string{"local %C (working tree; 2 files) is behind origin by 1 and has uncommitted changes — git -C %C pull"}},
+			lines: []string{"local %C (working tree; 2 files) is behind origin by 1 and has uncommitted changes — git -C %Q pull"}},
 		{name: "diverged", copy: CopyWorkingTree, warn: true, rel: "diverged",
 			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
 				f.push(t, "theirs.md")
@@ -142,7 +144,7 @@ func TestTheCopyDecisionOverRealClones(t *testing.T) {
 				gitIn(t, f.clone, "switch", "-q", "-c", "other")
 				return f.source, f.clone
 			},
-			lines: []string{"not used: it is on branch other, not main — git -C %C switch main"}},
+			lines: []string{"not used: it is on branch other, not main — git -C %Q switch main"}},
 		{name: "clone remote names another repository", copy: CopyOrigin, warn: true, rel: "unusable",
 			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
 				gitIn(t, f.clone, "remote", "set-url", "origin", filepath.Join(f.root, "other.git"))
@@ -208,7 +210,7 @@ func TestTheCopyDecisionOverRealClones(t *testing.T) {
 				t.Errorf("LocalLine() = %q, %v, want a line for tillr with warn %v", line, warn, tc.warn)
 			}
 			for _, want := range tc.lines {
-				want = strings.NewReplacer("%C", local, "%O", origin).Replace(want)
+				want = strings.NewReplacer("%C", local, "%O", origin, "%Q", shquote.QuoteDisplay(local)).Replace(want)
 				if !strings.Contains(line, want) {
 					t.Errorf("line %q lacks %q", line, want)
 				}

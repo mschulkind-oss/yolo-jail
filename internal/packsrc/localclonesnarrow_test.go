@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
 // publishedRemote makes the machine's origin the PUBLISHED address, as a user's clone of a published branch has
@@ -25,10 +27,10 @@ func (f *checkoutFixture) publishedRemote(t *testing.T) {
 func fakeSSH(t *testing.T, repo string) {
 	t.Helper()
 	script := filepath.Join(t.TempDir(), "fake-ssh")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec git-upload-pack '"+repo+"'\n"), 0o755); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec git-upload-pack "+shquote.Quote(repo)+"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GIT_SSH_COMMAND", script)
+	t.Setenv("GIT_SSH_COMMAND", shquote.Quote(script))
 	t.Setenv("GIT_SSH_VARIANT", "simple")
 }
 
@@ -122,7 +124,7 @@ func TestALocalOnlyBranchThroughACloneBuildsFromTheURL(t *testing.T) {
 		t.Error("a clone that matched and was not used is said quietly")
 	}
 	wantLine(t, pb, f.now, "local clone "+f.machine, "not used", "refs/remotes/origin/later",
-		"git -C "+f.machine+" fetch origin")
+		"git -C "+shquote.Quote(f.machine)+" fetch origin")
 }
 
 // A refs/... spelling never goes through a clone: the URL answers.
