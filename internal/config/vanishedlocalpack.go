@@ -23,23 +23,28 @@ func vanishedPackNote(entry PackEntry, source string) string {
 // UserScopeSelectedPacksWithNotes is UserScopeSelectedPacks for a reader of broker declarations
 // (the approval hook, the timed-offer cap): an entry whose local source directory is gone
 // (vanishedLocalPack) is not an incomplete selection, it is named in notes; every other
-// unresolved entry, and any closure error, still makes complete false.
-func UserScopeSelectedPacksWithNotes() (packs []*packload.Pack, notes []string, complete bool) {
+// unresolved entry, and any closure error, still makes complete false, and each is named in
+// problems with its own error, so a caller that fails closed can say what to repair.
+func UserScopeSelectedPacksWithNotes() (packs []*packload.Pack, notes, problems []string, complete bool) {
 	entries, err := LoadPacks(func(string) {})
 	if err != nil {
-		return nil, nil, false
+		return nil, nil, []string{"read the user-scope pack list: " + err.Error()}, false
 	}
 	resolved := SelectedPackDeclarationsDetailed(entries, UserScopeSelection(), nil, packload.EmbeddedFS())
 	embeddedNames := packload.EmbeddedNames()
 	complete = resolved.ClosureErr == nil
+	if resolved.ClosureErr != nil {
+		problems = append(problems, "pack selection: "+resolved.ClosureErr.Error())
+	}
 	for _, u := range resolved.Unresolved {
 		if missing, source := vanishedLocalPack(u.Entry, embeddedNames); missing {
 			notes = append(notes, vanishedPackNote(u.Entry, source))
 			continue
 		}
 		complete = false
+		problems = append(problems, fmt.Sprintf("pack %s: %v", u.Entry.Name, u.Err))
 	}
-	return resolved.Packs(), notes, complete
+	return resolved.Packs(), notes, problems, complete
 }
 
 // vanishedLocalPack reports a selected entry whose source is a local directory that does not

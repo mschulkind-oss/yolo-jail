@@ -13,7 +13,7 @@ import (
 // SelectedTimedLimit loads only cap metadata. Selection is not approval
 // authority: the store still requires its source-specific live revalidator.
 func SelectedTimedLimit(source string, q brokerstore.Request) (brokerstore.TimedBound, error) {
-	packs, _, complete := config.UserScopeSelectedPacksWithNotes()
+	packs, _, _, complete := config.UserScopeSelectedPacksWithNotes()
 	defer packload.ReleaseEmbedded()
 	if !complete {
 		return brokerstore.TimedBound{}, fmt.Errorf("selected source %s is unavailable; run yolo check and retry", source)

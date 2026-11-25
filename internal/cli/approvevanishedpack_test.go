@@ -40,6 +40,10 @@ func TestApprovalStoresKeepGitSelectedWhenAnUnrelatedPackVanished(t *testing.T) 
 	if err != nil || len(diagnostics) == 0 || !strings.HasPrefix(diagnostics[0], "INCOMPLETE:") {
 		t.Fatalf("an unreadable pack did not make the selection incomplete: %v %q", err, diagnostics)
 	}
+	// Failing closed still says what failed: the pack by name, and its own error.
+	if !strings.Contains(diagnostics[0], "pack src/gone:") || !strings.Contains(diagnostics[0], "pack.toml") {
+		t.Fatalf("the incomplete-selection diagnostic does not name the failing pack and its error: %q", diagnostics[0])
+	}
 	if git := storeForSource(stores, "git"); git == nil || git.ApprovalStatus != "unknown" || git.Revalidate != nil {
 		t.Fatalf("an unreadable pack left git with live authority: %+v", git)
 	}

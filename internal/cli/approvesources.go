@@ -28,7 +28,7 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 	selected := map[string]*brokerstore.Store{}
 	owners := map[string]string{}
 	var diagnostics []string
-	packs, skipped, complete := config.UserScopeSelectedPacksWithNotes()
+	packs, skipped, problems, complete := config.UserScopeSelectedPacksWithNotes()
 	defer packload.ReleaseEmbedded()
 	// A pack whose local source is gone declares nothing, so it leaves the selection complete; it
 	// is still named, with the next step, and the sources it cannot touch keep their authority.
@@ -36,7 +36,11 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 		fmt.Fprintln(os.Stderr, "NOTE: "+termsafe.Visible(note))
 	}
 	if !complete {
-		diagnostics = append(diagnostics, "INCOMPLETE: the user-scope pack selection could not be fully resolved; run `yolo check`, repair or fetch the named packs, then retry. Sources with unknown selection are listed but cannot grant approvals.")
+		why := "no reason was recorded"
+		if len(problems) != 0 {
+			why = termsafe.Visible(strings.Join(problems, "; "))
+		}
+		diagnostics = append(diagnostics, "INCOMPLETE: the user-scope pack selection could not be fully resolved ("+why+"); run `yolo check`, repair or fetch the named packs, then retry. Sources with unknown selection are listed but cannot grant approvals.")
 	}
 	for _, pack := range packs {
 		modules, refusals, warnings, err := packload.ReadableLoopholeModules(pack)
