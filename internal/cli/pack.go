@@ -895,6 +895,9 @@ func packLint(args []string, out, errw io.Writer, color bool) int {
 	}
 
 	pr.Printf("[green]✓[/green] pack ok — %d file(s) stage", len(res.Staged))
+	if note := res.SkippedNote(); note != "" {
+		pr.Printf("[dim]%s[/dim]", richtext.Escape(note))
+	}
 	printPackDeliveries(pr, pack, skillSources, briefingSources)
 	printUnshippedNotes(pr, notes)
 	printLegacyLoopholeNotes(pr, pack)
