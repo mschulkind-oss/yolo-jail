@@ -57,6 +57,34 @@ const (
 // them. UseInstalledEnv takes the grammar too, but it is never a patched build's hatch.
 var Scoped = []string{AllowPatchFailuresEnv, UseCachedGoodEnv, AllowOlderUpstreamEnv, SkipPatchesEnv, SkipExtensionsEnv}
 
+// WithoutScoped drops every Scoped hatch from environ ("NAME=value" items) and nothing else.
+// The hatches are the OUTER launch's decisions about which builds to deliver; a build jail, which is
+// a nested launch of its own, must never act on them (it has no host capture store, so
+// YOLO_USE_CACHED_GOOD there refuses the jail itself).
+func WithoutScoped(environ []string) []string {
+	out := make([]string, 0, len(environ))
+	for _, item := range environ {
+		name, _, _ := strings.Cut(item, "=")
+		if !slices.Contains(Scoped, name) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// GetenvWithoutScoped wraps getenv (nil: this process's) so a Scoped hatch reads as unset.
+func GetenvWithoutScoped(getenv func(string) string) func(string) string {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	return func(name string) string {
+		if slices.Contains(Scoped, name) {
+			return ""
+		}
+		return getenv(name)
+	}
+}
+
 // Scope is one hatch's parsed value.
 type Scope struct {
 	// Env is the variable it was read from, "" for a literal Parse.

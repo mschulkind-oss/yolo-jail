@@ -44,6 +44,7 @@ import (
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
+	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
 )
 
 // forkBuildJailVerb is the hidden subcommand: `yolo internal fork-build-jail`.
@@ -142,8 +143,17 @@ func runCaptureChild(ctx context.Context, bound time.Duration, staging, key stri
 		fmt.Fprintf(errw, "yolo: could not start the build jail of %s: %v\n", key, err)
 		return 1, false
 	}
-	if len(environment) > 0 {
-		cmd.Env = environment[0]
+	// THE OUTER LAUNCH'S RECOVERY HATCHES STAY WITH IT. The child is a launch of its own, with no host
+	// capture store: handed YOLO_USE_CACHED_GOOD it refused to start ("no host capture store to
+	// deliver from"), and the others would steer its own preparation. They are stripped from every
+	// child's environment, whatever else it inherits.
+	switch {
+	case len(environment) > 0:
+		cmd.Env = patchrecovery.WithoutScoped(environment[0])
+	case cmd.Env != nil:
+		cmd.Env = patchrecovery.WithoutScoped(cmd.Env)
+	default:
+		cmd.Env = patchrecovery.WithoutScoped(os.Environ())
 	}
 	jail, err := newChildJailPipes()
 	if err != nil {

@@ -24,6 +24,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
+	"github.com/mschulkind-oss/yolo-jail/internal/patchrecovery"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
@@ -773,6 +774,8 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 	opts.Workspace = workspace
 	opts.Args = argv
 	opts.Color = color
+	// The outer launch's recovery hatches are not this jail's (patchrecovery.WithoutScoped).
+	opts.Getenv = patchrecovery.GetenvWithoutScoped(nil)
 	actRT := ""
 	if len(on) > 0 && on[0].runtime != "" {
 		actRT = on[0].runtime
