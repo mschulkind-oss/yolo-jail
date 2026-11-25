@@ -42,6 +42,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,6 +80,9 @@ type Store struct {
 	// `yolo pack install`/`update` leave it false: the user runs them at a terminal and may
 	// answer an ssh prompt there, which is how a first contact with a host gets trusted.
 	Detached bool
+	// tail, when set (WithTail), is where every git run of this store also writes its stderr, and
+	// what turns on git's own progress output for a clone or fetch (tail.go).
+	tail io.Writer
 	// Env, when non-nil, replaces the git subprocess environment.
 	Env []string
 	// Getenv reads environment variables. Nil means os.Getenv.
@@ -494,13 +498,13 @@ func (s *Store) runWith(b budget, dir string, env []string, stdin string, args .
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	var stdout, stderr strings.Builder
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	cmd.Stdout, cmd.Stderr = &stdout, s.teeStderr(&stderr)
 	err := cmd.Run()
 	if b.ctx.Err() != nil {
 		return "", fmt.Errorf("git %s timed out after %s: %w", gitLabel(args), b.d, b.ctx.Err())
 	}
 	if err != nil {
-		said := strings.TrimSpace(strings.TrimSpace(stderr.String()) + "\n" + strings.TrimSpace(stdout.String()))
+		said := strings.TrimSpace(strings.TrimSpace(lastFrames(stderr.String())) + "\n" + strings.TrimSpace(stdout.String()))
 		return stdout.String(), fmt.Errorf("git %s: %w\n%s", gitLabel(args), err, said)
 	}
 	return stdout.String(), nil
@@ -580,8 +584,8 @@ func (s *Store) fetchMirror(b budget, a Addr, explicit, remoteTracking bool) err
 	if !mirrorExists(mirror) {
 		// A BARE mirror, not a worktree clone: one mirror serves every ref and
 		// subpath of the repo, so N packs from a monorepo cost one fetch.
-		if _, err := s.runIn(b, "", withFsck("clone", "--bare", "--filter=blob:none",
-			a.Repo, mirror)...); err != nil {
+		if _, err := s.runIn(b, "", withFsck(s.progressArgs("clone", "--bare", "--filter=blob:none",
+			a.Repo, mirror)...)...); err != nil {
 			// A clone that died partway (a timeout, a dropped connection) can leave a
 			// directory with a HEAD and no refs, which the next attempt would take for an
 			// existing mirror. Remove it so the next attempt clones again.
@@ -600,8 +604,8 @@ func (s *Store) fetchMirror(b budget, a Addr, explicit, remoteTracking bool) err
 	if !explicit {
 		args = append(args, "-c", "gc.auto=0")
 	}
-	args = append(args, "fetch", "--prune", "origin",
-		"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+	args = append(args, s.progressArgs("fetch", "--prune", "origin",
+		"+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")...)
 	if remoteTracking {
 		args = append(args, "+refs/remotes/*:refs/remotes/*")
 	}
@@ -994,6 +998,7 @@ func (s *Store) prefetchBlobs(b budget, mirror, commit, sub string) (complete st
 		"fetch", "origin", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no",
 		"--filter=blob:none", "--stdin")...)
 	cmd.Stdin = strings.NewReader(missing.String())
+	s.tailRun(cmd)
 	_ = cmd.Run()
 	return ""
 }
@@ -1035,6 +1040,7 @@ func (s *Store) prefetchObjects(b budget, mirror string, oids []string) {
 		"fetch", "origin", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no",
 		"--filter=blob:none", "--stdin")...)
 	cmd.Stdin = strings.NewReader(missing.String())
+	s.tailRun(cmd)
 	_ = cmd.Run()
 }
 

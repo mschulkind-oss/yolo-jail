@@ -44,7 +44,7 @@ func RefreshConfiguredPacks(say, warn func(string)) {
 // during: called just before the refresh runs (it can fetch over the network, for
 // up to LaunchFetchTimeout per mirror) with the refresh's lock-wait notice, it
 // returns the function that closes the bracket. nil brackets nothing.
-func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(string), end func())) {
+func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(string), tail packsrc.TailOpener, end func())) {
 	if config.InJail() {
 		return
 	}
@@ -76,14 +76,16 @@ func refreshConfiguredPacks(say, warn func(string), during func() (waiting func(
 		return
 	}
 	waiting, end := say, func() {}
+	var tail packsrc.TailOpener
 	if during != nil {
-		waiting, end = during()
+		waiting, tail, end = during()
 	}
 	check, cancelCheck := packCheckStart()
 	outcomes, err := launchStore().Refresh(git, packsrc.RefreshOptions{
 		LockPath: packsrc.LockPath(paths.UserConfigPath()),
 		Waiting:  waiting,
 		Check:    check,
+		Tail:     tail,
 	})
 	cancelCheck()
 	end()
@@ -141,10 +143,10 @@ func (o *Options) refreshPacks() {
 		// A fetch runs at most hourly per branch pack, but when it does it is a
 		// network round trip bounded at a minute, so it gets a progress line. The
 		// lock-wait notice goes THROUGH the line, so it cannot tear it.
-		func() (func(string), func()) {
+		func() (func(string), packsrc.TailOpener, func()) {
 			span := o.Perf.Span("launch.refresh_configured_packs")
 			line := o.progressConfigCovering("launch.refresh_configured_packs").Start(o.Stderr, "Checking fetched packs for updates")
-			return line.Println, func() { line.Done(""); span.End() }
+			return line.Println, lineTailOpener(line), func() { line.Done(""); span.End() }
 		},
 	)
 }

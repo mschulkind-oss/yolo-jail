@@ -950,7 +950,7 @@ func (o *Options) packSkillSourceDirs(p *packload.Pack) []jailcontent.PackSkillS
 // user would otherwise just see a pack that "does nothing". Say so, with the count that proves
 // the tree was not empty.
 func (o *Options) stagePackEntry(entry config.PackEntry, dest string) (*packload.Pack, error) {
-	res, err := config.ResolvePack(entry, config.ResolvePackSpec{Dest: dest, Getenv: o.Getenv})
+	res, err := config.ResolvePack(entry, config.ResolvePackSpec{Dest: dest, Getenv: o.Getenv, Tail: o.tailOpener()})
 	if err != nil {
 		return nil, err
 	}

@@ -751,6 +751,9 @@ type Options struct {
 	// progressStderr is the writer beneath a temporary progress.Line. Services capture it
 	// for supervisor and teardown output that can outlive the progress step.
 	progressStderr io.Writer
+	// phaseLine is the progress line of the launch phase running now (withPhase), whose tail a step
+	// of the phase opens streams in (tailOpener); nil outside a phase and when the phase has no line.
+	phaseLine *progress.Line
 	// CapturesDir resolves the machine-wide install-capture store, which every
 	// launch binds :ro into the jail so a native launcher can MATERIALIZE an
 	// already-captured install instead of downloading it (program-delivery.md §6.3;

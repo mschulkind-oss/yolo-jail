@@ -41,6 +41,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -75,6 +76,11 @@ type ResolvePackSpec struct {
 	Ctx      context.Context
 	NoWait   bool
 	Detached bool
+	// Tail, when non-nil, opens a stream named for the pack in the launch's progress line (the tail,
+	// internal/progress) for a fetched or local pack: the pack store's git runs (a checkout's
+	// fetch of file contents) and the staging copy write what they are doing there, and the stream
+	// closes when the pack is resolved. Nil shows nothing, which is every caller but a launch's staging.
+	Tail packsrc.TailOpener
 }
 
 // ResolvedPack is one entry the resolver loaded.
@@ -142,6 +148,12 @@ func resolvePack(entry PackEntry, spec ResolvePackSpec, inspection bool) (Resolv
 	var out ResolvedPack
 	var root string
 	var commit string
+	var tail io.WriteCloser // this pack's stream of the progress tail; nil is none
+	defer func() {
+		if tail != nil {
+			tail.Close()
+		}
+	}()
 	if entry.Embedded() {
 		name := entry.EmbeddedName
 		if name == "" {
@@ -207,6 +219,10 @@ func resolvePack(entry PackEntry, spec ResolvePackSpec, inspection bool) (Resolv
 		}
 		store := &packsrc.Store{Dir: storeDir, Git: spec.Git, Getenv: spec.Getenv, Ctx: spec.Ctx,
 			NoWait: spec.NoWait, Detached: spec.Detached}
+		if tail = spec.Tail.Open(entry.Name); tail != nil {
+			store = store.WithTail(tail)
+			store.Say("resolving " + entry.Source)
+		}
 		var wt *packsrc.WorkingTree
 		if entry.Local != "" && addr.Kind == packsrc.KindGit && entry.Skills == nil {
 			// THE CLONE'S WORKING TREE RUNS when the launch's record says so (LPC-D14): the one reader of the
@@ -301,7 +317,13 @@ func resolvePack(entry PackEntry, spec ResolvePackSpec, inspection bool) (Resolv
 	switch {
 	case spec.Dest != "":
 		stage.Dest = spec.Dest
+		if tail != nil {
+			fmt.Fprintf(tail, "staging %s\n", root)
+		}
 		out.Staged, err = packstage.Stage(stage)
+		if tail != nil && err == nil && out.Staged != nil {
+			fmt.Fprintf(tail, "staged %d files\n", len(out.Staged.Staged))
+		}
 		loadFrom = spec.Dest
 	case filtered && !entry.Embedded():
 		// Read the selected view directly for a local or fetched pack. Declaration-mode staging used

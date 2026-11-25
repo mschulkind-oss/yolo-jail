@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -110,7 +111,10 @@ const abandonLine = "\x00abandon"
 func (o *Options) withPhase(span, label string, step func() bool) bool {
 	sp := o.Perf.Span(span)
 	defer sp.End()
-	return o.withProgressLineCfg(o.phaseProgressConfig(span), label, func(*progress.Line) (bool, string) {
+	return o.withProgressLineCfg(o.phaseProgressConfig(span), label, func(line *progress.Line) (bool, string) {
+		prev := o.phaseLine
+		o.phaseLine = line
+		defer func() { o.phaseLine = prev }()
 		if step() {
 			return true, "done"
 		}
@@ -169,4 +173,18 @@ func (o *Options) withProgressLineCfg(cfg progress.Config, label string, step fu
 		line.Done(result)
 	}
 	return ok
+}
+
+// tailOpener is how a step of the phase running now shows the latest lines of what it is doing
+// under the phase's progress line (progress.Line.Tail, shared by every stream the phase opens): the
+// opener a pack store's git runs and a staging copy are handed (packsrc.TailOpener). nil when no
+// phase line is running (an attach's comparison staging, a test), which shows nothing.
+func (o *Options) tailOpener() packsrc.TailOpener { return lineTailOpener(o.phaseLine) }
+
+// lineTailOpener is line's tail as a packsrc.TailOpener; nil for a nil line.
+func lineTailOpener(line *progress.Line) packsrc.TailOpener {
+	if line == nil {
+		return nil
+	}
+	return func(name string) io.WriteCloser { return line.Tail(name) }
 }

@@ -152,6 +152,10 @@ type RefreshOptions struct {
 	// not finish runs the held copy with a warning (Outcome.Warning). A mirror with a pack that has
 	// no held copy keeps the store's own budget. Nil is every explicit act, which has no deadline.
 	Check *PackCheck
+	// Tail, when non-nil, opens one stream per mirror in the launch's progress line (tail.go): the
+	// mirror's probe, clone, fetch and checkout write what git says there while they run, under
+	// the repository's short name. Nil shows nothing.
+	Tail TailOpener
 }
 
 // Outcome is what Refresh did for one pack.
@@ -314,7 +318,7 @@ func (s *Store) Refresh(packs []RefreshPack, opts RefreshOptions) ([]Outcome, er
 		}
 		items = append(items, item)
 	}
-	s.refreshGrouped(items, outcomes, opts.Force, now(), opts.Waiting, opts.Check)
+	s.refreshGrouped(items, outcomes, opts.Force, now(), opts.Waiting, opts.Check, opts.Tail)
 	for i := range outcomes {
 		if outcomes[i].Local != nil {
 			s.recordLocalCopy(&outcomes[i])
@@ -395,7 +399,7 @@ type refreshItem struct {
 // items' outcomes, and waiting is serialized so a progress line is never torn. A nil check is no
 // deadline: the store's own budget per mirror, as an explicit act has.
 func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bool, now time.Time,
-	waiting func(string), check *PackCheck) {
+	waiting func(string), check *PackCheck, tail TailOpener) {
 	var order []string
 	groups := map[string][]refreshItem{}
 	for _, it := range items {
@@ -418,7 +422,7 @@ func (s *Store) refreshGrouped(items []refreshItem, outcomes []Outcome, force bo
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s.refreshMirror(repo, groups[repo], outcomes, force, now, waiting, check)
+			s.refreshMirror(repo, groups[repo], outcomes, force, now, waiting, check, tail)
 		}()
 	}
 	wg.Wait()
@@ -514,7 +518,12 @@ func (s *Store) remoteDefaultBranch(b budget, repo string) (string, error) {
 // same ref rule and fetch and NO CHECKOUT: everything below the fetch step is resolution and
 // the materialize, which a check must not run (each would leave a tree no reaper reads).
 func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outcome, force bool,
-	now time.Time, waiting func(string), check *PackCheck) {
+	now time.Time, waiting func(string), check *PackCheck, tail TailOpener) {
+	if t := tail.Open(RepoLabel(repo)); t != nil {
+		defer t.Close()
+		s = s.WithTail(t)
+		s.Say("checking " + repo)
+	}
 	// A mirror the launch can answer from what it holds is checked under the phase's deadline; one that
 	// cannot (a first fetch) keeps its own budget, since nothing can stand in for it.
 	held := check != nil && !force && s.heldCopy(repo, items)
