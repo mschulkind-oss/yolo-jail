@@ -33,10 +33,12 @@ func validateReadableProfileSelection(value any) error {
 
 // readableBrokerSelection resolves one strict user snapshot to selected broker declarations.
 // Filtered roots stay leased through the closure and declaration reads; the returned metadata is detached.
-func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string, []ReadableBrokerDeclaration, []ReadablePackDeclaration, error) {
+// A selected pack whose LOCAL source directory is gone is left out and named in notes
+// (vanishedLocalPack); every other failure to resolve a selected pack still fails the whole read.
+func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string, []ReadableBrokerDeclaration, []ReadablePackDeclaration, []string, error) {
 	entries, problems := lowerReadablePackEntries(user, sources)
 	if len(problems) != 0 {
-		return nil, nil, nil, fmt.Errorf("read selected user pack entries: %v", problems)
+		return nil, nil, nil, nil, fmt.Errorf("read selected user pack entries: %v", problems)
 	}
 	entries = appendImplicitPacks(entries)
 
@@ -46,7 +48,13 @@ func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string
 			_ = os.RemoveAll(root)
 		}
 	}()
+	var notes []string
+	embeddedNames := packload.EmbeddedNames()
 	resolve := func(entry PackEntry) (*packload.Pack, error) {
+		if missing, source := vanishedLocalPack(entry, embeddedNames); missing {
+			notes = append(notes, vanishedPackNote(entry, source))
+			return nil, nil
+		}
 		spec := ResolvePackSpec{ReadOnlyStore: true}
 		if len(entry.Only) > 0 || len(entry.Exclude) > 0 {
 			root, err := os.MkdirTemp("", "yolo-readable-broker-pack-")
@@ -125,32 +133,32 @@ func readableBrokerSelection(user *jsonx.OrderedMap, sources *Sources) ([]string
 		Selection: selection,
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if profileErr != nil {
-		return nil, nil, nil, profileErr
+		return nil, nil, nil, nil, profileErr
 	}
 	if profilesErr != nil {
-		return nil, nil, nil, profilesErr
+		return nil, nil, nil, nil, profilesErr
 	}
 	if viaErr != nil {
-		return nil, nil, nil, viaErr
+		return nil, nil, nil, nil, viaErr
 	}
 	if !sel.Complete() {
-		return nil, nil, nil, fmt.Errorf("selected user pack declarations are incomplete: %v %v", sel.Unresolved, sel.ClosureErr)
+		return nil, nil, nil, nil, fmt.Errorf("selected user pack declarations are incomplete: %v %v", sel.Unresolved, sel.ClosureErr)
 	}
 
 	packs := sel.Packs()
 	selected := make([]string, 0, len(packs))
 	for _, pack := range packs {
 		if pack == nil || pack.Name == "" {
-			return nil, nil, nil, fmt.Errorf("selected user pack declaration has no identity")
+			return nil, nil, nil, nil, fmt.Errorf("selected user pack declaration has no identity")
 		}
 		selected = append(selected, pack.Name)
 	}
 	declarations, settings, err := ReadableDeclarationsForPacks(packs)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return selected, declarations, settings, nil
+	return selected, declarations, settings, notes, nil
 }

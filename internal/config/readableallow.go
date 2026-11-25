@@ -1171,27 +1171,38 @@ type ReadableConcreteTarget struct{ Repository ReadableRepository }
 // validates the declaration and capability mapping before this adapter projects capabilities back
 // to the broker's grant kinds. Callers use the returned canonical flag to distinguish a valid
 // empty authority from legacy mode, and treat every error as no write authority.
+//
+// A selected pack whose local source directory is gone does not cost the source its authority
+// (vanishedLocalPack); BrokeredGrantKindsWithNotes names such packs.
 func BrokeredGrantKindsUsingReadablePolicy(source string) (kinds []string, canonical bool, err error) {
+	kinds, canonical, _, err = BrokeredGrantKindsWithNotes(source)
+	return kinds, canonical, err
+}
+
+// BrokeredGrantKindsWithNotes is BrokeredGrantKindsUsingReadablePolicy plus the notes a caller
+// should show: each selected pack left out because its local source is gone, with the next step.
+// The grant stays in effect; the notes only disclose.
+func BrokeredGrantKindsWithNotes(source string) (kinds []string, canonical bool, notes []string, err error) {
 	user, sources, err := UserScopeConfigWithSources(true, func(string) {})
 	if err != nil {
-		return nil, true, err
+		return nil, true, nil, err
 	}
 	allowValue, hasAllow := user.Get("allow")
 	if hasAllow {
 		allow, ok := asMap(allowValue)
 		if !ok {
-			return nil, true, fmt.Errorf("allow: expected a table")
+			return nil, true, nil, fmt.Errorf("allow: expected a table")
 		}
 		if _, canonical = allow.Get(source); canonical {
-			selected, declarations, settings, err := readableBrokerSelection(user, sources)
+			selected, declarations, settings, notes, err := readableBrokerSelection(user, sources)
 			if err != nil {
-				return nil, true, err
+				return nil, true, nil, err
 			}
 			plan, err := ResolveReadableAllowance(ReadableAllowanceInput{
 				User: ownAllowanceOnly(user, allow, source), SelectedPacks: selected, Declarations: declarations, PackSettings: settings,
 			})
 			if err != nil {
-				return nil, true, err
+				return nil, true, nil, err
 			}
 			var policy *ReadableBrokerPolicy
 			for i := range plan.Sources {
@@ -1202,13 +1213,13 @@ func BrokeredGrantKindsUsingReadablePolicy(source string) (kinds []string, canon
 			}
 			if policy == nil {
 				// A valid `off` tombstone carries canonical authority but no allowance.
-				return nil, true, nil
+				return nil, true, notes, nil
 			}
 			kinds, err := readablePolicyGrantKinds(*policy, declarations)
-			return kinds, true, err
+			return kinds, true, notes, err
 		}
 	}
-	return grantKindsOf(user, source), false, nil
+	return grantKindsOf(user, source), false, nil, nil
 }
 
 // BrokeredGrantKindsForRepo is the grant kinds a source's broker may act on for repo, a concrete
@@ -1238,7 +1249,7 @@ func BrokeredGrantKindsForRepo(source, repo string) (kinds []string, canonical b
 	if len(tables) == 0 {
 		return broad, broadCanonical, nil
 	}
-	selected, declarations, settings, err := readableBrokerSelection(user, sources)
+	selected, declarations, settings, _, err := readableBrokerSelection(user, sources)
 	if err != nil {
 		return nil, true, err
 	}

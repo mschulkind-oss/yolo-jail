@@ -109,7 +109,7 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 	if err != nil {
 		return brokerscope.File{}, nil, errors.New("host user allowance is unreadable; run yolo check and retry")
 	}
-	packs, complete := config.UserScopeSelectedPacks()
+	packs, _, complete := config.UserScopeSelectedPacksWithNotes()
 	if !complete {
 		return brokerscope.File{}, nil, errors.New("selected pack list is incomplete; run yolo check and retry")
 	}

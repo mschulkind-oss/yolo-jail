@@ -16,6 +16,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholedecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
+	"github.com/mschulkind-oss/yolo-jail/internal/termsafe"
 )
 
 // approvalStores joins core-owned authorities, sources declared by the user-scope selected
@@ -27,8 +28,13 @@ func approvalStores() ([]*brokerstore.Store, []string, error) {
 	selected := map[string]*brokerstore.Store{}
 	owners := map[string]string{}
 	var diagnostics []string
-	packs, complete := config.UserScopeSelectedPacks()
+	packs, skipped, complete := config.UserScopeSelectedPacksWithNotes()
 	defer packload.ReleaseEmbedded()
+	// A pack whose local source is gone declares nothing, so it leaves the selection complete; it
+	// is still named, with the next step, and the sources it cannot touch keep their authority.
+	for _, note := range skipped {
+		fmt.Fprintln(os.Stderr, "NOTE: "+termsafe.Visible(note))
+	}
 	if !complete {
 		diagnostics = append(diagnostics, "INCOMPLETE: the user-scope pack selection could not be fully resolved; run `yolo check`, repair or fetch the named packs, then retry. Sources with unknown selection are listed but cannot grant approvals.")
 	}

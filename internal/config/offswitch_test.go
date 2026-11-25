@@ -45,7 +45,7 @@ func resolveWholeUserAllowance(t *testing.T) error {
 	if err != nil {
 		return err
 	}
-	selected, declarations, settings, err := readableBrokerSelection(user, sources)
+	selected, declarations, settings, _, err := readableBrokerSelection(user, sources)
 	if err != nil {
 		return err
 	}
