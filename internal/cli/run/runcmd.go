@@ -1203,6 +1203,9 @@ func slowSpanNoticeSink(notice func(string)) perf.Sink {
 			// was blocked in; a bare "took" line above it is noise.
 			return
 		}
+		if spanHasProgress(e.Name) || coveredByBootLine(e.Name) {
+			return // a progress line already said this phase's time, as "<label>: done (N.Ns)"
+		}
 		if childHoldsTerminal.Load() {
 			return // the terminal is the container's; the file sink already has it
 		}

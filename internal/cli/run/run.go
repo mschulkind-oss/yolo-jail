@@ -426,7 +426,12 @@ func Run(opts Options) (rc int) {
 	// (herdragent.go's WHEN); this defer covers every other return.
 	o.herdr = &herdrPane{}
 	defer o.releaseHerdrAgent()
-	staged, stagedOK := o.stageRunPacks(cname)
+	var staged stagedPacks
+	stagedOK := o.withPhase("launch.stage_packs", "Staging packs", func() bool {
+		var ok bool
+		staged, ok = o.stageRunPacks(cname)
+		return ok
+	})
 	if !stagedOK {
 		return 1
 	}
@@ -1752,9 +1757,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		o.holdLaunchLock(cname)
 
 		// Sweep jails orphaned by an uncatchable kill before the attach decision.
-		sp := o.Perf.Span("launch.reap_orphaned_jails")
-		o.reapOrphanedJails(rt)
-		sp.End()
+		o.withPhase("launch.reap_orphaned_jails", "Checking for orphaned jails", func() bool {
+			o.reapOrphanedJails(rt)
+			return true
+		})
 
 		existingCID := ""
 		if !o.NeverAttach {
@@ -2009,9 +2015,10 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	if !o.Sealed {
 		jailDaemons = append(slices.Clone(jailDaemons), privateHTTPFrontDaemons(o.privateClientEntrypoints)...)
 	}
-	captureSpan := o.Perf.Span("launch.auto_capture")
-	o.autoCaptureInstallerPrograms(staged.packs, containerJailPlatform())
-	captureSpan.End()
+	o.withPhase("launch.auto_capture", "Capturing installer programs", func() bool {
+		o.autoCaptureInstallerPrograms(staged.packs, containerJailPlatform())
+		return true
+	})
 
 	// THE FORK BUILDS (forkbuild.go; OQ-FP4, eager at the notch's readiness act): every selected
 	// fork this machine holds no build of at its pin is built now, in a sealed jail of its own, and
@@ -2477,18 +2484,21 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		lock.Close()
 		return 1
 	}
-	sp = o.Perf.Span("launch.refresh_jail_briefings")
-	facts := o.mechanicsFactSheet(cname, cfg, rt, staged, storePkgs, hostFiles, sources)
-	facts.HostLoopback = hostLoopbackFromArgv(runCmd)
-	if rt != "macos-user" { // parity: NotApplicable — native macos-user shares the host nix paths without a bind
-		facts.NixDelivery = nixDelivery(rt, hostNixMountedFromArgv(runCmd))
-	}
-	mechanicsWorkspaceReadonlyFromArgv(o, facts, cfg, runCmd, rt)
-	mechanicsHostFileBackings(facts, hostFiles, runCmd, rt, wsState)
-	o.resolveFreshSkillImports(cfg)
-	_, refreshErr := o.refreshJailBriefings(cname, cfg, rt, staged,
-		appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)), facts)
-	sp.End()
+	var refreshErr error
+	var facts *jailcontent.FactSheet
+	o.withPhase("launch.refresh_jail_briefings", "Composing the jail briefings", func() bool {
+		facts = o.mechanicsFactSheet(cname, cfg, rt, staged, storePkgs, hostFiles, sources)
+		facts.HostLoopback = hostLoopbackFromArgv(runCmd)
+		if rt != "macos-user" { // parity: NotApplicable — native macos-user shares the host nix paths without a bind
+			facts.NixDelivery = nixDelivery(rt, hostNixMountedFromArgv(runCmd))
+		}
+		mechanicsWorkspaceReadonlyFromArgv(o, facts, cfg, runCmd, rt)
+		mechanicsHostFileBackings(facts, hostFiles, runCmd, rt, wsState)
+		o.resolveFreshSkillImports(cfg)
+		_, refreshErr = o.refreshJailBriefings(cname, cfg, rt, staged,
+			appliedIOPriority(rt, o.IsMacOS, config.Resources(cfg)), facts)
+		return refreshErr == nil
+	})
 	if refreshErr != nil {
 		out.printf("[bold red]%s[/bold red]", refreshErr.Error())
 		discardUnheldSkeleton(cname, in.homeSkeleton)

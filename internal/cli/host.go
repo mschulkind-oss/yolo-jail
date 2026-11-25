@@ -780,14 +780,15 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// fetched (and a branch-following one refreshed hourly) before any of them reads the store,
 	// exactly as a jail launch does (hostpackrefresh.go). stderr, like the gates: an agent's
 	// stdout is routinely parsed.
-	sp := trace.span("host.pack_refresh")
-	refreshHostPacks(errw)
-	sp.End()
+	trace.phase(errw, "host.pack_refresh", "Checking fetched packs for updates", func(w io.Writer) bool {
+		refreshHostPacks(w)
+		return true
+	})
 	// OQ-CAP2's GATE (hostcapabilities.go), before the render gate for the reason that gate gives
 	// for its own provider-section check (hostapplygate.go, "a config the launch refuses is not
 	// rendered first"): a launch this refuses must not auto-apply a render of its config first —
 	// nor fetch or build a patched extension for it.
-	sp = trace.span("host.capability_gate")
+	sp := trace.span("host.capability_gate")
 	refused := refuseHostUnmetCapabilities(errw, filepath.Base(cmd[0]), flags.profile)
 	sp.End()
 	if refused {
@@ -874,11 +875,13 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// hostServicesStart: this is the one front door that owns its command's lifetime, so a
 	// profile paired through a pack service runs that service's host half for the command
 	// (docs/design/host-notch-services.md; OQ-NC1 A, OQ-HS3 per launch).
-	sp = trace.span("host.compose")
-	launch := composeHostLaunchWith(cmd[0], flags.profile, flags.grant, func(msg string) {
-		fmt.Fprintf(errw, "Warning: %s\n", msg)
-	}, hostServicesStart)
-	sp.End()
+	var launch *hostComposition
+	trace.phase(errw, "host.compose", "Composing the launch", func(w io.Writer) bool {
+		launch = composeHostLaunchWith(cmd[0], flags.profile, flags.grant, func(msg string) {
+			fmt.Fprintf(w, "Warning: %s\n", msg)
+		}, hostServicesStart)
+		return true
+	})
 	trace.recordComposition(launch, flags.profile)
 	// THE repo_instructions MODE at this notch (hostrepoinstructions.go), before the argv rewrite below.
 	applyHostRepoInstructions(launch, cmd[0], errw)
@@ -910,17 +913,21 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// every program a selected pack declares is installed into the floor before the target
 	// resolves, whatever the command, and one that cannot be STOPS the launch unless
 	// YOLO_ALLOW_MISSING_PROGRAMS is set — the jail's readiness act, at the host.
-	sp = trace.span("host.readiness")
-	ready, rc := hostReadinessAct(launch.packs, cmd, errw, act)
-	sp.End()
+	var ready hostReadiness
+	trace.phase(errw, "host.readiness", "Checking the programs packs declare", func(w io.Writer) bool {
+		ready, rc = hostReadinessAct(launch.packs, cmd, w, act)
+		return rc == 0
+	})
 	if rc != 0 {
 		return rc
 	}
 	lp := hostLaunchPath()
 	childPath := hostChildPath(lp, hostFloorBinDir())
-	sp = trace.span("host.resolve_target")
-	resolved, rc := resolveHostLaunchTarget(launch.packs, cmd[0], lp, errw, act, ready)
-	sp.End()
+	var resolved hostTarget
+	trace.phase(errw, "host.resolve_target", "Resolving "+filepath.Base(cmd[0]), func(w io.Writer) bool {
+		resolved, rc = resolveHostLaunchTarget(launch.packs, cmd[0], lp, w, act, ready)
+		return rc == 0
+	})
 	if rc != 0 {
 		return rc
 	}
@@ -932,14 +939,15 @@ func hostLaunch(flags hostExecFlags, profile string, cmd []string, out, errw, ra
 	// child's PATH, since the jail runs it with them bypassed. A failure is a line and the launch
 	// goes on; a SIGTERM or SIGHUP that stopped it ends the launch. Spanned only where it can run.
 	if prog, progs, ok := hostRefreshProgram(launch.packs, cmd[0]); ok {
-		sp = trace.span("host.prelaunch_refresh")
 		var refreshRC int
-		if flags.update {
-			refreshRC = hostPrelaunchRefreshFresh(launch, prog, progs, target, childPath, errw)
-		} else {
-			refreshRC = hostPrelaunchRefresh(launch, prog, progs, target, childPath, errw)
-		}
-		sp.End()
+		trace.phase(errw, "host.prelaunch_refresh", "Refreshing "+filepath.Base(cmd[0])+" before launch", func(w io.Writer) bool {
+			if flags.update {
+				refreshRC = hostPrelaunchRefreshFresh(launch, prog, progs, target, childPath, w)
+			} else {
+				refreshRC = hostPrelaunchRefresh(launch, prog, progs, target, childPath, w)
+			}
+			return refreshRC == 0
+		})
 		if refreshRC != 0 {
 			return refreshRC
 		}

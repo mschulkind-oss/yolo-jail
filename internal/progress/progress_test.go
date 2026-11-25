@@ -130,6 +130,30 @@ func TestImmediateShowsAtStart(t *testing.T) {
 	l.Done("")
 }
 
+// OnShown fires once, when the line first becomes visible, and never for a step that ended inside
+// its grace: it is how a caller learns that a phase has a line of its own.
+func TestOnShownFiresOnceAndOnlyForAShownLine(t *testing.T) {
+	cfg, clk := newCfg(false)
+	shown := 0
+	cfg.OnShown = func() { shown++ }
+
+	var quiet bytes.Buffer
+	cfg.Start(&quiet, "A quick step").Done("")
+	if shown != 0 {
+		t.Fatalf("OnShown fired %d times for a step that printed nothing", shown)
+	}
+
+	var buf bytes.Buffer
+	l := cfg.Start(&buf, "A slow step")
+	clk.advance(DefaultGrace)
+	l.Tick()
+	l.Tick()
+	l.Done("")
+	if shown != 1 {
+		t.Errorf("OnShown fired %d times for one shown line, want 1", shown)
+	}
+}
+
 // A live line never wraps: a wrapped line cannot be redrawn in place.
 func TestLiveLineIsTruncatedToTheTerminal(t *testing.T) {
 	cfg, clk := newCfg(true)

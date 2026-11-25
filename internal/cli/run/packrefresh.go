@@ -143,7 +143,7 @@ func (o *Options) refreshPacks() {
 		// lock-wait notice goes THROUGH the line, so it cannot tear it.
 		func() (func(string), func()) {
 			span := o.Perf.Span("launch.refresh_configured_packs")
-			line := o.progressConfig().Start(o.Stderr, "Checking fetched packs for updates")
+			line := o.progressConfigCovering("launch.refresh_configured_packs").Start(o.Stderr, "Checking fetched packs for updates")
 			return line.Println, func() { line.Done(""); span.End() }
 		},
 	)

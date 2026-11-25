@@ -115,7 +115,7 @@ func (o *Options) imageLoadOptions(cfg *jsonx.OrderedMap, rt, repoRoot string, s
 		Report: o.Stderr,
 		// The long steps' live progress (the nix builds, the layer copy, the archive
 		// load) is drawn on Report, in place when the launch stream is a terminal.
-		Progress: o.progressConfig(),
+		Progress: o.progressConfigCovering(imageSpans...),
 		IsMacOS:  o.IsMacOS,
 		// THE STORE FACTS COME FROM THE LAUNCH'S ONE `podman info` (PR-D5 of
 		// docs/reference/podman-readiness.md): the readiness gate's answer, parsed by the

@@ -311,7 +311,7 @@ func (o *Options) treeBuildPlan(rt string) (map[string]TreeDelivery, *TreeBuildR
 		copyRoot, reuse = macosUserTreeCopyRoot(o.packTree), true
 	}
 	return out, &TreeBuildRequest{FreshUpdate: o.Update && !o.DryRun, Trees: trees, Platform: jailPlatform(rt), Runtime: rt,
-		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfig(),
+		Workspace: o.Workspace, Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfigCovering(forkSlotSpans...),
 		Build: floor == "", BuildFloor: floor,
 		CopyRoot: copyRoot, ReuseCopies: reuse, Interrupt: o.actInterrupt(), CachedGood: o.cachedGoodTrees}
 }

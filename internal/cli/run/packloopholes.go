@@ -50,6 +50,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packdecl"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/pluginpack"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
@@ -999,10 +1000,11 @@ func (o *Options) startPlannedLoopholes(cname, rt string, cfg *jsonx.OrderedMap,
 	// start gets a progress line (silent when the services answer promptly, which
 	// is the measured 0.1 s case).
 	var started []loopholeDaemon
-	o.withStderrProgress("Starting host services", func() bool {
-		started = o.startLoopholes(cname, rt, cfg)
-		return true
-	})
+	o.withProgressLineCfg(o.phaseProgressConfig("launch.start_loopholes"), "Starting host services",
+		func(*progress.Line) (bool, string) {
+			started = o.startLoopholes(cname, rt, cfg)
+			return true, "done"
+		})
 	if o.startupRefusal != nil {
 		return started, &servicesRefusal{startup: o.startupRefusal}
 	}

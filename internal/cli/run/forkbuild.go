@@ -163,7 +163,7 @@ func (o *Options) forkBuildPlan(rt string) (map[string]entrypoint.ForkDelivery, 
 		return out, nil
 	}
 	req := &ForkBuildRequest{FreshUpdate: o.Update && !o.DryRun, Pins: build, CachedGoodOwner: o.cachedGoodForkOwners(), Platform: platform, Runtime: rt, Workspace: o.Workspace,
-		Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfig(), Interrupt: o.actInterrupt()}
+		Stdout: o.Stdout, Stderr: o.Stderr, Progress: o.progressConfigCovering(forkSlotSpans...), Interrupt: o.actInterrupt()}
 	if o.packTree != "" {
 		// Called from every advance of the slot's pool at once (XB-D10): the record's writes are
 		// serialized in updateHandedFile, and this list under its own lock.
