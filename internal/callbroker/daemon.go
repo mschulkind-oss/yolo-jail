@@ -42,6 +42,9 @@ func Main(args []string) int {
 		fmt.Fprintln(os.Stderr, "call-broker: --socket and --launch-input are required; restart with the selected pack")
 		return 2
 	}
+	// Its approval authority fetches a selected pack the pack store lacks, in line, and skips it
+	// only when that fetch fails (config.EnableMissingPackFetch).
+	config.EnableMissingPackFetch(os.Stderr)
 	workspace, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "call-broker: cannot identify the workspace; restart the jail")

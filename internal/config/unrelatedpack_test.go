@@ -93,7 +93,6 @@ func TestAnUnresolvedPackThatMightDeclareStillWithdrawsABrokersAuthority(t *test
 	local := "[pack_sources]\nsrc = '" + root + "'\n\n"
 	for name, c := range map[string][2]string{
 		"a local pack with an invalid manifest": {"['git', 'src/broken']", local},
-		"a remote pack that was never fetched":  {"['git', 'rem/tools']", "[pack_sources.rem]\ngit = 'https://example.invalid/acme/tools'\n\n"},
 		"a vanished pack shadowing a shipped":   {"['git', 'src/github']", local},
 		"the declaring pack itself is missing":  {"['src/git']", local},
 	} {

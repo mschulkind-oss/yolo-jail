@@ -1172,15 +1172,16 @@ type ReadableConcreteTarget struct{ Repository ReadableRepository }
 // to the broker's grant kinds. Callers use the returned canonical flag to distinguish a valid
 // empty authority from legacy mode, and treat every error as no write authority.
 //
-// A selected pack whose local source directory is gone does not cost the source its authority
-// (vanishedLocalPack); BrokeredGrantKindsWithNotes names such packs.
+// A selected pack whose artifact is missing (a vanished local directory, a remote the pack store
+// has not fetched) does not cost the source its authority (skippableMissingPack);
+// BrokeredGrantKindsWithNotes names such packs.
 func BrokeredGrantKindsUsingReadablePolicy(source string) (kinds []string, canonical bool, err error) {
 	kinds, canonical, _, err = BrokeredGrantKindsWithNotes(source)
 	return kinds, canonical, err
 }
 
 // BrokeredGrantKindsWithNotes is BrokeredGrantKindsUsingReadablePolicy plus the notes a caller
-// should show: each selected pack left out because its local source is gone, with the next step.
+// should show: each selected pack left out because its artifact is missing, with the next step.
 // The grant stays in effect; the notes only disclose.
 func BrokeredGrantKindsWithNotes(source string) (kinds []string, canonical bool, notes []string, err error) {
 	user, sources, err := UserScopeConfigWithSources(true, func(string) {})
