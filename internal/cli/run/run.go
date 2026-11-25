@@ -743,7 +743,7 @@ func Run(opts Options) (rc int) {
 		// never ran the build act would fail and the launch refuse for a missing program, where the
 		// backend's refusal names the setup. Skipped silently, the backend's refusal follows.
 		if o.DryRun {
-			hostskills.PrintSourcedSkillProjection(o.pr(o.Stderr).rt, staged.packs)
+			hostskills.PrintSourcedSkillLaunch(o.pr(o.Stderr).rt, staged.packs)
 			o.dryRunForkDeliveries()
 			o.dryRunTreeDeliveries()
 		} else if o.macosUserPreflight() {

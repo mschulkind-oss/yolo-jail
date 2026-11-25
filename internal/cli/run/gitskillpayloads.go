@@ -48,6 +48,6 @@ func (o *Options) prepareFreshSkillPayloads(cname, rt string, staged stagedPacks
 		return false
 	}
 	adoptPackRecords(staged.packs)
-	hostskills.PrintSourcedSkillProjection(o.pr(o.Stderr).rt, staged.packs)
+	hostskills.PrintSourcedSkillLaunch(o.pr(o.Stderr).rt, staged.packs)
 	return true
 }
