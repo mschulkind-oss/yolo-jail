@@ -178,7 +178,11 @@
         }
         else { version = ""; commit = ""; snapshotIdentity = ""; buildKind = ""; };
     in
-    flake-utils.lib.eachDefaultSystem (system:
+    # The system list is spelled HERE, not taken from `eachDefaultSystem`: that is
+    # nix-systems/default, whose list the 2026-11-24 flake.lock bump moved to one without
+    # x86_64-darwin, silently dropping every x86_64-darwin output (the floor, the darwin
+    # profile) with the lock green.  A lock bump must not change what this flake offers.
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ] (system:
       let
         # See the nixpkgs-x86-darwin input comment: 26.11 throws on x86_64-darwin,
         # and every attribute below reaches `pkgs`.
