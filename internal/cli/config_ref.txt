@@ -3550,6 +3550,12 @@
       yolo-cglimit --cpu 75 -- python train.py           # 75% of all CPUs
       yolo-cglimit --cpu 50 --memory 2g -- make -j8      # 50% CPU + 2GB RAM
       yolo-cglimit --pids 100 -- ./script.sh             # Max 100 processes
+      yolo-cglimit --weight 800 --name gates -- make test  # 8x the default CPU share
+      yolo-cglimit --weight 800 --name gates --join 4321   # move a running process
+    A weight (1-10000) is a relative CPU share, not a limit: it only matters
+    while processes compete for CPU. A second command with the same --name
+    joins the same group, and a later --weight for that name replaces the
+    earlier one. --join only accepts a process inside this jail.
     It used to start whenever the platform allowed it, with no config key at
     all — which is the "presence activates" default the loophole rules delete.
     Podman is the primary supported runtime.

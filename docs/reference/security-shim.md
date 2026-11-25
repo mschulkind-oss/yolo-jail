@@ -164,7 +164,9 @@ write it.
 | No arbitrary cgroup writes | Three controllers only: `cpu`, `memory`, `pids` |
 | Limits are bounded | CPU as a percentage bounded by the machine's own core count; a memory floor that prevents OOM-kill loops; a bounded PID range |
 | Requests are bounded | One line per request, read with a hard byte cap |
-| The protocol is tiny | Three operations: `create_and_join`, `destroy`, `status` — anything else is `unknown` |
+| The protocol is tiny | Four operations: `create_and_join`, `join`, `destroy`, `status` — anything else is `unknown` |
+| `join` names a process other than the caller, so it is checked | The client sends a **pidfd** (SCM_RIGHTS), never a pid number, because the number would be in the jail's pid namespace. The daemon reads the host pid the kernel attests for that fd (`cgd.TargetFromPidfd`, which also refuses any fd that is not a pidfd), then reads `/proc/<pid>/cgroup` host-side and refuses unless that cgroup is this container's or a descendant (`cgd.joinPID`). A refused join creates and writes nothing |
+| Weights are bounded and are not limits | `cpu.weight` 1 to 10000, the kernel's range, refused before anything is created. It only matters under contention; the cpu controller is enabled in the container's and agent group's `subtree_control` by the same path `--cpu` uses |
 | The daemon dies with the container | It runs as a goroutine of the jail's keeper, the process a container launch spawns to hold the jail's host services, and stops at the jail's teardown or with the keeper |
 
 **It is a pack now, not built-in.** The daemon ships as a loophole of the `cgroup-delegate` pack
@@ -172,6 +174,17 @@ and is off unless that pack is selected; it used to be a Go function the run pip
 no config key at all. Its wire protocol and threat model did not change — only its activation.
 It is also the **last AF_UNIX consumer** in the system: every other host service moved to
 loopback-TLS.
+
+**The join PID check and its residual window.** Linux can write a pid number to `cgroup.procs` but
+not a pidfd, so the number is used after the check, and the target could in principle exit, be
+reaped and have its number reused by a process outside the container between the check and the
+write. The daemon re-reads the pidfd's pid immediately before the write and refuses if the process
+was reaped (`Target.Alive`), which leaves only the microseconds between that read and the
+`write(2)`. Accepting that is argued in the comment at the top of `internal/cgd/join.go`: host pids
+are issued cyclically, and the worst outcome is that an unrelated process is moved into a group
+under the jail's own cgroup, which can only lower its resources. The audit line for a join records
+the target's host pid (`target=`). Naming an existing group joins it, and a later `--weight` for
+that group replaces the earlier one.
 
 **The xscreensaver parallel:** the delegate does exactly one thing (manage child cgroups within a
 container's own cgroup). No general-purpose RPC, no shell execution, no file I/O outside the
@@ -274,7 +287,7 @@ can only affect the container environment.
    yields the host-namespace PID of the connecting process, set by the kernel and not by the
    caller — the Unix equivalent of a hardware attestation.
 
-3. **Finite protocol.** The cgroup delegate accepts exactly three message types; the port-forward
+3. **Finite protocol.** The cgroup delegate accepts exactly four message types; the port-forward
    bridge has no runtime messages at all (it is a static tunnel). There is no general-purpose RPC,
    no shell execution, no eval, and no dynamic code loading across the boundary.
 
@@ -303,7 +316,8 @@ can only affect the container environment.
 
 **Cgroup delegate**
 
-- [ ] Is `SO_PEERCRED` still the only identity mechanism — no tokens, no caller-supplied PID?
+- [ ] Is `SO_PEERCRED` still the only identity mechanism — no tokens, no caller-supplied PID? (A join's target is the one other process named, and it arrives as a pidfd, never a number.)
+- [ ] Does `join` refuse a process whose `/proc/<pid>/cgroup` is outside the container's subtree, including one that merely shares a name prefix with it?
 - [ ] Does the name pattern reject `..`, `/` and every other traversal?
 - [ ] Are the CPU, memory and PID bounds still enforced, and still derived from the machine?
 - [ ] Are only the `cpu`, `memory` and `pids` controllers enabled?
@@ -328,7 +342,7 @@ can only affect the container environment.
 | Property | xscreensaver | OpenSSH privsep | yolo |
 | :--- | :--- | :--- | :--- |
 | Privilege mechanism | setuid (optional) | a root monitor process | the container runtime, plus cgroup writes |
-| IPC protocol | X11 atoms | a Unix pipe, fixed messages | a Unix socket, one JSON line, three operations |
+| IPC protocol | X11 atoms | a Unix pipe, fixed messages | a Unix socket, one JSON line, four operations |
 | Identity verification | PAM | SSH keys / PAM | `SO_PEERCRED` (kernel-attested PID) |
 | Untrusted code | the screensaver hacks | the protocol parser, key exchange | the agent, every tool, the entrypoint |
 | Blast radius of compromise | an ugly screensaver | no root escalation | no host escalation |
@@ -342,8 +356,8 @@ can only affect the container environment.
   direction: the host is protected from the jail, and
   [`host-execution-from-the-workspace.md`](host-execution-from-the-workspace.md) is the direction
   that is *not* contained.
-- **Not a licence to add a general-purpose operation to the delegate.** Three operations is the
-  property; a fourth needs the same justification the first three had.
+- **Not a licence to add a general-purpose operation to the delegate.** A small finite set is the
+  property; `join` was the fourth, and it needed its own check (above) to earn it.
 - **Not a licence to add a second AF_UNIX consumer.** Every other host service is loopback-TLS
   precisely so there is one transport; the delegate is the exception because `SO_PEERCRED` is its
   authentication.
@@ -357,7 +371,8 @@ only place the values themselves are stated.
 
 | Value | Setting | Defined in |
 | :--- | :--- | :--- |
-| Delegate operations | `create_and_join`, `destroy`, `status` | `cgd.Handle` |
+| Delegate operations | `create_and_join`, `join`, `destroy`, `status` | `cgd.HandleCaller` |
+| CPU weight bound | 1 to 10000 | `cgd.MinCPUWeight`, `cgd.MaxCPUWeight` |
 | Delegate controllers | `cpu`, `memory`, `pids` | `internal/cgd/ops.go` |
 | Cgroup name pattern | a leading alphanumeric plus a bounded `[A-Za-z0-9._-]` tail, with `..` rejected separately | `internal/cgd/cgd.go` |
 | CPU bound | 1% to 100 × the machine's core count | `internal/cgd/ops.go` |

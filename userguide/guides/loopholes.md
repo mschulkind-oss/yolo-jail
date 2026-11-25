@@ -45,7 +45,14 @@ access through it only once you approve a **grant**: a named thing a project may
 | `host-processes` (`host-processes`) | A list of the host processes you name, with `yolo-ps` (Linux hosts) | A grant: `view`, with the process names |
 | `serial` (`serial`) | USB serial devices on the host, with the `yolo-serial` command | A grant: `devices`, with the device patterns |
 | `audio` (`audio`) | The host's microphone and speakers through PipeWire or PulseAudio (Linux hosts) | A grant: `use` |
-| `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap the CPU and memory of its own jobs, with `yolo-cglimit` (Linux hosts) | Nothing to grant: it can only limit the jail itself |
+| `cgroup-delegate` (`cgroup-delegate`) | Lets the jail cap the CPU and memory of its own jobs, or give groups of them a relative CPU weight, with `yolo-cglimit` (Linux hosts) | Nothing to grant: it can only limit the jail itself |
+
+`yolo-cglimit --weight N --name NAME -- COMMAND` runs a command in a named group with a relative
+CPU share from 1 to 10000 (the default share is 100). A weight is not a limit, so it only matters
+while processes compete for CPU: on an idle machine every group still gets all it asks for. A second
+command with the same `--name` joins the group, and a later `--weight` for that name replaces the
+earlier one. `yolo-cglimit --name NAME --join PID` moves a process that is already running into the
+group. The host refuses a process that is not inside your jail.
 
 ## Giving a project access
 
