@@ -130,6 +130,14 @@ func (p *buildPool) writer() io.Writer {
 	return p.w
 }
 
+// tailFor opens label's stream in the pool's progress line, whose one region shows the latest lines
+// of every build that runs at once (progress.Line.Tail); nil, which discards, before the pool runs.
+func (p *buildPool) tailFor(label string) *progress.Tail {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.line.Tail(label)
+}
+
 // run runs every key at once under the act's one interrupt scope and returns once each has ended
 // and its lines are printed. A pool with no keys starts nothing.
 func (p *buildPool) run() {

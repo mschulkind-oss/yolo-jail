@@ -339,3 +339,55 @@ func TestAPoolWithNoBoundNamedTakesTheMachines(t *testing.T) {
 		}
 	}
 }
+
+// transientSink is a launch stream whose terminal half records every byte and whose log half only the
+// persistent ones (run's teeLog shape).
+type transientSink struct {
+	mu        sync.Mutex
+	term, log strings.Builder
+}
+
+func (s *transientSink) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.term.Write(p)
+	return s.log.Write(p)
+}
+
+func (s *transientSink) WriteTransient(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.term.Write(p)
+}
+
+func (s *transientSink) halves() (term, log string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.term.String(), s.log.String()
+}
+
+// A BUILD'S OUTPUT REACHES THE POOL'S LIVE REGION: the latest lines its build jail prints are drawn
+// under the pool's progress line while it runs, and gone, with no trace in the log half, once it ends.
+// Red with the call that feeds the tail (buildRun.endLine's liveTail.Write) deleted.
+func TestABuildsOutputIsTheLatestLinesUnderThePoolsLine(t *testing.T) {
+	sink := &transientSink{}
+	cfg := progress.Config{Live: true, Immediate: true, Plain: true, Width: func() int { return 80 }}
+	pool := newBuildPool(sink, cfg, false, "", "podman", 0, 0, &run.ActInterrupt{})
+	var midTerm string
+	pool.add("fork a", func(it *poolItem) {
+		release, _ := it.build()
+		defer release()
+		r := pool.report.begin(buildStart{fork: packload.Fork{Pack: "a", Bin: "a", Into: ".x/a"}, what: "v1"}, it)
+		s := r.streams()
+		s.jailOut.Write([]byte("   Compiling yolo v0.1.0\n"))
+		midTerm, _ = sink.halves()
+		r.fail("done")
+	})
+	pool.run()
+	if !strings.Contains(midTerm, "\x1b[2K  Compiling yolo v0.1.0") {
+		t.Errorf("the build's latest line was not drawn under the pool's line: %q", midTerm)
+	}
+	if _, log := sink.halves(); strings.Contains(log, "Compiling") {
+		t.Errorf("the tail's rows reached the log half: %q", log)
+	}
+}

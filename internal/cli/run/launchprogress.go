@@ -32,6 +32,7 @@ func (o *Options) progressConfig() progress.Config {
 		(o.Getenv == nil || o.Getenv("TERM") != "dumb")
 	return progress.Config{
 		Live:  live,
+		Plain: tty.NoColor(o.Getenv),
 		Width: func() int { return tty.Width(os.Stderr.Fd()) },
 	}
 }

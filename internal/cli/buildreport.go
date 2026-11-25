@@ -168,6 +168,7 @@ type buildStart struct {
 func (r *buildReport) begin(s buildStart, it *poolItem) *buildRun {
 	b := &buildRun{r: r, it: it, key: s.fork.Key(), label: s.fork.Label(), started: time.Now()}
 	b.openLog(s)
+	b.liveTail = it.pool.tailFor(b.label)
 	head := "[bold]build[/bold] " + richtext.Escape(b.label+": "+s.what+s.why)
 	if s.wait != "" {
 		head += richtext.Escape(" — " + s.wait)
@@ -230,6 +231,10 @@ type buildRun struct {
 	// store is the admitted entry, as the result line names it.
 	store string
 	ended bool
+	// liveTail is the build's rows under the pool's progress line (progress.Line.Tail): its latest
+	// lines, redrawn in place on a terminal, which the pool's one region shares among the builds
+	// that run at once. nil when the pool has no live line; every method on it is then a no-op.
+	liveTail *progress.Tail
 }
 
 // tailLine is one of a build's last lines, and whether it is repeated among the nested launch's
@@ -346,6 +351,8 @@ func (b *buildRun) endLine(i int) {
 		return
 	}
 	b.r.logLine(b.key, text)
+	// THE TERMINAL'S SHARE: the line's latest few, which the pool's region redraws; the log has them all.
+	_, _ = b.liveTail.Write([]byte(text + "\n"))
 	warned := false
 	if (i == tailLaunchOut || i == tailLaunchErr) && !b.booted {
 		// THE NESTED LAUNCH'S TIER 3: a warning or a refusal, and the indented lines that are its detail.
@@ -561,6 +568,7 @@ func (b *buildRun) closeLog() {
 		_ = b.logf.Close()
 		b.logf = nil
 	}
+	_ = b.liveTail.Close()
 }
 
 // childJail is the runJail of a build a jail launch runs (buildMode.runJail): the fork-build-jail

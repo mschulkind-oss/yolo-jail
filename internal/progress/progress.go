@@ -24,6 +24,10 @@
 //   - LINE-ORIENTED (a pipe, a file, CI): a start line, a heartbeat line at most
 //     every Heartbeat while the step runs, and the result line. Never a "\r".
 //
+// A live step that runs subprocesses can also show their latest few output lines under
+// its line (Line.Tail, tail.go): one region, owned by the Line, so concurrent builds
+// share it rather than tear each other. The line-oriented rendering prints no tail.
+//
 // Both renderings stay SILENT for a step that ends within Grace, so a launch whose
 // steps are warm prints exactly what it printed before this package existed.
 //
@@ -88,6 +92,12 @@ type Config struct {
 	// same time (the slow-span notice) can be withheld. It runs with the line's lock
 	// held: it must be quick and must not call back into the line.
 	OnShown func()
+	// TailLines is how many of a subprocess's latest output lines the live
+	// rendering shows under the status line (Line.Tail, tail.go): 0 =>
+	// DefaultTailLines, negative => none.
+	TailLines int
+	// Plain draws the tail's rows without the dim attribute (NO_COLOR).
+	Plain bool
 	// Now and Tick are test seams. nil => time.Now and a real one-second ticker.
 	Now  func() time.Time
 	Tick <-chan time.Time
@@ -110,6 +120,10 @@ type Line struct {
 	stopped   chan struct{}
 	lastFrame string
 	pending   []byte // a partial line written through Write
+
+	tails        []*Tail   // the open tail streams (tail.go), in the order they opened
+	rows         int       // the rows the region takes on the terminal right now, status row included
+	lastTailDraw time.Time // when new tail lines last caused a redraw
 }
 
 // Start begins a step labelled label ("Copying the image into podman"), written to
@@ -272,6 +286,10 @@ func (l *Line) finish(result string, say bool) {
 		return
 	}
 	l.finished = true
+	for _, t := range l.tails {
+		t.closed = true
+	}
+	l.tails = nil
 	close(l.stop)
 	if len(l.pending) > 0 {
 		l.erase()
@@ -330,23 +348,64 @@ func (l *Line) frame(now time.Time) string {
 
 // draw redraws the live line in place. Callers hold mu.
 func (l *Line) draw() {
-	f := truncate(l.frame(l.cfg.Now()), l.width()-1)
+	status := truncate(l.frame(l.cfg.Now()), l.width()-1)
+	rows := append([]string{status}, l.tailRows()...)
+	f := strings.Join(rows, "\n")
 	if l.drawn && f == l.lastFrame {
 		return
 	}
+	old := 0
+	if l.drawn {
+		old = l.rows
+	}
 	l.lastFrame = f
 	l.drawn = true
-	l.transient("\r\x1b[K" + f)
+	l.rows = len(rows)
+	if len(rows) == 1 && old <= 1 {
+		// One row, as it always was: "\r" + erase-line.
+		l.transient("\r\x1b[K" + status)
+		return
+	}
+	// A taller region: up to its first row, every row rewritten (CSI 2K), and the rows an earlier,
+	// taller frame left below erased; the cursor ends on the last row.
+	var b strings.Builder
+	b.WriteString("\r" + moveUp(old-1))
+	for i, r := range rows {
+		if i > 0 {
+			b.WriteString("\r\n")
+		}
+		b.WriteString("\x1b[2K" + r)
+	}
+	if extra := old - len(rows); extra > 0 {
+		b.WriteString(strings.Repeat("\r\n\x1b[2K", extra) + moveUp(extra))
+	}
+	l.transient(b.String())
 }
 
-// erase clears a live line, if one is on the terminal. Callers hold mu.
+// erase clears the live region, if one is on the terminal, leaving the cursor at the start of
+// its first row. Callers hold mu.
 func (l *Line) erase() {
 	if !l.drawn {
 		return
 	}
+	rows := l.rows
 	l.drawn = false
 	l.lastFrame = ""
-	l.transient("\r\x1b[K")
+	l.rows = 0
+	if rows <= 1 {
+		l.transient("\r\x1b[K")
+		return
+	}
+	var b strings.Builder
+	b.WriteString("\r" + moveUp(rows-1))
+	for i := 0; i < rows; i++ {
+		if i > 0 {
+			b.WriteString("\r\n")
+		}
+		b.WriteString("\x1b[2K")
+	}
+	b.WriteString(moveUp(rows-1) + "\r")
+	l.transient(b.String())
 }
 
 func (l *Line) transient(s string) {
