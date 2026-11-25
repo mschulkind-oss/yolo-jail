@@ -798,6 +798,11 @@ func withCeilingLines(data []byte, ceiling map[string][]string) ([]byte, []strin
 func targetFor(f *File) (Target, error) {
 	t := Target{File: f, Old: f.oldPath(), New: f.newPath()}
 	t.Backup = t.Old + ".pre-migrate"
+	if f.writesThroughLink() {
+		// Written through: Old is the link's resolved target, replaced atomically beside itself
+		// as `yolo config set` replaces it (configedit's EvalSymlinks), and the link stays.
+		return t, nil
+	}
 	if !f.IsSymlink() {
 		if filepath.Dir(f.Physical) != resolvedDir(f.Logical) {
 			return Target{}, fmt.Errorf("%s does not resolve beside its own name; point its link at the file itself, then run `yolo config migrate` again", f.Logical)
@@ -873,7 +878,7 @@ func writeMirror(root string, g *Graph, content map[*File][]byte) (userTop, work
 		// A file the migration writes is reached afterwards only by a name whose directory
 		// resolves to where it is written: a moved link is gone, and no link is made to
 		// stand in for it (RC-D41). A file it leaves alone is reached as before.
-		if f.Role != RoleRead && filepath.Join(resolvedDir(name), filepath.Base(name)) != newPhysical(f) {
+		if f.Role != RoleRead && !f.writesThroughLink() && filepath.Join(resolvedDir(name), filepath.Base(name)) != newPhysical(f) {
 			return nil
 		}
 		if _, err := os.Lstat(at(name)); err == nil {

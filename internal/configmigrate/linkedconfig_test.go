@@ -1,6 +1,7 @@
 package configmigrate
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,5 +176,103 @@ func TestALinkedIncludeWithIncludesBesideItsTargetIsRefused(t *testing.T) {
 	}
 	if got := treeState(t, dots); !reflect.DeepEqual(got, dotsBefore) {
 		t.Fatalf("the dotfiles tree changed:\ngot  %v\nwant %v", got, dotsBefore)
+	}
+}
+
+// linkedUserTOML makes ~/.config/yolo-jail/config.toml a link into a dotfiles repository, which
+// holds text, and returns the link's directory, the link's text and the target.
+func linkedUserTOML(t *testing.T, home, text string) (dir, linkText, targetPath string) {
+	t.Helper()
+	dir = filepath.Join(home, ".config", "yolo-jail")
+	repo := filepath.Join(home, "dotfiles")
+	targetPath = filepath.Join(repo, "yolo", "config.toml")
+	write(t, targetPath, text)
+	dotfilesRepo(t, repo)
+	linkText = "../../dotfiles/yolo/config.toml"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(linkText, filepath.Join(dir, "config.toml")); err != nil {
+		t.Fatal(err)
+	}
+	return dir, linkText, targetPath
+}
+
+// The owner's ruling of 2026-11-24 (RC-D75, amending RC-D41): a TOML user config the migration
+// rewrites under its own name, reached through a symlink, is written through the link. Here a
+// converted workspace switch gains the user's `on_request` line (LG-D16): the link stays a link,
+// the dotfiles target holds the new bytes, and the original is kept beside the target.
+func TestALinkedCeilingLineIsWrittenToTheDotfilesTarget(t *testing.T) {
+	home := env(t)
+	const old = "# mine\npacks = [\"audio\"]\n"
+	dir, linkText, targetPath := linkedUserTOML(t, home, old)
+	ws := realDir(t)
+	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"loopholes": {"audio": {"enabled": true}}}`)
+	link := filepath.Join(dir, "config.toml")
+
+	g, err := Discover(Request{UserConfigDir: dir, Workspace: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Plan(g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := g.Linked(); len(got) != 0 {
+		t.Errorf("Linked lists a file written through its link: %+v", got)
+	}
+	user := target(t, p, targetPath)
+	if user.New != targetPath || user.Backup != targetPath+".pre-migrate" || user.LinkText != "" {
+		t.Fatalf("the user config's target = %+v, want the link's target rewritten in place", user)
+	}
+	if !strings.Contains(p.Transcript(), "stays a link") {
+		t.Errorf("the transcript does not say the link stays:\n%s", p.Transcript())
+	}
+	res, err := Apply(p, ApplyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(link); err != nil || got != linkText {
+		t.Fatalf("the link is %q (%v), want it kept as %q", got, err, linkText)
+	}
+	data, err := os.ReadFile(targetPath)
+	if err != nil || string(data) != string(user.Bytes) || !strings.Contains(string(data), "on_request") {
+		t.Fatalf("the dotfiles target is %q (%v), want the planned bytes with the ceiling line", data, err)
+	}
+	if kept, err := os.ReadFile(targetPath + ".pre-migrate"); err != nil || string(kept) != old {
+		t.Errorf("the original beside the target is %q (%v), want %q", kept, err, old)
+	}
+	if exists(link + ".pre-migrate") {
+		t.Errorf("a backup of the link was made beside it")
+	}
+	if len(res.Links) != 0 {
+		t.Errorf("Links = %+v, want none: nothing moved", res.Links)
+	}
+}
+
+// A kill after the first commit step is finished forward, and the link still stands.
+func TestAKilledWriteThroughALinkRollsForward(t *testing.T) {
+	home := env(t)
+	dir, linkText, targetPath := linkedUserTOML(t, home, "packs = [\"audio\"]\n")
+	ws := realDir(t)
+	write(t, filepath.Join(ws, "yolo-jail.jsonc"), `{"loopholes": {"audio": {"enabled": true}}}`)
+	req := Request{UserConfigDir: dir, Workspace: ws}
+	p := plan(t, req)
+	want := target(t, p, targetPath).Bytes
+	if _, err := Apply(p, ApplyOptions{StopAfter: func(step int, name string) bool { return step == 0 }}); !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("Apply = %v, want the seam's stop", err)
+	}
+	j := Interrupted(req)
+	if j == "" {
+		t.Fatal("no journal after the kill")
+	}
+	if _, err := Resume(j); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.Readlink(filepath.Join(dir, "config.toml")); err != nil || got != linkText {
+		t.Fatalf("the link is %q (%v) after Resume", got, err)
+	}
+	if data, _ := os.ReadFile(targetPath); string(data) != string(want) {
+		t.Fatalf("the target after Resume is %q, want %q", data, want)
 	}
 }

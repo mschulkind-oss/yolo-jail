@@ -609,10 +609,24 @@ func (f *File) IsSymlink() bool {
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
+// writesThroughLink is whether the file is rewritten under its own name (a respell) and reached
+// through a symlink: the write goes to the link's resolved target and the link stays, as any
+// open-and-write does (RC-D41's amendment, the owner's ruling of 2026-11-24). A rename, a
+// conversion to the TOML twin, is never one.
+func (f *File) writesThroughLink() bool { return f.Role == RoleRespell && f.IsSymlink() }
+
+// LinkedTarget is the link's resolved target a rewrite in place writes, "" for any other file.
+func (f *File) LinkedTarget() string {
+	if f.writesThroughLink() {
+		return f.Physical
+	}
+	return ""
+}
+
 // oldPath is the name a conversion moves to its backup: the physical file, or for a linked name
 // the link itself (its directory resolved), never the file it points at.
 func (f *File) oldPath() string {
-	if f.IsSymlink() {
+	if f.IsSymlink() && !f.writesThroughLink() {
 		return filepath.Join(resolvedDir(f.Logical), filepath.Base(f.Logical))
 	}
 	return f.Physical
@@ -635,11 +649,12 @@ func (f *File) newPath() string {
 // at, never changed; New is the regular file written in its place (RC-D41).
 type LinkedFile struct{ Link, Backup, Target, New string }
 
-// Linked lists the files the migration writes whose names are symlinks, in discovery order.
+// Linked lists the files the migration converts (renames) whose names are symlinks, in discovery
+// order. A file rewritten under its own name is written through its link and is not listed.
 func (g *Graph) Linked() []LinkedFile {
 	var out []LinkedFile
 	for _, f := range g.Files {
-		if (f.Role == RoleConvert || f.Role == RoleRespell) && f.IsSymlink() {
+		if f.Role == RoleConvert && f.IsSymlink() {
 			out = append(out, LinkedFile{Link: f.oldPath(), Backup: f.oldPath() + ".pre-migrate", Target: f.Physical, New: f.newPath()})
 		}
 	}
@@ -666,6 +681,13 @@ func LinkWarning(links []LinkedFile) string {
 		b.WriteString("If a dotfiles manager keeps these files, copy the new files into it yourself, and stop it restoring the old links: a launch refuses while both names are here.")
 	}
 	return b.String()
+}
+
+// ThroughLinkReport is the line for a file rewritten under its own name through the symlink link:
+// the link stays, and target, the file it points at, is the one edited (RC-D75).
+func ThroughLinkReport(link, target string) string {
+	return fmt.Sprintf("%s is a link to %s and is still a link. The edit was made to %s, and the original is kept beside it as %s.pre-migrate.",
+		link, target, target, target)
 }
 
 // LinkReport is the closing report's line for one moved link.
