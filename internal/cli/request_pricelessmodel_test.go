@@ -22,13 +22,18 @@ const pricelessModelLocation = "config.d/work.toml:8:1"
 
 func pricelessModelFixture(t *testing.T) namedVerbFixture {
 	t.Helper()
+	return gapModelFixture(t, pricelessBedrockFragment)
+}
+
+func gapModelFixture(t *testing.T, fragment string) namedVerbFixture {
+	t.Helper()
 	ws := testconfig.Workspace(t, "")
 	user := testconfig.User(t, "packs = [\"git\", \"github\", \"claude\", \"bedrock\"]\n")
 	fragmentPath := filepath.Join(filepath.Dir(user.Path), "config.d", "work.toml")
 	if err := os.MkdirAll(filepath.Dir(fragmentPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fragmentPath, []byte(pricelessBedrockFragment), 0o600); err != nil {
+	if err := os.WriteFile(fragmentPath, []byte(fragment), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", user.Root)

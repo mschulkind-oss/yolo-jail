@@ -305,14 +305,6 @@ func runConfigPostWriteCheck(workspace string, out, errw io.Writer) int {
 	return runConfigCheckAt(nil, workspace, out, errw)
 }
 
-// writeConfigEditPreexisting warns, one line each, of a problem the config already had, which the
-// edit left as it was and so was not refused for. Each problem names where it is written and its fix.
-func writeConfigEditPreexisting(errw io.Writer, result configedit.TargetedResult) {
-	for _, problem := range result.Preexisting {
-		fmt.Fprintf(errw, "warning: already in your config, and left as it is by this edit: %s\n", problem)
-	}
-}
-
 // redactConfigEditHunks suppresses only private-value spans intersecting the displayed hunks.
 // It verifies each hunk against both source documents so coordinate or parse uncertainty never
 // falls back to printing a possibly private diff.
