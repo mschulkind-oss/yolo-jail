@@ -734,8 +734,15 @@ func (o *Options) prepareWsState(cfg *jsonx.OrderedMap, loadedPacks []*packload.
 	// ones outside every writable dir, and every skills and briefing destination, are the
 	// podman skeleton's (packFilesSkeletonEntries, buildHomeSkeleton). preparePackFiles
 	// follows the same per-backend layout itself (packFilesWorkspaceRel).
-	for _, archived := range preparePackFiles(loadedPacks, o.patchedTreeDirs(), wsState, rt) {
+	archivedFiles, retiredFiles := preparePackFilesReporting(loadedPacks, o.patchedTreeDirs(), wsState, rt)
+	for _, archived := range archivedFiles {
 		o.pr(o.Stderr).printf("[yellow]Archived an unclaimed zero-byte legacy pack-file mountpoint: %s[/yellow]", archived)
+	}
+	// A path yolo itself delivered and no pack ships any more (the ownership record is the
+	// evidence; a path the user changed was left alone), said as every removal is.
+	for _, rel := range retiredFiles {
+		o.pr(o.Stderr).printf("Removed %s: the pack that delivered it no longer ships it",
+			filepath.Join(wsState, rel))
 	}
 
 	// No pack dir is seeded from the machine store any more: the Claude login below is the

@@ -320,6 +320,9 @@ func (o *Options) sectionPacks(r *reporter, merged *jsonx.OrderedMap) {
 				return nil, nil
 			default:
 				r.ok(fmt.Sprintf("%s: %d file(s) stage", e.Name, len(res.Staged.Staged)))
+				if note := res.Staged.SkippedNote(); note != "" {
+					r.note("  " + note)
+				}
 			}
 			if advice := packMigrateAdvice(e); advice != "" {
 				r.note(advice)

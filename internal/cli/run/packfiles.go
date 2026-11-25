@@ -727,6 +727,13 @@ type packFilesMountpoint struct {
 // dir; every other target lives in the machine-wide read-only base and cannot safely be
 // retired from one workspace's view of the configured packs.
 func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, rt string) []string {
+	archived, _ := preparePackFilesReporting(packs, trees, wsState, rt)
+	return archived
+}
+
+// preparePackFilesReporting is preparePackFiles that also returns every path it RETIRED, relative
+// to wsState, so the launch can name each removal (a launch has no quiet mode).
+func preparePackFilesReporting(packs []*packload.Pack, trees map[string]string, wsState, rt string) (archived, retired []string) {
 	manifestPath := filepath.Join(filepath.Dir(wsState), packFilesMountpointManifestName)
 	previous := loadPackFilesMountpointManifest(manifestPath)
 	current := map[string]packFilesMountpointTarget{}
@@ -739,7 +746,6 @@ func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, 
 			}
 		}
 	}
-	var archived []string
 	migrationApplicable := rt != "macos-user" && hasSingleFilePackTarget(current) // parity: NotApplicable — macos-user copies `files` trees through the home overlay (buildMacosHomeOverlay), which needs no mountpoint.
 	if migrationApplicable && previous.Version < packFilesMountpointManifestVersion {
 		archived = archiveLegacyPackFileMountpoints(wsState, current)
@@ -747,7 +753,7 @@ func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, 
 
 	// Retire first, so a contribution changing shape at one destination can recreate the
 	// right target below.
-	retirePackFileMountpoints(wsState, previous, current)
+	retired = retirePackFileMountpoints(wsState, previous, current)
 
 	next := &packFilesMountpointManifest{
 		Version: previous.Version,
@@ -796,10 +802,10 @@ func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, 
 
 	if len(next.Entries) == 0 && next.Version == 0 {
 		_ = os.Remove(manifestPath)
-		return archived
+		return archived, retired
 	}
 	_ = savePackFilesMountpointManifest(manifestPath, next)
-	return archived
+	return archived, retired
 }
 
 // retirePackFileMountpoints removes each mountpoint previous records that current no longer
@@ -817,7 +823,7 @@ func preparePackFiles(packs []*packload.Pack, trees map[string]string, wsState, 
 // forged digest made any host file whose content the jail knows count as "unchanged". Beneath
 // the root, a link leaving it is refused at every component, and r.Remove never follows a link
 // at the final name.
-func retirePackFileMountpoints(wsState string, previous *packFilesMountpointManifest, current map[string]packFilesMountpointTarget) {
+func retirePackFileMountpoints(wsState string, previous *packFilesMountpointManifest, current map[string]packFilesMountpointTarget) (retired []string) {
 	var overlay *os.Root
 	opened := false
 	defer func() {
@@ -847,10 +853,14 @@ func retirePackFileMountpoints(wsState string, previous *packFilesMountpointMani
 			if packFilesBeforeRetire != nil {
 				packFilesBeforeRetire(rel)
 			}
-			_ = overlay.Remove(rel)
+			if overlay.Remove(rel) == nil {
+				retired = append(retired, rel)
+			}
 		}
 		delete(previous.Entries, rel)
 	}
+	sort.Strings(retired)
+	return retired
 }
 
 // openExistingStateRoot is openStateRoot that creates nothing: dir (wsState) and its parent
@@ -927,6 +937,7 @@ func hasSingleFilePackTarget(targets map[string]packFilesMountpointTarget) bool 
 // empty file the user intentionally put there has the same bytes.
 func archiveLegacyPackFileMountpoints(wsState string, current map[string]packFilesMountpointTarget) []string {
 	claimed := map[string]struct{}{}
+	var archived []string
 	dirs := map[string]struct{}{}
 	for rel, t := range current {
 		claimed[filepath.Clean(rel)] = struct{}{}
@@ -934,7 +945,6 @@ func archiveLegacyPackFileMountpoints(wsState string, current map[string]packFil
 			dirs[filepath.Dir(rel)] = struct{}{}
 		}
 	}
-	var archived []string
 	for relDir := range dirs {
 		dir := filepath.Join(wsState, relDir)
 		if !pathParentWithin(filepath.Join(dir, "candidate"), wsState) {

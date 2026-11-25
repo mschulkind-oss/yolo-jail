@@ -89,6 +89,9 @@ func loadPatchedPackDir(dir, name string, errw io.Writer, color bool) (*packload
 		for _, note := range p.SkewNotes {
 			pr.Printf("[yellow]%s[/yellow]", richtext.Escape("Warning: "+note))
 		}
+		if note := res.Staged.SkippedNote(); note != "" {
+			pr.Printf("[dim]%s[/dim]", richtext.Escape(note))
+		}
 	}
 	return p, err
 }

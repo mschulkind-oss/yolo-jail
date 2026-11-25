@@ -79,6 +79,19 @@ type Result struct {
 	// Excluded is the pack-relative path of every file a filter rejected, sorted.
 	// Reported rather than dropped so `only`/`exclude` typos are diagnosable.
 	Excluded []string
+	// Skipped is the pack-relative path of every dependency tree the walk did not enter (a
+	// `node_modules` directory at any depth), sorted. Reported so a skip is never silent:
+	// `yolo pack lint` names each one.
+	Skipped []string
+}
+
+// SkippedNote is the one line naming the dependency trees the walk did not enter, or "" when it
+// skipped none: a skip is disclosed, never silent.
+func (r *Result) SkippedNote() string {
+	if r == nil || len(r.Skipped) == 0 {
+		return ""
+	}
+	return "skipped dependency tree(s), which are never pack content: " + strings.Join(r.Skipped, ", ")
 }
 
 // Stage copies the selected files from spec.Root into spec.Dest.
@@ -136,6 +149,7 @@ func walk(spec Spec, write bool) (*Result, error) {
 	}
 	sort.Strings(res.Staged)
 	sort.Strings(res.Excluded)
+	sort.Strings(res.Skipped)
 	return res, nil
 }
 
@@ -171,6 +185,18 @@ func (w *walker) dir(path, prefix string) error {
 		// would put a whole second .git tree inside the jail.
 		if fi.IsDir() && (rel == ".git" || strings.HasSuffix(rel, "/.git")) {
 			return filepath.SkipDir
+		}
+		// A dependency tree is never pack content: a package manager's virtual store carries
+		// pruned and escaping links a checkout never meant to ship, and one such link aborted
+		// the whole walk (requests #29). It is skipped WITHOUT being read, so a link inside it is
+		// never followed, and named in Result.Skipped. A link NAMED node_modules is skipped
+		// unfollowed too (pnpm workspaces link one in).
+		if filepath.Base(p) == "node_modules" && (fi.IsDir() || fi.Mode()&os.ModeSymlink != 0) {
+			w.res.Skipped = append(w.res.Skipped, rel)
+			if fi.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if fi.IsDir() {
 			return nil // directories are created lazily, per staged file
