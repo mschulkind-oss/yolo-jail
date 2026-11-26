@@ -362,6 +362,9 @@ type Install struct {
 	// ProbeArgs are the first arguments that make an invocation a VERSION PROBE, nil when the
 	// program declares none. The Contribution field of the same name carries the reasoning.
 	ProbeArgs []string `json:"probe_args,omitempty"`
+	// HerdrAgent is the name herdr knows the program by, "" when it declares none (the launcher
+	// then reports Bin). The Contribution field of the same name carries the reasoning.
+	HerdrAgent string `json:"herdr_agent,omitempty"`
 	// VersionCompatibility is populated from pack-owned compatibility data when the selected
 	// program's launcher is generated. It is not a program manifest field.
 	VersionCompatibility *VersionCompatibility `json:"-"`
