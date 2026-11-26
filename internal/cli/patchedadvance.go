@@ -1263,13 +1263,12 @@ var patchedCheckStart = packsrc.NewPackCheck
 
 // checkFailedLine is the one warning for an upstream check that gave no answer while a build runs (§4.3 of
 // docs/design/local-pack-clones.md): the cause as the check recorded it, what runs, and the next step.
-func checkFailedLine(label, ref, fetchErr, runs string) string {
+func checkFailedLine(label, ref, fetchErr, runs, next string) string {
 	origin := "its upstream"
 	if ref != "" {
 		origin = "origin " + ref
 	}
-	return fmt.Sprintf("%s: could not check %s (%s) — %s. Nothing to do until the network is back; "+
-		"`yolo pack update` checks on demand.", label, origin, packsrc.CheckCause(fetchErr), runs)
+	return fmt.Sprintf("%s: could not check %s (%s) — %s. %s", label, origin, packsrc.CheckCause(fetchErr), runs, next)
 }
 
 // interrupted reports whether the interrupt scope's Ctrl-C has ended this advance.
@@ -1438,7 +1437,7 @@ func (a *advance) run() advanceResult {
 			// docs/design/local-pack-clones.md). Never a refusal while something serves.
 			a.rec = res.Record
 			a.seq = a.rec.Seq
-			a.warn("%s", checkFailedLine(f.Label(), a.in.Ref, res.Unchecked, a.runsNow()))
+			a.warn("%s", checkFailedLine(f.Label(), a.in.Ref, res.Unchecked, a.runsNow(), packsrc.LockWaitNext))
 			a.problem = "could not check its upstream: " + res.Unchecked
 			return a.serveOr(fmt.Sprintf("%s's upstream could not be checked (%s)", f.Label(), res.Unchecked))
 		}
@@ -1478,7 +1477,7 @@ func (a *advance) run() advanceResult {
 			if !a.o.host || a.o.force {
 				a.operationError = found.FetchErr
 			}
-			a.warn("%s", checkFailedLine(f.Label(), a.in.Ref, found.FetchErr, a.runsNow()))
+			a.warn("%s", checkFailedLine(f.Label(), a.in.Ref, found.FetchErr, a.runsNow(), packsrc.NetworkNext))
 		}
 		if a.walkBackHolds() && !a.o.force {
 			// THE WALK-BACK HOLDS (docs/reference/patched-forks.md §8.6): the newest entry is still the one the

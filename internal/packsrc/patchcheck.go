@@ -339,21 +339,27 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, patchBran
 		c.Ctx = check.Ctx
 		lockStore = &c
 	}
-	unlock, err := lockStore.lockMirrors(mirrorsOf(a.Repo, patchBranch, plan), waiting)
-	if err != nil {
-		if held && check.Ctx.Err() != nil {
-			// NOTHING WAS ASKED OF THE UPSTREAM: like a NoWait store's held lock, the record keeps its prior
-			// list, and the caller runs the held copy with the warning (CheckResult.Unchecked).
-			found.unchecked = fmt.Sprintf("waiting for the mirror lock timed out after %s", check.Limit)
-			return found
-		}
+	lockFailed := func(err error) CheckFound {
 		if errors.Is(err, ErrLockHeld) {
 			found.lockHeld = err
 		}
 		found.Problem = oneLine(err)
 		return found
 	}
-	defer unlock()
+	// THE UPSTREAM'S PROBE AND FETCH HOLD THE UPSTREAM'S LOCK ALONE. A patch branch's repository is often
+	// shared by many forks (one dotfiles repository carrying every patch branch), and a check that held its
+	// lock across its own upstream's probe made every other fork's check wait behind it — past the
+	// launch's deadline, which then reported a lock another process never held.
+	unlock, err := lockStore.lockMirrors([]string{a.Repo}, waiting)
+	if err != nil {
+		if held && check.Ctx.Err() != nil {
+			// NOTHING WAS ASKED OF THE UPSTREAM: like a NoWait store's held lock, the record keeps its prior
+			// list, and the caller runs the held copy with the warning (CheckResult.Unchecked).
+			found.unchecked = LockWaitTimeout{Limit: check.Limit}.Error()
+			return found
+		}
+		return lockFailed(err)
+	}
 	b, cancel := s.newBudget()
 	defer cancel()
 	mirror := s.mirrorPath(a.Repo)
@@ -369,6 +375,18 @@ func (s *Store) findCandidates(a Addr, follow FollowRule, base string, patchBran
 	if err := errors.Join(step.fetchErr, step.probeErr); err != nil {
 		found.FetchErr = oneLine(err)
 	}
+	// THEN EVERY MIRROR THE REST READS, the upstream's again among them, taken together in lockMirrors' one
+	// order (holding the upstream's while asking for the others could deadlock with a walk that takes them
+	// sorted). The upstream's ref is read afresh below, so a fetch another process ran in between is simply
+	// seen. This wait is not the upstream's probe or fetch, so the store's own context bounds it, as the
+	// patch branch's fetch and a replay's locks are bounded (LPC-D3, docs/design/local-pack-clones.md §4.2).
+	if all := mirrorsOf(a.Repo, patchBranch, plan); len(all) > 1 {
+		unlock()
+		if unlock, err = s.lockMirrors(all, waiting); err != nil {
+			return lockFailed(err)
+		}
+	}
+	defer unlock()
 	if !mirrorExists(mirror) {
 		found.Problem = "this machine has never fetched " + a.Repo + ", and " + fetchFailed(found.FetchErr)
 		return found

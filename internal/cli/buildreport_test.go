@@ -609,7 +609,7 @@ func TestAPoolChecksLockWaitIsShownAndLogged(t *testing.T) {
 				pool.mu.Lock()
 				line = pool.renderLocked()
 				pool.mu.Unlock()
-				if strings.Contains(line, "waiting for another yolo process") {
+				if strings.Contains(line, "to release the check record of") {
 					return
 				}
 				time.Sleep(10 * time.Millisecond)
@@ -619,7 +619,7 @@ func TestAPoolChecksLockWaitIsShownAndLogged(t *testing.T) {
 			errw: it.stream(), launch: true, report: pool.report, slot: it})
 	})
 	pool.run()
-	want := "waiting for another yolo process to release the check record of " + f.Key()
+	want := "waiting for other work in this same yolo process to release the check record of " + f.Key()
 	if !strings.Contains(line, want) {
 		t.Errorf("the pool's line never said the check's wait; it read %q", line)
 	}

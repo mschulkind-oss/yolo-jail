@@ -104,6 +104,21 @@ type PackCheck struct {
 	Limit time.Duration
 }
 
+// LockWaitTimeout is a launch's check that ended on its deadline while it waited for a mirror's lock: it
+// asked the upstream nothing, and the network is not the cause.
+type LockWaitTimeout struct{ Limit time.Duration }
+
+func (e LockWaitTimeout) Error() string {
+	return fmt.Sprintf("waiting for the mirror lock timed out after %s", e.Limit)
+}
+
+// NetworkNext is the next step after a launch's check that could not reach its upstream.
+const NetworkNext = "Nothing to do until the network is back; `yolo pack update` checks on demand."
+
+// LockWaitNext is the next step after a launch's check that timed out on a mirror's lock (LockWaitTimeout).
+// A launch's own checks no longer wait on each other's probes, so the holder is another yolo process.
+const LockWaitNext = "Another yolo process held the mirror's lock; `yolo pack update` checks on demand once it finishes."
+
 // NewPackCheck starts the launch's phase: PackCheckDeadline from now. The caller calls cancel when the
 // phase is over.
 func NewPackCheck() (*PackCheck, context.CancelFunc) {
@@ -221,9 +236,12 @@ func (o Outcome) Warning() string {
 		return "" // the local line says the check failed and that the clone runs; "running the held" would not be true
 	}
 	if o.Checked {
-		return fmt.Sprintf("pack %s: could not check origin %s (%s) — running the held %s. "+
-			"Nothing to do until the network is back; `yolo pack update` checks on demand.",
-			o.Name, o.Ref, checkCause(o.FetchErr), shortCommit(o.Commit))
+		next := NetworkNext
+		if errors.As(o.FetchErr, new(LockWaitTimeout)) {
+			next = LockWaitNext
+		}
+		return fmt.Sprintf("pack %s: could not check origin %s (%s) — running the held %s. %s",
+			o.Name, o.Ref, checkCause(o.FetchErr), shortCommit(o.Commit), next)
 	}
 	return fmt.Sprintf("pack %s: could not refresh %s (%s) — using the cached %s",
 		o.Name, o.Ref, oneLine(o.FetchErr), shortCommit(o.Commit))
@@ -536,7 +554,7 @@ func (s *Store) refreshMirror(repo string, items []refreshItem, outcomes []Outco
 	unlock, err := lockStore.lockMirror(repo, waiting)
 	if err != nil && held {
 		if check.Ctx.Err() != nil {
-			err = fmt.Errorf("waiting for the mirror lock timed out after %s", check.Limit)
+			err = LockWaitTimeout{Limit: check.Limit}
 		}
 		s.runHeld(repo, items, outcomes, err)
 		return
@@ -1104,16 +1122,16 @@ func flockPathContext(ctx context.Context, path, what string, waiting func(strin
 	}
 	fd := int(f.Fd())
 	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err == nil {
-		return func() {
+		return heldHere(path, func() {
 			_ = syscall.Flock(fd, syscall.LOCK_UN)
 			_ = f.Close()
-		}, nil
+		}), nil
 	} else if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
 		f.Close()
 		return nil, fmt.Errorf("locking %s: %w", path, err)
 	}
 	if waiting != nil {
-		waiting(fmt.Sprintf("waiting for another yolo process to release %s", what))
+		waiting(waitLine(path, what))
 	}
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -1129,16 +1147,53 @@ func flockPathContext(ctx context.Context, path, what string, waiting func(strin
 					f.Close()
 					return nil, ctx.Err()
 				}
-				return func() {
+				return heldHere(path, func() {
 					_ = syscall.Flock(fd, syscall.LOCK_UN)
 					_ = f.Close()
-				}, nil
+				}), nil
 			} else if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
 				f.Close()
 				return nil, fmt.Errorf("locking %s: %w", path, err)
 			}
 		}
 	}
+}
+
+// locksHeldHere counts, per lock path, the flocks THIS PROCESS holds through flockPath, flockPathContext and
+// flockTry. A flock excludes a second open file even in the same process, so a wait may be on a sibling
+// here rather than on another yolo process, and the waiting line says which (waitLine).
+var locksHeldHere = struct {
+	sync.Mutex
+	n map[string]int
+}{n: map[string]int{}}
+
+// heldHere records path as held by this process until the returned release, which runs release first.
+func heldHere(path string, release func()) func() {
+	locksHeldHere.Lock()
+	locksHeldHere.n[path]++
+	locksHeldHere.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			release()
+			locksHeldHere.Lock()
+			if locksHeldHere.n[path]--; locksHeldHere.n[path] <= 0 {
+				delete(locksHeldHere.n, path)
+			}
+			locksHeldHere.Unlock()
+		})
+	}
+}
+
+// waitLine is the line a wait for path's lock (what) says: who holds it, as far as this process can tell.
+func waitLine(path, what string) string {
+	locksHeldHere.Lock()
+	here := locksHeldHere.n[path] > 0
+	locksHeldHere.Unlock()
+	if here {
+		return fmt.Sprintf("waiting for other work in this same yolo process to release %s", what)
+	}
+	return fmt.Sprintf("waiting for another yolo process to release %s", what)
 }
 
 // WithLock is the lockfile's load-modify-save under an exclusive flock kept in the pack
@@ -1181,10 +1236,10 @@ func flockTry(path, what string) (func(), error) {
 		}
 		return nil, fmt.Errorf("locking %s: %w", path, err)
 	}
-	return func() {
+	return heldHere(path, func() {
 		_ = syscall.Flock(fd, syscall.LOCK_UN)
 		_ = f.Close()
-	}, nil
+	}), nil
 }
 
 // flockPath opens path and takes an exclusive flock on it, NON-BLOCKING FIRST so a
@@ -1204,17 +1259,17 @@ func flockPath(path, what string, waiting func(string)) (func(), error) {
 			return nil, fmt.Errorf("locking %s: %w", path, err)
 		}
 		if waiting != nil {
-			waiting(fmt.Sprintf("waiting for another yolo process to release %s", what))
+			waiting(waitLine(path, what))
 		}
 		if err := flockRetry(fd, syscall.LOCK_EX); err != nil {
 			f.Close()
 			return nil, fmt.Errorf("locking %s: %w", path, err)
 		}
 	}
-	return func() {
+	return heldHere(path, func() {
 		_ = syscall.Flock(fd, syscall.LOCK_UN)
 		_ = f.Close()
-	}, nil
+	}), nil
 }
 
 // flockRetry is a blocking flock that retries an interrupted wait.

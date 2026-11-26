@@ -196,7 +196,8 @@ func TestLaunchCheckLockWaitIsUnderTheDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := outs[0]
-	if o.Err != nil || o.Commit == "" || o.FetchErr == nil || !strings.Contains(o.Warning(), "waiting for the mirror lock timed out after 5s") {
+	if o.Err != nil || o.Commit == "" || o.FetchErr == nil || !strings.Contains(o.Warning(), "waiting for the mirror lock timed out after 5s") ||
+		!strings.Contains(o.Warning(), LockWaitNext) || strings.Contains(o.Warning(), "network") {
 		t.Fatalf("locked mirror: %+v, warning %q", o, o.Warning())
 	}
 }

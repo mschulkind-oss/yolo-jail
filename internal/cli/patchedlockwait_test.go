@@ -50,7 +50,7 @@ func TestALockWaitTimeoutKeepsThePriorListAndRunsTheGoodBuild(t *testing.T) {
 		t.Fatalf("a lock-wait timeout handed %+v after %d builds, want the good build\n%s", r.delivery, len(fx.builds), out)
 	}
 	for _, want := range []string{"could not check origin main (waiting for the mirror lock timed out after 5s) — still running v1.1.0",
-		"Nothing to do until the network is back; `yolo pack update` checks on demand."} {
+		packsrc.LockWaitNext} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the warning lacks %q:\n%s", want, out)
 		}

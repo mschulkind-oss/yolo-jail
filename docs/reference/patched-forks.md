@@ -460,8 +460,14 @@ tag re-pointed upstream is not moved, since a patched fork never follows one ([P
   the fetch of a mirror that already holds the ref, opened when the check starts in the fork-build slot. A check
   that does not finish **runs the good build and never refuses**, saying so once:
   `could not check origin <ref> (ls-remote timed out after 5s) — still running <the good build>. Nothing to do
-  until the network is back; `yolo pack update` checks on demand.` A mirror with no held copy keeps
-  `LaunchFetchTimeout`. The replay and the build keep their own budgets.
+  until the network is back; `yolo pack update` checks on demand.` A check that ran out of time waiting for a
+  mirror's lock says that another yolo process held it instead, since the network was never asked. A mirror with no
+  held copy keeps `LaunchFetchTimeout`. The replay and the build keep their own budgets.
+- **The deadline covers the upstream alone.** The probe and fetch hold only the upstream mirror's lock. The patch
+  branch's mirror is locked after them, with the upstream's again, under the store's own budget. Many forks often keep
+  their patch branches in one repository, and holding that shared lock across each fork's own upstream probe made
+  every other fork's check time out behind it
+  (`packsrc.TestAForkDoesNotWaitOnAnotherForksUpstreamProbeThroughASharedPatchRepository`).
 - **What still skips it.** An attach, a `--dry-run`, anything inside a jail or build jail, and an
   `agent_updates` hold never check ([PF-D5](#PF-D5)); an explicit act (`yolo pack update`, `yolo capture`) skips the
   probe and fetches. An npm source is checked at every launch too, by one registry metadata read under the same deadline; a settled exact version is never read again.
