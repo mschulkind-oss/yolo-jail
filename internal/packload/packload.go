@@ -1190,6 +1190,22 @@ func (p *Pack) InstallBins() []string {
 	return bins
 }
 
+// HerdrAgentFor reports whether this pack installs bin, and the name herdr knows that program
+// by: the pack's declared `herdr_agent`, else bin itself. Core holds no name table; the
+// declaration is the pack's (packdecl.Contribution.HerdrAgent).
+func (p *Pack) HerdrAgentFor(bin string) (string, bool) {
+	for _, in := range p.Decl.InstallContributions() {
+		if in.Bin == "" || in.Bin != bin {
+			continue
+		}
+		if in.HerdrAgent != "" {
+			return in.HerdrAgent, true
+		}
+		return bin, true
+	}
+	return "", false
+}
+
 // LoadDir reads a pack from a directory. A missing pack.json is fine and yields an
 // empty declaration.
 //

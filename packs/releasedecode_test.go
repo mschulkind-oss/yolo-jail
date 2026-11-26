@@ -180,6 +180,13 @@ const pinAttachLeavesAnOlderJailsTree = "TestAnAttachToAJailTheLastReleaseLaunch
 // provider declares api_key_env_name as a list where v0.10.0's packdecl declares a string, and pi
 // declares two hooks v0.10.0 does not know.
 var knownReleaseBreaks = []knownReleaseBreak{
+	// Measured against v0.20.1 on 2026-11-26: omp's program declares `herdr_agent`, the name herdr
+	// knows it by. v0.20.1's strict program decoder skips a program carrying a field it does not
+	// know, so an older jail handed this tree would lose oh-omp. An old jail keeps its staged tree
+	// on attach, and a fresh launch uses this tree's binaries, which read the key.
+	{release: "v0.20.1", pack: "omp", problem: `unknown field "herdr_agent"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("herdr_agent")},
 	// Measured against v0.20.0 on 2026-11-24: pi, copilot and omp declare the pack-wide
 	// `per_setup_state` carve-outs (docs/design/unified-workspace-home.md §6.3). The older
 	// grouped-kind TOML reader takes any array-valued root key for a contribution kind and skips

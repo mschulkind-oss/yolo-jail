@@ -2,7 +2,6 @@ package run
 
 import (
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,8 +101,8 @@ func (o *Options) registerHerdrAgent(packs []*packload.Pack, argv []string) {
 	if pane == "" {
 		return
 	}
-	agent := filepath.Base(argv[0])
-	if !selectedPacksInstall(packs, agent) {
+	agent, ok := selectedPacksHerdrAgent(packs, filepath.Base(argv[0]))
+	if !ok {
 		return
 	}
 	h.mu.Lock()
@@ -181,12 +180,14 @@ func (o *Options) herdrProject() string {
 	return filepath.Base(o.Workspace)
 }
 
-// selectedPacksInstall reports whether any of packs installs bin.
-func selectedPacksInstall(packs []*packload.Pack, bin string) bool {
+// selectedPacksHerdrAgent reports whether any of packs installs bin, and the name herdr knows
+// it by: the installing pack's declared `herdr_agent`, else bin (Pack.HerdrAgentFor). herdr
+// recognizes `omp`, not yolo's `oh-omp`, so the pack says so; core names no agent.
+func selectedPacksHerdrAgent(packs []*packload.Pack, bin string) (string, bool) {
 	for _, p := range packs {
-		if slices.Contains(p.InstallBins(), bin) {
-			return true
+		if name, ok := p.HerdrAgentFor(bin); ok {
+			return name, true
 		}
 	}
-	return false
+	return "", false
 }

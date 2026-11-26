@@ -747,6 +747,11 @@ a fork's materialize. The probe is the pack's declaration and never a flag core 
 is read on `program` alone. `packdecl` refuses an empty list, an empty word or one holding whitespace, and a
 duplicate.
 
+`herdr_agent` names what herdr (the terminal multiplexer for coding agents) calls the program, when that
+is not its `bin`. In a herdr pane the launcher reports the program to herdr under this name, else under
+`bin`; omp declares `"omp"` because herdr recognizes `omp` and not `oh-omp`. It is read on `program`
+alone, and `packdecl` refuses an empty value or one that is not a lower-case word.
+
 `temp_caches` names directories where the program keeps **compiled code under its temporary
 directory**, which is Node's `os.tmpdir()`: `$TMPDIR`, else `$TMP` or `$TEMP`, else `/tmp`. Pi
 declares `["jiti"]`, because its extension loader caches every extension it compiles in
@@ -1216,7 +1221,7 @@ program is rewritten with the fork's delivery (`packload.ApplyForks`), so every 
 programs, the launcher generator and the host floor included, sees the fork's. It runs in the one
 selection function (`config.SelectPacks`), which every host verb and the launch read, and in the
 jail's pack loader over the staged tree, whose base `pack.json` is unchanged. The rewrite keeps the
-base's `refresh`, `probe_args`, `temp_caches`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
+base's `refresh`, `probe_args`, `herdr_agent`, `temp_caches`, `protocols`, `provider_sets`, `platform_switches`, `capabilities`,
 `platform_regions`, `unlisted_background_models`, `exact_menu_refuses`, `model_menu`,
 `launch_selection`, `agent_files`, `needs_model_list`, `built_in_providers` and `node_floor` (a fork's own `node_floor` replaces it). It drops every other delivery field of the base: `package`, `url`, `flags`, `update`,
 `versions_dir`, `installer_env`, `install_hints`, `model_catalog`, and `platforms` unless the fork declares its own.
