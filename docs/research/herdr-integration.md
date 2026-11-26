@@ -1517,6 +1517,8 @@ in the [Decision Ledger](#7-decision-ledger).
 
 ## 8. herdr's agent extensions, and how a jail could carry them
 
+> **Designed in full, 2026-11-26:** [`herdr-agent-integration.md`](../design/herdr-agent-integration.md) designs how yolo delivers these integrations itself, and now owns [OQ-HR5](#OQ-HR5) to [OQ-HR7](#OQ-HR7).
+
 Added 2026-11-26. The ask: *"explore integrating better with herdr. herdr wants to install
 extensions to each agent and seems like we could give some help here. I want as seamless as
 possible."* herdr evidence in this section was read from `herdr.dev/docs` (integrations, socket API,
