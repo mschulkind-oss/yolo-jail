@@ -169,6 +169,12 @@ type Manifest struct {
 	// through HostKeychainEnv.
 	HostKeychainEnvByBin map[string][]HostKeychainEnv `json:"host_keychain_env,omitempty"`
 
+	// UpdateProbeByBin is, per program bin, the address a failed update verb is probed at
+	// (updateprobe.go), spelled `update_probes = { claude = "https://…" }`. PACK-WIDE, like
+	// host_keychain_env, so an older reader ignores the unknown key instead of dropping the
+	// program contribution. Projected onto Install.UpdateProbeURL.
+	UpdateProbeByBin map[string]string `json:"update_probes,omitempty"`
+
 	// ProviderKeysByBin are the settings in each of this pack's programs' OWN config that the
 	// program's provider SELECTION decides, keyed by the program's bin: at a jail no captured
 	// in-jail edit may set one (providerkeys.go). PACK-WIDE, like model_list_check, so an older
@@ -356,6 +362,9 @@ type Install struct {
 	// quoting rules the launcher has no business owning; and §6.2's `via` tolerance does
 	// not apply, because there is no mechanism here for a later build to learn.
 	UpdateVerb []string `json:"update,omitempty"`
+	// UpdateProbeURL is the address a failed update verb's probe asks, "" for InstallerURL
+	// (Contribution.UpdateProbe carries the reasoning).
+	UpdateProbeURL string `json:"updateProbeUrl,omitempty"`
 	// Refresh is the program's PRE-LAUNCH REFRESH, nil when it declares none. The
 	// Contribution field of the same name carries the reasoning; see Refresh for the shape.
 	Refresh *Refresh `json:"refresh,omitempty"`
@@ -1043,6 +1052,7 @@ func (m *Manifest) Validate() []string {
 	problems = append(problems, m.validateSessionHomes()...)
 	problems = append(problems, m.validatePerSetupState()...)
 	problems = append(problems, m.validateHostKeychainEnv()...)
+	problems = append(problems, m.validateUpdateProbes()...)
 	return append(problems, m.validateMCP()...)
 }
 

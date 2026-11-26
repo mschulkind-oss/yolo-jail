@@ -1563,6 +1563,7 @@ func (m *Manifest) InstallContributions() []Install {
 		// and a projection that only carried it for installers would silently discard
 		// it (OQ-PD14).
 		in.UpdateVerb = c.Update
+		in.UpdateProbeURL = m.UpdateProbeByBin[c.Bin]
 		// The pre-launch refresh too, for the same reason: it is what the PROGRAM does to
 		// its own add-ons, whichever mechanism delivered the program. Copied rather than
 		// aliased, so a consumer that edits its Install cannot reach back into the manifest.

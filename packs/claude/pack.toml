@@ -60,6 +60,10 @@ mcp_sign_in_paste = true
 # holding the subscription nameable, binds the platform to Claude Code's own client, and keeps
 # the broker running whenever Claude Code can be.
 needs = [{ pack = "claude-auth" }, { pack = "wire-bridge" }, { pack = "mcp-auth" }]
+# `claude install` downloads its release from downloads.claude.ai, not from the installer's
+# claude.ai: a failed update is probed there, so a release host that is down runs the installed
+# version instead of refusing the launch (internal/packdecl/updateprobe.go).
+update_probes = { claude = "https://downloads.claude.ai/claude-code-releases/latest" }
 
 [native_sign_in]
 formats = ["claude-plugin"]

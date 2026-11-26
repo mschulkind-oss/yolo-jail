@@ -882,7 +882,12 @@ func nativeAgentLauncherWithTmpdir(pack string, inst *packdecl.Install, stampDir
 	updates bool, servers launcherServers, flags *packload.LaunchInjection, sandboxContext string, sandboxNative bool) string {
 	binName := inst.Bin
 	installerURL := inst.InstallerURL
+	updateProbe := inst.UpdateProbeURL
+	if updateProbe == "" {
+		updateProbe = installerURL
+	}
 	r := strings.NewReplacer(append([]string{
+		"__YOLO_UPDATE_PROBE__", shquote.Quote(updateProbe),
 		"__YOLO_BIN__", shquote.Quote(binName),
 		"__YOLO_URL__", shquote.Quote(installerURL),
 		// The declaring pack, named by the line for an install that lands nowhere (packOwnerLine).
@@ -2137,6 +2142,9 @@ UPDATES_ENABLED=__YOLO_UPDATES_ENABLED__
 # these launchers against a stock /bin/bash 3.2.
 HAS_UPDATE_VERB=__YOLO_HAS_UPDATE_VERB__
 UPDATE_VERB=(__YOLO_UPDATE_VERB__)
+# The host a failed update verb is probed at (the pack's update_probes entry): the one the verb downloads from, or
+# the installer's URL when the pack names none.
+UPDATE_PROBE=__YOLO_UPDATE_PROBE__
 # The pack's declared installer environment (installer_env): NAME=value words env(1) puts in
 # front of the vendor's script, so they reach that one process and nothing else this launcher
 # runs, the program included. A home-relative value expands from the same $HOME as REAL_BIN
@@ -2590,7 +2598,7 @@ _update() {
         echo "  $BIN: could not download its installer to check for a newer version — running the installed version. It asks again the next time this jail starts (yolo stop on the host, then launch), or now with: yolo pack update." >&2
     elif [ "$HAS_UPDATE_VERB" = "1" ]; then
         # The vendor's verb has no version query: its upstream decides (PD-NF3).
-        _yolo_failed_act "$rc" "its update ($BIN ${UPDATE_VERB[*]})" _yolo_url_reachable "$URL"
+        _yolo_failed_act "$rc" "its update ($BIN ${UPDATE_VERB[*]})" _yolo_url_reachable "$UPDATE_PROBE"
     else
         # The installer was fetched, so its upstream answered: the re-run's failure refuses.
         _YOLO_FAIL_HEAD="$BIN: re-running its installer to update it failed"

@@ -187,6 +187,13 @@ var knownReleaseBreaks = []knownReleaseBreak{
 	{release: "v0.20.1", pack: "omp", problem: `unknown field "herdr_agent"`,
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("herdr_agent")},
+	// Measured against v0.20.1 on 2026-11-26: claude declares the pack-wide `update_probes`, the host a
+	// failed `claude install` is probed at (internal/packdecl/updateprobe.go). Top-level, so v0.20.1 ignores
+	// it and keeps Claude's program; an old jail handed the tree probes the installer's URL, as it did before
+	// the key. An old jail keeps its staged tree on attach, and a fresh launch uses this tree's binaries.
+	{release: "v0.20.1", pack: "claude", problem: `unknown field "update_probes"`,
+		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
+		repair: dropKey("update_probes")},
 	// Measured against v0.20.0 on 2026-11-24: pi, copilot and omp declare the pack-wide
 	// `per_setup_state` carve-outs (docs/design/unified-workspace-home.md §6.3). The older
 	// grouped-kind TOML reader takes any array-valued root key for a contribution kind and skips

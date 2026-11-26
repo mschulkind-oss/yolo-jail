@@ -450,3 +450,30 @@ func TestTheEvergreenRecaptureSaysHowItsCaptureRuns(t *testing.T) {
 		t.Errorf("the recapture's line names a throwaway jail this capture act does not boot:\n%s", out)
 	}
 }
+
+// A RECAPTURE WHOSE RELEASE HOST IS DOWN could not check, even while the installer's script answers: the
+// script downloads its release from the program's update_probes host (downloads.claude.ai for claude), so a
+// failure there is the network's, and the installed version runs.
+func TestARecaptureWhoseReleaseHostIsDownKeepsTheInstalledCopy(t *testing.T) {
+	e := newEvergreenWorld(t)
+	e.capturing = func(string) error { return errors.New("Failed to fetch version from the release host") }
+	const releases = "https://example.invalid/claude/releases/latest"
+	var probed []string
+	e.floor.ProbeUpstream = func(_ context.Context, url string) error {
+		probed = append(probed, url)
+		if url == releases {
+			return errors.New("dial tcp: connection refused")
+		}
+		return nil
+	}
+	e.clk.t = e.clk.t.Add(25 * time.Hour)
+	p := installerProgram("claude", "claude")
+	p.Install.UpdateProbeURL = releases
+	st, outcome, err := e.floor.Ensure(context.Background(), p)
+	if err != nil || outcome != Kept || st.Record.Version != "2.1.267" {
+		t.Fatalf("Ensure = %s %+v %v (probed %q)\n%s", outcome, st.Record, err, probed, e.out.String())
+	}
+	if !strings.Contains(e.out.String(), "claude: could not check for a newer release: "+releases+" is unreachable") {
+		t.Errorf("the could-not-check line did not name the release host:\n%s", e.out.String())
+	}
+}

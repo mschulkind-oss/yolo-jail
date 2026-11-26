@@ -339,9 +339,11 @@ func (f *Floor) refresh(ctx context.Context, p Program, st Status) (Status, Outc
 			// upstream cannot be reached is a check that could not run, so the installed version
 			// runs and the stamp holds the next try off for the interval, as an npm poll's does.
 			// Any other failure, or one the probe cannot vouch for, is a failed update.
-			if why := f.upstreamUnreachable(ctx, p.Install.InstallerURL); why != nil {
+			// The installer's own download host (its pack's update_probes entry, where the program's releases come from)
+			// is asked first: the script can be fetched while the release it downloads cannot.
+			if url, why := f.firstUnreachable(ctx, p.Install.UpdateProbeURL, p.Install.InstallerURL); why != nil {
 				f.say("%s: could not check for a newer release: %s is unreachable (%v), and the capture "+
-					"failed (%v); running the installed %s", p.Bin(), p.Install.InstallerURL, why, err, rec.Version)
+					"failed (%v); running the installed %s", p.Bin(), url, why, err, rec.Version)
 				return st, Kept, nil
 			}
 			return f.failedUpdate(p, st, checked, "", "capturing a newer release", err)

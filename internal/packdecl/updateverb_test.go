@@ -83,3 +83,26 @@ func TestUpdateVerbRefusesAnEmptyWord(t *testing.T) {
 		t.Errorf("an empty verb word should be refused, naming its index, got: %v", probs)
 	}
 }
+
+// update_probes is projected onto an installer program with a verb, and refused where no launcher reads it.
+func TestUpdateProbeIsProjectedAndRefusedWhereNothingReadsIt(t *testing.T) {
+	m, probs := Decode([]byte(`{"name":"x","update_probes":{"claude":"https://downloads.claude.ai/claude-code-releases/latest"},
+	  "contributes":[{"kind":"program","bin":"claude","via":"installer","url":"https://claude.ai/install.sh","update":["install"]}]}`))
+	if len(probs) != 0 {
+		t.Fatalf("problems: %v", probs)
+	}
+	if got := m.InstallContributions()[0].UpdateProbeURL; got != "https://downloads.claude.ai/claude-code-releases/latest" {
+		t.Errorf("UpdateProbeURL = %q", got)
+	}
+	for _, tc := range []struct{ decl, want string }{
+		{`"update_probes":{"pi":"https://x/"},"contributes":[{"kind":"program","bin":"pi","via":"npm","package":"p","update":["update"]}]`, `via "installer"`},
+		{`"update_probes":{"c":"https://x/"},"contributes":[{"kind":"program","bin":"c","via":"installer","url":"https://x/i.sh"}]`, `needs the program's "update" verb`},
+		{`"update_probes":{"c":"http://x/"},"contributes":[{"kind":"program","bin":"c","via":"installer","url":"https://x/i.sh","update":["install"]}]`, `not an https:// URL`},
+		{`"update_probes":{"other":"https://x/"},"contributes":[{"kind":"program","bin":"c","via":"installer","url":"https://x/i.sh","update":["install"]}]`, `must name a non-fork program`},
+	} {
+		_, probs := Decode([]byte(`{"name":"x",` + tc.decl + `}`))
+		if joined := strings.Join(probs, "\n"); !strings.Contains(joined, tc.want) {
+			t.Errorf("%s: problems %q lack %q", tc.decl, joined, tc.want)
+		}
+	}
+}

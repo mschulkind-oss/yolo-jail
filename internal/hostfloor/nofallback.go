@@ -183,6 +183,17 @@ func (f *Floor) upstreamUnreachable(ctx context.Context, url string) error {
 	return nil
 }
 
+// firstUnreachable probes each non-empty url in order and returns the first that cannot be reached
+// and why, or "" and nil when every one answers.
+func (f *Floor) firstUnreachable(ctx context.Context, urls ...string) (string, error) {
+	for _, u := range urls {
+		if why := f.upstreamUnreachable(ctx, u); why != nil {
+			return u, why
+		}
+	}
+	return "", nil
+}
+
 // defaultNpmRegistry is the registry an npm-backed refresh reaches when its environment names none.
 const defaultNpmRegistry = "https://registry.npmjs.org/"
 
