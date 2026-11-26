@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -421,5 +422,37 @@ func TestStartIfNixTracksANixAlone(t *testing.T) {
 				t.Errorf("%s still tracked after its release", tc.argv0)
 			}
 		})
+	}
+}
+
+// TestTheArmEndsWithTheTerminalsLastWords: the arm holds its signals from the front door's terminal
+// arm (internal/sigyield) while armed, so the two do not race to the exit, and ends the process with
+// that arm's last words, after its own cleanup, so the kitty tab still goes back.
+func TestTheArmEndsWithTheTerminalsLastWords(t *testing.T) {
+	s := Isolate(t)
+	catchSignal(t, syscall.SIGTERM)
+	var order []string
+	clear := sigyield.SetLastWords(func() { order = append(order, "last words") })
+	defer clear()
+	disarm := StopOnSignal(func() { order = append(order, "cleanup") })
+	defer disarm()
+	if !sigyield.Held(syscall.SIGTERM) {
+		t.Error("the armed arm does not hold SIGTERM")
+	}
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	awaitExit(t, s)
+	if strings.Join(order, ", ") != "cleanup, last words" {
+		t.Errorf("the arm's teardown ran %q, want its cleanup and then the last words", order)
+	}
+}
+
+// TestADisarmedArmHoldsNothing: a disarmed arm lets the front door's terminal arm have its signals.
+func TestADisarmedArmHoldsNothing(t *testing.T) {
+	Isolate(t)
+	StopOnSignal()()
+	if sigyield.Held(syscall.SIGINT) || sigyield.Held(syscall.SIGTERM) || sigyield.Held(syscall.SIGHUP) {
+		t.Error("a disarmed arm still holds its signals")
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"io"
 	"os"
 	"os/exec"
@@ -581,6 +582,7 @@ func (o *Options) streamKeeperTeardown(cname string, logFrom int64) bool {
 	var once sync.Once
 	end := func() { once.Do(func() { close(stop) }) }
 	interrupts := make(chan os.Signal, 1)
+	defer sigyield.Hold(syscall.SIGINT)()
 	signal.Notify(interrupts, syscall.SIGINT)
 	defer signal.Stop(interrupts)
 	interrupted := make(chan struct{})
@@ -863,6 +865,7 @@ func (o *Options) finishStop(cname, rt string, logFrom int64, force bool) int {
 		out.printf("Waiting for the jail's keeper to finish its teardown...")
 		stop := make(chan struct{})
 		interrupts := make(chan os.Signal, 1)
+		defer sigyield.Hold(syscall.SIGINT)()
 		signal.Notify(interrupts, syscall.SIGINT)
 		defer signal.Stop(interrupts)
 		var once sync.Once

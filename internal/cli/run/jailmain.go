@@ -303,7 +303,10 @@ type launchSignalArm struct {
 	onTerminate func()        // the teardown a signal runs (retarget replaces it)
 	// outer is what this arm's launch needs done when a launch running inside it, in this process,
 	// ends the process on a signal (armstack.go): nil but for a launch guard's.
-	outer       func()
+	outer func()
+	// yields is the terminal arm's mark (ArmTerminalRestore): it stands back for a signal another
+	// handler holds (internal/sigyield).
+	yields      bool
 	stopped     bool
 	terminating bool
 }

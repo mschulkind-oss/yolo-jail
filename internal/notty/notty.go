@@ -50,6 +50,7 @@ package notty
 import (
 	"errors"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"math"
 	"os"
 	"os/exec"
@@ -145,6 +146,7 @@ type outcome struct {
 func RunBounded(c *exec.Cmd, b Bound) error {
 	Prepare(c)
 	sigs := make(chan os.Signal, 4)
+	defer sigyield.Hold(forwarded...)()
 	signal.Notify(sigs, forwarded...)
 	defer signal.Stop(sigs)
 	if err := c.Start(); err != nil {

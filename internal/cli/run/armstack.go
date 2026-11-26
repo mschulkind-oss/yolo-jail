@@ -31,6 +31,7 @@ package run
 // on SIGCONT itself, so there this changes nothing.
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"os"
 	"os/signal"
 	"slices"
@@ -76,7 +77,7 @@ func routeLaunchSignals(sigs <-chan os.Signal, stop <-chan struct{}) {
 				continue
 			}
 			launchArms.mu.Lock()
-			if n := len(launchArms.arms); n > 0 {
+			if n := len(launchArms.arms); n > 0 && !(launchArms.arms[n-1].yields && sigyield.Held(s)) {
 				select {
 				case launchArms.arms[n-1].signals <- s:
 				default:
@@ -86,6 +87,26 @@ func routeLaunchSignals(sigs <-chan os.Signal, stop <-chan struct{}) {
 		case <-stop:
 			return
 		}
+	}
+}
+
+// ArmTerminalRestore installs the process's outermost arm, the TERMINAL ARM (internal/sigyield's
+// comment defines it): from the moment the front door marks the terminal (the kitty tab, the tmux
+// pane) until disarm, a signal no inner arm takes and no other handler holds runs restore and ends
+// the process at 128+n. The launch's own arms run the restore in their teardowns and take over while
+// installed; this one covers every moment none is: the pack refresh, the config prompts and staging
+// before the launch guard, a macos-user launch before its arm, and the session's tail after its arm's
+// disarm. Its outer hook is restore too, so an inner launch's exit puts the terminal back, and so are
+// the last words a holder that ends the process runs. restore must be safe to call twice.
+func ArmTerminalRestore(restore func()) (disarm func()) {
+	a := armLaunchSignalsOuter(restore, restore, launchArmExit)
+	launchArms.mu.Lock()
+	a.yields = true
+	launchArms.mu.Unlock()
+	clear := sigyield.SetLastWords(restore)
+	return func() {
+		clear()
+		a.disarm()
 	}
 }
 

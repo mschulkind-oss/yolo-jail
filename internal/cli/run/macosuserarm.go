@@ -42,6 +42,7 @@ package run
 
 import (
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -132,8 +133,10 @@ func (a *MacosUserArm) install(log *perf.Log, notice func(string)) (disarm func(
 		}
 	}
 	sigs, stop, done := make(chan os.Signal, 4), make(chan struct{}), make(chan struct{})
+	unhold := func() {}
 	if len(armed) > 0 {
 		signal.Notify(sigs, armed...)
+		unhold = sigyield.Hold(armed...)
 	}
 	unwatch := macosuser.SetForegroundRunner(a.startForeground)
 	go func() {
@@ -151,6 +154,7 @@ func (a *MacosUserArm) install(log *perf.Log, notice func(string)) (disarm func(
 	return func() {
 		once.Do(func() {
 			signal.Stop(sigs)
+			unhold()
 			unwatch()
 			close(stop)
 			<-done

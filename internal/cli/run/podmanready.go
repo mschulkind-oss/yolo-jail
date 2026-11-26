@@ -1,6 +1,7 @@
 package run
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"os"
 	"os/signal"
 
@@ -68,6 +69,7 @@ func (o *Options) readyInterrupt() (<-chan struct{}, func()) {
 	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
+	unhold := sigyield.Hold(os.Interrupt)
 	interrupt, stop := make(chan struct{}), make(chan struct{})
 	go func() {
 		select {
@@ -78,6 +80,7 @@ func (o *Options) readyInterrupt() (<-chan struct{}, func()) {
 	}()
 	return interrupt, func() {
 		signal.Stop(sig)
+		unhold()
 		close(stop)
 	}
 }

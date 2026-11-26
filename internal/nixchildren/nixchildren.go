@@ -20,6 +20,7 @@ package nixchildren
 
 import (
 	"errors"
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -226,6 +227,7 @@ func StopOnSignal(cleanup ...func()) (disarm func()) {
 	}
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, armed...)
+	unhold := sigyield.Hold(armed...)
 	var (
 		mu       sync.Mutex
 		ending   bool
@@ -255,11 +257,13 @@ func StopOnSignal(cleanup ...func()) (disarm func()) {
 		if onSignal != nil {
 			onSignal()
 		}
+		sigyield.LastWords()
 		end(signalStatus(sig))
 		// Reached only where the exit is faked (Isolate): the process has ended otherwise.
 		close(exited)
 	}()
 	return func() {
+		defer unhold()
 		mu.Lock()
 		if ending {
 			mu.Unlock()
