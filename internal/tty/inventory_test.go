@@ -38,6 +38,10 @@ var colorEmitters = map[string]string{
 		"cursor control, not color, emitted only when the caller set Live — which the run " +
 		"pipeline does only for a terminal launch stream that is not TERM=dumb " +
 		"(run.progressConfig) — so no color gate applies",
+	"internal/progress/tail.go": "the live tail's cursor control (CSI nA, CSI 2K) and its dim " +
+		"rows: emitted only when the caller set Live, and the dim SGR only when Plain is unset, " +
+		"which the run pipeline sets from tty.NoColor; Live already requires a terminal " +
+		"(run.progressConfig)",
 }
 
 // TestEveryColorEmitterIsInventoried fails when a file starts emitting ANSI without being

@@ -64,7 +64,8 @@ func TestStagingPhaseFeedsTheLaunchTail(t *testing.T) {
 	if !ok {
 		t.Fatal("staging the pack failed")
 	}
-	if !strings.Contains(live.String(), "  resolving file://"+root) {
+	// The row is cut to the terminal's width, and a darwin TempDir is long, so match its head.
+	if !strings.Contains(live.String(), "  resolving file://") {
 		t.Errorf("the staging phase showed no tail row for the pack:\n%q", live.String())
 	}
 	if o.phaseLine != nil {

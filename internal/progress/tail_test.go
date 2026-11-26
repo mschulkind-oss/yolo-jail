@@ -15,7 +15,6 @@ import (
 type vt struct {
 	rows     [][]rune
 	row, col int
-	maxRow   int
 }
 
 func (v *vt) feed(s string) {
