@@ -40,6 +40,9 @@ func qualifiedMCPConsumer(t *testing.T, parent string) string {
 		t.Fatal(problems)
 	}
 	decl.Needs = nil
+	// The programs below lose their update verbs, so their update probes go too (packdecl refuses a
+	// probe no verb is asked before).
+	decl.UpdateProbeByBin = nil
 	for i := range decl.Contributes {
 		c := &decl.Contributes[i]
 		if c.Kind == packdecl.KindProgram {
