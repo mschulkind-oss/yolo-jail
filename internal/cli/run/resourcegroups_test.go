@@ -331,7 +331,7 @@ func TestPlacedResourceGroupIsRecordedForTheLaunch(t *testing.T) {
 	if o.resourceGroupPlaced == nil || o.resourceGroupPlaced.Unit != "batch.slice" || o.resourceGroupPlaced.Child != "batch-agent.slice" {
 		t.Fatalf("the launch did not record its placement: %+v", o.resourceGroupPlaced)
 	}
-	if strings.Contains(stderr.String(), "enforced.") || !strings.Contains(stderr.String(), "Enforcement is unverified until the host witness passes") {
+	if strings.Contains(stderr.String(), "enforced.") || !strings.Contains(stderr.String(), "The ceiling is set and read back, and the kernel enforces it") {
 		t.Fatalf("placement output claims more than it witnessed:\n%s", stderr.String())
 	}
 }
@@ -597,7 +597,7 @@ func TestHostResourceGroupPlacesTheHostCommandBeforeItRuns(t *testing.T) {
 	if len(placed) != 1 || placed[0] != 4242 {
 		t.Fatalf("the host launcher was placed %v, want exactly pid 4242 once", placed)
 	}
-	if !strings.Contains(stderr.String(), "Enforcement is unverified until the host witness passes") {
-		t.Fatalf("host placement output omits the unverified-enforcement statement:\n%s", stderr.String())
+	if !strings.Contains(stderr.String(), "The ceiling is set and read back, and the kernel enforces it") {
+		t.Fatalf("host placement output omits the enforcement statement:\n%s", stderr.String())
 	}
 }

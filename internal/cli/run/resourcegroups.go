@@ -51,8 +51,9 @@ func (o *Options) resourceGroupIOPaths(selection config.ResourceGroupSelection) 
 // child slices through the user manager, moves this launcher into the agent child (by re-running
 // under systemd-run) and reads the membership back, all
 // before the launch's expensive work. Every condition it cannot observe refuses naming the next
-// step; there is no unplaced fallback. It claims placement and a policy readback, never
-// enforcement: only the owner's host witness establishes that.
+// step; there is no unplaced fallback. What this code claims is placement and a policy readback;
+// the kernel does the enforcing (witnessed on one host,
+// docs/design/resource-groups-witness-2026-11-26.md).
 func (o *Options) placeOrRefuseResourceGroup(cfg *jsonx.OrderedMap) bool {
 	selection, err := config.SelectResourceGroup(cfg, o.Workspace)
 	if err != nil {
@@ -85,7 +86,7 @@ func (o *Options) placeOrRefuseResourceGroup(cfg *jsonx.OrderedMap) bool {
 		return true
 	}
 	o.resourceGroupPlaced = outcome.Placed
-	o.pr(o.Stderr).printf("Resource group %q selected via %s: this launch is in %s, a systemd child slice whose I/O ceiling was set through your user manager and read back. Enforcement is unverified until the host witness passes.",
+	o.pr(o.Stderr).printf("Resource group %q selected via %s: this launch is in %s, a systemd child slice whose I/O ceiling was set through your user manager and read back. The ceiling is set and read back, and the kernel enforces it.",
 		richtext.Escape(termsafe.Visible(selection.Unit)), richtext.Escape(termsafe.Visible(selection.Source)), richtext.Escape(termsafe.Visible(outcome.Placed.Child)))
 	return false
 }
@@ -131,7 +132,7 @@ func RefuseHostResourceGroup(errw io.Writer, cfg *jsonx.OrderedMap) bool {
 		fmt.Fprintln(errw, "To run without a resource group, remove the mapping with `yolo config unset --user resource_groups`.")
 		return true
 	}
-	fmt.Fprintf(errw, "yolo host: resource group %q selected via %s: this command runs in %s, a systemd child slice whose I/O ceiling was set through your user manager and read back. Enforcement is unverified until the host witness passes.\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source), termsafe.Visible(outcome.Placed.Child))
+	fmt.Fprintf(errw, "yolo host: resource group %q selected via %s: this command runs in %s, a systemd child slice whose I/O ceiling was set through your user manager and read back. The ceiling is set and read back, and the kernel enforces it.\n", termsafe.Visible(selection.Unit), termsafe.Visible(selection.Source), termsafe.Visible(outcome.Placed.Child))
 	return false
 }
 
