@@ -233,7 +233,9 @@ Each entry names the 💬 questions that hold it. Defects whose repair waits on 
 
 21. [How a jail reaches a worktree's `.git` outside it](../research/herdr-integration.md#OQ-HR2), with [the other herdr
     calls](../research/herdr-integration.md) — measured: a read-only bind refuses every commit, a read-write one lets a jail prune the worktree. Beside
-    it, [where herdr's approval front end ships](../design/herdr-approvals.md).
+    it, [where herdr's approval front end ships](../design/herdr-approvals.md), and [how yolo delivers herdr's per-agent integration
+    itself](../design/herdr-agent-integration.md#OQ-HR5): [how the pack is switched on](../design/herdr-agent-integration.md#OQ-HR6),
+    [hook agents in a jail and resume](../design/herdr-agent-integration.md#OQ-HR7), and [replacing herdr's own older file](../design/herdr-agent-integration.md#OQ-HR9).
 
 22. Storage: [the shared tool store's relocation contract](../design/shared-tool-store-relocation.md) with
     [its build handoff](shared-tool-store-relocation.md); [how one workspace splits across storage tiers](../design/storage-tiers.md)
