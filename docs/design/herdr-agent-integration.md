@@ -62,7 +62,7 @@ is how that is seen and what it costs.
 The owner's words, 2026-11-26:
 
 1. *"herdr wants to install extensions to each agent and seems like we could give some help here. I want as seamless as possible."*
-2. *"this herdr stuff also needs to work with host management on, so can't just import from the host locations that herdr writes. we need to sidestep that somehow."* (the 2026-11-26 `HR-D3` row of the [research ledger](../research/herdr-integration.md#7-decision-ledger))
+2. *"this herdr stuff also needs to work with host management on, so can't just import from the host locations that herdr writes. we need to sidestep that somehow."* ([HR-D10](../research/herdr-integration.md#HR-D10) in the research ledger)
 3. *"I want to explore everything we can do ourselves without involving upstream."*
 
 What follows, as principles this doc's decisions cite:
