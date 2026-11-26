@@ -700,3 +700,57 @@ func TestAnAttachInAHerdrPaneHintsItsExecClientAndNotTheJail(t *testing.T) {
 		t.Errorf("herdr calls = %q, want the registration and then the release", got)
 	}
 }
+
+// TestTheReportedAgentIsTheNameThePackDeclares: a program whose pack declares the name herdr
+// knows it by is reported under that name, and one that declares none under its base name.
+// The oh-omp case is the shipped one (herdr recognizes `omp`, never `oh-omp`).
+func TestTheReportedAgentIsTheNameThePackDeclares(t *testing.T) {
+	for _, tc := range []struct {
+		pack, argv0, want string
+	}{
+		{"omp", "oh-omp", "omp"},
+		{"omp", "/usr/bin/oh-omp", "omp"},
+		{"claude", "claude", "claude"},
+	} {
+		t.Run(tc.argv0, func(t *testing.T) {
+			o, rec, stderr := herdrOptions(ExecResult{Ran: true})
+			o.Workspace = "/ws"
+			o.registerHerdrAgent([]*packload.Pack{officialPack(t, tc.pack)}, []string{tc.argv0})
+			calls := herdrCalls(*rec)
+			if len(calls) == 0 || !strings.Contains(calls[0], " --agent "+tc.want+" ") {
+				t.Errorf("herdr calls = %q, want --agent %s", calls, tc.want)
+			}
+			if !slices.Contains(o.runtimeClientEnv, "HERDR_AGENT="+tc.want) {
+				t.Errorf("runtime client env = %q, want HERDR_AGENT=%s", o.runtimeClientEnv, tc.want)
+			}
+			if !strings.Contains(stderr.String(), "registered as "+tc.want) {
+				t.Errorf("banner = %q, want registered as %s", stderr.String(), tc.want)
+			}
+		})
+	}
+}
+
+// TestTheLauncherReadsTheDeclaredHerdrAgent fails if registerHerdrAgent stops asking the packs
+// for the declared name (the delete-the-call-site check): the source must call
+// Pack.HerdrAgentFor, and the shipped omp pack must answer it with omp, so a launch of oh-omp
+// never reports its base name.
+func TestTheLauncherReadsTheDeclaredHerdrAgent(t *testing.T) {
+	src, err := os.ReadFile("herdragent.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(src), ".HerdrAgentFor(") {
+		t.Fatal("registerHerdrAgent no longer reads the pack's declared herdr agent (Pack.HerdrAgentFor)")
+	}
+	pack := officialPack(t, "omp")
+	if got, ok := pack.HerdrAgentFor("oh-omp"); !ok || got != "omp" {
+		t.Fatalf("HerdrAgentFor(oh-omp) = %q, %v; want omp, true", got, ok)
+	}
+	o, rec, _ := herdrOptions(ExecResult{Ran: true})
+	o.registerHerdrAgent([]*packload.Pack{pack}, []string{"oh-omp"})
+	for _, c := range herdrCalls(*rec) {
+		if strings.Contains(c, "--agent oh-omp") {
+			t.Errorf("call reported the base name: %q", c)
+		}
+	}
+}

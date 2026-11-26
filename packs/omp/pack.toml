@@ -15,6 +15,9 @@ per_setup_state = [{ dir = ".oh-omp", paths = ["agent/agent.db", "agent/history.
 
 [[program]]
 bin = "oh-omp"
+# herdr recognizes this agent as `omp` and never `oh-omp`, so the launcher reports that name
+# (docs/research/herdr-integration.md §8.1).
+herdr_agent = "omp"
 # omp's own providers, read from the oh-omp 0.15.3 linux-x64 binary's strings on 2026-10-05,
 # never run: every provider its bundled packages/ai/src/models.json lists, and the local and
 # gateway ones its key map (serviceProviderMap) adds. yolo writes no model entry over one

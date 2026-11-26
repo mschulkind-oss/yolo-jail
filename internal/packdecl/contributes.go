@@ -232,6 +232,23 @@ type Contribution struct {
 	// `--help` only after resolving every package and installing a missing one with no lock, so
 	// it declares `--version` and `-v` alone.
 	ProbeArgs []string `json:"probe_args,omitempty"`
+	// HerdrAgent is the name herdr (https://herdr.dev, the terminal multiplexer for coding
+	// agents) knows this program by, when that differs from its `bin`: `herdr_agent = "omp"` on
+	// the `oh-omp` program. Read only on `program`, and refused on every other kind for
+	// `update`'s reason: the launcher's herdr registration is its one reader.
+	//
+	// When a launch runs inside a herdr pane the launcher reports the launched program to herdr
+	// (`herdr pane report-agent --agent <name>`, and HERDR_AGENT on the runtime client). It
+	// reports the program's base name unless this is declared, and herdr identifies only the
+	// names its own detector lists: it recognizes `omp` and not `oh-omp`, so without this an
+	// oh-omp pane is not identified (docs/research/herdr-integration.md §8.1).
+	//
+	// DECLARED BY THE PACK, never a name table in core, for `refresh`'s reason: which name a
+	// third-party multiplexer knows a program by is a fact about that program. Omit the key when
+	// the base name is already one herdr recognizes. A POINTER so that a present-but-empty
+	// value is refused rather than read as absent. The value is a lower-case word of letters,
+	// digits, `.`, `_` and `-`, which is what herdr accepts for an agent name.
+	HerdrAgent *string `json:"herdr_agent,omitempty"`
 	// TempCaches names directories the program keeps COMPILED CODE in under its temporary
 	// directory, Node's os.tmpdir() (`$TMPDIR`, else `$TMP`, `$TEMP`, `/tmp`): `"temp_caches":
 	// ["jiti"]` for pi, whose extension loader writes each extension it compiles to
@@ -1569,6 +1586,9 @@ func (m *Manifest) InstallContributions() []Install {
 		// delivered it. Copied, for Refresh's reason.
 		if len(c.ProbeArgs) > 0 {
 			in.ProbeArgs = append([]string(nil), c.ProbeArgs...)
+		}
+		if c.HerdrAgent != nil {
+			in.HerdrAgent = *c.HerdrAgent
 		}
 		if len(c.TempCaches) > 0 {
 			in.TempCaches = append([]string(nil), c.TempCaches...)
@@ -4582,6 +4602,7 @@ func validateContribution(label string, c Contribution) []string {
 		problems = append(problems, refreshProblems(label+".refresh", c.Refresh)...)
 	}
 	problems = append(problems, probeArgsProblems(label, c)...)
+	problems = append(problems, herdrAgentProblems(label, c)...)
 	problems = append(problems, tempCachesProblems(label, c)...)
 	problems = append(problems, sandboxTmpdirEnvProblems(label, c)...)
 	problems = append(problems, versionsDirProblems(label, c)...)

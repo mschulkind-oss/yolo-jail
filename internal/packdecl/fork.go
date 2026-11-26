@@ -180,6 +180,7 @@ func forkBaseFields(c Contribution) []forkBaseField {
 			"installs no npm package", c.ModelCatalog != nil},
 		{"refresh", base, c.Refresh != nil},
 		{"probe_args", base, c.ProbeArgs != nil},
+		{"herdr_agent", base, c.HerdrAgent != nil},
 		{"temp_caches", base, c.TempCaches != nil},
 		{"sandbox_tmpdir_env", base, c.SandboxTmpdirEnv != nil},
 		{"provider_sets", base, c.ProviderSets},

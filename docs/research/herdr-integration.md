@@ -1718,6 +1718,9 @@ Do option 1 and option 2 now, and hold option 3 until a measurement says it is w
 **The smallest first slice** is the pack-declared herdr agent name (option 1, first bullet). It is
 a few lines on `packdecl` and the launcher, it fixes a wrong identity for one shipped agent, it
 tests on the existing `herdragent_test.go` seam, and it needs herdr only to confirm, not to build.
+**Built, 2026-11-26:** a `[[program]]` may declare `herdr_agent`, `packs/omp` sets it to `omp`
+(the only shipped program whose base name herdr does not recognize), and the launcher reports the
+declared name, else the base name; a real herdr must still confirm the pane is identified.
 Land it with the upstream issues drafted for the owner to file. The measurement and the host-built
 resume follow as the second slice. The relay waits for two things: a real-herdr measurement that
 exact state from pi or opencode beats the screen reading the hint already gives, and an answer on
