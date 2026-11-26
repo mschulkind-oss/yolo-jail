@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/cli/run"
 )
 
 // fakeTmux records every argv handed to the tmux seam and answers reads from a
@@ -379,5 +381,140 @@ func TestKittyJailTabStandsDownInAHerdrPane(t *testing.T) {
 				t.Errorf("kitty tab marked = %v, want %v; calls: %q", got, tc.wantTab, calls)
 			}
 		})
+	}
+}
+
+// TestKittyJailTabIsRestoredByItsWindowAndClearsTheTitle pins the restore's two kitty facts. Every tab
+// command names the tab by `window_id:`, since kitty reads `id:` as a tab id first and a tab opened during
+// a long launch could take this window's number; and the restore sets an EMPTY title, which hands the tab
+// back to its window's title, since kitty has no `get-tab-title` to save the old one by.
+func TestKittyJailTabIsRestoredByItsWindowAndClearsTheTitle(t *testing.T) {
+	var calls [][]string
+	oldCmd, oldAtty := kittenCmd, isattyStdin
+	kittenCmd = func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		return nil, nil
+	}
+	isattyStdin = func() bool { return true }
+	t.Cleanup(func() { kittenCmd, isattyStdin = oldCmd, oldAtty })
+	t.Setenv("KITTY_PID", "4242")
+	t.Setenv("KITTY_WINDOW_ID", "7")
+	t.Setenv("TMUX", "")
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("HERDR_ENV", "")
+	t.Setenv("TERM_PROGRAM", "")
+
+	restore := SetupJailIndicator()
+	if restore == nil {
+		t.Fatal("no restore func for a kitty tab")
+	}
+	restore()
+	var lastTitle []string
+	for _, c := range calls {
+		if c[0] == "get-tab-title" {
+			t.Errorf("kitty has no get-tab-title; calls: %q", calls)
+		}
+		if len(c) < 3 || c[1] != "--match" || c[2] != "window_id:7" {
+			t.Errorf("a tab command did not name the tab by its window: %q", c)
+		}
+		if c[0] == "set-tab-title" {
+			lastTitle = c
+		}
+	}
+	if len(lastTitle) != 4 || lastTitle[3] != "" {
+		t.Errorf("the restore's title = %q, want an empty title that clears the override", lastTitle)
+	}
+}
+
+// TestKittyJailTabWithoutAWindowIDNamesTheTabFocusedAtSetup: with no KITTY_WINDOW_ID the tab is looked
+// up once, by its own id, so a tab switched to during the launch is never the one restored.
+func TestKittyJailTabWithoutAWindowIDNamesTheTabFocusedAtSetup(t *testing.T) {
+	var calls [][]string
+	oldCmd, oldAtty := kittenCmd, isattyStdin
+	kittenCmd = func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		if args[0] == "ls" {
+			return []byte(`[{"is_focused":false,"tabs":[{"id":1,"is_focused":true}]},
+				{"is_focused":true,"tabs":[{"id":4,"is_focused":false},{"id":9,"is_focused":true}]}]`), nil
+		}
+		return nil, nil
+	}
+	isattyStdin = func() bool { return true }
+	t.Cleanup(func() { kittenCmd, isattyStdin = oldCmd, oldAtty })
+	t.Setenv("KITTY_PID", "4242")
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TMUX", "")
+	t.Setenv("HERDR_ENV", "")
+	t.Setenv("TERM_PROGRAM", "")
+
+	restore := SetupJailIndicator()
+	if restore == nil {
+		t.Fatal("no restore func for a kitty tab")
+	}
+	restore()
+	for _, c := range calls[1:] {
+		if len(c) < 3 || c[2] != "id:9" {
+			t.Errorf("a tab command did not name the tab focused at setup (id 9): %q", c)
+		}
+	}
+}
+
+// TestALaunchArmsTheTerminalRestoreAroundThePipeline: `yolo run` arms the terminal restore (the signal
+// half, run.ArmTerminalRestore) with the same restore it hands the pipeline, for the whole pipeline,
+// and disarms it once the pipeline returns. Red with the front door's armTerminalRestore call deleted:
+// a Ctrl-C before the launch guard then left the kitty tab wearing the jail's title and colors.
+func TestALaunchArmsTheTerminalRestoreAroundThePipeline(t *testing.T) {
+	var calls [][]string
+	oldCmd, oldAtty := kittenCmd, isattyStdin
+	kittenCmd = func(args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		return nil, nil
+	}
+	isattyStdin = func() bool { return true }
+	t.Cleanup(func() { kittenCmd, isattyStdin = oldCmd, oldAtty })
+	t.Setenv("KITTY_PID", "4242")
+	t.Setenv("KITTY_WINDOW_ID", "7")
+	t.Setenv("TMUX", "")
+	t.Setenv("HERDR_ENV", "")
+	t.Setenv("TERM_PROGRAM", "")
+
+	var armed func()
+	armedDuringPipeline, disarmed := false, false
+	prevArm := armTerminalRestore
+	armTerminalRestore = func(restore func()) func() {
+		armed = restore
+		return func() { disarmed = true }
+	}
+	t.Cleanup(func() { armTerminalRestore = prevArm })
+	prev := launchRunPipeline
+	launchRunPipeline = func(o run.Options) int {
+		armedDuringPipeline = armed != nil && !disarmed
+		return 0
+	}
+	t.Cleanup(func() { launchRunPipeline = prev })
+	if rc := runRun([]string{"run", "--", "true"}); rc != 0 {
+		t.Fatalf("runRun = %d with the pipeline stubbed", rc)
+	}
+	if !armedDuringPipeline {
+		t.Fatal("`yolo run` did not arm the terminal restore for the pipeline")
+	}
+	if !disarmed {
+		t.Error("`yolo run` left the terminal arm installed after the pipeline returned")
+	}
+	// The armed restore is the tab's: calling it again after the front door's own restore is the
+	// once-guarded no-op, so the tab is put back exactly once.
+	before := len(calls)
+	armed()
+	if len(calls) != before {
+		t.Errorf("the armed restore ran the tab's restore a second time: %q", calls[before:])
+	}
+	restores := 0
+	for _, c := range calls {
+		if c[0] == "set-tab-title" && len(c) == 4 && c[3] == "" {
+			restores++
+		}
+	}
+	if restores != 1 {
+		t.Errorf("the tab was restored %d times, want once: %q", restores, calls)
 	}
 }

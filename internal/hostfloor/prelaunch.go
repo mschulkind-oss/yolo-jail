@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"io"
 	"os"
 	"os/exec"
@@ -318,6 +319,7 @@ func (r *receivedSignals) add(sig syscall.Signal) {
 func signalsDuring(run func()) receivedSignals {
 	ch := make(chan os.Signal, 4)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer sigyield.Hold(syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)()
 	var got receivedSignals
 	record := func(s os.Signal) {
 		if sig, ok := s.(syscall.Signal); ok {

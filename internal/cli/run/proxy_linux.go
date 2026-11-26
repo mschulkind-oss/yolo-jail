@@ -3,7 +3,9 @@
 package run
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/sigyield"
 	"os"
+	"syscall"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/ttyproxy"
@@ -32,8 +34,18 @@ import (
 // lingering client exits right after a keystroke, and the pty's line-discipline
 // mode, read through the master, so it can say whether a forwarded ^C reached
 // podman as data or as a signal.
+//
+// The proxy catches INT/HUP/TERM itself here, so the run holds them (internal/sigyield) for the
+// front door's terminal arm, and the proxy's teardown ends with that arm's last words.
 func runWithProxy(cmd []string, onStarted func(*os.Process), onTerminate func(), o *Options) (int, error) {
-	return ttyproxy.RunWithProxyObserved(cmd, onStarted, withEmbeddedRelease(onTerminate), proxyObserver(o))
+	defer sigyield.Hold(syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM)()
+	terminate := func() {
+		if onTerminate != nil {
+			onTerminate()
+		}
+		sigyield.LastWords()
+	}
+	return ttyproxy.RunWithProxyObserved(cmd, onStarted, withEmbeddedRelease(terminate), proxyObserver(o))
 }
 
 // proxyObserver is the Observer every proxied run of a launch shares: the `child.*` marks, the

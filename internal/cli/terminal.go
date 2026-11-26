@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/tty"
@@ -83,21 +85,59 @@ func kittenRun(args ...string) {
 	_, _ = kittenCmd(args...)
 }
 
+// kittyTabMatch is the `--match` that names THIS launch's tab for every tab command, set and
+// restore alike, resolved once at setup so a tab the user switches to or opens during a long launch
+// is never the one the restore resets.
+//
+// `window_id:`, never `id:`: for a tab command kitty reads `id:` as a TAB id first and falls back to
+// the tab holding window N only when no tab has that id, and tab and window ids are separate
+// counters. A tab opened during the launch that took this window's number as its tab id was the
+// one restored, and this launch's tab kept the jail's title and red. With no KITTY_WINDOW_ID, the
+// tab focused now is looked up by its id (`kitten @ ls`); `recent:0` is the last resort, which names
+// whatever tab is active when the restore runs.
+func kittyTabMatch() string {
+	if id := os.Getenv("KITTY_WINDOW_ID"); id != "" {
+		return "window_id:" + id
+	}
+	if out, err := kittenCmd("ls"); err == nil {
+		if id, ok := focusedKittyTab(out); ok {
+			return "id:" + strconv.Itoa(id)
+		}
+	}
+	return "recent:0"
+}
+
+// focusedKittyTab is the focused tab's id in the focused OS window of `kitten @ ls` output.
+func focusedKittyTab(ls []byte) (int, bool) {
+	var osWindows []struct {
+		IsFocused bool `json:"is_focused"`
+		Tabs      []struct {
+			ID        int  `json:"id"`
+			IsFocused bool `json:"is_focused"`
+		} `json:"tabs"`
+	}
+	if json.Unmarshal(ls, &osWindows) != nil {
+		return 0, false
+	}
+	for _, w := range osWindows {
+		if !w.IsFocused {
+			continue
+		}
+		for _, t := range w.Tabs {
+			if t.IsFocused {
+				return t.ID, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func kittySetupJailTab() func() {
 	if os.Getenv("KITTY_PID") == "" || !isattyStdin() {
 		return nil
 	}
 	project := projectName()
-	windowID := os.Getenv("KITTY_WINDOW_ID")
-	matchArg := "recent:0"
-	if windowID != "" {
-		matchArg = "id:" + windowID
-	}
-
-	oldTitle := ""
-	if out, err := kittenCmd("get-tab-title", "--match", matchArg); err == nil {
-		oldTitle = strings.TrimSpace(string(out))
-	}
+	matchArg := kittyTabMatch()
 
 	if _, err := kittenCmd("set-tab-title", "--match", matchArg, "🔒 JAIL "+project); err != nil {
 		return nil
@@ -111,11 +151,10 @@ func kittySetupJailTab() func() {
 	}
 
 	return func() {
-		restoreTitle := oldTitle
-		if restoreTitle == "" {
-			restoreTitle = "bash"
-		}
-		kittenRun("set-tab-title", "--match", matchArg, restoreTitle)
+		// AN EMPTY TITLE CLEARS THE OVERRIDE, so the tab follows its window's title again, as it did
+		// before this launch. kitty has no `get-tab-title` to save the old one by: the call this
+		// replaced always failed, and the restore pinned every tab to the literal "bash".
+		kittenRun("set-tab-title", "--match", matchArg, "")
 		if colored {
 			kittenRun("set-tab-color", "--match", matchArg,
 				"active_bg=none", "active_fg=none", "inactive_bg=none", "inactive_fg=none")

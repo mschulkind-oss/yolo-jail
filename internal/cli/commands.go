@@ -1534,6 +1534,11 @@ func runRun(args []string) int {
 			restore()
 			sp.End()
 		}()
+		// The signal half for every moment no launch arm is installed: the pack refresh, the
+		// prompts and staging before the launch guard, a macos-user launch before its arm, the
+		// session's tail after its arm lets go. A Ctrl-C there used to end the process with the
+		// tab still wearing the jail's title and colors (run.ArmTerminalRestore).
+		defer armTerminalRestore(restoreOnce)()
 	}
 	return launchRunPipeline(opts)
 }
@@ -1835,3 +1840,7 @@ func guestPackTreeReap(r macosuser.PackTreeReap) prune.EmbeddedReap {
 	}
 	return out
 }
+
+// armTerminalRestore is run.ArmTerminalRestore behind a package var, so a test can see the front
+// door arm it with the restore it hands the pipeline.
+var armTerminalRestore = run.ArmTerminalRestore
