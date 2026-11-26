@@ -42,7 +42,7 @@ channels exist at all.
 **Needs your ruling:** [OQ-HA1](#OQ-HA1), [OQ-HA2](#OQ-HA2), [OQ-HA3](#OQ-HA3), [OQ-HA4](#OQ-HA4).
 
 **Reads with:** [`herdr-integration.md`](../research/herdr-integration.md) (the launcher's herdr report;
-its HR-D2, HR-D4 and the HR-D10 ruling, that herdr integration works with host management on and needs
+its HR-D2, HR-D4 and the [HR-D10](../research/herdr-integration.md#HR-D10) ruling, that herdr integration works with host management on and needs
 no herdr change, bind here), [`approvals.md`](../../userguide/guides/approvals.md) (the surface this
 fronts), [`boundary-broker.md`](boundary-broker.md) (the store and `on_request`),
 [`linux-approval-notifier.md`](approval-experience/linux-approval-notifier.md) (the desktop doorbell this
