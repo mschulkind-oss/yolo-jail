@@ -5,7 +5,7 @@ status: in-review
 tags: [research, herdr, terminal, multiplexer, sessions, lifecycle, worktrees, host, notches, integration]
 summary: "herdr is a terminal multiplexer built for coding agents. A background server owns every pane's terminal, so agents keep running when the window closes, and herdr shows which agent is working, blocked or done. It sits beside yolo rather than competing with it: herdr is where the terminals live, and yolo is the environment each agent runs in. `yolo host -- <agent>` in a herdr pane already gets everything herdr offers. `yolo -- <agent>` in a container jail shows up as a plain terminal, because herdr looks for the agent among host processes and finds only podman. The best first step is small, and it is built in core, as the maintainer ruled on 2026-10-01. When the launcher runs in a herdr pane and its command is a program a selected pack installs, it tells herdr which agent is inside, by a self-report and a variable on the host-side runtime process, and it labels the pane as a jail, the way yolo already marks tmux panes and kitty tabs. Three things break and need rulings or other designs. Closing a herdr pane signals the launcher and, through podman's signal forwarding, the jail's own processes, and probably kills the launcher during its teardown (inferred, not measured). herdr's worktrees break git inside container jails. A herdr restart brings jail panes back as empty shells. herdr's socket must never cross into a jail, because it gives full control of the user's terminals. Three rulings are owed."
 stage: DESIGN
-next: "Rule OQ-HR2 to OQ-HR4 (OQ-HR1 was ruled on 2026-10-01: in core). OQ-HR3 now carries the measured commit half of §6 item 8 (§4.5, 2026-10-01: a read-write .git bind commits, a read-only one refuses every write, and the jail sees its own checkout as prunable); what §6 still owes needs a real host, a herdr pane, a rootless podman or a Mac"
+next: "Rule OQ-HR2 to OQ-HR8 (OQ-HR5 to OQ-HR8 are §8, 2026-11-26: a report-only relay, how the pack is selected, resume for the hook agents, upstream issues) (OQ-HR1 was ruled on 2026-10-01: in core). OQ-HR3 now carries the measured commit half of §6 item 8 (§4.5, 2026-10-01: a read-write .git bind commits, a read-only one refuses every write, and the jail sees its own checkout as prunable); what §6 still owes needs a real host, a herdr pane, a rootless podman or a Mac"
 vantage:
   status-chip: true
 ---
@@ -21,6 +21,14 @@ Everything else about herdr comes from its source, docs and issue tracker. On 20
 second lens measured [§6](#6-what-is-unmeasured) item 8, git in a container through a bind of a
 scratch repository's `.git`, on a rootful podman nested in a jail
 ([§4.5](#45-option-4-git-in-herdrs-worktrees)). Three rulings are owed.
+
+**Update, 2026-11-26.** [§8](#8-herdrs-agent-extensions-and-how-a-jail-could-carry-them) maps what
+`herdr integration install` writes for each agent yolo ships, what each does in a jail and at the
+host, how herdr's socket channel stops at the jail boundary, and ranks the ways to help. Four
+rulings are now owed ([OQ-HR5](#OQ-HR5) to [OQ-HR8](#OQ-HR8)). Two stale claims were fixed below:
+`host_management: "assert"` is retired ([§3.6](#36-two-writers-on-one-agent-config-file)), and
+herdr's integrations cover eighteen agents as of v0.9.5
+([§2.4](#24-hooks-self-reports-and-resume-commands)).
 
 **Update, 2026-09-30.** Option 2 is built in core ([built note](#built-2026-09-30)). It was built
 ahead of [OQ-HR1](#7-decision-ledger)'s ruling, and on 2026-10-01 the maintainer ruled it in core.
@@ -291,7 +299,10 @@ SOURCED.
 
 ### 2.4 Hooks, self-reports and resume commands
 
-- **`herdr integration install <agent>` edits the agent's own config.** It honors
+- **`herdr integration install <agent>` edits the agent's own config.** As of v0.9.5 it covers
+  eighteen agents, listed per yolo agent in
+  [§8.1](#81-what-herdr-installs-and-what-happens-to-it-per-agent-yolo-ships); the detail below is
+  the 0.9.3 reading of the first four. It honors
   `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME` and `PI_CODING_AGENT_DIR`, and needs the
   directory to exist already
   ([`integrations.mdx`](https://github.com/herdrdev/herdr/blob/v0.9.3/docs/next/website/src/content/docs/integrations.mdx#L104-L142)).
@@ -744,8 +755,10 @@ client, so the launcher keeps running. SOURCED
   ([`command.rs`](https://github.com/herdrdev/herdr/blob/v0.9.3/src/integration/command.rs#L27)).
   SOURCED.
 - The claude pack's settings surface reads the host file as a layer (`readsHost: true`,
-  [`pack.toml`](../../packs/claude/pack.toml)) and deep-merges it with no key filter
-  ([`compose.go`](../../internal/agentcfg/compose.go#L389-L416)). SOURCED.
+  [`pack.toml`](../../packs/claude/pack.toml)) and deep-merges it with no default key filter
+  ([`compose.go`](../../internal/agentcfg/compose.go#L389-L416)); only a user's own
+  `host_import_exclusions` subtracts keys ([`config-ref`](../../internal/cli/config_ref.txt), lines
+  1241 to 1245). SOURCED.
 - So jail Claude runs herdr's hook at every session start, at a host path that does not exist in
   the jail. It fails, and Claude treats a failing `SessionStart` hook as a non-blocking error.
   Even with the file present, the hook would exit early for lack of `HERDR_*`. INFERRED: what the
@@ -754,16 +767,18 @@ client, so the launcher keeps running. SOURCED
 
 **At the host, the two writers coexist today.**
 
-- Under `host_management: "assert"`, yolo rewrites only the keys its packs declare, and today the
-  claude pack declares no `hooks`, so herdr's entry is left alone.
+- Under `host_management` unset or `"none"`, yolo writes nothing into the real home, and
+  `yolo host apply` refuses naming the key, so herdr's install is untouched.
 - Under `"own"`, herdr's edit counts as the user's: yolo captures it and re-applies it on top of
-  every render.
-- SOURCED from `yolo config-ref`, and INFERRED for herdr.
+  every render. The old `"assert"` mode, which rewrote only the keys a pack declares, is retired
+  and refused ([`config-ref`](../../internal/cli/config_ref.txt), lines 1377 to 1395).
+- SOURCED from `yolo config-ref`, and INFERRED for herdr. Today the claude pack declares no
+  `hooks` key (`rg -i hooks packs/claude` finds nothing), so there is no rewrite to survive.
 
 **What would collide.** The unbuilt design in
 [`agent-event-watchers.md`](../design/agent-event-watchers.md) has the claude pack render `hooks`
-entries. If that pack comes to own the `hooks` key under `assert`, herdr's entry has to survive
-the rewrite. That is the same composition check the design already owes for its `Stop` hooks
+entries. If that pack comes to own the `hooks` key under `own`, herdr's entry has to survive
+the capture and re-render. That is the same composition check the design already owes for its `Stop` hooks
 ([`agent-event-watchers.md` §8](../design/agent-event-watchers.md#8-costs-and-risks)).
 
 ### 3.7 herdr inside the jail instead
@@ -1496,3 +1511,252 @@ in the [Decision Ledger](#7-decision-ledger).
 | ID | Ruling / Decision | Date | Settled in |
 | :--- | :--- | :--- | :--- |
 | **OQ-HR1** | **A: yolo's herdr knowledge lives in core, beside the tmux and kitty indicators.** The maintainer ruled it in their own words: *"I definitely want PR49 in core. haven't read the doc yet, but you can take that as ruled and let's get this PR in."* PR #49 is that build ([built note](#built-2026-09-30)). B, a shipped `herdr` pack, needed a contribution kind that runs host commands and sets environment on the runtime client, and herdr would have been its only user. C, documentation only, gave no label and no status before a shell function was added. Neither was taken. [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) said A would also settle a point no other ruling covers, for the herdr arm: a jail launch may decide from its launcher's `HERDR_ENV` and `HERDR_PANE_ID`, and run a host program. As built, that program is the `herdr` on `PATH`, never the ambient `HERDR_BIN_PATH` | 2026-10-01 | [§4.3](#43-option-2-the-launcher-tells-herdr-what-is-inside) |
+
+---
+
+## 8. herdr's agent extensions, and how a jail could carry them
+
+Added 2026-11-26. The ask: *"explore integrating better with herdr. herdr wants to install
+extensions to each agent and seems like we could give some help here. I want as seamless as
+possible."* herdr evidence in this section was read from `herdr.dev/docs` (integrations, socket API,
+agents; docs version 0.9.5, the latest release, 2026-10-14) and from herdr's source at tag `v0.9.5`
+(the Claude hook script, the pi extension, `detect/mod.rs`). yolo evidence was read at
+`a91ddedea`. herdr was not installed or run, so every herdr behavior here is SOURCED and every
+statement about what yolo plus herdr does together is INFERRED unless marked MEASURED.
+
+> **In short.** herdr's per-agent installs are of two kinds. For pi, opencode and omp the
+> installed extension reports the agent's live state and replaces screen reading. For claude,
+> codex, copilot and agy the installed hook reports only a session id, and herdr keeps reading the
+> screen. In a jail, none of them can reach herdr, because they talk straight to a Unix socket
+> named by `HERDR_SOCKET_PATH`, and no `HERDR_*` variable crosses
+> ([§3.8](#38-the-socket-is-full-control-of-the-host) is why). Delivering herdr's files alone would
+> change nothing, and for the four hook agents it would do harm, because the session id feeds
+> herdr's restore, which types a host command. The help worth giving is, in order: fix the
+> host-side identity yolo already sends, close the one leak that exists, report resume from the
+> host, and only then consider a report-only relay for the three agents whose state it would
+> change.
+
+### 8.1 What herdr installs, and what happens to it, per agent yolo ships
+
+`herdr integration install <name>` writes into the agent's own config directory, which must exist
+already (except mastracode), atomically, and `herdr integration status` lists versions. The
+settings screen can install "recommended integrations for agents found on your `PATH`"
+([integrations](https://herdr.dev/docs/integrations/)). SOURCED.
+
+"Reports" below is what the installed file sends. "Host" is the agent run bare, or through
+`yolo host`. "Jail" is `yolo -- <agent>` in a container jail.
+
+| yolo pack (program) | herdr integration, files, config key | What it reports; state authority | Host | Jail |
+| :--- | :--- | :--- | :--- | :--- |
+| `claude` (`claude`) | `~/.claude/hooks/herdr-agent-state.sh`, and a `SessionStart` hook in `settings.json`, matching only the sources `startup`, `resume`, `clear`, `compact` and `fork`. Honors `CLAUDE_CONFIG_DIR` | The session id only. State is read from the screen | Works. Under `host_management = "own"` herdr's edit is captured and re-applied (INFERRED from [`config-ref`](../../internal/cli/config_ref.txt), line 1381) | **Leaks, then does nothing.** The hook entry reaches the jail through the settings layer's host read ([`packs/claude/pack.toml:146`](../../packs/claude/pack.toml), `readsHost = true`), and no pack declares a `hooks` key (`rg -i hooks packs/claude` finds nothing). The script path is the host's and `HERDR_ENV` is unset, so the hook cannot report ([§3.6](#36-two-writers-on-one-agent-config-file)) |
+| `codex` (`codex`) | `herdr-agent-state.sh` under `CODEX_HOME`, entries in `hooks.json`, and `[features] hooks = true` in `config.toml` | Session id; state from the screen | Works | **Silently lost.** The codex config surface has no host layer ([`packs/codex/pack.toml:92`](../../packs/codex/pack.toml)), so neither file is read |
+| `copilot` (`copilot`) | `hooks/herdr-agent-state.sh` and a `SessionStart` entry in `settings.json`, under `COPILOT_HOME` | Session id; screen | Works | **Silently lost.** The settings surface is `rmw` with no host layer ([`packs/copilot/pack.toml:77-80`](../../packs/copilot/pack.toml)) |
+| `pi` (`pi`) | `~/.pi/agent/extensions/herdr-agent-state.ts`, or under `PI_CODING_AGENT_DIR`. One file, no config key | **Live state** (`working`, `blocked`, `idle`) and the session reference, over the socket directly. herdr then ignores the screen for the pane. The extension exits unless `HERDR_ENV=1` and both other variables are set | Works under bare `pi`. Under `yolo host -- pi` the launch sets `PI_CODING_AGENT_DIR` to a per-launch session home that links everything else to the real directory ([`hostsessionhome.go:6`](../../internal/cli/hostsessionhome.go)), so the file is probably reached (INFERRED, unmeasured) | **Silently lost.** The extension is an auto-discovered file, not a settings key, so the host read of `~/.pi/agent/settings.json` ([`packs/pi/pack.toml:206`](../../packs/pi/pack.toml)) does not carry it, and the jail's `~/.pi` is workspace state |
+| `omp` (`oh-omp`) | `~/.omp/agent/extensions/herdr-omp-agent-state.ts`, resolved from `PI_CODING_AGENT_DIR`, else `$PI_CONFIG_DIR/agent`, else `~/.omp/agent`. Refuses if omp and pi resolve to one directory | Live state, label `omp`, session identity | **Probably written where yolo's omp never reads it.** yolo's omp home is `~/.oh-omp/agent`, selected by `PI_CODING_AGENT_DIR` ([`packs/omp/pack.toml:9`](../../packs/omp/pack.toml)); a bare `herdr integration install omp` writes `~/.omp/agent` (INFERRED) | **Silently lost**, for the pi reason |
+| `opencode` (`opencode`) | `~/.config/opencode/plugins/herdr-agent-state.js`, `herdr-tui-session.js`, `herdr-opencode/tui.js`, registered in `tui.jsonc` (V1) or `cli.json` (V2) | Live state through a pane-local TUI plugin | Works. yolo's `tui` surface also writes a `plugin` array into `tui.jsonc` ([`packs/opencode/pack.toml:290`](../../packs/opencode/pack.toml)), so under `own` the two writers meet on that key. Unmeasured | **Silently lost**, and the jail's own `tui.jsonc` carries only yolo's footer plugin |
+| `agy` (`agy`) | `~/.gemini/config/hooks/herdr-agent-state.sh` and a Herdr-owned `herdr` block in `hooks.json`, honoring `ANTIGRAVITY_CLI_CONFIG_DIR` | Session only, from the `PreInvocation` hook; screen state | Works. yolo writes skills and `AGENTS.md` beside it ([`packs/agy/pack.toml:19,29`](../../packs/agy/pack.toml)), not `hooks.json` | **Silently lost** |
+| `muse-code` (`muse`) | None. herdr's agents page lists Muse Code as supported by the agent itself, with nothing to install | n/a | n/a | n/a. The hint name `muse` is one herdr recognizes (`lookup_agent`) |
+| `kilo` | herdr has a kilo integration, but yolo's `kilo` pack installs no CLI (no `[[program]]` in [`packs/kilo/pack.toml`](../../packs/kilo/pack.toml)) | n/a | n/a | n/a |
+
+SOURCED: herdr's per-agent rows from [integrations](https://herdr.dev/docs/integrations/) and, for
+the Claude hook and pi extension behavior, the files at
+[`claude/herdr-agent-state.sh`](https://github.com/herdrdev/herdr/blob/v0.9.5/src/integration/assets/claude/herdr-agent-state.sh)
+and [`pi/herdr-agent-state.ts`](https://github.com/herdrdev/herdr/blob/v0.9.5/src/integration/assets/pi/herdr-agent-state.ts).
+Authoritative state comes only from pi, omp, kimi, opencode, kilo and mastracode
+([integrations, "How Herdr uses integrations"](https://herdr.dev/docs/integrations/)); the others
+leave state to screen detection.
+
+**A second, smaller finding: the identity yolo already sends can be wrong for `oh-omp`.** The
+launcher sets `HERDR_AGENT` and reports `--agent` as the base name of the command it launches
+([`herdragent.go:106`, `:115`, `:117`](../../internal/cli/run/herdragent.go)). herdr's `lookup_agent`
+recognizes `omp` and no `oh-omp`, and recognizes `agy`, `muse` and `copilot`
+([`detect/mod.rs`](https://github.com/herdrdev/herdr/blob/v0.9.5/src/detect/mod.rs)). So an
+`oh-omp` pane is probably not identified, and the launcher's report probably fails with the yellow
+"could not register" line. INFERRED: herdr was not run, so a real herdr must confirm it. Core may
+not carry a name table, so the fix is a pack-declared herdr agent name, not a core `switch`.
+
+### 8.2 How the channel crosses the jail boundary today
+
+- **What herdr gives a pane.** `HERDR_SOCKET_PATH`, `HERDR_ENV=1`, `HERDR_WORKSPACE_ID`,
+  `HERDR_TAB_ID` and `HERDR_PANE_ID` are injected into every managed pane. `HERDR_BIN_PATH` is for
+  plugin processes only. The default socket is `~/.config/herdr/herdr.sock`, and a named session's
+  is `~/.config/herdr/sessions/<name>/herdr.sock`. The protocol is newline-delimited JSON over a
+  Unix domain socket, and the page describes no authentication
+  ([socket API](https://herdr.dev/docs/socket-api/)). SOURCED.
+- **The extensions use the socket directly.** The Claude hook opens an `AF_UNIX` stream to
+  `HERDR_SOCKET_PATH` from an embedded Python block with a 0.5 s timeout, and the pi extension uses
+  `node:net`. Neither runs the `herdr` CLI. Each exits at once unless `HERDR_ENV=1`, the socket
+  path and the pane id are all set. SOURCED (the two files above).
+- **Nothing of that crosses into a jail, by ruling.** `TERM_PROGRAM` is the only terminal variable
+  the launcher forwards, and `HERDR_*` deliberately is not
+  ([`termprogram.go:10-13`](../../internal/cli/run/termprogram.go); [HR-D2](#HR-D2)). MEASURED on
+  2026-11-26: the jail this research ran in was started from a herdr pane, and its environment has
+  `TERM_PROGRAM=herdr` and no `HERDR_*` variable.
+- **What does cross is host-side.** The launcher itself runs `herdr pane report-agent` and
+  `report-metadata` from the host ([`herdragent.go:117`](../../internal/cli/run/herdragent.go)), and
+  `HERDR_AGENT` rides only the runtime client's environment (`herdragent.go:115`). That is a
+  working identity-and-label channel. It carries no agent-originated state, and it reports no
+  resume command: `rg 'resume_argv|report-agent-session' internal` finds no non-test hit.
+- **A Unix socket could not cross on every backend anyway.** On macOS with podman or Apple
+  Container a socket's inode crosses a virtiofs share but the connection does not
+  ([`loophole-transport.md:56`](../reference/loophole-transport.md)). yolo's answer is
+  `loopback-tls`, a TCP hop to `127.0.0.1` that a daemon sits behind. macos-user starts the agent
+  under `env -i` with a closed variable list ([§3.2](#32-macos-user)), and the sandbox account
+  could not open a `0600` socket the user owns.
+
+So today: **identity and label work, agent-to-herdr reporting is unreachable, and the extensions
+are inert in a jail.** Nothing herdr installs is refused loudly. The one artifact that arrives,
+the Claude hook entry, arrives without its script.
+
+### 8.3 What the extensions would add, and what they would break
+
+- **pi, omp and opencode: real value, modest.** herdr prefers their reports to the screen, so
+  `working`, `blocked` and `idle` would be exact instead of inferred from the screen. The hint
+  already gives these agents screen reading, and herdr has screen manifests for pi and opencode
+  ([§2.3](#23-how-herdr-finds-an-agent-and-reads-its-state)); how much the extension adds in a
+  real pane is unmeasured.
+- **claude, codex, copilot and agy: no state value, and a hazard.** Their hooks report only a
+  session id. The reader of that id is herdr's restore: it stores a resume command and types it
+  into the pane's shell after a herdr restart. herdr's own resume for Claude is
+  `claude --resume <id>`, which would run a host `claude`, not the jail's, and the id names a
+  conversation the host never saw ([§4.7](#47-rejected), [HR-D7](#HR-D7)). So the right help for
+  these four is host-built resume ([OQ-HR2](#OQ-HR2), C), and not delivering herdr's hooks.
+- **The seamless user path already exists on the host side.** The user runs
+  `herdr integration install <agent>` once on the host. Everything that follows should need no
+  second step. That is the bar for the options below.
+
+### 8.4 Options, ranked
+
+Ranked by value over cost and risk. The first two do not depend on a ruling about a channel.
+
+**1. Make the host-side half right. Small, low risk.** Four changes, each independent:
+
+- *A pack-declared herdr agent name.* A program declares the name herdr knows it by (`omp` for
+  `oh-omp`), and the launcher uses it for `HERDR_AGENT` and `--agent` where it has one. Core names
+  no agent, and the fallback stays the base name. Confirm first on a real herdr that `oh-omp` is
+  unrecognized.
+- *The Claude hook leak ([HR-D9](#HR-D9)).* Today's remedy is the user's
+  `host_import_exclusions = { "claude/settings" = ["/hooks"] }`
+  ([`config-ref`, lines 1241 to 1245](../../internal/cli/config_ref.txt)), which only works while
+  `host_management` is unset or `"none"`, and drops every host hook, not herdr's alone. The durable
+  fix is the composition rule HR-D9 already names: drop, and disclose, a host-layer hook whose
+  command path does not exist in the jail.
+- *Resume from the host* ([OQ-HR2](#OQ-HR2) C), for the four hook agents and also for pi and
+  opencode. Built on the host, per HR-D7.
+- *Measure* the unmeasured items that decide the rest: items 1 and 5 of
+  [§6](#6-what-is-unmeasured), plus the `oh-omp` identity, on a real host with a real herdr pane.
+
+**2. Ask upstream, in parallel. Free, slow.** herdr takes no unsolicited pull requests (the bot
+that closed [herdr#2434](https://github.com/herdrdev/herdr/pull/2434) said so), so these are
+issues:
+
+- a documented report-only transport for a sandboxed agent. herdr#2434 was exactly that for SSH
+  panes (an opt-in `[remote] agent_reporting`, five report methods plus `ping`, a reverse socket
+  forward). The YC post already names *"a sandbox for risky code and ephemeral agents"* as a machine
+  to connect ([§2.1](#21-the-project)). If upstream owns the listener, the relay of option 3 needs
+  no yolo-written filter;
+- an `omp` alias for `oh-omp`, or a documented hint value for it;
+- a way to print an integration's files without a live config directory, such as
+  `herdr integration export <agent> --dir <path>`, so a launch can mirror the exact, versioned
+  bytes instead of copying them;
+- a "containers and sandboxes" paragraph on the integrations page that says the hooks need
+  `HERDR_SOCKET_PATH`.
+
+**3. A report-only relay, for pi, opencode and omp. Large, medium risk, needs a ruling.** The
+shape, with every part a pack's or an existing mechanism:
+
+- *Channel.* A loophole contributed by a shipped `herdr` pack. Host side, a
+  `yolo internal daemon herdr-relay` behind `loopback-tls`. Jail side, a small in-jail daemon,
+  `yolo-jaild herdr-relay`, that listens on a Unix socket inside the jail and forwards to the host
+  daemon. That lets herdr's own, unmodified extension connect to `HERDR_SOCKET_PATH`, with no
+  generated client ([`AGENTS.md`](../../AGENTS.md); wire-bridge is the precedent for an in-jail
+  service a pack declares).
+- *Filter.* The host daemon allows `pane.report_agent`, `pane.report_agent_session`, a title-only
+  `pane.report_metadata` and `ping`. It overwrites `pane_id` with the launching pane's, drops
+  `resume_argv` (HR-D7), pins the agent to the launch's, and refuses everything else, so no pane
+  can be split and nothing typed ([§3.8](#38-the-socket-is-full-control-of-the-host)).
+- *Env.* The jail would get `HERDR_ENV=1`, `HERDR_SOCKET_PATH=<the in-jail socket>` and a
+  `HERDR_PANE_ID` the relay ignores. That amends [HR-D2](#HR-D2) and answers
+  [OQ-HR4](#OQ-HR4) B, so it is the owner's ruling ([OQ-HR5](#OQ-HR5)). The values cannot be a
+  plain pack `env` contribution, which is literal and ungated
+  ([`pack-system.md`, `env`](../reference/pack-system.md)); they are delivered only where the
+  relay is served, as a `served_by` contribution already is.
+- *Delivery of the extension bytes.* Either mirror the host-installed file with the user's
+  source-bearing `host_files` entry (user scope only, version-matched, no copy in the repository),
+  or ask upstream for the export of option 2. Vendoring herdr's asset into the pack would drift
+  from herdr's integration version.
+- *Gating.* `requires.command_on_path = "herdr"` on the loophole
+  ([`keys.go:286`](../../internal/loopholedecl/keys.go)), plus the launcher's existing pane check
+  ([`herdragent.go:98-101`](../../internal/cli/run/herdragent.go)). Outside a herdr pane the relay
+  has no pane to pin and refuses.
+- *Cost and what cannot be checked here.* A new loophole, a new in-jail daemon, tests, and docs.
+  A nested jail is structurally blind to reachability ([`AGENTS.md`](../../AGENTS.md), Testing), so
+  only a real rootless host with herdr settles it, and macos-user would need its own path.
+- *Risk.* The filter is the whole boundary over an API that changes
+  ([§4.6](#46-option-5-a-narrow-herdr-door-for-jailed-agents)), and a jail can falsify its own
+  pane's state (display-only, but it could hide a `blocked` notification). herdr's authority rules
+  were not measured for a second source on one pane.
+
+**4. Auto-select the pack when launched inside herdr. Small once option 3 exists, and a rule
+change.** [`AGENTS.md`](../../AGENTS.md) allows one `selected_by_default` pack, `cgroup-delegate`,
+because it can only limit a jail. A relay widens what a jail can reach, so it does not qualify.
+OQ-HR1 already lets core read `HERDR_ENV` on the host, but that decision opens nothing into the
+jail. What squares with "nothing is active by default": the user runs `yolo pack add herdr` once,
+the launch banner discloses it as it does every pack, and detection only decides whether the
+selected pack is live in a given launch. Auto-adding the pack would need an owner ruling to change
+that rule ([OQ-HR6](#OQ-HR6)).
+
+**Not recommended:** mounting `~/.config/herdr` or the socket (host code execution,
+[§4.7](#47-rejected)); copying herdr's hooks for claude, codex, copilot and agy into the jail (the
+hazard of [§8.3](#83-what-the-extensions-would-add-and-what-they-would-break)); herdr inside the
+jail ([HR-D1](#HR-D1)).
+
+### 8.5 Recommendation, and the smallest first slice
+
+Do option 1 and option 2 now, and hold option 3 until a measurement says it is worth it.
+
+**The smallest first slice** is the pack-declared herdr agent name (option 1, first bullet). It is
+a few lines on `packdecl` and the launcher, it fixes a wrong identity for one shipped agent, it
+tests on the existing `herdragent_test.go` seam, and it needs herdr only to confirm, not to build.
+Land it with the upstream issues drafted for the owner to file. The measurement and the host-built
+resume follow as the second slice. The relay waits for two things: a real-herdr measurement that
+exact state from pi or opencode beats the screen reading the hint already gives, and an answer on
+[OQ-HR5](#OQ-HR5).
+
+### 8.6 Questions for the owner
+
+<a id="OQ-HR5"></a>**OQ-HR5. May a jail see a report-only herdr channel?** This would amend HR-D2
+(no `HERDR_*` handle) and answers OQ-HR4's option B in its narrowest form: no pane can be opened or
+typed into, only state and labels for its own pane. *Leaning:* **not yet.** Do options 1 and 2,
+measure what exact state adds, and decide then. If yes, build pi first: one file, `node:net`, and
+authoritative state.
+
+<a id="OQ-HR6"></a>**OQ-HR6. Is `yolo pack add herdr` once enough, or should launching inside herdr
+select the pack by itself?** *Leaning:* **once.** Auto-selecting widens the jail's reach on a
+detected signal, which `AGENTS.md` reserves for packs that can only limit it. A one-time verb is
+seamless enough, and the banner says what is on.
+
+<a id="OQ-HR7"></a>**OQ-HR7. For claude, codex, copilot and agy, should herdr's hooks stay out of
+the jail and resume be built on the host?** *Leaning:* **yes.** The hooks add no state, and their
+session id feeds a restore that would run a host command
+([§8.3](#83-what-the-extensions-would-add-and-what-they-would-break)). It is OQ-HR2's C by another
+route.
+
+<a id="OQ-HR8"></a>**OQ-HR8. May the investigation open issues on herdr's repository?** Earlier
+passes did not comment upstream. The asks are in option 2 and would come from the owner's account,
+not an agent's. *Leaning:* **yes**, as drafts the owner files.
+
+### 8.7 Sources
+
+- herdr docs: [integrations](https://herdr.dev/docs/integrations/), [socket API](https://herdr.dev/docs/socket-api/),
+  [agents](https://herdr.dev/docs/agents/), [connecting machines](https://herdr.dev/docs/connecting-machines/).
+- herdr source at `v0.9.5`:
+  [`claude/herdr-agent-state.sh`](https://github.com/herdrdev/herdr/blob/v0.9.5/src/integration/assets/claude/herdr-agent-state.sh),
+  [`pi/herdr-agent-state.ts`](https://github.com/herdrdev/herdr/blob/v0.9.5/src/integration/assets/pi/herdr-agent-state.ts),
+  [`detect/mod.rs`](https://github.com/herdrdev/herdr/blob/v0.9.5/src/detect/mod.rs).
+- [herdr#2434](https://github.com/herdrdev/herdr/pull/2434), closed unmerged 2026-08-06 by herdr's bot;
+  [releases](https://github.com/herdrdev/herdr/releases) (v0.9.5, 2026-10-14, is the latest).
+- yolo, at `a91ddedea`: [`herdragent.go`](../../internal/cli/run/herdragent.go),
+  [`termprogram.go`](../../internal/cli/run/termprogram.go),
+  [`hostsessionhome.go`](../../internal/cli/hostsessionhome.go),
+  [`loophole-transport.md`](../reference/loophole-transport.md), `packs/*/pack.toml`.
