@@ -243,3 +243,23 @@ func (o *Options) reportJailEnded(rt, reason string, ended bool) {
 		"an out-of-memory kill, a crash, or a stop from outside yolo (`%s stop`) ends a jail "+
 		"this way.[/bold yellow]", rt)
 }
+
+// clientFailureStatus reports a session status that is podman's own client failing rather than the
+// session inside ending: 255, which podman gives for its own errors, such as the "timed out
+// waiting for file …/exit/…" its exec client gives when conmon's exit file does not arrive in
+// time. Three jails' sessions ended that way under a stalled host disk on 2026-11-26 and were told
+// nothing. A program inside that itself exits 255 reads the same; the note says so.
+func clientFailureStatus(rt string, rc int) bool {
+	return rt == "podman" && rc == 255 // parity: NotApplicable — Apple Container and macos-user have no podman exec client to fail with 255
+}
+
+// reportClientFailure is endSession's note for a session whose podman client failed while yolo did
+// not see its jail stop: the failure is podman's, printed just above, not the agent's or the
+// jail's, and the next launch re-enters or relaunches the jail.
+func (o *Options) reportClientFailure(cname string) {
+	o.pr(o.Stderr).printf("[bold yellow]This session ended because podman's own client failed (exit 255, "+
+		"its error is above): yolo did not see %s stop under it, and unless the program in the session "+
+		"itself exited 255, that program did not choose to end. Run `yolo` again in this workspace to "+
+		"re-enter or relaunch the jail; if it recurs, look for a stalled host disk or podman fault "+
+		"(`journalctl -k`, `podman system check`).[/bold yellow]", cname)
+}

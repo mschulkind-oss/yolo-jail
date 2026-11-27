@@ -301,7 +301,8 @@ func indexNewline(p []byte) int {
 
 // keeperLogPath is cname's keeper log: <global storage>/logs/jail-keeper-<cname>.log, beside the
 // host services' own logs, in host state no jail mounts. One per container name; each keeper
-// truncates it at its start, so it holds the current keeper's life.
+// starts a fresh one and keeps its predecessor's beside it as `.1` (openKeeperLog), so a relaunch
+// never erases how the previous jail of the name ended.
 func keeperLogPath(cname string) string {
 	return logsDirPath("jail-keeper-" + cname + ".log")
 }
@@ -311,12 +312,19 @@ func logsDirPath(name string) string {
 	return filepath.Join(paths.GlobalStorage(), "logs", name)
 }
 
-// openKeeperLog opens (truncating) cname's keeper log, 0600: it names the jail's services, its
-// paths and why it ended.
+// openKeeperLog starts cname's keeper log afresh, 0600: it names the jail's services, its paths and
+// why it ended. The previous keeper's log is renamed to `.1` first, replacing an older `.1`: a
+// relaunch used to truncate it, and with it the only host-side account of why the last jail of
+// the name ended, which is what a user asks after a jail quits under them. The prune sweep
+// already counts the `.1` as the name's (internal/prune/orphancname.go). A rename that fails
+// leaves the truncating open as before.
 func openKeeperLog(cname string) (*os.File, error) {
 	path := keeperLogPath(cname)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
+	}
+	if fi, err := os.Lstat(path); err == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
+		_ = os.Rename(path, path+".1")
 	}
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_APPEND, 0o600)
 }

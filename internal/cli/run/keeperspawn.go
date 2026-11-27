@@ -468,6 +468,9 @@ func (o *Options) endSession(cname, rt string, rc int, since time.Time, logFrom 
 		reason = o.unrecordedEndReason(rt, since)
 	}
 	o.reportJailEnded(rt, reason, ended)
+	if !ended && clientFailureStatus(rt, rc) {
+		o.reportClientFailure(cname)
+	}
 	o.releaseSessionLock()
 	if ended {
 		if recorded && first {

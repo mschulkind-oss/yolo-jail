@@ -431,3 +431,41 @@ func TestAnAppleContainerAttachWhoseJailEndedSaysWhy(t *testing.T) {
 		})
 	}
 }
+
+// TestAPodmanClientFailureWhileTheJailRunsIsSaid: podman exits 255 for its OWN failure, such as
+// the "timed out waiting for file …/exit/…" a stalled host disk gave three jails on 2026-11-26,
+// and a session whose podman client failed that way while its jail kept running used to be told
+// nothing: no stop record, no "its jail stopped", only podman's line and then, for the last
+// session, the keeper ending the jail. The attach now says the client failed and the jail did not
+// stop for it, and what to do. A session's own non-zero status says nothing of the kind.
+func TestAPodmanClientFailureWhileTheJailRunsIsSaid(t *testing.T) {
+	fastStopRecordWait(t)
+	for _, tc := range []struct {
+		rc   string
+		want bool
+	}{{"255", true}, {"1", false}} {
+		t.Run("rc "+tc.rc, func(t *testing.T) {
+			o, cfg, channel, stderr := attachFixture(t, currentJailEnv, zaiSelected(t), hydratedKey(), nil)
+			o.Exec = func(argv []string, _ string, _ []string, _ time.Duration) ExecResult {
+				switch {
+				case len(argv) > 1 && argv[1] == "inspect":
+					return ExecResult{Ran: true, Stdout: currentJailEnv}
+				case len(argv) > 1 && argv[1] == "ps":
+					return ExecResult{Ran: true, Stdout: "0ae4417c\n"}
+				}
+				return ExecResult{Ran: false}
+			}
+			exitWith(t, tc.rc)
+			_, _ = o.attachExisting("yolo-ws-abcd1234", "podman", "true", cfg,
+				stagedPacks{root: "/ctx/packs", packs: zaiSelected(t)}, channel, false, nil)
+			out := stderr.String()
+			said := strings.Contains(out, "podman's own client failed")
+			if said != tc.want {
+				t.Fatalf("rc %s: client-failure note said=%v, want %v:\n%s", tc.rc, said, tc.want, out)
+			}
+			if strings.Contains(out, "ended because its jail stopped") {
+				t.Errorf("a jail still running was said to have stopped:\n%s", out)
+			}
+		})
+	}
+}

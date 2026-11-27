@@ -410,8 +410,9 @@ func (k *keeper) run() int {
 	}
 	k.liveness = live
 	defer releaseLock(live)
-	// THE LOG, only now that this keeper holds the name: opening truncates it, and a keeper that
-	// refused above could have met a live one, whose log its last session may be streaming.
+	// THE LOG, only now that this keeper holds the name: opening sets the last one aside, and a
+	// keeper that refused above could have met a live one, whose log its last session may be
+	// streaming.
 	if f, err := openKeeperLog(k.stateKey()); err == nil {
 		k.sink.setLog(f)
 	}
