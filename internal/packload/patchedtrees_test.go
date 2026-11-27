@@ -140,6 +140,9 @@ func TestAPatchedExtensionsFootprintClaimIsMarkedForReview(t *testing.T) {
 		t.Error("a patched extension still claims a plain read-only tree")
 	}
 	sentence := claim.DisclosureSentence()
+	if !strings.Contains(sentence, "checked at every launch") || strings.Contains(sentence, "hourly") {
+		t.Errorf("disclosure %q does not say the upstream is checked at every launch (LPC-D6)", sentence)
+	}
 	if !strings.Contains(sentence, "UNREVIEWED") || !strings.Contains(sentence, "~/"+treeInto) {
 		t.Errorf("disclosure %q does not say the upstream's code arrives unreviewed at the landing", sentence)
 	}
@@ -182,10 +185,13 @@ func TestAnUnmodifiedExtensionsFootprintClaimIsMarkedForReview(t *testing.T) {
 		}
 		sentence := claim.DisclosureSentence()
 		for _, w := range []string{"DELIVERS a tree built from source at ~/" + treeInto, "its install scripts included",
-			"UPSTREAM'S NEW CODE ARRIVES UNREVIEWED"} {
+			"UPSTREAM'S NEW CODE ARRIVES UNREVIEWED", "checked at every launch"} {
 			if !strings.Contains(sentence, w) {
 				t.Errorf("%s: disclosure %q does not say %q", c.name, sentence, w)
 			}
+		}
+		if strings.Contains(sentence, "hourly") {
+			t.Errorf("%s: disclosure %q still names an hourly throttle (LPC-D6)", c.name, sentence)
 		}
 	}
 }

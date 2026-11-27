@@ -161,7 +161,7 @@ func (c Claim) DisclosureSentence() string {
 		if build, ok := strings.CutPrefix(c.Detail, patchedForkClaimDetailPrefix); ok {
 			return "RUNS a program built from source, INSIDE THE JAIL (not on your machine), as " +
 				c.Target + ": " + build + " — at the upstream's newest commit that rule names and the " +
-				"series applies to, checked at most hourly; the series is replayed on this machine " +
+				"series applies to, checked at every launch; the series is replayed on this machine " +
 				"with no code run, the build runs in a capture jail that gets no credentials, and a " +
 				"new build runs only once it is admitted: the UPSTREAM'S NEW CODE ARRIVES UNREVIEWED, " +
 				"as an npm agent's release does"
@@ -178,14 +178,14 @@ func (c Claim) DisclosureSentence() string {
 		if tree, ok := strings.CutPrefix(c.Detail, patchedTreeClaimDetailPrefix); ok {
 			return "DELIVERS a tree built from source at ~/" + strings.TrimSuffix(c.Target, "/") + ": " + tree +
 				" — at the upstream's newest commit that rule names and the series applies to, checked " +
-				"at most hourly; the series is replayed on this machine with no code run, the build runs " +
+				"at every launch; the series is replayed on this machine with no code run, the build runs " +
 				"in a capture jail that gets no credentials, and a new build is delivered only once it is " +
 				"admitted: the UPSTREAM'S NEW CODE ARRIVES UNREVIEWED, and the agent that loads the tree runs it"
 		}
 		// An UNMODIFIED EXTENSION's (unmodifiedTreeClaimDetail): the same, with nothing replayed.
 		if tree, ok := strings.CutPrefix(c.Detail, unmodifiedTreeClaimDetailPrefix); ok {
 			return "DELIVERS a tree built from source at ~/" + strings.TrimSuffix(c.Target, "/") + ": " + tree +
-				" — at the upstream's newest commit or version its source names, checked at most hourly; the " +
+				" — at the upstream's newest commit or version its source names, checked at every launch; the " +
 				"build runs in a capture jail that gets no credentials, its install scripts included, and a " +
 				"new build is delivered only once it is admitted: the UPSTREAM'S NEW CODE ARRIVES UNREVIEWED, " +
 				"and the agent that loads the tree runs it"
