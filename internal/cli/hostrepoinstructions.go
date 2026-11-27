@@ -25,6 +25,17 @@ import (
 func applyHostRepoInstructions(launch *hostComposition, bin string, errw io.Writer) {
 	mode, with := config.RepoInstructions(launch.cfg)
 	res := &repoinstr.Resolved{Mode: mode, ReplaceWith: with}
+	// A workspace layer's own value is never read here (IF-D13); say so for an agent that declares
+	// what it reads, whatever the user scope does.
+	for _, a := range packload.InstructionsAgents(launch.packs) {
+		if a.Bin != filepath.Base(bin) {
+			continue
+		}
+		if line := workspaceRepoInstructionsIgnoredLine(launch.workspace, mode, with); line != "" {
+			printHostLines(errw, []string{line})
+		}
+		break
+	}
 	if !res.Ignoring() {
 		return
 	}

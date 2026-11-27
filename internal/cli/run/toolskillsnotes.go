@@ -5,6 +5,7 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jailcontent"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
+	"github.com/mschulkind-oss/yolo-jail/internal/toolskills"
 )
 
 // noteToolSkills is the HOST half of the mise tool-skills disclosure (docs/reference/mise-tool-skills.md
@@ -29,16 +30,12 @@ func (o *Options) noteToolSkills(r *jailcontent.ToolSkillsReport) {
 			richtext.Escape(s.Name), richtext.Escape(s.Tool), richtext.Escape(s.By)))
 	}
 	for _, s := range r.Skipped {
+		// The wording is toolskills': the jail's provisioning step prints the same lines.
 		if s.Winner != "" {
-			out.print(fmt.Sprintf("[yellow]yolo: mise skill \"%s\" from %s not delivered: %s comes first in your "+
-				"install.mise and wins. Reorder install.mise (`yolo config unset install.mise.<tool> --user`, then "+
-				"`yolo config set` it again) to change that.[/yellow]",
-				richtext.Escape(s.Name), richtext.Escape(s.Tool), richtext.Escape(s.Winner)))
+			out.print("[yellow]" + toolskills.ShadowLine(s.Name, s.Tool, s.Winner, richtext.Escape) + "[/yellow]")
 			continue
 		}
-		out.print(fmt.Sprintf("[yellow]yolo: mise skill \"%s\" (%s) not delivered: %s. Fix that skill in the tool, "+
-			"or remove the tool from your install.mise, then relaunch yolo.[/yellow]",
-			richtext.Escape(s.Name), richtext.Escape(s.Tool), richtext.Escape(s.Reason)))
+		out.print("[yellow]" + toolskills.SkipLine(s.Name, s.Tool, s.Reason, richtext.Escape) + "[/yellow]")
 	}
 }
 

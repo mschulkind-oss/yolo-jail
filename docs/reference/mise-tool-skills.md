@@ -227,24 +227,23 @@ delivered skill has no line: the skills are simply there.
 | Name held by an earlier tool | host | `…TOOL1 comes first in your install.mise and wins. Reorder install.mise (…) to change that.` |
 | Skill skipped by the host's read | host | `…not delivered: REASON. Fix that skill in the tool, or remove the tool from your install.mise, then relaunch yolo.` |
 | Token could not be stored | host | `yolo: mise skills: tool skills are off for this launch…` naming `yolo check` |
+| Skill skipped by the jail's copy or selection | jail | `yolo: mise skill "NAME" (TOOL) not delivered: REASON. Fix that skill in the tool, or remove the tool from your install.mise, then relaunch yolo.` (outside the installs directory, over the cap, an escaping link, an invalid name) |
+| Name held by an earlier tool, found by the jail | jail | `yolo: mise skill "NAME" from TOOL2 not delivered: TOOL1 comes first in your install.mise and wins. Reorder install.mise (…) to change that.` |
 | Snapshot changed this boot | jail | `yolo: mise skills changed (TOOL 1.2 -> 1.3); they reach the agent with the next session: relaunch or attach.` |
 | First snapshot | jail | `yolo: mise skills: N skills from TOOL are ready; they reach the agent with the next session: relaunch or attach.` |
 | Declared but not installed | jail | `yolo: mise skills: TOOL declares skills that are not installed (MISE'S LINE). Run `mise install` in the workspace, then start a new session.` |
 | `mise skills` absent | jail | `yolo: mise skills: this mise has no `skills` command. Update mise to 2026.9.2 or later.` |
 | Listing failed or timed out | jail | `yolo: mise skills: could not refresh (REASON); the last snapshot stays. Run `mise skills ls` in the workspace to see why.` |
 
+The jail's skip lines use the host's wording (`toolskills.SkipLine`, `toolskills.ShadowLine`, one
+helper each) and go where the step's other lines go, the boot log and the launch stream. They are
+printed at every run of the step, whether or not the snapshot changed, and are plain text (the
+host's escape markup is applied only on the host).
+
 A change is announced once: the jail says "arrives with the next session" only when the new digest
 is neither the one the host delivered nor the one a concurrent session already published. An
 unreadable allowlist or a missing token or workspace argument also prints one line and keeps the
 last snapshot.
-
-> [!WARNING]
-> **Skills the jail's step skips are not named.** The jail's copier skips a skill whose path is
-> outside the installs directory, whose copy hits the size cap, or whose links escape it, and the
-> selection drops invalid names and the loser of a same-name conflict between two tools. None of
-> those lands in a printed line: the skill is simply absent from the snapshot. Only the host's read
-> names what it skips. Naming the jail's skips would need the step to print what `Publish` and
-> `Select` already return.
 
 ### Degenerate inputs
 
@@ -255,7 +254,7 @@ last snapshot.
 | Listing hangs | The whole process group is killed at the deadline; one line. |
 | Output past the cap | A failure, not a truncation. |
 | `mise` too old to have `skills` | Recognized from stderr by a heuristic; a miss is reported as a plain failure, which also keeps the previous snapshot. |
-| A `path` outside the installs directory, an escaping link, a FIFO or device, a vanished directory | That skill is skipped; the others continue. |
+| A `path` outside the installs directory, an escaping link, a FIFO or device, a vanished directory | That skill is skipped and named; the others continue. |
 | Two sessions enter at once | Serialized by the lock; the second finds an unchanged digest and prints nothing. |
 
 ### Backends, nested and sealed jails

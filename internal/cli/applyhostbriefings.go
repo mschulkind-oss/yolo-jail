@@ -31,6 +31,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -130,6 +131,13 @@ func applyHostBriefings(pr richtext.Printer, out io.Writer, stdin io.Reader,
 	extra, extraErr := hostBriefingExtra()
 	if extraErr != nil {
 		pr.Printf("  [yellow]⚠ briefing: %v[/yellow]", extraErr)
+	}
+	// The workspace the apply runs from may set its own repo_instructions; this path never reads it.
+	if ws, err := os.Getwd(); err == nil {
+		mode, with := config.RepoInstructionsUser()
+		if line := workspaceRepoInstructionsIgnoredLine(ws, mode, with); line != "" {
+			pr.Printf("  [yellow]⚠ briefing: %s[/yellow]", richtext.Escape(line))
+		}
 	}
 	req := entrypoint.HostBriefingRequest{
 		Manifest: man,

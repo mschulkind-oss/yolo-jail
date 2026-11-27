@@ -234,12 +234,14 @@ keeps every path), and the launch says the retire is still waiting. `yolo host a
 user scope's replacement into the briefing and writes no per-workspace setting into the shared home;
 an unreadable replacement file is said and the apply goes on with the plain `agents_md_extra`.
 
-> [!WARNING]
-> **A workspace-layer value never reaches the host path, and nothing says so.** `yolo host --` and
-> `yolo host apply` read only the user scope, so a `repo_instructions` set in the project or
-> per-workspace file is silently inert at the host: no line names it. Do not assume a host launch
-> follows a project's mode. Closing this needs a line from the host launch when a workspace layer
-> sets the key.
+A workspace-layer value never reaches the host path, and the host says so. `yolo host --` and
+`yolo host apply` read only the user scope, so a `repo_instructions` set in the project or
+per-workspace file would be inert there. When that value differs from the user scope's, `yolo host --
+<agent>` (for an agent that declares what it reads) and `yolo host apply` print one line naming the
+workspace's value and the user-scope command that would make the host follow it
+(`yolo config set repo_instructions.mode <mode> --user`, plus `replace_with` when set). The line is
+printed whatever the user scope's mode is, and a workspace value equal to the user scope's is silent
+(`internal/cli/hostworkspacerepoinstructions.go`).
 
 ## Unverified on macOS
 
