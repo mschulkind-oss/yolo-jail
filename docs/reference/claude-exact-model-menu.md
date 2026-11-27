@@ -60,8 +60,8 @@ that exists, after that provider's user-layer merge and before descendants inher
 its finished entry. A child's local views merge after the child's own user layer.
 
 For each audience, applicable scoped `only` ID sets intersect. User-declared IDs join
-the keep-set under the existing user-last rule, subject to the readable-row edge
-[below](#readable-row-limits). Existing unscoped additions/filters keep their established
+the keep-set under the existing user-last rule, resolved by the readable-row rule
+[below](#readable-row-identity). Existing unscoped additions/filters keep their established
 two-pass behavior. Surviving aliases retain shared order and facts; `only` argument
 order does not reorder models.
 
@@ -127,23 +127,16 @@ No persistent state, record migration, new config key, RPC, credential, grant or
 is introduced. A manifest without audience keeps its prior behavior. This does not
 change settings-overlay precedence or permit scoped additions.
 
-## Readable-row limits
+## Readable-row identity
 
-Two independently confirmed edge cases bound the user-last/equivalence claims:
-
-- A **partial user override of a third-party pack-readable row** whose `model` differs
-  from its key can record the user key rather than the merged wire ID in the keep-set.
-  The user-touched row may then disappear from the scoped view. No shipped pack uses
-  this provider-row form; this is a non-blocking outstanding defect, not a guaranteed
-  user-last case.
-- **Pre-existing unscoped `only` over pack-readable rows** can delete rows and emit
-  false dropped/keep-none notes before lowering. Scoped/unscoped equality is not
-  claimed for that unsupported baseline behavior; the scoped result can be correct
-  while the unscoped result is not. This feature did not introduce that defect.
-
-[The bounded follow-up](../plans/BACKLOG.md#readable-pack-model-row-filtering) owns
-reproduction shapes and the smallest repair steps. Neither is silently presented as
-fixed here or widened into a new implementation policy.
+A readable row's listed identity is its `model` when set, else its key
+(`readableModelID`). Both the unscoped `only` in `shapeProviderModels` and the scoped
+views in `applyAgentModelViews` read identity through that rule, so a third-party
+pack-readable row is kept by its wire ID, and a partial user override of such a row
+(for example only `name`) keeps the merged row's wire ID. Regressions:
+`TestScopedPartialUserOverrideKeepsMergedPackWireID` and
+`TestUnscopedOnlyKeepsReadablePackRowWithoutFalseNotes` in
+`internal/packload/scopedmodelrows_test.go`.
 
 ## Where the code lives
 

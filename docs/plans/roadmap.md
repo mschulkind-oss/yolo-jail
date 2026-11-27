@@ -90,9 +90,6 @@ needs a ruling or a Mac sits in the others.
 7. Smaller builds no ruling holds:
    - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)
      follow Linux integration: first count repeated reads/peak retained bytes before any optimization.
-   - [Readable pack model-row filtering](BACKLOG.md#readable-pack-model-row-filtering) follows the
-     accepted scoped-menu implementation: two bounded third-party-row defects need regressions
-     before changing their identity checks.
    - [LC-D4](../reference/config/rulings.md#LC-D4)'s `yolo check` half: `yolo check` does not yet render what is
      passed into the jail.
    - [The color pass](cli-visual-polish.md)'s cross-cutting passes and startup banner; Group C is done, and the

@@ -1507,33 +1507,6 @@ D1 (host-side pack validation) should land **before** D3, so the first official 
 fail silently at boot.
 
 
-## Readable pack model-row filtering
-
-Verified on 2026-11-16 by the independent accepted scoped-menu review over
-`bfa11ddb574d586d7398233e1202b5516806eeb2`. These are non-blocking follow-ups,
-not reasons to reopen the [agent-scoped menu architecture](../reference/claude-exact-model-menu.md).
-No shipped pack declares readable provider model rows; both cases concern third-party
-pack rows and are bounded below. No credential or live model call is needed to reproduce.
-
-1. **Scoped partial user override loses a merged wire ID.** Compose a third-party
-   provider row `models.friendly = { model = "real-id", name = "Pack row" }`, another
-   row `models.beta = { model = "beta-2" }`, user override
-   `providers.gw.models.friendly = { name = "User name" }`, and scoped
-   `only = ["beta-2"]`, `agents = ["claude"]`. The shared merged friendly row still
-   names `real-id`, but `userModelIDs` records `friendly` from the partial user layer.
-   Projection loses the user-touched `real-id` row. Smallest next step: add the
-   public-composer/projection regression in `internal/packload`, then have
-   `applyAgentModelViews` resolve each user-declared key from the merged entry's row
-   at that key. Stop if that requires changing the accepted view/authority design.
-2. **Pre-existing unscoped filter runs before readable lowering.** Use the same
-   pack-readable rows with no user override and an unscoped `only = ["real-id"]`.
-   `shapeProviderModels` reads string values before lowering; it deletes the rows and
-   emits false dropped/keep-none notes. The corresponding scoped filter keeps the
-   intended row. Smallest next step: reproduce through `ComposeProviders` with
-   `WithModelNotes`, then align the unscoped row-identity check with the existing
-   readable lowerer's `readableModelID` rule. This is a baseline defect, not introduced
-   by agent-scoped views; do not silently claim scoped/unscoped equality for this shape.
-
 ## Carried from retired lab reports (2026-11-23)
 
 - **Unidentified temporary-directory survivors on the Mac.** The 2026-10-21 prior-session
