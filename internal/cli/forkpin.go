@@ -8,7 +8,7 @@ package cli
 // INSTALL IS NO LONGER REQUIRED (FP-D18, applying the maintainer's OQ-PF1): a launch pins an unpinned
 // fork itself (run.PinLaunchForks), and so does `yolo host -- <bin>`. What stays explicit is MOVING
 // a pin, which only `yolo pack update` does: a launch leaves a standing pin where it is, and a fork's
-// source never goes through the launch's pack refresh, which re-fetches a branch at most hourly —
+// source never goes through the launch's pack refresh, which re-fetches a branch at every launch —
 // for a fork, the rebuild on a timer §9 forbids.
 
 import (
