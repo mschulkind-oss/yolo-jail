@@ -110,9 +110,10 @@ func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 	}
 }
 
-// TestLaunchCallsUnifyHome pins the call site no unit harness reaches: the only caller of unifyHome in
-// the package's non-test code is runContainer, and it calls it, so deleting that call (which no
-// callee test notices) fails here. The guest and host launch paths never name it.
+// TestLaunchCallsUnifyHome pins the call sites no unit harness reaches: the callers of unifyHome in
+// the package's non-test code are exactly runContainer once and Run once, so deleting either call
+// (which no callee test notices) fails here. Run's call sits in the macos-user arm after commitHome
+// (a refused launch writes nothing) and before armMacosUser (UHG-D5).
 func TestLaunchCallsUnifyHome(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -142,7 +143,33 @@ func TestLaunchCallsUnifyHome(t *testing.T) {
 			})
 		}
 	}
-	if len(callers) != 1 || callers["runContainer"] != 1 {
-		t.Errorf("unifyHome must be called once, by runContainer; callers: %v", callers)
+	if len(callers) != 2 || callers["runContainer"] != 1 || callers["Run"] != 1 {
+		t.Fatalf("unifyHome must be called once by runContainer and once by Run; callers: %v", callers)
+	}
+	calls := funcCalls(t, "run.go", "Run")
+	unify, commit, arm := calls["unifyHome"], calls["commitHome"], calls["armMacosUser"]
+	if len(unify) != 1 || len(arm) != 1 || len(commit) == 0 {
+		t.Fatalf("Run's calls: unifyHome %d, armMacosUser %d, commitHome %d", len(unify), len(arm), len(commit))
+	}
+	if !(commit[len(commit)-1] < unify[0] && unify[0] < arm[0]) {
+		t.Errorf("Run must call unifyHome after the macos-user arm's commitHome and before armMacosUser")
+	}
+}
+
+// TestSealedAndDryGuestLaunchesComposeNothing (UHG-D5): a sealed guest build is a throwaway home
+// and composes nothing, and a dry run composes nothing.
+func TestSealedAndDryGuestLaunchesComposeNothing(t *testing.T) {
+	if n := len(funcCalls(t, "seal.go", "runSealedMacosUser")["unifyHome"]); n != 0 {
+		t.Errorf("runSealedMacosUser calls unifyHome %d times", n)
+	}
+	f := newUnifyFixture(t, "seatbelt-self")
+	putUnify(t, f.o.homeDir(), ".claude/projects/-w/w.jsonl", "s")
+	f.o.DryRun = true
+	f.unify(t, "macos-user")
+	if _, err := os.Lstat(paths.UnifiedHome(f.ws)); err == nil {
+		t.Error("a dry run made the unified home")
+	}
+	if _, err := os.Readlink(filepath.Join(f.o.homeDir(), ".claude", "projects")); err == nil {
+		t.Error("a dry run composed the slice")
 	}
 }
