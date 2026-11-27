@@ -37,10 +37,12 @@ func walkEntries(t *testing.T, root string) []string {
 
 // TestHostSetupNeverReachesTheUnifiedHome (unified-workspace-home.md §10: host and jail never share a
 // home), over every built-in setup, through the launch's own merge-and-compose and not a callee:
-//   - a host or guest setup yields no unified home and moves nothing, however much its slice holds;
+//   - a host setup (and the yolo account while UHG-D8's gate is closed) yields no unified home and
+//     moves nothing, however much its slice holds;
 //   - a guest's HOME is its own slice under .yolo/setups, never the invoking user's home;
 //   - every link a container setup's slice is given points at the in-jail unified home, and resolves
-//     (as the jail resolves /workspace) to a file under paths.UnifiedHome.
+//     (as the jail resolves /workspace) to a file under paths.UnifiedHome; a guest's is relative and
+//     resolves, by the kernel, under paths.UnifiedHome.
 func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 	for _, s := range setup.BuiltIns() {
 		t.Run(s.Name, func(t *testing.T) {
@@ -60,19 +62,22 @@ func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 			if s.Confinement == setup.ConfinementAppleContainer {
 				rt, dir = "container", ".claude"
 			}
+			if s.Kind() == setup.KindGuest {
+				rt, dir = "macos-user", ".claude"
+			}
 			putUnify(t, slice, dir+"/projects/-workspace/w.jsonl", "session")
 			before := walkEntries(t, slice)
 
 			f.o.unifyHome(jsonx.NewOrderedMap(), slice, packsFixture(t, "claude"), rt)
 
-			if s.Kind() != setup.KindJail {
+			if s.Kind() == setup.KindHost || (isYoloAccountSetup(s) && !unifiedHomeJoinsYoloAccount) {
 				if _, err := os.Lstat(paths.UnifiedHome(f.ws)); err == nil {
 					t.Errorf("%s (%s) made %s", s.Name, s.Kind(), paths.UnifiedHome(f.ws))
 				}
 				if after := walkEntries(t, slice); strings.Join(after, "\n") != strings.Join(before, "\n") {
 					t.Errorf("%s (%s) changed its slice:\nbefore %v\nafter  %v", s.Name, s.Kind(), before, after)
 				}
-				if f.stderr.Len() != 0 {
+				if f.stderr.Len() != 0 && s.Kind() == setup.KindHost {
 					t.Errorf("%s (%s) printed a unified-home line:\n%s", s.Name, s.Kind(), f.stderr.String())
 				}
 				return
@@ -85,7 +90,15 @@ func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 					continue
 				}
 				links++
-				got := resolveInJail(t, f.ws, p)
+				var got string
+				if s.Kind() == setup.KindGuest {
+					var err error
+					if got, err = filepath.EvalSymlinks(p); err != nil {
+						t.Fatalf("%s does not resolve: %v", p, err)
+					}
+				} else {
+					got = resolveInJail(t, f.ws, p)
+				}
 				if !strings.HasPrefix(got, paths.UnifiedHome(f.ws)+string(filepath.Separator)) {
 					t.Errorf("%s -> %s resolves to %s, outside %s", p, mustReadlink(t, p), got, paths.UnifiedHome(f.ws))
 				}

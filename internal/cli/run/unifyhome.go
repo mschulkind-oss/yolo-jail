@@ -37,6 +37,56 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/unifiedhome"
 )
 
+// unifiedHomeJoinsYoloAccount is the gate on the yolo account (UHG-D8, UH-D13): its access to the
+// shared home is a measurement (W-UH4), so until that reports pass a seatbelt-yolo-account launch
+// composes and merges nothing and its slice is left as a source. A var only so a test can open it;
+// no code outside a test assigns it, and the flip is a one-line commit.
+var unifiedHomeJoinsYoloAccount = false
+
+// yoloAccountPrivateLine is what the gated account's own launch says (UHG-D12).
+const yoloAccountPrivateLine = "This setup keeps a private home: the yolo account's access to this workspace's shared home is " +
+	"not verified yet, so its sessions are not shared with the workspace's other setups. A later release shares them."
+
+// yoloAccountSourceLine is what another launch says about the gated account's slice (UHG-D12).
+func yoloAccountSourceLine(label string) string {
+	return "The " + label + " setup's home stays private until the yolo account's access to the shared home is verified, " +
+		"so its sessions stay where they are."
+}
+
+// isYoloAccountSetup reports whether s is the setup that runs as the yolo account.
+func isYoloAccountSetup(s setup.Setup) bool {
+	return s.Confinement == setup.ConfinementSeatbelt && s.RunAs == setup.RunAsYoloAccount
+}
+
+// sliceStateRel is the spelling of state directory dir that a launch of rt reads in its slice
+// (UHG-D7): dotted for Apple Container and the guest, dot-stripped for Podman.
+func sliceStateRel(rt, dir string) string {
+	if rt == "podman" { // parity: HonoredBy — Podman binds the dot-stripped directory; Apple Container and the guest read the dotted one, and each launch composes the one its runtime reads
+		return strings.TrimPrefix(dir, ".")
+	}
+	return dir
+}
+
+// relativeHomeFromSlice is the unified home as seen from the root of the slice at home, or "" when
+// the slice is not one yolo places under .yolo/setups (or the legacy home).
+func relativeHomeFromSlice(workspace, home string) string {
+	rel, ok := paths.HomeStateRel(workspace, home)
+	if !ok {
+		return ""
+	}
+	return strings.Repeat("../", len(strings.Split(rel, "/"))) + paths.UnifiedHomeName
+}
+
+// laidForms are the link spellings a launch lays into the slice at home, which a merge of that slice
+// must recognize as yolo's own (UHG-D1): the container's absolute one, and the guest's relative one.
+func laidForms(workspace, home string) []unifiedhome.LinkForm {
+	forms := []unifiedhome.LinkForm{{HomePath: jailUnifiedHome}}
+	if rel := relativeHomeFromSlice(workspace, home); rel != "" {
+		forms = append(forms, unifiedhome.LinkForm{FromSliceRoot: rel})
+	}
+	return forms
+}
+
 // jailUnifiedHome is where the jail sees the unified home, on both container backends: the
 // workspace is at /workspace, so every link target is this absolute path (§5.2).
 const jailUnifiedHome = "/workspace/.yolo/" + paths.UnifiedHomeName
@@ -139,9 +189,10 @@ func (t *unifyTally) add(r unifiedhome.Report) {
 // unifyHome is the launch's merge and composition (UHP-D6): called by runContainer straight after
 // prepareWsState and before deliverChannel. It never refuses the launch: whatever it cannot do it
 // leaves, says so with the step that clears it, and a later launch finishes. It touches container
-// setups only (UHP-D3) and never a fresh home (it shares nothing) or a dry run.
+// and guest setups (a host setup never joins; the yolo account waits on UHG-D8) and never a fresh
+// home (it shares nothing) or a dry run.
 func (o *Options) unifyHome(cfg *jsonx.OrderedMap, wsState string, packs []*packload.Pack, rt string) {
-	if !runsAsContainer(o.Setup) || o.FreshHome || o.DryRun {
+	if !joinsUnifiedHome(o.Setup) || o.FreshHome || o.DryRun {
 		return
 	}
 	dirs := packload.WritableDirs(packs)
@@ -151,6 +202,16 @@ func (o *Options) unifyHome(cfg *jsonx.OrderedMap, wsState string, packs []*pack
 	out := o.pr(o.Stderr)
 	say := func(format string, a ...any) {
 		out.print("[dim]" + richtext.Escape(fmt.Sprintf(format, a...)) + "[/dim]")
+	}
+	if isYoloAccountSetup(o.Setup) && !unifiedHomeJoinsYoloAccount {
+		say("%s", yoloAccountPrivateLine)
+		return
+	}
+	guest := o.Setup.Kind() == setup.KindGuest
+	fromSliceRoot := relativeHomeFromSlice(o.Workspace, wsState)
+	if guest && fromSliceRoot == "" {
+		say("This setup's home %s is not under the workspace's setups, so it is not shared with the workspace's other setups.", wsState)
+		return
 	}
 	unifiedPath := paths.UnifiedHome(o.Workspace)
 	for _, rel := range cfgStrList(cfg, "workspace_readonly") {
@@ -175,8 +236,17 @@ func (o *Options) unifyHome(cfg *jsonx.OrderedMap, wsState string, packs []*pack
 
 	stay := stayPaths(packs)
 	var tally unifyTally
-	opts := unifiedhome.Options{Rename: legacyHomeRename}
+	opts := unifiedhome.Options{Rename: legacyHomeRename, Laid: laidForms(o.Workspace, wsState)}
 	var failures []error
+	if guest {
+		// Compose returns quietly for a slice directory that is absent, and the guest's own bootstrap
+		// makes them only later (UHG-D6): make each missing one, so a first launch links at once.
+		for _, dir := range dirs {
+			if err := own.Mkdir(sliceStateRel(rt, dir), 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
+				failures = append(failures, err)
+			}
+		}
+	}
 
 	// 1. Every OTHER home, once no jail of the workspace runs.
 	o.mergeOtherHomes(unified, dirs, stay, &tally, &failures, say)
@@ -187,7 +257,7 @@ func (o *Options) unifyHome(cfg *jsonx.OrderedMap, wsState string, packs []*pack
 	for _, dir := range dirs {
 		var off []string
 		for _, sp := range stateSpellings(dir) {
-			if sp != filepath.ToSlash(wsStateHomeRel(rt, dir)) {
+			if sp != sliceStateRel(rt, dir) {
 				off = append(off, sp)
 			}
 		}
@@ -200,10 +270,13 @@ func (o *Options) unifyHome(cfg *jsonx.OrderedMap, wsState string, packs []*pack
 		}
 	}
 	slice := unifiedhome.ComposeSpec{Label: o.Setup.Name, HomePath: jailUnifiedHome}
+	if guest {
+		slice = unifiedhome.ComposeSpec{Label: o.Setup.Name, FromSliceRoot: fromSliceRoot}
+	}
 	for _, dir := range dirs {
 		spec := slice
 		spec.Generated = stay[dir]
-		rep, err := unifiedhome.Compose(own, filepath.ToSlash(wsStateHomeRel(rt, dir)), unified, dir, spec, opts)
+		rep, err := unifiedhome.Compose(own, sliceStateRel(rt, dir), unified, dir, spec, opts)
 		tally.add(rep.Report)
 		sliceMoved += rep.Moved
 		failures = append(failures, err)
@@ -277,12 +350,15 @@ func (o *Options) mergeOtherHomes(unified *os.Root, dirs []string, stay map[stri
 			root.Close()
 			continue
 		}
+		account := false
 		if label != "legacy" {
-			if s, err := setup.Lookup(label, user); err == nil && !runsAsContainer(s) {
-				say("The %s setup's home is a guest's, which joins this workspace's shared home in a later release, so its "+
-					"sessions stay where they are.", label)
-				root.Close()
-				continue
+			if s, err := setup.Lookup(label, user); err == nil && isYoloAccountSetup(s) {
+				if !unifiedHomeJoinsYoloAccount {
+					say("%s", yoloAccountSourceLine(label))
+					root.Close()
+					continue
+				}
+				account = true
 			}
 		}
 		if !stateKnown {
@@ -293,7 +369,7 @@ func (o *Options) mergeOtherHomes(unified *os.Root, dirs []string, stay map[stri
 			root.Close()
 			continue
 		}
-		o.mergeOneHome(unified, root, home, label, dirs, stay, tally, failures, say)
+		o.mergeOneHome(unified, root, home, label, account, dirs, stay, tally, failures, say)
 		root.Close()
 	}
 	if len(waiting) > 0 {
@@ -320,7 +396,7 @@ func holdsSharedState(root *os.Root, dirs []string) bool {
 
 // mergeOneHome merges one stopped home's shared children, after the refusals §9.2 lists: a home
 // that is its own mount, or another user's, stays with the step that clears it.
-func (o *Options) mergeOneHome(unified, root *os.Root, home, label string, dirs []string, stay map[string][]string,
+func (o *Options) mergeOneHome(unified, root *os.Root, home, label string, account bool, dirs []string, stay map[string][]string,
 	tally *unifyTally, failures *[]error, say func(string, ...any)) {
 	uDev, uok := unifyHomeDevice(paths.UnifiedHome(o.Workspace))
 	if hDev, hok := unifyHomeDevice(home); uok && hok && hDev != uDev {
@@ -330,7 +406,14 @@ func (o *Options) mergeOneHome(unified, root *os.Root, home, label string, dirs 
 		return
 	}
 	uid := uint32(unifyHomeUID())
-	opts := unifiedhome.Options{Rename: legacyHomeRename, OwnerUIDs: []uint32{uid}}
+	owners := []uint32{uid}
+	if account {
+		// A source the yolo account ran in is accepted when it owns it too (UHG-D9).
+		if acct, err := legacyHomeAccountUID(); err == nil {
+			owners = append(owners, acct)
+		}
+	}
+	opts := unifiedhome.Options{Rename: legacyHomeRename, OwnerUIDs: owners, Laid: laidForms(o.Workspace, home)}
 	moved := 0
 	var foreign bool
 	for _, dir := range dirs {
