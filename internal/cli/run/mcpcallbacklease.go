@@ -161,12 +161,16 @@ func (o *Options) callbackLifecycleExclusion(previous, next string) (func(), boo
 	return lock.Close, true
 }
 
+// callbackLifecycleFileSafe accepts the launch lock only when it is the regular file we own
+// at its named path and no one but its owner can write it, so another account cannot hold or
+// swap the gate. It does not demand one exact mode: acquireWorkspaceLock creates the file
+// subject to the umask, so 0600 and 0640 are as safe as 0644.
 func callbackLifecycleFileSafe(file *os.File, cname string) bool {
 	if file == nil || file.Name() != launchLockPath(cname) {
 		return false
 	}
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0644 {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
 		return false
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)

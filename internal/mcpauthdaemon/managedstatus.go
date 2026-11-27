@@ -16,14 +16,20 @@ import (
 func ReadHostStatus(stateDir string, share mcpauth.Share, requested ...string) []map[string]any {
 	reader := &broker{share: share}
 	if err := reader.loadScripts(); err != nil {
-		return ReadOnceStatus(stateDir, share, nil, "not determinable without effect", requested...)
+		return readOnceStatus(stateDir, share, nil, "not determinable without effect", true, requested...)
 	}
-	return ReadOnceStatus(stateDir, share, reader.onceSources(), "not determinable without effect; running launcher session or jail poll", requested...)
+	return readOnceStatus(stateDir, share, reader.onceSources(), "not determinable without effect; running launcher session or jail poll", true, requested...)
 }
 
 // ReadOnceStatus takes only the existing canonical read lock and unlocked source
-// snapshots. A literal descriptor cannot create or repair missing state.
+// snapshots. A literal descriptor cannot create or repair missing state. It answers a
+// jail, so it lists only the servers this share names: the machine-wide record file also
+// holds other launches' records, which a jail must not see. ReadHostStatus adds those.
 func ReadOnceStatus(stateDir string, share mcpauth.Share, sources []mcpauth.OnceSource, refresher string, requested ...string) []map[string]any {
+	return readOnceStatus(stateDir, share, sources, refresher, false, requested...)
+}
+
+func readOnceStatus(stateDir string, share mcpauth.Share, sources []mcpauth.OnceSource, refresher string, includeOrphans bool, requested ...string) []map[string]any {
 	store := &mcpauth.CanonicalStore{Dir: filepath.Join(stateDir, "once"), Filename: "records.json", LockName: "records.lock", Wait: mcpauth.HeaderReadWait}
 	file, readErr := store.ReadStatus()
 	availability := "readable"
@@ -202,6 +208,9 @@ func ReadOnceStatus(stateDir string, share mcpauth.Share, sources []mcpauth.Once
 		rows = append(rows, row)
 	}
 	for _, record := range file.Records {
+		if !includeOrphans {
+			break
+		}
 		if len(requested) > 0 && requested[0] != "" && record.Server != requested[0] {
 			continue
 		}
