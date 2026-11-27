@@ -24,12 +24,25 @@ func writeFile(t *testing.T, path, content string) {
 const piHostSettings = `{"theme":"dark","defaultModel":"claude-fable-5",` +
 	`"extensions":["extensions/permission-gate.ts","extensions/git-helper.ts"]}`
 
+// resolvedTempDir is t.TempDir() with its symlinks resolved.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	d, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d
+}
+
 // withHomeAndCwd points HOME at a scratch home and chdirs to a scratch repo,
 // restoring both after the test. Returns (homeDir, repoDir).
 func withHomeAndCwd(t *testing.T) (string, string) {
 	t.Helper()
-	home := t.TempDir()
-	repo := t.TempDir()
+	// RESOLVED where minted: on macOS t.TempDir() sits under the /var -> /private/var link, and
+	// the trace store refuses a root with a symlinked ancestor (perf.openStoreRoot), so a launch
+	// under an unresolved home recorded no trace there while Linux passed.
+	home := resolvedTempDir(t)
+	repo := resolvedTempDir(t)
 	t.Setenv("HOME", home)
 	orig, err := os.Getwd()
 	if err != nil {
