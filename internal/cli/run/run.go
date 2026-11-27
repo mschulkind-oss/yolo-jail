@@ -55,6 +55,13 @@ func Run(opts Options) (rc int) {
 	fillDefaults(&opts)
 	o := &opts
 
+	// THE INVOCATION'S TRACE SCOPE (invocationtrace.go): the front door's, borrowed, or a direct
+	// Run's own, finalized when this returns. Allocation only: nothing is read or written here.
+	if o.InvocationScope == nil {
+		o.InvocationScope = NewInvocationScope()
+		defer o.InvocationScope.Finalize()
+	}
+
 	// THE MACHINE-WIDE LAUNCH LINE (launchrecord.go, OQ-PR3): one line per launch in
 	// GLOBAL_STORAGE/logs/launches.log, written when the container starts or the attach
 	// begins — or, for a launch that did neither, at the exit of a signal its launch guard or
@@ -154,6 +161,8 @@ func Run(opts Options) (rc int) {
 	// are spanned too. cname derives from the workspace alone
 	// (runtime.FromWorkspace), which is what makes it knowable this early.
 	o.initPerf(runtime.FromWorkspace(o.Workspace))
+	// The trace beside it, before the first ordinary event; nothing at all when recording is off.
+	o.initLauncherTrace()
 
 	// --- Phase 1: probes (repo root, storage, config, runtime) ---
 	// Repo-root resolution is a HARD GATE for the container backends: without a
@@ -233,6 +242,7 @@ func Run(opts Options) (rc int) {
 	}
 	// The launch line names the jail this launch keys its state by, now that the setup is known.
 	o.keyLaunchRecord(o.jailName())
+	o.InvocationScope.recordResolvedJail(o.jailName())
 	// THE NETWORK REFUSAL (networkrefusal.go): a network mode this setup's technology cannot
 	// hold, from the setup alone, before its runtime is asked anything.
 	if o.refuseNetworkMode(cfg) {
@@ -663,6 +673,9 @@ func Run(opts Options) (rc int) {
 			return 1
 		}
 		if !o.DryRun {
+			// Every native sandbox invocation is a fresh launch: the branch is committed here,
+			// after the config approval and before the payload it approved is prepared.
+			o.InvocationScope.commitBranch("launch", cname)
 			o.skillImportGatePassed = true
 			if !o.prepareFreshSkillPayloads(cname, rt, staged) {
 				return 1
@@ -1950,6 +1963,11 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 		}
 	}
 
+	// The fresh branch is committed once every attach and stale-removal alternative is spent, and
+	// before this launch prepares anything of its own (a dry run or a seal is no launch of its own).
+	if !o.DryRun && !o.Sealed {
+		o.InvocationScope.commitBranch("launch", cname)
+	}
 	if !o.prepareFreshSkillPayloads(cname, rt, staged) {
 		return 1
 	}
@@ -3532,6 +3550,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	o.noteRecoveryHatches(rt, true) // recoveryscope.go: a set recovery hatch does nothing on an attach
 	// The launch's fate is known: it attaches (launchrecord.go).
 	o.recordLaunchOutcome(launchAttached, -1)
+	// And the trace's branch, with the running jail's actual identity (invocationtrace.go).
+	o.InvocationScope.commitBranch("attach", cname)
 	// WHAT THIS SESSION HOLDS OF THE JAIL'S GRANT, on every attach to a jail launched with one,
 	// whether or not this entry typed the flag or delivers its channel (jailgrant.go).
 	// And, by the "OQ-ES5 (attach -p)" ruling, what this entry's profiles deliver beyond it.

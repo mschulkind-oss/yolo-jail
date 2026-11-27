@@ -483,6 +483,11 @@ type Options struct {
 	// macosUserRun), whose steps are spanned on it.
 	// Pointer for the reason above; nil is fine and means "no caller is asking".
 	PerfRef *PerfRef
+	// InvocationScope owns this launcher invocation's trace (invocationtrace.go). The front door
+	// supplies it and finalizes it after its title restore; Run borrows it, and a direct Run
+	// without one allocates and finalizes its own. Copies of Options share the one pointer, so
+	// close ownership is never copied.
+	InvocationScope *InvocationScope
 	// MacosUserArm is the macos-user launch's signal arm (macosuserarm.go), made by the front door
 	// so the handler it injects (MacosUserRun) can hand the arm's session runner, Ending and
 	// AgentStarting to the backend, and installed by Run's macos-user arm. A pointer for PerfRef's
