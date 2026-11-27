@@ -120,6 +120,7 @@ type Line struct {
 	stopped   chan struct{}
 	lastFrame string
 	pending   []byte // a partial line written through Write
+	midline   bool   // a guarded writer left a line open on the terminal (guard.go): no redraw over it
 
 	tails        []*Tail   // the open tail streams (tail.go), in the order they opened
 	rows         int       // the rows the region takes on the terminal right now, status row included
@@ -286,6 +287,8 @@ func (l *Line) finish(result string, say bool) {
 		return
 	}
 	l.finished = true
+	l.midline = false
+	unregisterLive(l)
 	for _, t := range l.tails {
 		t.closed = true
 	}
@@ -321,6 +324,9 @@ func (l *Line) finish(result string, say bool) {
 // start line. Callers hold mu.
 func (l *Line) show() {
 	l.shown = true
+	if l.cfg.Live {
+		registerLive(l)
+	}
 	if l.cfg.OnShown != nil {
 		l.cfg.OnShown()
 	}
@@ -348,6 +354,9 @@ func (l *Line) frame(now time.Time) string {
 
 // draw redraws the live line in place. Callers hold mu.
 func (l *Line) draw() {
+	if l.midline {
+		return
+	}
 	status := truncate(l.frame(l.cfg.Now()), l.width()-1)
 	rows := append([]string{status}, l.tailRows()...)
 	f := strings.Join(rows, "\n")

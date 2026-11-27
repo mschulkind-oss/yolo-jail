@@ -27,6 +27,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/config"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 )
 
@@ -76,7 +77,10 @@ func HostNotchTimingLog(typedTiming, typedVerbose bool, getenv func(string) stri
 	if err != nil {
 		ws = "."
 	}
-	notice := func(msg string) { fmt.Fprintf(stderr, "yolo: %s\n", msg) }
+	// THROUGH progress.Guard: a slow-span line written beside a phase's live progress line glued
+	// to its row ("Checking the programs packs declare… (5s)yolo: host.floor.pi.prepare took ...").
+	guarded := progress.Guard(stderr)
+	notice := func(msg string) { fmt.Fprintf(guarded, "yolo: %s\n", msg) }
 	t.Log = perf.New(time.Now, hostNotchPerfFileSink(hostNotchLabel(ws), stderr), slowSpanNoticeSink(notice))
 	return t
 }

@@ -47,7 +47,7 @@ func TestTheFloorsCaptureJailWritesItsOutputToTheLaunchsStderr(t *testing.T) {
 	if err := f.Capture("probetool"); err != nil {
 		t.Fatalf("the floor's capture: %v\n%s", err, floorOut.String())
 	}
-	if seen.JailStdout != io.Writer(os.Stderr) || seen.SessionStdout != io.Writer(os.Stderr) {
+	if seen.JailStdout != hostJailStdout() || seen.SessionStdout != hostJailStdout() {
 		t.Errorf("the floor's capture jail writes its stdout to %s and its session's to %s, want this "+
 			"process's stderr for both", writerName(seen.JailStdout), writerName(seen.SessionStdout))
 	}
@@ -121,7 +121,7 @@ func writerName(w io.Writer) string {
 		return "nothing (this process's stdout)"
 	case io.Writer(os.Stdout):
 		return "os.Stdout"
-	case io.Writer(os.Stderr):
+	case io.Writer(os.Stderr), hostJailStdout():
 		return "os.Stderr"
 	}
 	return fmt.Sprintf("a %T", w)
@@ -156,7 +156,7 @@ func TestTheFloorsForkBuildJailWritesItsOutputToTheLaunchsStderr(t *testing.T) {
 	if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || runs != 1 {
 		t.Fatalf("rc=%d builds=%d, want the floor's one build\n%s", rc, runs, errw.String())
 	}
-	if terminalHalf(jailStdout) != io.Writer(os.Stderr) {
+	if terminalHalf(jailStdout) != hostJailStdout() {
 		t.Errorf("the floor's build jail runs its session with its stdout on %s, want this process's stderr", writerName(jailStdout))
 	}
 }
@@ -176,7 +176,7 @@ func TestTheHostsAdvanceBuildJailWritesItsOutputToTheLaunchsStderr(t *testing.T)
 	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || len(fx.builds) != 1 {
 		t.Fatalf("rc=%d builds=%d, want the advance's one build\n%s", rc, len(fx.builds), errw.String())
 	}
-	if terminalHalf(jailStdout) != io.Writer(os.Stderr) {
+	if terminalHalf(jailStdout) != hostJailStdout() {
 		t.Errorf("the advance's build jail runs its session with its stdout on %s, want this process's stderr", writerName(jailStdout))
 	}
 }

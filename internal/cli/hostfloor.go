@@ -25,6 +25,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/packsrc"
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
@@ -824,8 +825,10 @@ var hostFloorCaptureActOn = func(rt string, args []string, out, errw io.Writer, 
 // execs an agent whose stdout is routinely parsed (newHostFloor), and the run pipeline would
 // otherwise relay the jail's stdout to the process's own, ahead of the agent's output. The raw
 // stream, never the launch's teed errw: the jail's output is not yolo's own lines, and the host
-// launch log takes only those (startHostLaunchTrace).
-func hostJailStdout() io.Writer { return os.Stderr }
+// launch log takes only those (startHostLaunchTrace). It goes THROUGH progress.Guard: the readiness
+// phase's live line is on the same terminal, and a jail's lines written straight to it landed on
+// the spinner's row ("Checking the programs packs declare… (6m00s)<the jail's line>").
+func hostJailStdout() io.Writer { return progress.Guard(os.Stderr) }
 
 // captureRuntime is the backend a `yolo capture` would boot its jail with: that of the setup a
 // launch selects from YOLO_SETUP and the user config (selectedSetupBackend).
