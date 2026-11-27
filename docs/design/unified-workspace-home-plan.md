@@ -3,7 +3,7 @@ title: "Plan: build slice 1 of the unified workspace home (container setups)"
 date: 2026-11-24
 status: accepted
 stage: DECIDED
-next: "U1 to U5 have landed (U5 wires the launch: compose, merge, adopt); build U6 (host readers and yolo check), then U7 and U8"
+next: "Slice 1 is built (U1 to U8). Plan slice 2 of the design (the guest joins) next; the Mac agent runs W-UH1, W-UH5 and W-UH6 against main, and none of them holds main"
 depends-on: []
 tags: [plan, setups, home, sessions, concurrency, migration]
 summary: "The build hand-off for slice 1 of the unified workspace home: a new package internal/unifiedhome holds the pure merge and the composition; paths names the unified home; the launch composes each container setup's slice, merges stranded homes at the commit point, takes the project lock on every container launch and refuses a second container setup. Eight units, each one commit, tests first; Mac witnesses W-UH1, W-UH5 and W-UH6 are owed to the owner's Mac agent."
@@ -14,6 +14,9 @@ vantage:
 # Plan: slice 1 of the unified workspace home
 
 **Status:** 2026-11-24. Completed against the tree, written against `dfaca2a56`.
+**Built:** 2026-11-27. U1 to U8 are done: U5 is `8bac7a046`, U6 `a5662a9fa`, U7 `08d8ef1a3`. Slice 1 ships; the guest
+slices of the design ([§14](unified-workspace-home.md#14-slices), slices 2 to 5) are unbuilt, and so is the Mac verification
+([W-UH1, W-UH5, W-UH6](unified-workspace-home.md#mac-checks)).
 **Design:** [`unified-workspace-home.md`](unified-workspace-home.md), slice 1 of
 [its slices](unified-workspace-home.md#14-slices): the pure merge, the unified home, composition for Podman and Apple
 Container, the stranded-home migration, the project lock for every fresh container launch, the two-container refusal
@@ -103,8 +106,8 @@ Decided while building U5:
 
 | ID | Decision | Why |
 | :--- | :--- | :--- |
-| <a id="UHP-D21"></a>UHP-D21 | `unifyHome(cfg, wsState, packs, rt)` takes the launch's config and returns nothing: it never refuses, so a bool would be always true. It declines (one line, nothing merged or composed) when a `workspace_readonly` entry equals or contains the unified home's path (`.yolo`, `.`, or `.yolo/unified-home`). | The readonly check needs `cfg`; UHP-D6 spelled the call without it. A readonly slice of `.yolo` alone is the case §5.2 names; an entry on the unified home itself has the same effect. |
-| <a id="UHP-D22"></a>UHP-D22 | `unifiedhome.Source` gains `Stay []string`: paths beneath each source directory (`/`-separated) that the merge never moves out, a name equal to one stays whole and a directory that is a proper prefix is merged child by child. `.` is a valid destination and source directory, for a whole-home merge. | §9.3 merges only the SHARED children of other homes; without a stay list the merge would carry another setup's generated files and installs (ELF against Mach-O) into the unified home. The legacy remainder (UHP-D7) is a whole-home merge. |
+| <a id="UHP-D21"></a>UHP-D21 | `unifyHome(cfg, wsState, packs, rt)` takes the launch's config and returns nothing: it never refuses, so a bool would be always true. It declines (one line, nothing merged or composed) when a `workspace_readonly` entry equals or contains the unified home's path (`.yolo`, `.`, or `.yolo/unified-home`). | The readonly check needs `cfg`; UHP-D6 spelled the call without it. A readonly slice of `.yolo` alone is the case [§5.2](unified-workspace-home.md#52-composition-what-a-launch-does-to-its-own-slice) names; an entry on the unified home itself has the same effect. |
+| <a id="UHP-D22"></a>UHP-D22 | `unifiedhome.Source` gains `Stay []string`: paths beneath each source directory (`/`-separated) that the merge never moves out, a name equal to one stays whole and a directory that is a proper prefix is merged child by child. `.` is a valid destination and source directory, for a whole-home merge. | [§9.3](unified-workspace-home.md#93-the-legacy-home-in-two-steps) merges only the SHARED children of other homes; without a stay list the merge would carry another setup's generated files and installs (ELF against Mach-O) into the unified home. The legacy remainder (UHP-D7) is a whole-home merge. |
 | <a id="UHP-D23"></a>UHP-D23 | The stay set per state directory is `basehome.DeclsFromPacks(selected)`'s config surfaces, skills, briefing and file destinations and credential links, plus the targets of `paths.HomeFileRedirects`, `paths.InstalledProgramSurfaces` and each selected pack's `per_setup_state`, each cut to the paths beneath that directory. Core's fixed list (`.config`, `.ssh`, `bash_history`, ...) names no path beneath a pack's state directory, so it is not consulted. | UHP-D9 named JSON-pointer `Path` fields, which are positions inside a surface, not home paths; `DeclsFromPacks` is the one place that already reads every destination of the selected packs as a home-relative path. |
 | <a id="UHP-D24"></a>UHP-D24 | A launch always binds its own setup's slice (`currentHome`), including when the legacy home is deferred, left, or laid by another backend. A legacy home whose slice is populated takes `mergeLegacyRemainder` (a whole-home merge, label `legacy`); the home's empty directory skeleton stays and later launches merge nothing and say nothing. | One answer for every outcome of `planLegacyHome`; the legacy home's shared children reach the unified home through `unifyHome` regardless. |
 | <a id="UHP-D25"></a>UHP-D25 | The line's N is `Report.Moved` summed over the merges and the composition; M counts the homes that moved at least one file, the launching slice once however many of its directories moved. A source that is a guest's, another user's, its own mount, or a link, or that waits behind a running or unaskable jail, prints one dim line naming the setup and the step. | UHP-D8 fixes the text, not how M is counted. |

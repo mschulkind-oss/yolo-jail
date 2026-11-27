@@ -385,7 +385,7 @@ belongs to the project, the agent or you.
 
 ## 9. State per setup
 
-> **Proposed to be superseded** by [one home per workspace](unified-workspace-home.md): a shared unified home plus a small slice per setup; this section stands until the owner rules it.
+> **Superseded for container setups** by [one home per workspace](unified-workspace-home.md), whose first slice is built: Podman and Apple Container share one unified home and keep a small slice each, so a switch between them keeps the sessions. The rest of this section still describes the guest setups (`seatbelt-self`, `seatbelt-yolo-account`) until that design's later slices are built, and the slice's own path and the move of the legacy home below stand.
 
 **Each setup in a project has its own home and run state**, under
 `<project>/.yolo/setups/<name>/`. Two setups never share a home:
@@ -866,7 +866,7 @@ None are open.
 | <a id="SU-D7"></a>SU-D7 | **The rule-list field is `policy = "deny-default" \| "allow-default"`.** A design decision: `deny-default` is already the profile's name in the code and its tests, and each value says what the rule list does with whatever it does not mention. `allow-default` keeps the `(allow default)` profile the model plan's slice 13 would delete. *Superseded by [SU-R4](#SU-R4): there is no `policy` field.* | 2026-11-03 | [§4](#4-the-fields) | — |
 | <a id="SU-D8"></a>SU-D8 | **A written `network.mode` the setup's technology cannot hold is refused, naming a setup that can and the `unset` for the key**: `host` under Apple Container, `bridge` under Seatbelt or host. An unwritten one is the technology's network. A design decision: today Apple Container warns and Seatbelt is silent ([`assemble.go`](../../internal/cli/run/assemble.go), [`backendcaps.go`](../../internal/cli/run/backendcaps.go)), so a project could start an agent believing it has a network it does not. *Confirmed by the owner as [SU-R5](#SU-R5).* | 2026-11-03 | [§4](#4-the-fields), [§6](#6-config-by-example) | — |
 | <a id="SU-D5"></a>SU-D5 | **Definitions are user scope only; `host` setups only through `yolo host`**; the command line needs no approval. Choosing is user scope only too, by [OQ-MT5](#OQ-MT5). | 2026-11-03 | [§8](#8-the-security-ceiling) | — |
-| <a id="SU-D6"></a>SU-D6 | **One home and run state per setup**, under `<project>/.yolo/setups/<name>/`; approvals, grants and durable state stay per project; an existing identifiable `.yolo/home` that is a real directory moves to its setup's home automatically, with one informational line and no prompt, once no jail of the project runs ([OQ-SU5](#OQ-SU5), 2026-11-06); anything else is left in place with a printed `mv`, never deleted. | 2026-11-03 | [§9](#9-state-per-setup) | — |
+| <a id="SU-D6"></a>SU-D6 | **One home and run state per setup**, under `<project>/.yolo/setups/<name>/`; approvals, grants and durable state stay per project; an existing identifiable `.yolo/home` that is a real directory moves to its setup's home automatically, with one informational line and no prompt, once no jail of the project runs ([OQ-SU5](#OQ-SU5), 2026-11-06); anything else is left in place with a printed `mv`, never deleted. **For container setups the unified home amends the home itself:** the agent state is one unified home shared by every container setup and only a slice stays per setup ([UH-D1](unified-workspace-home.md#decision-ledger), built in slice 1). | 2026-11-03 | [§9](#9-state-per-setup) | — |
 
 ## Appendix A: where today's words came from
 

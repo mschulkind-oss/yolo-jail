@@ -70,6 +70,14 @@ only the legacy home a launch moves from (`paths.LegacyHomeState`). The passages
 `.yolo/home` as the per-workspace overlay source are owed a re-verification against
 [named setups](../design/named-setups.md).
 
+**Since the unified home's first slice:** on Podman and Apple Container a launch also composes
+the setup's agent-state directories into `<workspace>/.yolo/unified-home`, one real copy that every
+container setup of the workspace shares, and each of those directories in the setup's home becomes a
+link into it (`paths.UnifiedHome`). Installs, generated files and databases stay in the setup's home.
+A guest setup (`macos-user`) is not part of it yet. The passages below that call the setup's home
+the per-workspace state describe the layout before that; the
+[design](../design/unified-workspace-home.md#4-what-goes-where) says what goes where.
+
 `/home/agent` is not a directory that exists anywhere as a whole. It is composed at
 container create out of four ingredients: a **read-only home skeleton of this jail's own**
 (podman), **per-workspace writable overlays** bind-mounted *over* specific paths inside it, **staged read-only

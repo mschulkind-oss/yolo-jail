@@ -12,15 +12,29 @@ A jail's own files are thrown away when it stops, except for these, which are ke
 |---|---|---|
 | Claude and Antigravity (`agy`) logins | `~/.local/share/yolo-jail/home/` | Every project on the machine |
 | The ChatGPT login for Codex and pi | Held by yolo's login service; see [Logins](authentication.md) | Every project on the machine |
-| `gh`, `copilot`, `opencode` and `omp` logins | `<project>/.yolo/home/` | One project |
-| Tools you install yourself (`npm -g`, `go install`, `uv tool`) | `<project>/.yolo/home/` | One project |
-| Agent sessions and history, shell history, SSH keys you create | `<project>/.yolo/home/` | One project |
+| `gh`, `copilot`, `opencode` and `omp` logins | `<project>/.yolo/setups/<setup>/home/` | One project, on one setup |
+| Tools you install yourself (`npm -g`, `go install`, `uv tool`) | `<project>/.yolo/setups/<setup>/home/` | One project, on one setup |
+| Shell history, SSH keys you create | `<project>/.yolo/setups/<setup>/home/` | One project, on one setup |
+| Agent sessions, history and plugins | `<project>/.yolo/unified-home/` | One project, on every container setup |
 | mise tools and runtimes | `~/.local/share/yolo-jail/mise/` on Linux; a volume inside Podman's VM on a Mac | Every project |
 | mise tools and runtimes, on Apple Container | A disk of the project's own, in Apple Container's storage | One project |
 | Download and build caches (`~/.cache` in the jail) | `~/.local/share/yolo-jail/cache/` | Every project |
 
 Everything under `<project>/.yolo/` belongs to that project's jail; `yolo init` adds it to
-`.gitignore`. The mise store is yolo's own: your host's mise installation is never mounted, so
+`.gitignore`.
+
+Switching a project between Podman and Apple Container keeps your agent sessions, because both
+read the same `<project>/.yolo/unified-home/`. Tools you installed and logins that live in the jail
+stay with the setup that made them.
+The first launch after upgrading moves the sessions of any older per-setup home into
+`unified-home` and prints one line saying how many files moved; nothing is deleted or overwritten,
+and a name that two homes both had is kept twice, the second with `.from-<setup>` added. If a jail of
+the project is running at that moment, the move waits until you run `yolo stop` and launch again;
+`yolo check` says when something is waiting. Because they share one home, Podman and Apple
+Container cannot run the same project at once: the second launch stops and names the
+`yolo stop --setup <name>` that frees it. A `macos-user` sandbox keeps its own home for now and does
+not yet share sessions with a container setup.
+ The mise store is yolo's own: your host's mise installation is never mounted, so
 neither side can break the other's tools.
 
 The rest of the jail's home is rebuilt at every start from your config and packs: agent settings
