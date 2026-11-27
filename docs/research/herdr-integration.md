@@ -1701,7 +1701,7 @@ shape, with every part a pack's or an existing mechanism:
 **4. Auto-select the pack when launched inside herdr. Small once option 3 exists, and a rule
 change.** [`AGENTS.md`](../../AGENTS.md) allows one `selected_by_default` pack, `cgroup-delegate`,
 because it can only limit a jail. A relay widens what a jail can reach, so it does not qualify.
-OQ-HR1 already lets core read `HERDR_ENV` on the host, but that decision opens nothing into the
+[OQ-HR1](#7-decision-ledger) already lets core read `HERDR_ENV` on the host, but that decision opens nothing into the
 jail. What squares with "nothing is active by default": the user runs `yolo pack add herdr` once,
 the launch banner discloses it as it does every pack, and detection only decides whether the
 selected pack is live in a given launch. Auto-adding the pack would need an owner ruling to change
@@ -1729,26 +1729,34 @@ exact state from pi or opencode beats the screen reading the hint already gives,
 
 ### 8.6 Questions for the owner
 
-<a id="OQ-HR5"></a>**OQ-HR5. May a jail see a report-only herdr channel?** This would amend HR-D2
-(no `HERDR_*` handle) and answers OQ-HR4's option B in its narrowest form: no pane can be opened or
-typed into, only state and labels for its own pane. *Leaning:* **not yet.** Do options 1 and 2,
+<a id="OQ-HR5"></a>**[OQ-HR5](#OQ-HR5). May a jail see a report-only herdr channel?** This would amend HR-D2
+(no `HERDR_*` handle) and answers [OQ-HR4](#OQ-HR4)'s option B in its narrowest form: no pane can be opened or
+typed into, only state and labels for its own pane.
+
+_Leaning:_ **not yet.** Do options 1 and 2,
 measure what exact state adds, and decide then. If yes, build pi first: one file, `node:net`, and
 authoritative state.
 
-<a id="OQ-HR6"></a>**OQ-HR6. Is `yolo pack add herdr` once enough, or should launching inside herdr
-select the pack by itself?** *Leaning:* **once.** Auto-selecting widens the jail's reach on a
+<a id="OQ-HR6"></a>**[OQ-HR6](#OQ-HR6). Is `yolo pack add herdr` once enough, or should launching inside herdr
+select the pack by itself?**
+
+_Leaning:_ **once.** Auto-selecting widens the jail's reach on a
 detected signal, which `AGENTS.md` reserves for packs that can only limit it. A one-time verb is
 seamless enough, and the banner says what is on.
 
-<a id="OQ-HR7"></a>**OQ-HR7. For claude, codex, copilot and agy, should herdr's hooks stay out of
-the jail and resume be built on the host?** *Leaning:* **yes.** The hooks add no state, and their
+<a id="OQ-HR7"></a>**[OQ-HR7](#OQ-HR7). For claude, codex, copilot and agy, should herdr's hooks stay out of
+the jail and resume be built on the host?**
+
+_Leaning:_ **yes.** The hooks add no state, and their
 session id feeds a restore that would run a host command
-([§8.3](#83-what-the-extensions-would-add-and-what-they-would-break)). It is OQ-HR2's C by another
+([§8.3](#83-what-the-extensions-would-add-and-what-they-would-break)). It is [OQ-HR2](#OQ-HR2)'s C by another
 route.
 
-<a id="OQ-HR8"></a>**OQ-HR8. May the investigation open issues on herdr's repository?** Earlier
+<a id="OQ-HR8"></a>**[OQ-HR8](#OQ-HR8). May the investigation open issues on herdr's repository?** Earlier
 passes did not comment upstream. The asks are in option 2 and would come from the owner's account,
-not an agent's. *Leaning:* **yes**, as drafts the owner files.
+not an agent's.
+
+_Leaning:_ **yes**, as drafts the owner files.
 
 ### 8.7 Sources
 

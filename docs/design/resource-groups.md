@@ -138,7 +138,7 @@ These rows compact the four answered design questions; the request's other requi
 
 ### Open questions
 
-<a id="OQ-RG5"></a>**OQ-RG5 — The accounting-and-responsiveness gate failed on the owner's host. What replaces a binding `io.max` cap on the agent child?**
+<a id="OQ-RG5"></a>💬 **OQ-RG5: The accounting-and-responsiveness gate failed on the owner's host. What replaces a binding `io.max` cap on the agent child?**
 
 *What happened (2026-11-26).* The owner's `batch-yolo.slice` has a budget of 2 GB/s reads and 1 GB/s writes on `nvme0n1`. The 5/95 split ([OQ-RG2](#3-shared-child-ceilings)) set `batch-yolo-agent.slice` to 100 MB/s reads and 50 MB/s writes. Every launch places itself, its keeper and its container in the agent child, and nothing yet places work in the batch child. So every jail on the machine, with all its builds and test suites, shared one 50 MB/s write ceiling, and the 95% child sat idle. The `yolo-jail` container alone wrote 228.6 GB in 3h21m.
 
@@ -153,7 +153,7 @@ The encrypted device showed seconds of latency while the drive showed millisecon
 *Options.*
 
 - **A.** Keep the split, but treat Btrfs (or any filesystem whose commits are shared across cgroups) as a failed gate. A launch that maps such a device refuses and names the fix, as the gates paragraph below requires. This is safe and makes the feature unusable on the owner's own host.
-- **B.** Replace the child ceilings with `io.weight`, a proportional share that applies only under contention, so nothing waits behind an idle allowance. This overturns §3's "never substitute relative weights for a cap" and matches the [I/O-priority non-goal](io-priority.md#2-non-goals) "no bandwidth caps". ⚠ A weight does nothing unless a weight-aware controller runs on the device: the owner's NVMe uses Kyber, which ignores it. It needs either BFQ or the kernel's I/O cost model (`io.cost.qos`, a one-time root setting), and both are host changes yolo would name rather than make.
+- **B.** Replace the child ceilings with `io.weight`, a proportional share that applies only under contention, so nothing waits behind an idle allowance. This overturns [§3](#3-shared-child-ceilings)'s "never substitute relative weights for a cap" and matches the [I/O-priority non-goal](io-priority.md#2-non-goals) "no bandwidth caps". ⚠ A weight does nothing unless a weight-aware controller runs on the device: the owner's NVMe uses Kyber, which ignores it. It needs either BFQ or the kernel's I/O cost model (`io.cost.qos`, a one-time root setting), and both are host changes yolo would name rather than make.
 - **C.** Keep `io.max` on the batch child only, and leave the agent child uncapped beneath the parent. The batch child's ceiling can still stall commits once batch work is actually placed there.
 - **D.** Keep the design, and have the owner raise the allowance until the agent child's share stops binding. This only moves the threshold.
 - **E.** Use `io.latency` on the desktop-facing side instead of capping the jails. It throttles other groups only while the protected group misses its latency target, and works under any scheduler. How it behaves with shared Btrfs commits is unmeasured.
