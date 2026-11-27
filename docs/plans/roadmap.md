@@ -68,16 +68,17 @@ needs a ruling or a Mac sits in the others.
 6. [The approval and broker foundation](../design/boundary-broker.md#11-the-build-in-the-maintainers-five-steps) —
    the maintainer set its order on 2026-10-23: brokered sources with read and write sets, actionable toasts, a host
    CLI to view and approve, a web UI out of tree on that CLI, then a talk about merging it. The agent steps now:
-   - [The approval queue's history](../design/approval-experience/request-history-and-privacy.md): build the opt-in
+   - [The approval queue's history](../design/approval-experience/request-history-and-privacy.md): the opt-in
      `yolo approve --json --ended` that [BB-D113](../design/boundary-broker.md#BB-D113) ruled, under its four
-     conditions; last-seen detail is built, and its real-browser masking check remains.
+     conditions is built; the queue does not read it yet. Last-seen detail is built, and its real-browser
+     masking check remains.
    - [Pack brokers](../design/pack-brokers.md): [the HTTP plan](../design/pack-brokers-http-plan.md)'s Task 4
      publication path is built with no client listed, so publication stays off; audit a real HTTP client, then run
      its nested two-jail replay test.
    - [Access introspection](../design/access-introspection.md)'s Task 4 waits on the authorization its plan names.
-   - [Scoped broker policy](../design/scoped-broker-policy.md) — use the [complete build hand-off](../design/scoped-broker-policy-plan.md)
-     for candidate admission and baseline reds, because one shared operation policy must precede
-     source-specific repairs. The [source-owned matching](../design/scoped-broker-policy.md#38-scope-matching),
+   - [Scoped broker policy](../design/scoped-broker-policy.md) — use the [complete build hand-off](../design/scoped-broker-policy-plan.md).
+     Candidate admission is done and units U1–U8 are built (the generic CLI and HTTP fronts); the plan's own
+     `next:` is U9, declaration-owned contexts and AWS routes, with the GitHub-dependent rows after it. The [source-owned matching](../design/scoped-broker-policy.md#38-scope-matching),
      [timed caps](../design/scoped-broker-policy.md#51-timed-caps), [baseline list resolution](../design/scoped-broker-policy.md#32-which-rule-governs),
      [legacy reads](../design/scoped-broker-policy.md#39-read-cells-zero-one-or-many) and [live apply](../design/scoped-broker-policy.md#8-authority-state-concurrency-withdrawal-failure)
      remain the design's authority. The hand-off preserves [V1–V7](../design/scoped-broker-policy.md#13-unverified-claims-this-design-relies-on)
@@ -85,21 +86,16 @@ needs a ruling or a Mac sits in the others.
      fresh independent review and applicable final-tree gates.
    - [Managed MCP sign-in build hand-off](../design/managed-mcp-sign-in-plan.md) — ordinary managed-agent
      sign-in, capture and delivery need one coherent implementation, separate from operation-broker policy.
-     The [behavioral design](../design/managed-mcp-sign-in.md) owns the contract; the synthetic gate precedes
-     landing and native/rootless/Mac/provider witnesses remain separate verification owed afterward. The retained
-     serial candidate has [A1–A32 synthetic coverage](../design/managed-mcp-sign-in-coverage.md); independent review
-     and landing remain. Scoped-pack integration is serial at its effective-declaration seam, including custom
+     The [behavioral design](../design/managed-mcp-sign-in.md) owns the contract. The serial candidate has
+     landed, with [A1–A32 synthetic coverage](../design/managed-mcp-sign-in-coverage.md). Owed: an independent
+     review of the landed code, and the native/rootless/Mac/provider witnesses. Scoped-pack integration is serial at its effective-declaration seam, including custom
      handle/source identity compatibility, never evidence that skill directories load as native bundles.
 
 7. Smaller builds no ruling holds:
    - [Git sourced skills and AWS cost measurements](git-skills-aws-verification.md#separate-measurements-and-nonblocking-review-notes)
      follow Linux integration: first count repeated reads/peak retained bytes before any optimization.
-   - [LC-D4](../reference/config/rulings.md#LC-D4)'s `yolo check` half: `yolo check` does not yet render what is
-     passed into the jail.
-   - [The color pass](cli-visual-polish.md)'s cross-cutting passes and startup banner; Group C is done, and the
-     frozen run progress lines wait on [OQ-VP1](cli-visual-polish.md#OQ-VP1).
-   - [Launch preparation](../design/launch-update-preparation-plan.md#runtime-2026-11-13)'s two status-wording
-     leftovers in [the backlog](BACKLOG.md#launch-prep-runtime-leftovers).
+   - [The color pass](cli-visual-polish.md): only the frozen run progress lines remain, waiting on
+     [OQ-VP1](cli-visual-polish.md#OQ-VP1).
    - [One trace per launch](../design/startup-tracing.md), asked for on 2026-11-19 because launches with many
      patched forks have become slow, and ruled the same day: complete [its plan sketch](../design/startup-tracing-plan.md)
      against the tree, then build the trace directory and the text summary first, since they rank what to speed up.

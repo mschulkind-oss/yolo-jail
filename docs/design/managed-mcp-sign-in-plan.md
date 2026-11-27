@@ -3,12 +3,12 @@ title: "Plan: managed MCP sign-in, capture, delivery, status and callback owners
 date: 2026-11-17
 status: accepted
 stage: DECIDED
-next: "Finish the retained candidate's synthetic gate and independent review; native/rootless/Mac/provider witnesses and full landing suite remain separate"
+next: "The serial candidate landed (squash 492dab7fa, 2026-11-18); owed: an independent review of the landed code, and the native/rootless/Mac/provider witnesses"
 depends-on:
   - managed-mcp-sign-in.md
   - mcp-auth-sharing.md
 tags: [plan, mcp, oauth, packs, broker, status]
-summary: "Accepted serial build contract with a retained synthetic implementation candidate: bundles, capture, bounded issuance, delivery, callback ownership and effect-free status/advice. The coverage inventory records account-free evidence; independent landing and native/provider witnesses remain separate."
+summary: "Accepted serial build contract whose synthetic implementation has landed: bundles, capture, bounded issuance, delivery, callback ownership and effect-free status/advice. The coverage inventory records account-free evidence; independent review and native/provider witnesses remain separate."
 ---
 
 # Plan: managed MCP sign-in
@@ -662,7 +662,7 @@ Task 9 found two real caller gaps: authenticated frontend principal versus conta
 
 Private integration consumer adapters use the actual shipped Lua/surfaces through inert program adapters. Their legacy leaf-name selection remains a fixture choice, not a qualified-handle limitation: the forward review repair separates logical `Source.Pack` from its exact declared program/Lua `Source.Adapter` and explicit private store paths. `TestManagedMCPQualifiedSourceThroughTOMLShareAdoptionAndHostHeader` exercises readable qualified TOML selection through validated share, synthetic adoption and actual host header issuance; the same-leaf source adversary checks separate scripts, roots and provenance. Absent adapters preserve legacy leaf descriptors, replica filenames remain leaf-only, and no source key, canonical version, client identity or digest is migrated. This is checked Claude-compatible adapter evidence, not arbitrary provider/backend parity. Internal synthetic core provisioning ran; external/vendor hooks, agents, installers and auto-capture did not.
 
-The final full slow suite and landing belong to the parent. Native/rootless/Mac/provider/plugin-loading/reconnect/writeback/OAuth witnesses below remain owed. Completion reports do not authorize cleanup or release.
+The candidate landed in squash `492dab7fa` (2026-11-18). Owed: an independent review of the landed code. Native/rootless/Mac/provider/plugin-loading/reconnect/writeback/OAuth witnesses below remain owed. Completion reports do not authorize cleanup or release.
 
 ## Source-snapshot and nested probe discipline
 
