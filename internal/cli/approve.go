@@ -34,7 +34,7 @@ const approveUsage = `Usage: yolo approve [request] [--for <duration|session> | 
        yolo approve --revoke <grant|w-entry|c-entry|all> [--workspace <path>]
        yolo approve --json [--ended]
        yolo approve --watch [--json]
-       yolo approve --web [--listen 127.0.0.1:<port>] [--reconcile <duration>] [--assets <dir>] [--no-open]
+       yolo approve --web [--listen 127.0.0.1:<port>] [--reconcile <duration>] [--assets <dir>] [--no-open] [--ended]
 
 Host-only: list requests, grants and each workspace's working set, allow a
 request once, grant its requested set for a bounded duration, deny it with optional human feedback,
@@ -112,7 +112,9 @@ Press Enter for a new link. A link used a second time ends every session and
 warns once, and makes no new link and opens no browser: press Enter once you
 have found the cause. --listen sets the address (127.0.0.1 only; default 127.0.0.1:0, a free
 port), --reconcile how often it takes a full snapshot (default 15s), and
---assets serves the page's files from a directory for development. See
+--assets serves the page's files from a directory for development. --ended also lists
+requests, grants and working-set entries ended within the store's 7 days, as
+--json --ended does; that history stays in memory only. See
 docs/design/approval-experience/README.md.
 
 Exit codes: 0 done; 1 the store could not be read or written; 2 usage;

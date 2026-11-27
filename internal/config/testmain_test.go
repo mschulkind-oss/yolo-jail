@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/mschulkind-oss/yolo-jail/internal/packload"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
@@ -43,6 +44,9 @@ func TestMain(m *testing.M) {
 	// tripwire makes one that does fail here and on CI, not only on a machine that signs.
 	testsupport.ArmGitConfigTripwire()
 	code := m.Run()
+	// A test that stages a pack leaves the process pack tree for this to give back
+	// (testmainrelease_test.go).
+	packload.ReleaseEmbedded()
 	os.RemoveAll(home)
 	os.Exit(code)
 }
