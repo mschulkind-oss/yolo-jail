@@ -157,7 +157,7 @@ func TestExclusionRule(t *testing.T) {
 	})
 }
 
-// TestExclusionRuleReadsRealWitnesses drives refuseContainerPeer end to end over held keeper locks.
+// TestExclusionRuleReadsRealWitnesses drives refusePeer end to end over held keeper locks.
 func TestExclusionRuleReadsRealWitnesses(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -174,8 +174,8 @@ func TestExclusionRuleReadsRealWitnesses(t *testing.T) {
 			holdKeeperKey(t, keeperKey(yoloruntime.JailName(ws, "apple-container-self"), tc.notch))
 			var stderr strings.Builder
 			o := peerOptions(ws, "podman-self", &stderr)
-			if got := o.refuseContainerPeer(); got != tc.wantRefuse {
-				t.Fatalf("refuseContainerPeer = %v, want %v\n%s", got, tc.wantRefuse, stderr.String())
+			if got := o.refusePeer(); got != tc.wantRefuse {
+				t.Fatalf("refusePeer = %v, want %v\n%s", got, tc.wantRefuse, stderr.String())
 			}
 			if tc.wantRefuse && !strings.Contains(stderr.String(), "`yolo stop --setup apple-container-self`") {
 				t.Errorf("the refusal does not name the stop:\n%s", stderr.String())
@@ -187,7 +187,7 @@ func TestExclusionRuleReadsRealWitnesses(t *testing.T) {
 		ws := t.TempDir()
 		makePeerSetup(t, ws, "podman-self")
 		holdKeeperKey(t, yoloruntime.JailName(ws, "podman-self"))
-		if peerOptions(ws, "podman-self", io.Discard).refuseContainerPeer() {
+		if peerOptions(ws, "podman-self", io.Discard).refusePeer() {
 			t.Error("a running jail of the same setup refused its own launch")
 		}
 	})
@@ -198,37 +198,39 @@ func TestExclusionRuleReadsRealWitnesses(t *testing.T) {
 		holdKeeperKey(t, yoloruntime.JailName(ws, "apple-container-self"))
 		o := peerOptions(ws, "podman-self", io.Discard)
 		o.FreshHome = true
-		if o.refuseContainerPeer() {
+		if o.refusePeer() {
 			t.Error("--fresh-home shares nothing and must not be refused")
 		}
 		o = peerOptions(ws, "podman-self", io.Discard)
 		o.DryRun = true
-		if o.refuseContainerPeer() {
+		if o.refusePeer() {
 			t.Error("a dry run writes nothing and must not be refused")
 		}
 	})
-	t.Run("a guest launch is slice 2's", func(t *testing.T) {
+	t.Run("a guest launch beside a running container is no refusal", func(t *testing.T) {
 		packHome(t)
 		ws := t.TempDir()
 		makePeerSetup(t, ws, "podman-self")
 		holdKeeperKey(t, yoloruntime.JailName(ws, "podman-self"))
-		if peerOptions(ws, "seatbelt-self", io.Discard).refuseContainerPeer() {
-			t.Error("a guest launch's behavior changed in slice 1")
+		if peerOptions(ws, "seatbelt-self", io.Discard).refusePeer() {
+			t.Error("a guest and a container may run together")
 		}
 	})
 }
 
-// TestEveryContainerLaunchTakesTheProjectLock (UHP-D4): selectHome holds the project lock for a
-// container setup whether or not a legacy home exists, never for macos-user without one, and a
+// TestEveryJailLaunchTakesTheProjectLock (UHP-D4, UHG-D4): selectHome holds the project lock for a
+// container or guest setup whether or not a legacy home exists, never for a host setup, and a
 // fresh-home launch (which never reaches selectHome) holds none.
-func TestEveryContainerLaunchTakesTheProjectLock(t *testing.T) {
+func TestEveryJailLaunchTakesTheProjectLock(t *testing.T) {
 	for _, tc := range []struct {
 		setup string
 		want  bool
 	}{
 		{"podman-self", true},
 		{"apple-container-self", true},
-		{"seatbelt-yolo-account", false},
+		{"seatbelt-yolo-account", true},
+		{"seatbelt-self", true},
+		{"host-self", false},
 	} {
 		t.Run(tc.setup, func(t *testing.T) {
 			packHome(t)
@@ -336,8 +338,8 @@ func TestCommitHomeChecksTheExclusionFirst(t *testing.T) {
 		if !ok {
 			t.Fatalf("commitHome's first condition is not a call")
 		}
-		if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != "refuseContainerPeer" {
-			t.Errorf("commitHome's first statement must call refuseContainerPeer")
+		if sel, ok := call.Fun.(*ast.SelectorExpr); !ok || sel.Sel.Name != "refusePeer" {
+			t.Errorf("commitHome's first statement must call refusePeer")
 		}
 		return
 	}

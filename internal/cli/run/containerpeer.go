@@ -71,9 +71,15 @@ func selfClass(s setup.Setup) peerClass {
 	return peerClassGuest
 }
 
-// runsAsContainer reports whether s is a container setup, the only kind slice 1 checks and composes
-// (UHP-D3).
+// runsAsContainer reports whether s is a container setup.
 func runsAsContainer(s setup.Setup) bool { return selfClass(s) == peerClassContainer }
+
+// joinsUnifiedHome reports whether s shares the workspace's unified home: a container or a guest
+// setup, never a host one (UHG-D3).
+func joinsUnifiedHome(s setup.Setup) bool {
+	k := s.Kind()
+	return k == setup.KindJail || k == setup.KindGuest
+}
 
 // runtimeDisplayName is how a refusal spells a runtime.
 func runtimeDisplayName(rt string) string {
@@ -140,12 +146,11 @@ func (o *Options) peerFacts() []peerFact {
 	return out
 }
 
-// refuseContainerPeer is commitHome's first statement: it prints the refusal and returns true when
+// refusePeer is commitHome's first statement: it prints the refusal and returns true when
 // another jail of the workspace may not run beside this launch. Skipped for a dry run (it writes
-// nothing), for --fresh-home (that home shares nothing) and for a guest launch (slice 2, UHP-D3,
-// UHP-D5).
-func (o *Options) refuseContainerPeer() bool {
-	if o.DryRun || o.FreshHome || !runsAsContainer(o.Setup) {
+// nothing), for --fresh-home (that home shares nothing) and for a host setup, which never joins.
+func (o *Options) refusePeer() bool {
+	if o.DryRun || o.FreshHome || !joinsUnifiedHome(o.Setup) {
 		return false
 	}
 	v := decidePeers(o.Setup, o.peerFacts())
