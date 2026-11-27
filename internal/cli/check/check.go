@@ -80,6 +80,7 @@ func Check(opts Options) int {
 		// in tests" and this reads the same tree — read-only, but a real one, and a
 		// golden run must not walk the developer's ~/.claude.
 		o.noteLegacyBaseHome()
+		o.noteUnifiedHomeWaiting()
 	}
 
 	workspace := o.Workspace

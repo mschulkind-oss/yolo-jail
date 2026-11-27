@@ -81,6 +81,18 @@ func PurgeAgentLogsGuarded(workspaces []string, globalCache string, olderThanDay
 			}
 			home.Close()
 		}
+		// The unified home holds every container setup's agent state, so its logs are swept in
+		// the dotted spelling it keeps (docs/design/unified-workspace-home.md). It is opened
+		// refusing a link at `.yolo` or at the unified home, and a slice's link into it is
+		// never followed above, so each file is counted once.
+		if unified, err := paths.OpenUnifiedHomeRoot(ws); err == nil {
+			for _, sub := range agentLogWorkspaceSubdirs {
+				b, f := purgeOldFilesUnder(unified, "."+sub, cutoff, apply, guard)
+				bytesRemoved += b
+				filesRemoved += f
+			}
+			unified.Close()
+		}
 	}
 	if globalCache == "" {
 		return bytesRemoved, filesRemoved

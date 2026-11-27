@@ -181,6 +181,9 @@ type Options struct {
 	PathExists func(string) bool
 	// readFile loads a diagnostic metadata artifact. nil => os.ReadFile.
 	readFile func(string) ([]byte, error)
+	// unifiedHomePacks is the pack selection whose state directories noteUnifiedHomeWaiting
+	// reads. nil => the user scope's selected packs (config.UserScopeSelectedPacks).
+	unifiedHomePacks func() ([]*packload.Pack, bool)
 	// inspectGraphicsPath verifies one jail graphics tree directory and, when expected is
 	// non-empty, that its resolved target matches the selected output. nil => filesystem inspection.
 	inspectGraphicsPath func(root, leaf, expected string) error
