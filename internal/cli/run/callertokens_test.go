@@ -14,7 +14,6 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/svcendpoint"
 )
 
@@ -114,7 +113,7 @@ func TestAnAttachDeliversTheRunningJailsCallerToken(t *testing.T) {
 	running := strings.Repeat("12", 32)
 	launcher := *o
 	launcher.callerTokens = map[string]string{bridgeTokenVar: running}
-	wsState := paths.LegacyHomeState(o.Workspace)
+	wsState := o.homeDir()
 	prior := channelFor(t, &launcher, cfg, packs, cerebrasKey())
 	writeUserEnvFile(filepath.Join(wsState, "yolo-user-env.sh"), prior.scope.SharedEnvSources(), prior)
 	if _, err := os.Stat(filepath.Join(wsState, agentEnvStateDir, "claude.sh")); !os.IsNotExist(err) {

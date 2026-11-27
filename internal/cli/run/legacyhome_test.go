@@ -128,8 +128,8 @@ func TestLegacyHomeReplacesAnEmptyDestination(t *testing.T) {
 }
 
 // TestLegacyHomeWaitsWhileAJailRuns: a running jail of the project, or a runtime that could not be
-// asked, leaves a movable legacy home in place, writes nothing, and says this setup keeps using it
-// until a later launch moves it (SUP-D21).
+// asked, leaves a movable legacy home in place, writes nothing, and says this launch binds the
+// setup's own home until a later launch moves the old one (UHP-D7, superseding SUP-D21).
 func TestLegacyHomeWaitsWhileAJailRuns(t *testing.T) {
 	for _, jails := range []projectJails{projectJailsRunning, projectJailsUnknown} {
 		t.Run(jails.String(), func(t *testing.T) {
@@ -143,7 +143,7 @@ func TestLegacyHomeWaitsWhileAJailRuns(t *testing.T) {
 				t.Errorf("a deferred move created %s: %v", paths.SetupsDir(ws), err)
 			}
 			assertOneLine(t, line)
-			if !strings.Contains(line, "yolo stop") || !strings.Contains(line, "keeps using") {
+			if !strings.Contains(line, "yolo stop") || !strings.Contains(line, "binds the podman-self setup's own home") {
 				t.Errorf("the line must say what this launch uses and name the next step: %q", line)
 			}
 		})
@@ -236,12 +236,8 @@ func TestLegacyHomeLeavesWhatItCannotMove(t *testing.T) {
 			arrange: func(t *testing.T, ws, src string, r *legacyHomeRequest) {
 				r.AppleContainerLaid = func(string) bool { return true }
 			}},
-		{name: "destination holds a home", run: true, then: legacyHomeMoved, mark: "already",
-			arrange: func(t *testing.T, ws, src string, r *legacyHomeRequest) {
-				dest := paths.SetupHomeState(ws, "podman-self")
-				writeTranscript(t, dest)
-				t.Cleanup(func() { assertHoldsTranscript(t, dest+".aside") })
-			}},
+		// A destination holding a home is no longer left (UHP-D7): its remainder is merged into it,
+		// TestLegacyRemainderMergesIntoAPopulatedSlice.
 		{name: "destination is a dangling link", run: true, then: legacyHomeMoved, mark: "already",
 			arrange: func(t *testing.T, ws, src string, r *legacyHomeRequest) {
 				dest := paths.SetupHomeState(ws, "podman-self")
