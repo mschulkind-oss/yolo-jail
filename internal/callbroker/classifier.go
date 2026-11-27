@@ -90,6 +90,9 @@ type Classification struct {
 	// Withheld are the lookups core did not send because read policy withheld them, in the
 	// order the classifier asked. Never decoded: core records them.
 	Withheld []WithheldLookup `json:"-"`
+	// contextDigest is the identity of the execution context this call was routed to; core
+	// sets it after classification, never the classifier, and "" is the default context.
+	contextDigest string
 }
 
 type Refusal struct {

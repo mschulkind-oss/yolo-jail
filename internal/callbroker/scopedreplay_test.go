@@ -26,8 +26,10 @@ func TestCLIRevalidateRefusesScopedAndContextRequests(t *testing.T) {
 		if name == "scoped role" {
 			continue
 		}
-		if _, err := f.h.revalidate(q); err == nil || !strings.Contains(err.Error(), "scoped operation execution is not active") {
-			t.Fatalf("%s: err=%v", name, err)
+		// U9 gave the CLI a context execution path: a bare context-bound shape is refused
+		// as not this launch's request; real context binding is TestDeclaredExecutionContexts.
+		if _, err := f.h.revalidate(q); err == nil {
+			t.Fatalf("%s: a skeletal context-bound request revalidated", name)
 		}
 	}
 }
