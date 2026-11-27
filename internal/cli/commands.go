@@ -1500,6 +1500,12 @@ func runRun(args []string) int {
 		}
 		return runBuildSlot(req, launchBuildStream(stderr), colorForWriter(os.Stderr))
 	}
+	// THE INVOCATION'S TRACE OWNER (run.InvocationScope): allocated here, finalized by the defer
+	// below, which is registered BEFORE the title-restore defer so it runs after it. Run borrows it
+	// and never finalizes it, so process.title_restore lands inside the trace's lifetime.
+	scope := run.NewInvocationScope()
+	opts.InvocationScope = scope
+	defer scope.Finalize()
 	// Set the tmux/kitty jail indicator around the run, restoring on exit. The
 	// restore runs as subprocesses (kitten/tmux) with no timeout of their own,
 	// so it is spanned — the last unmeasured step between the report printing

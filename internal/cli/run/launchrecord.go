@@ -118,6 +118,8 @@ func (o *Options) interruptedArmExit() func(int) {
 	exit := launchArmExit
 	return func(code int) {
 		o.recordLaunchOutcome(launchInterrupted, code)
+		// The process ends here with no defer: the trace closes now, after the outcome it records.
+		o.InvocationScope.Finalize()
 		exit(code)
 	}
 }

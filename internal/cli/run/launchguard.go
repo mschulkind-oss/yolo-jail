@@ -92,6 +92,7 @@ func (o *Options) abandonLaunch(g *launchGuard) {
 	}
 	o.recordLaunchEndedBySignal()
 	o.restoreTerminal()
+	o.InvocationScope.Finalize()
 }
 
 // end marks the launch ended by a signal and returns what it made, or the keeper that holds it. It

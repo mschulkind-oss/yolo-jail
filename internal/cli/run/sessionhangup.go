@@ -83,7 +83,7 @@ func hangupSessionCmd(rt, cname, id string) []string {
 // and exits 128+N (launchSignalArm.terminate supplies the terminal and the kill). Never stopJail:
 // the jail is its other sessions' too.
 func (o *Options) attachSignalArm(rt, cname, sessionID string) *launchSignalArm {
-	return armLaunchSignals(o.attachTeardown(rt, cname, sessionID))
+	return armLaunchSignalsWith(o.attachTeardown(rt, cname, sessionID), o.interruptedArmExit())
 }
 
 // attachTeardown is the attach arm's onTerminate: the hangup, then the herdr pane's release, as a
