@@ -15,7 +15,7 @@ A jail's own files are thrown away when it stops, except for these, which are ke
 | `gh`, `copilot`, `opencode` and `omp` logins | `<project>/.yolo/setups/<setup>/home/` | One project, on one setup |
 | Tools you install yourself (`npm -g`, `go install`, `uv tool`) | `<project>/.yolo/setups/<setup>/home/` | One project, on one setup |
 | Shell history, SSH keys you create | `<project>/.yolo/setups/<setup>/home/` | One project, on one setup |
-| Agent sessions, history and plugins | `<project>/.yolo/unified-home/` | One project, on every container setup |
+| Agent sessions, history and plugins | `<project>/.yolo/unified-home/` | One project, on every container setup and on `seatbelt-self` (`seatbelt-yolo-account` keeps its own for now) |
 | mise tools and runtimes | `~/.local/share/yolo-jail/mise/` on Linux; a volume inside Podman's VM on a Mac | Every project |
 | mise tools and runtimes, on Apple Container | A disk of the project's own, in Apple Container's storage | One project |
 | Download and build caches (`~/.cache` in the jail) | `~/.local/share/yolo-jail/cache/` | Every project |
@@ -32,8 +32,9 @@ and a name that two homes both had is kept twice, the second with `.from-<setup>
 the project is running at that moment, the move waits until you run `yolo stop` and launch again;
 `yolo check` says when something is waiting. Because they share one home, Podman and Apple
 Container cannot run the same project at once: the second launch stops and names the
-`yolo stop --setup <name>` that frees it. A `macos-user` sandbox keeps its own home for now and does
-not yet share sessions with a container setup.
+`yolo stop --setup <name>` that frees it. `seatbelt-self` shares the same sessions through relative
+links, so moving the project folder keeps them, and it may run beside one container setup; a second
+Seatbelt setup is refused the same way. `seatbelt-yolo-account` keeps its own home for now.
  The mise store is yolo's own: your host's mise installation is never mounted, so
 neither side can break the other's tools.
 
