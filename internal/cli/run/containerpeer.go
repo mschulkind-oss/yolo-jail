@@ -71,9 +71,6 @@ func selfClass(s setup.Setup) peerClass {
 	return peerClassGuest
 }
 
-// runsAsContainer reports whether s is a container setup.
-func runsAsContainer(s setup.Setup) bool { return selfClass(s) == peerClassContainer }
-
 // joinsUnifiedHome reports whether s shares the workspace's unified home: a container or a guest
 // setup, never a host one (UHG-D3).
 func joinsUnifiedHome(s setup.Setup) bool {
