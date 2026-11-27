@@ -445,6 +445,12 @@ func traceDeclined() error {
 	return errors.New("trace recording declined: storage ownership, locking, accounting, or room is unavailable; keep the legacy timing log and ask the yolo maintainer to inspect the host trace store")
 }
 
+// traceDeclinedAt declines naming the path it judged and why; the next step is to keep the
+// legacy timing log or make that path a real directory the user owns.
+func traceDeclinedAt(path, why string) error {
+	return fmt.Errorf("trace recording declined: %s %s; keep the legacy timing log, or make that path a real directory you own", path, why)
+}
+
 func validStoreID(id string) bool {
 	p, err := hex.DecodeString(id)
 	return len(id) == 32 && strings.ToLower(id) == id && err == nil && len(p) == 16 && id != strings.Repeat("0", 32)
@@ -473,14 +479,24 @@ func openStoreRoot(path string) (*os.Root, fs.FileInfo, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return nil, nil, traceDeclined()
 	}
-	// No symlink guessing, including ancestors of the explicitly supplied private root.
+	// No symlink guessing for what yolo writes: the root itself is judged by name (Lstat), and
+	// OpenRoot plus O_NOFOLLOW guard everything created beneath it. Ancestors above the root
+	// belong to the user's own layout (macOS /var, Silverblue /home), so a link there is followed.
 	for p := path; ; p = filepath.Dir(p) {
-		i, err := os.Lstat(p)
+		stat := os.Stat
+		if p == path {
+			stat = os.Lstat
+		}
+		i, err := stat(p)
 		if err != nil && !(p == path && errors.Is(err, fs.ErrNotExist)) {
-			return nil, nil, traceDeclined()
+			return nil, nil, traceDeclinedAt(p, "cannot be inspected: "+err.Error())
 		}
 		if err == nil && !i.IsDir() {
-			return nil, nil, traceDeclined()
+			why := "is not a directory"
+			if i.Mode()&fs.ModeSymlink != 0 {
+				why = "is a symbolic link, and yolo never follows a link at the trace store itself"
+			}
+			return nil, nil, traceDeclinedAt(p, why)
 		}
 		if p == filepath.Dir(p) {
 			break

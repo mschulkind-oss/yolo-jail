@@ -1184,3 +1184,59 @@ func TestTraceStoreContinuousChildHandover(t *testing.T) {
 		t.Fatal("parent unlock released child's protection")
 	}
 }
+
+// A home reached through a link (macOS /var, Silverblue /home) must record; a link at the
+// store root, or a link above an unmade root's own directory, is judged by name and refused.
+func TestOpenTraceStoreAcceptsSymlinkedAncestorsButNotARootLink(t *testing.T) {
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(real, "link")
+	if err := os.Symlink(filepath.Join(real, "target"), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(real, "target"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Run("ancestor_link_above_the_roots", func(t *testing.T) {
+		if err := os.Mkdir(filepath.Join(link, "logs"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		s, err := OpenTraceStore(filepath.Join(link, "logs", "traces"), filepath.Join(link, "private"))
+		if err != nil {
+			t.Fatalf("a symlinked ancestor was refused: %v", err)
+		}
+		s.Close()
+	})
+	t.Run("link_at_the_root", func(t *testing.T) {
+		dest := filepath.Join(real, "dest")
+		if err := os.Mkdir(dest, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		root := filepath.Join(real, "rootlink")
+		if err := os.Symlink(dest, root); err != nil {
+			t.Fatal(err)
+		}
+		_, err := OpenTraceStore(root, filepath.Join(real, "private2"))
+		if err == nil {
+			t.Fatal("a symlink at the store root was accepted")
+		}
+		if !strings.Contains(err.Error(), root) {
+			t.Fatalf("the decline did not name the path it judged: %v", err)
+		}
+	})
+	t.Run("link_at_the_private_root", func(t *testing.T) {
+		dest := filepath.Join(real, "dest2")
+		if err := os.Mkdir(dest, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		priv := filepath.Join(real, "privlink")
+		if err := os.Symlink(dest, priv); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := OpenTraceStore(filepath.Join(real, "traces3"), priv); err == nil {
+			t.Fatal("a symlink at the private root was accepted")
+		}
+	})
+}
