@@ -5,7 +5,7 @@ status: in-review
 tags: [launchers, updates, program-delivery, macos-user, evergreen]
 summary: "Every in-jail launcher drops its hourly throttle. An unpinned program is checked once per jail start, at its first invocation; relaunching the jail is how a user picks up a new version."
 stage: DESIGN
-next: "Slice 7: the Mac witnesses (the owner's Mac); the host floor's poll is a roadmap follow-up"
+next: "Slice 7: the Mac witnesses (the owner's Mac); the host floor's poll is designed in host-floor-update-cadence.md"
 ---
 
 # Programs update at the first invocation of a jail start, not once an hour
@@ -34,7 +34,8 @@ get a newer version sooner.
 **Reads with:** [`program-delivery.md`](program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)
 (the evergreen ruling and the refusal rules this keeps), [`pi-extension-store-builds.md`](pi-extension-store-builds.md#XB-D14)
 (the refresh's stamp scope), [`pi-extensions.md`](../reference/pi-extensions.md#17-the-pre-launch-refresh)
-(the refresh's tiers).
+(the refresh's tiers), [`host-floor-update-cadence.md`](host-floor-update-cadence.md) (the same rule at the host, where
+there is no jail start).
 
 ---
 
@@ -160,7 +161,7 @@ rulings ([LU-D10](#decision-ledger), [LU-D11](#decision-ledger)):
   answered (no dead-network stall), and keeping it would run the old version that the refusal rule exists to stop.
 - **The host-side checks follow the ruling too, through other changes.** The pack branch refresh and the patched
   fork's upstream check are [`local-pack-clones.md`](local-pack-clones.md)'s. The host floor's evergreen poll
-  (`hostfloor.DefaultUpdateInterval`, `internal/hostfloor/floor.go:205`) is a follow-up on the roadmap, because
+  and pre-launch refresh are designed in [`host-floor-update-cadence.md`](host-floor-update-cadence.md), because
   `yolo host` has no jail start and needs its own observable.
 
 ## Found, out of scope
@@ -220,7 +221,7 @@ touches the network, and never starts an agent.
 | LU-D8 | *Implementation decision, reversible.* The refresh keeps its lock and end-of-act marker; its markers are per id | 2026-11-23 | [Consumers](#where-each-consumer-lands) | yes, `01c300fec` |
 | LU-D9 | *Implementation decision, reversible.* Old stamps are ignored, never deleted | 2026-11-23 | [Consumers](#where-each-consumer-lands) | yes (the new markers live at new paths; an old stamp is never read) |
 | LU-D10 | *Coordinator decision.* A refused install (exit 75) releases the marker, so the next invocation retries | 2026-11-23 | [Open questions](#open-questions) | yes, `4218ebc13`, `b916d8cf0` |
-| LU-D11 | *Coordinator decision.* This change covers the in-jail launchers only; pack refresh and the patch check are [`local-pack-clones.md`](./local-pack-clones.md)'s, and the host floor's poll is a roadmap follow-up under the same ruling | 2026-11-23 | [Open questions](#open-questions) | no |
+| LU-D11 | *Coordinator decision.* This change covers the in-jail launchers only; pack refresh and the patch check are [`local-pack-clones.md`](./local-pack-clones.md)'s, and the host floor's poll is [`host-floor-update-cadence.md`](host-floor-update-cadence.md)'s, under the same ruling | 2026-11-23 | [Open questions](#open-questions) | no |
 
 ## Appendix A: Evidence
 
