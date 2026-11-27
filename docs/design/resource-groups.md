@@ -1,12 +1,12 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Run Brief 4 item 6 (lifetime) of resource-groups-plan.md on a host; items 1 to 5 are witnessed in resource-groups-witness-2026-11-26.md"
+next: "Rule OQ-RG5: the agent child's binding io.max cap stalled the owner's Btrfs host on 2026-11-26; then Brief 4 item 6 (lifetime) of resource-groups-plan.md"
 ---
 
 # Owner-managed resource groups can bound combined workspace work only when placement and enforcement are proven
 
-**Status:** 2026-11-24. Owner direction and request-authorized v1 choices are recorded; implementation is built and wired, and witnessed on one host on 2026-11-26 except the lifetime case ([evidence](resource-groups-witness-2026-11-26.md)): the default-off selection, finite-policy planning, the child slices and launcher placement are integrated under [RG-R6](#RG-R6) (which replaced the plain-directory writer RG-R5 first built), with the lifetime case still owed ([the plan](resource-groups-plan.md)). Other hosts and devices are unmeasured.
+**Status:** 2026-11-24. Owner direction and request-authorized v1 choices are recorded; implementation is built and wired, and witnessed on one host on 2026-11-26 except the lifetime case ([evidence](resource-groups-witness-2026-11-26.md)): the default-off selection, finite-policy planning, the child slices and launcher placement are integrated under [RG-R6](#RG-R6) (which replaced the plain-directory writer RG-R5 first built), with the lifetime case still owed ([the plan](resource-groups-plan.md)). Other hosts and devices are unmeasured. ⚠ The same host then failed the responsiveness gate: under the agent child's 50 MB/s cap its Btrfs commits stalled processes outside the slice, so the owner turned the default off ([OQ-RG5](#OQ-RG5)).
 
 > **In short.** Resource-group behavior is off unless the owner opts in and maps work; the unconfigured launch path does not probe or change host groups. For opted-in Linux work, Yolo must verify actual placement before startup and may split a finite delegated allowance between shared agent and batch children using a 5/95 default that the owner can override.
 
