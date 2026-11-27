@@ -8,6 +8,22 @@ tags: [backlog, packs, composed-config]
 
 # Backlog — the one implementable list
 
+## Trace recording under a symlinked home
+
+`perf.openStoreRoot` (`internal/perf/tracestore.go`) declines a trace root that has any
+symlinked ancestor, so a user whose home sits under a link (Fedora Silverblue's `/home` →
+`/var/home`, or macOS's `/var` → `/private/var` for a temporary home) records no startup
+trace, with one dim warning as the only sign. The no-symlink rule protects the directories
+yolo creates; it does not need to refuse links above the user's home. Check only the
+components below the home, with a test that mints the home behind a link.
+
+## Restart readiness test waits on a time budget
+
+`TestARestartThatNeverBecomesReadyCountsAsADeath` (`internal/cli/run/hostdaemonsupervise_test.go`)
+gives the first start a 5-second `ServiceReadyTimeout` that it must beat, because one field
+governs both the first start and the restarts. Give the first start its own readiness event
+so the test waits on it rather than on a budget.
+
 ## Git sourced skills and AWS verification
 
 The [follow-up verification owner](git-skills-aws-verification.md) carries native Mac
