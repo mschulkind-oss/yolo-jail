@@ -180,10 +180,14 @@ func TestSeriesCheckUsesRecordedConflictWithoutWalking(t *testing.T) {
 		t.Fatalf("conflicting branch unexpectedly built:\n%s", out)
 	}
 	rc, out, errw := seriesVerb(t, "check", fx.forkDir)
-	for _, want := range []string{"does not merge the patch branch", "conflicts in f.txt", "git checkout mine", "git push origin mine"} {
+	for _, want := range []string{"does not merge the patch branch", "conflicts in f.txt", " checkout mine", "the next launch reads that clone"} {
 		if rc == 0 || !strings.Contains(out, want) {
 			t.Errorf("recorded conflict omitted %q: rc=%d\n%s\n%s", want, rc, out, errw)
 		}
+	}
+	// The fixture's patch branch is read from a local clone, so the recipe repairs that clone.
+	if strings.Contains(out, "git clone") || strings.Contains(out, "git push origin mine") {
+		t.Errorf("the recipe clones or pushes instead of repairing the local clone:\n%s", out)
 	}
 }
 
