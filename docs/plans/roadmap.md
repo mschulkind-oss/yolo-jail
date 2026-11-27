@@ -36,8 +36,9 @@ needs a ruling or a Mac sits in the others.
    ([OQ-UH1](../design/unified-workspace-home.md#OQ-UH1) to [OQ-UH5](../design/unified-workspace-home.md#OQ-UH5),
    2026-11-24). Slice 1, the container setups, is built ([its plan](../design/unified-workspace-home-plan.md), U1 to U8):
    Podman and Apple Container share the unified home, stranded homes merge at a launch, and two container setups are
-   refused. Next is slice 2, the guest joins, which has no plan yet; the later slices and the Mac witnesses W-UH1, W-UH5
-   and W-UH6 follow the [design's slices](../design/unified-workspace-home.md#14-slices).
+   refused. Next is slice 2, the guest joins, with a [build plan](../design/unified-workspace-home-guest-plan.md) (UG1 to UG6);
+   the later slices and the Mac witnesses W-UH1, W-UH5 and W-UH6 follow the
+   [design's slices](../design/unified-workspace-home.md#14-slices).
 
 2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): the hourly
    refresh throttle for packs and the patched-fork upstream check is dropped (a probe per remote, in parallel, under a
