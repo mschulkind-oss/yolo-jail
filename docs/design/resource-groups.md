@@ -1,12 +1,12 @@
 ---
 status: accepted
 stage: DECIDED
-next: "Run the owner host witness listed in resource-groups-plan.md; until it passes no document claims enforcement"
+next: "Run Brief 4 item 6 (lifetime) of resource-groups-plan.md on a host; items 1 to 5 are witnessed in resource-groups-witness-2026-11-26.md"
 ---
 
 # Owner-managed resource groups can bound combined workspace work only when placement and enforcement are proven
 
-**Status:** 2026-11-24. Owner direction and request-authorized v1 choices are recorded; implementation is built and wired but unverified: the default-off selection, finite-policy planning, the child slices and launcher placement are integrated under [RG-R6](#RG-R6) (which replaced the plain-directory writer RG-R5 first built), and no one has yet shown enforcement on a host ([the plan](resource-groups-plan.md)). Linux authority, actual placement, and device behavior remain unproven.
+**Status:** 2026-11-24. Owner direction and request-authorized v1 choices are recorded; implementation is built and wired, and witnessed on one host on 2026-11-26 except the lifetime case ([evidence](resource-groups-witness-2026-11-26.md)): the default-off selection, finite-policy planning, the child slices and launcher placement are integrated under [RG-R6](#RG-R6) (which replaced the plain-directory writer RG-R5 first built), with the lifetime case still owed ([the plan](resource-groups-plan.md)). Other hosts and devices are unmeasured.
 
 > **In short.** Resource-group behavior is off unless the owner opts in and maps work; the unconfigured launch path does not probe or change host groups. For opted-in Linux work, Yolo must verify actual placement before startup and may split a finite delegated allowance between shared agent and batch children using a 5/95 default that the owner can override.
 

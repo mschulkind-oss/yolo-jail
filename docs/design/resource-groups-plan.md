@@ -1,13 +1,13 @@
 ---
 status: accepted
 stage: DECIDED
-next: "The owner delegates io to the user manager and provisions a slice with a finite IO*Max, then runs the host witness listed under Brief 4; until it passes no document claims enforcement"
+next: "Run Brief 4 item 6 (lifetime: stop the slice while a member runs, relaunch) on a host; items 1 to 5 are witnessed in resource-groups-witness-2026-11-26.md"
 depends-on: [resource-groups.md]
 ---
 
 # Plan: owner-selected resource groups
 
-**Status:** 2026-11-24. Briefs 1 and 2 (owner-only selection, finite-policy planning, read-only check) are integrated. By the owner's [RG-R5](resource-groups.md#RG-R5) the child writer and launcher placement were built and wired into mapped launches; the first host witness showed the plain-directory writer cannot work on a systemd host, and [RG-R6](resource-groups.md#RG-R6) rebuilt them: the two children are **systemd child slices** of the mapped slice, limited through the user manager. Every refusal the code makes from what it observes stays. **Enforcement is unverified:** no one has yet run the child slices or the placement on a real host, and a nested jail cannot show cgroup delegation. The owner's host witness, listed under [Brief 4](#brief-4--verified-execution-boundary-coverage), validates after landing (`rg-witness-v2.sh` runs it).
+**Status:** 2026-11-24. Briefs 1 and 2 (owner-only selection, finite-policy planning, read-only check) are integrated. By the owner's [RG-R5](resource-groups.md#RG-R5) the child writer and launcher placement were built and wired into mapped launches; the first host witness showed the plain-directory writer cannot work on a systemd host, and [RG-R6](resource-groups.md#RG-R6) rebuilt them: the two children are **systemd child slices** of the mapped slice, limited through the user manager. Every refusal the code makes from what it observes stays. **Host witness, 2026-11-26:** on one host the owner's run showed both child slices with the planned `io.max`, the launcher, keeper and container inside the agent child, and a bounded `dd` throttled to its `wbps` ([evidence](resource-groups-witness-2026-11-26.md)). Brief 4 items 1 to 5 are witnessed; **item 6, the lifetime case, is still owed**, and a nested jail still cannot show cgroup delegation.
 **Design:** [Resource groups](resource-groups.md) controls behavior; this plan is advice, and the tree is the source of implementation facts.
 
 ## Map
@@ -70,7 +70,7 @@ depends-on: [resource-groups.md]
 
 ### Brief 3 — child slices through the user manager
 
-**Status:** rebuilt under RG-R6 on 2026-11-24; unverified on a host.
+**Status:** rebuilt under RG-R6 on 2026-11-24; witnessed on one host 2026-11-26 ([evidence](resource-groups-witness-2026-11-26.md)).
 
 **Integrated fake-only increment:** `ReconcileDelegatedIOAndStart` composes the injected reconciliation algorithm with a fresh observed-member check and an injected start callback under the assigned-group lock. Its tests cover unobserved/wrong-child/stale membership, missing delegation or finite budget, manager/policy drift, valid admission, concurrent shared-child reuse, cancellation, and no parent/sibling writes. An independent HIGH review accepted this bounded test/algorithm slice. The exact source passed the package, race, focused production-consumer, and Darwin compile gates. The committed primary-source bundle/check and rootful default-off nested smoke passed. These callbacks are fake only; the adapter has no production callers and establishes no native authority or placement.
 
@@ -128,18 +128,18 @@ slices with finite `IO*Max` limits. Until a re-run of this witness shows `io` in
 
 ### Brief 4 — verified execution-boundary coverage
 
-**Status:** launcher placement rebuilt under RG-R6 2026-11-24; container placement requested, not witnessed.
+**Status:** launcher placement rebuilt under RG-R6 2026-11-24; launcher, keeper and container placement witnessed on one host 2026-11-26 ([evidence](resource-groups-witness-2026-11-26.md)).
 
 **Built (RG-R6, 2026-11-24):** `placeOrRefuseResourceGroup` ([`resourcegroups.go`](../../internal/cli/run/resourcegroups.go), [`resourcegroupplace.go`](../../internal/cli/run/resourcegroupplace.go)) runs right after config validation in `Run`, and `RefuseHostResourceGroup` runs it for `yolo host`. Only a selected mapping reaches it (off by default, [resource-groups.md](resource-groups.md#decision-ledger)). It calls `EnsureChildSlices`, reads the launcher's `/proc/<pid>/cgroup`, and if the launcher is not already inside the agent child asks the user manager to move it: `busctl --user call … StartTransientUnit` with the pid in `PIDs` and the agent child as `Slice` (the call the keeper already makes). The call returns when the job is queued, so placement re-reads `/proc/<pid>/cgroup` every 25 ms until it names the agent child, under one 60 s failure guard, and a launcher still outside it at the guard refuses naming `systemctl --user status`. Success is the observed membership, never a read count or a short budget. Every descendant inherits the cgroup: startup work before the container, and a host-mode command, since `hostSyscallExec` keeps the pid. An attach runs the same gate and reuses the existing pair (one allowance, never two); an attacher already inside the agent child is moved by nothing. For rootless podman with the systemd cgroup manager, `assembleRunCmd` passes `--cgroup-parent=<agent child>`, so the container scope is meant to be a child of the agent slice; this is a request, not membership. Any other backend, a rootful or cgroupfs podman, a non-slice unit, macOS and an in-jail launch refuse. The batch child is created and limited but nothing is placed in it yet; placing tool and background work there is unbuilt. The keeper's own scope (`moveKeeperIntoScope`) is a separate unit but is created in the same agent child: the launch writes the slice into the keeper plan (`ResourceGroupSlice`) and the scope's `StartTransientUnit` carries it as `Slice`, so host-service I/O is inside the group's io.max; with no resource group it is unchanged.
 
-**Host witness owed (the owner, after landing).** Each must show the stated result; none is claimed today. The owner's witness script, `rg-witness-v2.sh` (kept in the owner's durable directory, not the repository), collects every item below in one read-mostly run.
+**Host witness (the owner).** Items 1 to 5 were witnessed on 2026-11-26 on one host, with the excerpts in [resource-groups-witness-2026-11-26.md](resource-groups-witness-2026-11-26.md); item 6 is still owed. The owner's witness script, `rg-witness-v2.sh` (kept in the owner's durable directory, not the repository), collects every item below in one read-mostly run.
 
-1. `io` appears in the **agent child's** `io.max`, equal to the printed 5/95 plan (or the override), and `batch-yolo.slice` now lists `io` in its `cgroup.subtree_control` (`cat` the files; `systemctl --user status` of both children).
-2. `yolo` from a user-manager terminal creates `<stem>-agent.slice` and `<stem>-batch.slice` under the slice, each with its own `io.max`.
-3. `/proc/<pid>/cgroup` of the launcher is inside the slice's agent child (a `run-…scope` or the child itself); from a login-session scope the launch either moves it or refuses naming step 5 of the host setup.
-4. **The container scope is under the agent child:** `/proc/<container pid>/cgroup` (or `systemd-cgls`) shows the container's `libpod-….scope` inside `<stem>-agent.slice`, not beside it.
-5. A heavy write inside the jail shows throttling in the agent child's `io.stat` and respects the parent cap; two simultaneous launches share one pair.
-6. Lifetime: stop the slice while a child holds a member, recreate it, and report what the launch does.
+1. `io` appears in the **agent child's** `io.max`, equal to the printed 5/95 plan (or the override), and `batch-yolo.slice` now lists `io` in its `cgroup.subtree_control` (`cat` the files; `systemctl --user status` of both children). **Witnessed 2026-11-26** ([evidence](resource-groups-witness-2026-11-26.md)).
+2. `yolo` from a user-manager terminal creates `<stem>-agent.slice` and `<stem>-batch.slice` under the slice, each with its own `io.max`. **Witnessed 2026-11-26** ([evidence](resource-groups-witness-2026-11-26.md)).
+3. `/proc/<pid>/cgroup` of the launcher is inside the slice's agent child (a `run-…scope` or the child itself); from a login-session scope the launch either moves it or refuses naming step 5 of the host setup. **Witnessed 2026-11-26** ([evidence](resource-groups-witness-2026-11-26.md)).
+4. **The container scope is under the agent child:** `/proc/<container pid>/cgroup` (or `systemd-cgls`) shows the container's `libpod-….scope` inside `<stem>-agent.slice`, not beside it. **Witnessed 2026-11-26** ([evidence](resource-groups-witness-2026-11-26.md)).
+5. A heavy write inside the jail shows throttling in the agent child's `io.stat` and respects the parent cap; two simultaneous launches share one pair. **Witnessed 2026-11-26** ([evidence](resource-groups-witness-2026-11-26.md)); the pair reuse was shown by an attaching launch, not two simultaneous ones.
+6. Lifetime: stop the slice while a child holds a member, recreate it, and report what the launch does. **Still owed.**
 
 **Settled — do not re-open:** charge work only when its actual process/runtime membership is witnessed before expensive work. A requested container parent or keeper scope return code is not proof. Attach reuses the running jail and does not create a second allowance. Nix builders/shared services and every unverified nested/external boundary are explicitly excluded.
 

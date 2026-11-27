@@ -89,5 +89,5 @@ func sectionResourceGroups(r *reporter, cfg *jsonx.OrderedMap, workspace string,
 		return
 	}
 	r.line("  Child slices: a launch creates " + termsafe.Visible(agentChild) + " and " + termsafe.Visible(batchChild) + " as systemd child slices of " + termsafe.Visible(selection.Unit) + " through your user manager (`systemctl --user set-property --runtime`, then start), places itself in the agent child with a transient scope, and asks rootless podman for --cgroup-parent=" + termsafe.Visible(agentChild) + ".")
-	r.warn(identity+"; io reaches the group, so a launch will create the two child slices and place itself", "Placement and enforcement are not verified by this check; the owner's host witness establishes them. "+removal)
+	r.warn(identity+"; io reaches the group, so a launch will create the two child slices and place itself", "Placement and enforcement are not verified by this check, which writes nothing; a launch sets the ceiling and reads it back. "+removal)
 }

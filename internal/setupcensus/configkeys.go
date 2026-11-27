@@ -252,8 +252,8 @@ var configKeys = map[string]Entry{
 			"through the user manager, reads each child's io.max back, moves the launcher into the " +
 			"agent child and reads /proc/<pid>/cgroup back, then assembleRunCmd passes " +
 			"--cgroup-parent=<agent child> for rootless podman's systemd manager. " +
-			"Every condition it cannot observe refuses. Unselected, nothing is probed. Enforcement is " +
-			"unverified until the owner's host witness"),
+			"Every condition it cannot observe refuses. Unselected, nothing is probed. The kernel " +
+			"enforces the ceiling once it is set and read back"),
 		PodmanMac: refused("the same gate refuses a selected mapping: placement is Linux-only (OQ-RG1)"),
 		AppleContainer: refused("the same gate refuses a selected mapping: placement is Linux-only " +
 			"(OQ-RG1)"),
