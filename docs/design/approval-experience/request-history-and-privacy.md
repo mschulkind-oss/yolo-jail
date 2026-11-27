@@ -427,6 +427,33 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
   [BB-D113](../boundary-broker.md#BB-D113) ruled, which is not built; the queue must not work
   around it by reading store or audit files.
 
+**Real-browser witness (2026-11-27), fixtures only.** The queue web UI, started with
+`--ended` and fed by the fake yolo (`approve-json-populated.json`, `approve-json-ended.json`), was
+driven in headless Chromium through the Chrome DevTools protocol. Reproduce: start
+`YOLO_QUEUE_WITNESS_DIR=<dir> YOLO_QUEUE_WITNESS_PORT=8931 go test -count=1 -short=false -run TestServeForBrowserWitness ./internal/approvalqueue`
+(it writes the link to `<dir>/link` and runs until `<dir>/stop` exists), then open the link.
+Observed:
+
+- Pending Show/Hide: the `--body` value of a pending request showed as `[hidden: 53 characters,
+  sha256 a292bde4]` with a Show button; Show revealed the raw value and the button became Hide.
+- History Show/Hide: expanding the denied ended request's "as last seen" card showed its body
+  masked; Show revealed it, Hide masked it again, and the pending and history reveal keys were
+  independent.
+- Re-masking: dispatching `visibilitychange` with `document.hidden` true masked every revealed
+  value, pending and history. **Limit:** headless Chromium never hides a tab (a second
+  foreground page left the first `visible`), so this exercised the page's handler with a
+  synthetic event, not a real tab switch.
+- Reload and restart: after a reload the values were masked again and neither `sessionStorage`
+  nor `localStorage` held a secret. After the queue process was restarted the old session got
+  "This link was used or expired"; the new link showed the pending and ended entries masked.
+- Ended records: the denied request (with its denial note), the ended grant and the revoked
+  working entry appeared in history with the store's 7-day horizon sentence, and none appeared
+  among the pending requests.
+
+**Still open:** T1, T2 and L4 (the real host path and the real desktop opener) were not
+exercised, since the queue read a fake yolo. A real tab switch in a headed browser is also
+unverified.
+
 ## Decision Ledger
 
 | ID | Ruling / Decision | Date | Settled in | Built |
