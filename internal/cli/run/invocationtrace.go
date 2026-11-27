@@ -107,7 +107,7 @@ func (o *Options) initLauncherTrace() {
 		s.warnOnce(err.Error())
 		return
 	}
-	if !o.Perf.InstallIndependentTrace(tr, sink) {
+	if !o.Perf.InstallIndependentTrace(tr, serializedSink(sink)) {
 		_ = writer.Close()
 		_ = claim.Close()
 		_ = store.Close()
@@ -262,6 +262,20 @@ func (o *Options) keeperTraceContext(sp *perf.Span) string {
 	return ctx.String()
 }
 
+// serializedSink makes an admitted trace sink safe for the process's concurrent spans. The
+// collector calls its sinks from whatever goroutine ends a span, and the admitted writer answers
+// a concurrent call by disabling its lane for good (TryLock): a keeper, whose service and session
+// goroutines all record, lost its lane's tail, End included. The caller serializes instead of the
+// writer refusing.
+func serializedSink(sink perf.Sink) perf.Sink {
+	var mu sync.Mutex
+	return func(e perf.Event) {
+		mu.Lock()
+		defer mu.Unlock()
+		sink(e)
+	}
+}
+
 // frozenRecording is the recording gate as the launcher froze it at its collector's construction:
 // a collector exists exactly when the gate was on then. The keeper plan carries this, never a
 // fresh read of the ambient flags.
@@ -308,7 +322,7 @@ func (o *Options) initKeeperTrace(plan *keeperPlan) {
 		s.warnOnce(err.Error())
 		return
 	}
-	if !o.Perf.InstallIndependentTrace(tr, sink) {
+	if !o.Perf.InstallIndependentTrace(tr, serializedSink(sink)) {
 		_ = writer.Close()
 		_ = claim.Close()
 		_ = store.Close()

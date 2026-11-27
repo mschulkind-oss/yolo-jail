@@ -227,8 +227,20 @@ func TestKeeperJoinsTheLaunchersWaitingSpan(t *testing.T) {
 	if start == nil || start["parent"] != tr.Span.String() || start["launcher_root"] == true {
 		t.Errorf("keeper lifetime start %v is not an undesignated child of the waiting span", start)
 	}
-	if last := lines[len(lines)-1]; last["k"] != "end" || last["name"] != "keeper" {
-		t.Errorf("the keeper lifetime does not end last: %v", lines)
+	// The lifetime ends after the keeper's real cleanup (every shutdown span). A straggling
+	// goroutine's own mark may still land after it, so "last" would be a race, not a contract.
+	endAt, lastShutdown := -1, -1
+	for i, m := range lines {
+		if m["k"] == "end" && m["name"] == "keeper" {
+			endAt = i
+		}
+		if name, _ := m["name"].(string); strings.HasPrefix(name, "shutdown.") {
+			lastShutdown = i
+		}
+	}
+	if endAt < 0 || lastShutdown < 0 || endAt < lastShutdown {
+		t.Errorf("the keeper lifetime (end at %d) does not end after its cleanup (last shutdown event at %d): %v",
+			endAt, lastShutdown, lines)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "meta.json")); err == nil {
 		t.Error("the keeper published metadata")
