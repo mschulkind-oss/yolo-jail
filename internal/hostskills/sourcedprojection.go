@@ -23,6 +23,15 @@ func PrintSourcedSkillInspection(pr richtext.Printer, packs []*packload.Pack) {
 	printSkillProjection(pr, packs, true)
 }
 
+// rowAudience names the destinations a sourced row is delivered to, the one
+// spelling both the delivery rows and the read-only inspection rows print.
+func rowAudience(row packload.SourcedSkill) string {
+	if audience := strings.Join(row.By.Agents, ","); audience != "" {
+		return audience
+	}
+	return "all selected destinations"
+}
+
 func printSkillProjection(pr richtext.Printer, packs []*packload.Pack, inspection bool) {
 	seen := map[string]bool{}
 	for _, p := range packs {
@@ -62,7 +71,7 @@ func printSkillProjection(pr richtext.Printer, packs []*packload.Pack, inspectio
 					address, _ := packsrc.Parse(row.By.Source)
 					source, directory = address.Repo, address.Path
 				}
-				pr.Printf("    row %s → %s: kind=%s marker=%s; carrier=%s; source root=%s directory=%q commit=%s", richtext.Escape(s.Name), richtext.Escape(name), s.Kind, s.MarkerState, carrier, richtext.Escape(source), directory, commit)
+				pr.Printf("    row %s → %s: kind=%s marker=%s; carrier=%s; source root=%s directory=%q commit=%s; audience=%s", richtext.Escape(s.Name), richtext.Escape(name), s.Kind, s.MarkerState, carrier, richtext.Escape(source), directory, commit, richtext.Escape(rowAudience(row)))
 				if s.Kind == "directory" {
 					pr.Printf("      ordinary-directory governor: source=%q child=%q", s.Governor, s.Name)
 				}
@@ -128,10 +137,7 @@ func printSkillProjection(pr richtext.Printer, packs []*packload.Pack, inspectio
 			} else {
 				pr.Printf("  payload %s?ref=%s @ %s: shared supporting deployment (no added bytes)", richtext.Escape(result.Repo), richtext.Escape(result.Ref), result.Commit)
 			}
-			audience := strings.Join(row.By.Agents, ",")
-			if audience == "" {
-				audience = "all selected destinations"
-			}
+			audience := rowAudience(row)
 			if row.Plan.MarkerState == "absent" {
 				pr.Printf("  delivers folder %s to %s: no SKILL.md, not discoverable and excluded from skill counts; %d selected executables; supporting links into %s", richtext.Escape(name), richtext.Escape(audience), row.Plan.Executables, richtext.Escape(filepath.ToSlash(row.Plan.Path)))
 				pr.Printf("    license: %s", richtext.Escape(row.Plan.LicenseNote))
