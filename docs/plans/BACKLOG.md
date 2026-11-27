@@ -1447,11 +1447,15 @@ topic now. They are listed by area, in no priority order; nothing here is ranked
   returned or timed out with the container still running or stopping (slow conmon exit file),
   and the poll budget ran out first; (2) the container was seen stopped but `rm --force` plus the
   existence probe did not answer "gone" once (JL-D82 allows one try); (3) probes returned
-  unknown (10 s timeouts) so no iteration could act. Smallest next step: make the keeper log a
-  per-iteration probe answer (running id, existing id, known flags) and the `stop`/`rm` exit
-  codes when `confirmGone` gives up, and have the integration helper copy the keeper log into the
-  failure output; the next red then says which of the three. Do not change the budget until it
-  does. No fix was written: nothing here is provable from the surviving log.
+  unknown (10 s timeouts) so no iteration could act. The diagnostics now exist, so the next red
+  names which: when `confirmGone` gives up the keeper log carries `what it saw of <name> over N
+  probes: Kx [running=<id|none>(known=<bool>) existing=<id|none>(known=<bool>)], then ...` (runs
+  of identical answers collapse, at most six runs) and `the commands it ran: stop: rc=<n>;
+  rm --force: rc=<n>` (or `not run`, which means the runtime never said the container was
+  stopped, hypothesis 3). A launch the integration harness sees fail (nonzero rc or a timeout)
+  now prints the tail of every keeper log it wrote into the test output (`runLaunch`,
+  `integration/keeperevidence_test.go`), so the evidence survives the temp-dir cleanup. Do not
+  change the budget until a red shows which hypothesis holds.
 - **`yolo check`'s Running Jails section says nothing about the host when run in a jail.** Inside
   a jail it reports only the nested runtime's view, such as "No jails currently running", without
   saying the host may have some. Give it the same host-fact note the NVIDIA section now prints.

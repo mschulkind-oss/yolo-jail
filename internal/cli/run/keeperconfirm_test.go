@@ -9,6 +9,7 @@ package run
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -324,5 +325,60 @@ func TestAStoppedContainerItsRemovalLeftBehindIsRemovedAtOnce(t *testing.T) {
 	}
 	if log := f.keeperLog(); !strings.Contains(log, "removed the stopped container") {
 		t.Errorf("the keeper's log does not say it removed the leftover:\n%s", log)
+	}
+}
+
+// TestAKeeperThatGivesUpOnAJailNamesWhatItSaw: when a stopped jail will not go, the keeper's log
+// says what its probes answered (collapsed into counted runs, never one line a probe) and what the
+// stop it ran answered, so a flake of this shape names its cause on the next occurrence.
+func TestAKeeperThatGivesUpOnAJailNamesWhatItSaw(t *testing.T) {
+	saved := keeperGoneAttempts
+	keeperGoneAttempts = 3
+	t.Cleanup(func() { keeperGoneAttempts = saved })
+	var session *sessionLock
+	f := startKeeperFixture(t, true, func(p *keeperPlan) {
+		lock, _, err := takeSessionLock(p.Cname)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session = lock
+	})
+	if !f.relay() {
+		t.Fatalf("the relay ended before ready:\n%s", f.errOut.String())
+	}
+	f.jail.mu.Lock()
+	f.jail.stuck = true // the runtime keeps answering that the container runs
+	f.jail.mu.Unlock()
+	session.release()
+	f.wait()
+	log := f.keeperLog()
+	for _, want := range []string{
+		"what it saw of " + f.cname + " over 3 probes: 3x [running=abc123(known=true) existing=abc123(known=true)]",
+		"the commands it ran: stop: rc=0; rm --force: not run",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("the keeper's log lacks %q:\n%s", want, log)
+		}
+	}
+	if n := strings.Count(log, "abc123"); n != 2 {
+		t.Errorf("the summary names the probe answer %d times, want once per field (repeats collapse):\n%s", n, log)
+	}
+}
+
+// TestGoneObservationsCollapseRepeatsAndBoundTheirRuns pins the summary's size bound.
+func TestGoneObservationsCollapseRepeatsAndBoundTheirRuns(t *testing.T) {
+	var g goneObservations
+	for i := 0; i < 75; i++ {
+		g.add("same")
+	}
+	if got := g.String(); got != "75x [same]" {
+		t.Errorf("75 identical probes read %q", got)
+	}
+	var h goneObservations
+	for i := 0; i < 40; i++ {
+		h.add(strconv.Itoa(i))
+	}
+	if got := h.String(); !strings.Contains(got, "... and 34 more changes") || strings.Count(got, "1x") != goneObservationRuns {
+		t.Errorf("40 distinct probes read %q", got)
 	}
 }

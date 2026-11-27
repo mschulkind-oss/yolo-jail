@@ -239,12 +239,19 @@ func (o *Options) removeStaleContainer(cname, rt string) bool {
 // cannot take a handle on removes the container and still exits 125 (JL-D82). Never for a container
 // that may run: removeStaleContainer is the removal that refuses a live one.
 func (o *Options) forceRemoveStoppedContainer(cname, rt string) bool {
-	o.Exec([]string{rt, "rm", "--force", cname}, "", nil, trackingProbeTimeout)
+	_, gone := o.forceRemoveStoppedContainerResult(cname, rt)
+	return gone
+}
+
+// forceRemoveStoppedContainerResult is forceRemoveStoppedContainer that also returns what the
+// `rm --force` itself answered, which the keeper logs when the container will not go.
+func (o *Options) forceRemoveStoppedContainerResult(cname, rt string) (ExecResult, bool) {
+	res := o.Exec([]string{rt, "rm", "--force", cname}, "", nil, trackingProbeTimeout)
 	if id, known := o.probeExistingContainer(cname, rt, trackingProbeTimeout); known && id == "" {
 		runtime.CleanupContainerTracking(cname)
-		return true
+		return res, true
 	}
-	return false
+	return res, false
 }
 
 // liveYoloContainers returns the names of yolo-* containers
@@ -275,14 +282,13 @@ func (o *Options) liveYoloContainers(rt string) (map[string]struct{}, bool) {
 // from anyone: the keeper's own teardown removes it while it still names the keeper, the reaper
 // while it still names the dead owner it read (clearOwnerPIDIf, JL-D28 (4)). An unconditional
 // removal here took the file of the next jail's keeper away whenever a stop ran late.
-func (o *Options) stopJail(cname, rt, reason string) {
+func (o *Options) stopJail(cname, rt, reason string) ExecResult {
 	o.recordJailStop(cname, reason)
 	if rt == "container" {
-		o.Exec([]string{"container", "stop", cname}, "", nil, 30*time.Second)
-	} else {
-		o.Exec([]string{rt, "stop", "-t", strconv.Itoa(TeardownStopTimeoutSeconds), cname}, "", nil,
-			time.Duration(TeardownStopTimeoutSeconds+5)*time.Second)
+		return o.Exec([]string{"container", "stop", cname}, "", nil, 30*time.Second)
 	}
+	return o.Exec([]string{rt, "stop", "-t", strconv.Itoa(TeardownStopTimeoutSeconds), cname}, "", nil,
+		time.Duration(TeardownStopTimeoutSeconds+5)*time.Second)
 }
 
 // reapOrphanedJails stops running jails whose owner is gone. Conservative — only reaps what it can

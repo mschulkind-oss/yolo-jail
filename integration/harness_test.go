@@ -807,6 +807,8 @@ type result struct {
 	rc     int
 	stdout string
 	stderr string
+	// keeperLogs is the tail of the keeper logs a FAILED launch wrote (keeperevidence_test.go).
+	keeperLogs string
 }
 
 func (r result) combined() string { return r.stdout + r.stderr }
@@ -961,9 +963,11 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 	hang := armHangReport(cmd)
 	cmd.WaitDelay = launchWaitDelay // a survivor holding the pipes must not outlast the deadline
 
+	began := time.Now().Add(-time.Second)
 	err := cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		forceRemoveContainer(dir)
+		reportKeeperEvidence(t, cmd.Env, began)
 		return result{}, &launchTimeout{
 			summary: fmt.Sprintf("yolo timed out after %s: yolo %s", cfg.timeout, strings.Join(args, " ")),
 			detail:  timeoutDetail(stdout.String(), stderr.String(), hang),
@@ -987,6 +991,11 @@ func runLaunch(t *testing.T, dir string, args []string, opts ...runOption) (resu
 		}
 	}
 	res := result{rc: rc, stdout: stdout.String(), stderr: stderr.String()}
+	if rc != 0 {
+		// The keeper's log lives in the test's temp HOME, which is deleted with it: a flake whose
+		// cause is there left nothing to read. Failed launches carry it into the test output.
+		res.keeperLogs = reportKeeperEvidence(t, cmd.Env, began)
+	}
 	// Attribute a failed image build to the image build, right here, before the
 	// caller asserts anything about a jail that was never built from this source
 	// tree (see imagebuildfailure_test.go for why this cannot live in TestMain's

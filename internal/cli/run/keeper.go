@@ -195,6 +195,7 @@ type keeper struct {
 	o                  *Options
 	plan               *keeperPlan
 	sink               *keeperSink
+	stopResult         string // what endJail's stop answered, for confirmGone's give-up summary
 	harvestFailed      bool
 	teardownComplete   bool
 	selectedMCPStopped bool
@@ -978,7 +979,7 @@ func (k *keeper) endJail(reason string, stop bool) {
 		// running jail leaves them reachable only through it (keeperrescue.go, SD-D13).
 		k.rescueIfMoved()
 		sp := o.Perf.Span("keeper.stop_jail")
-		o.stopJail(p.Cname, p.Runtime, reason)
+		k.stopResult = describeExec("stop", o.stopJail(p.Cname, p.Runtime, reason))
 		sp.End()
 	}
 	k.jailLeft = k.callbackPreserveRuntime
@@ -1045,19 +1046,35 @@ var keeperGoneAttempts = restartPollAttempts
 func (k *keeper) confirmGone() bool {
 	o, p := k.o, k.plan
 	forced := false
+	var seen goneObservations
+	rmResult := ""
 	for i := 0; i < keeperGoneAttempts; i++ {
-		if id, known := o.probeExistingContainer(p.Cname, p.Runtime, trackingProbeTimeout); known && id == "" {
+		existID, existKnown := o.probeExistingContainer(p.Cname, p.Runtime, trackingProbeTimeout)
+		if existKnown && existID == "" {
 			return true
 		}
-		if id, known := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout); !forced && known && id == "" {
+		runID, runKnown := o.probeRunningContainer(p.Cname, p.Runtime, trackingProbeTimeout)
+		seen.add(fmt.Sprintf("running=%s(known=%t) existing=%s(known=%t)", idOrNone(runID), runKnown, idOrNone(existID), existKnown))
+		if !forced && runKnown && runID == "" {
 			forced = true
-			if o.forceRemoveStoppedContainer(p.Cname, p.Runtime) {
+			res, gone := o.forceRemoveStoppedContainerResult(p.Cname, p.Runtime)
+			rmResult = describeExec("rm --force", res)
+			if gone {
 				k.sink.logf("keeper: removed the stopped container %s its --rm left behind", p.Cname)
 				return true
 			}
 		}
 		time.Sleep(restartPollInterval)
 	}
+	k.sink.logf("keeper: what it saw of %s over %d probes: %s", p.Cname, keeperGoneAttempts, seen.String())
+	stopSeen, rmSeen := k.stopResult, rmResult
+	if stopSeen == "" {
+		stopSeen = "stop: not run by this keeper"
+	}
+	if rmSeen == "" {
+		rmSeen = "rm --force: not run (the runtime never said the container was stopped)"
+	}
+	k.sink.logf("keeper: the commands it ran: %s; %s", stopSeen, rmSeen)
 	k.sink.logf("keeper: %s is still there after its stop, so the keeper leaves it unkept: its host-services dir and records stay, a new session is refused, and %s ends it", p.Cname, stopRemedy(p.Runtime, p.Cname))
 	return false
 }
