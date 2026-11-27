@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/mschulkind-oss/yolo-jail/internal/approvalqueue"
 	"strings"
 	"testing"
 )
@@ -43,6 +44,38 @@ func TestApproveHelpDocumentsTheExperimentalWebQueue(t *testing.T) {
 	for _, want := range []string{"yolo approve --web", "experimental", "read-only", "--no-open", "--listen", "--reconcile", "--assets"} {
 		if !strings.Contains(approveUsage, want) {
 			t.Errorf("approve help does not mention %q", want)
+		}
+	}
+}
+
+// TestApproveHelpNamesEveryFlagTheWebQueueParses pins the --web synopsis to the queue's own flag
+// set: `-h` makes that parser print every flag it defines, and each must appear in the help's
+// --web line. MUTATION: add a flag to approvalqueue's FlagSet, or delete `[--ended]` from the
+// synopsis, and this fails.
+func TestApproveHelpNamesEveryFlagTheWebQueueParses(t *testing.T) {
+	_, _, errs := captureStd(t, func() int { return approvalqueue.Main([]string{"-h"}) })
+	var synopsis string
+	for _, line := range strings.Split(approveUsage, "\n") {
+		if strings.Contains(line, "yolo approve --web") {
+			synopsis = line
+			break
+		}
+	}
+	if synopsis == "" {
+		t.Fatal("approve help has no --web synopsis line")
+	}
+	var flags []string
+	for _, line := range strings.Split(errs, "\n") {
+		if strings.HasPrefix(line, "  -") {
+			flags = append(flags, strings.Fields(line)[0])
+		}
+	}
+	if len(flags) < 5 {
+		t.Fatalf("read %d flags from the queue's -h output, want at least 5:\n%s", len(flags), errs)
+	}
+	for _, f := range flags {
+		if !strings.Contains(synopsis, "-"+f) {
+			t.Errorf("approve help's --web line %q does not name the parser's %s flag", synopsis, "-"+f)
 		}
 	}
 }
