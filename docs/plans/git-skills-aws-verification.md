@@ -2,7 +2,7 @@
 title: "Git sourced skills and AWS: follow-up verification"
 status: accepted
 stage: DECIDED
-next: "Run W-GSS1–3 on main using the owner's Mac agent; measure N7 separately without upstream or agent execution."
+next: "Run W-GSS1–3 on main using the owner's Mac agent; N7 is measured on Linux (below)."
 tags: [verification, macos, skills, aws]
 ---
 
@@ -130,15 +130,68 @@ row per witness. Failure gets a permanent regression and a fix-forward main comm
 
 ## Separate measurements and nonblocking review notes
 
-- **N7:** measure whole-payload reads/peak memory on fresh launch, attach and host
-  observe using owned synthetic payloads near the bound. Do not infer cost from
-  code inspection; begin by counting reader invocations and retained bytes.
-- Reproduce declaration-certain built-in collision versus unresolved-layer notch
-  suppression before changing policy. Also reproduce a deeply nested staged pack's
-  record-root lookup before changing record resolution. Both were source-only P2
-  notes, not established runtime defects.
-- Test case-insensitive recognition of a skill's own license before proposing an
-  ergonomics change. Canonical automatic-license refusal remains the contract.
+- **N7 (measured 2026-11-27 at `fd75c97c4`, Linux, synthetic payloads):** whole-payload
+  reads counted at the OS level, not timed: the test reads `/proc/self/io` `rchar` (every
+  byte the process `read(2)`s, including the payload bytes that arrive from
+  `git cat-file --batch` through a pipe) around each production entry point and divides by
+  the payload size. Payload: 16 files totalling 251,658,301 bytes, 96% of the 256 MiB
+  `skillByteLimit`. Tests:
+  `TestSkillPayloadWholePayloadReadCounts` (`internal/packsrc`, the reader entry points) and
+  `TestSourcedSkillComposedReadCountsAndNestedRecordRoot` (`internal/skillimports`, the
+  composed `packload` path over one payload). The default size is 16 MiB;
+  `YOLO_N7_PAYLOAD_BYTES=251658240` reproduces the near-bound row. Both assert the counts
+  below, so a change in read count fails; neither asserts memory.
+
+  | Path | Entry point | Whole-payload reads | Bytes allocated (x payload) |
+  |---|---|---|---|
+  | Fresh launch, payload not yet published | `ResolveSkillPayloads` | 2 (one Git read, one verify of the written tree) | 3.24 |
+  | Fresh launch, payload already published | `ResolveSkillPayloads` | 2 (one Git read, one verify of the published tree) | 3.24 |
+  | Fresh launch, staging into the pack tree | `StageSkillPayloads` to `CopySkillPayload` | 2 (one tree read, one verify after publish) | 4.47 |
+  | Attach, per recorded row | `HydrateSourcedSkills` to `ReadSkillPayloadTreeBeneath` | 1 | 2.24 |
+  | Host observe | `ReadSkillPayloads` | 2 (one Git read, one verify of the published tree) | 3.24 |
+
+  So a cold launch of one payload reads it 4 times (resolve 2, stage 2) and an attach reads
+  it once per row that records it. Retained bytes: one plan holds 1.00x the payload
+  (251,658,301 bytes) in `Entry.Data`; the launch holds that plan across the call, and
+  `copyPackTreeBeneath` (`internal/cli/run/gitskillcopy.go`) is one further whole-tree read
+  per payload location on a host copy of a recorded pack tree, not measured here. Peak
+  resident size (`VmHWM`, reset with `/proc/self/clear_refs` before each call) was 2.21x
+  for the first call, a cold resolve. The later rows read 3.9x to 4.1x, but that high-water
+  mark also holds the earlier plans the test keeps alive, so only the first row is a clean
+  peak. The cost shape is linear in payload size and in the number of rows, not in the
+  number of packs. No change to `skillpayload.go` is proposed from these numbers: they say
+  where a reader could be shared (resolve and stage each re-verify a tree they just wrote),
+  not that anyone is hurt by it. Not measured: a payload with many rows (one tree read
+  each), wall time, or a macOS filesystem.
+- **Built-in collision versus unresolved-layer notch suppression: does not reproduce as a
+  defect.** `TestUnresolvedBuiltinCollisionIsRefusedByDeclarationAndOnlyDryRunDropsIt`
+  (`internal/skillimports`) shows both halves of the source note: a sourced row naming a
+  built-in skill collides by declaration while unresolved
+  (`jailcontent.SkillCollisionError`), and the dry-run list that
+  `refreshJailBriefingsMode` builds (`internal/cli/run/prepare.go`) drops every
+  not-ready row, so over that list no collision exists. The refusal is carried by
+  `checkSkillCollisions` in `stagePacks` (`internal/cli/run/packs.go`), which runs over
+  the full declared list before the dry-run pass. What would make it a defect is a path
+  that reaches the dry-run pass without `stagePacks`; none was found by reading, and this
+  test does not drive `internal/cli/run` (a 15 to 25 minute package) to prove the
+  negative. Existing tests already cover the three notches' declaration-certain refusal
+  (`TestSourcedBuiltinCollisionAtJailNotch`, `TestHostApplySourcedBuiltinNamesAndPrefixAliasesRefuseUnfetched`,
+  `TestSectionPacksSourcedBuiltinCollisionIncludesUnfetchedPrefixAliases`).
+- **Deeply nested staged pack record-root lookup: does not reproduce.** The same composed
+  test stages a pack five directories below the tree root (`a/b/c/d/e/owner`), writes the
+  record, reads it back with `ReadPackTreeRecord` and hydrates the row. The record holds the
+  pack's directory relative to the tree (`a/b/c/d/e/owner`) and every reader is handed the
+  tree root explicitly (`loadPackTree`, `loadPackRootAsStaged`, `sandboxTmpdirEnvAt`); no
+  reader searches upward for a record, so depth does not change the lookup.
+- **Case-insensitive own license:** `TestReadSkillPayloadTreeOwnLicenseIsRecognizedByExactNameOnly`
+  (`internal/packsrc`) pins today's behavior. Only the four exact names `LICENSE`,
+  `LICENSE.md`, `LICENSE.txt` and `COPYING` count as a skill's own license. A skill with
+  `license` or `License.md` and no root license is reported "no license file found". The same skill
+  with a root `LICENSE` is **refused** ("license basename LICENSE conflicts with skill
+  entry skills/chosen/license"), because yolo would add the root license under a name that
+  differs only by case. Whether to recognize the cased name instead is an ergonomics
+  proposal, not a defect; the canonical refusal remains the contract and nothing is
+  overwritten.
 - Native agent discovery remains unmeasured. No automated interactive agent/model
   execution is authorized; repository bytes/link shape do not prove scanner behavior.
 - Real rootless-host reachability/ID mapping needs a real rootless host or CI, with
