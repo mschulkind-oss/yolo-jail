@@ -223,6 +223,11 @@ func (f Fork) RebaseRecipe() packsrc.RebaseRecipe {
 			a.Repo = strings.SplitN(f.PatchBranch, "?", 2)[0]
 		}
 		r.PatchBranchRepo, r.PatchBranchRef, r.Dir = a.Repo, a.Ref, f.Pack+"-"+f.Bin+"-patch-branch"
+		// A branch read from a LOCAL CLONE is repaired in that clone: the next launch reads it again.
+		if s, err := f.ReadSeries(); err == nil && s.PatchBranch != nil && s.PatchBranch.Resolved != nil &&
+			s.PatchBranch.Resolved.Copy == "local" {
+			r.LocalClone = s.PatchBranch.Resolved.Checkout
+		}
 		return r
 	}
 	if s, err := f.ReadSeries(); err == nil {
