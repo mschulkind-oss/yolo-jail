@@ -564,6 +564,10 @@ func (k *keeper) run() int {
 		o.pr(o.Stderr).printf("[bold red]Refusing to start jail: %s. Remove the overlapping mount and retry.[/bold red]", err)
 		return k.unwindUnstarted(1)
 	}
+	// THE TRACE CARRIER, last: the keeper's actual joined lifetime context (or the explicit empty one)
+	// at the final image position, after every mutation above, and so in the argv a callback retry
+	// starts again (traceenv.go).
+	runCmd = o.withTraceEnv(runCmd, p.ImageRef, o.keeperLifetimeContext())
 	k.callbackRunCmd = runCmd
 	jm, err := k.startMCPCallbackAttempt(runCmd)
 	if err != nil {

@@ -2910,6 +2910,9 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	if bound := o.freshPrivateClientCommand(cname, rt, staged, targetCmd); bound != targetCmd {
 		firstExec = o.firstSessionExecCmd(rt, cname, o.sessionCmd(bound), sessionID)
 	}
+	// THE FIRST SESSION'S TRACE CARRIER: the launch's actual waiting span, after the private-client
+	// reconstruction above, or the explicit empty carrier (traceenv.go).
+	firstExec = o.withTraceEnv(firstExec, cname, o.keeperTraceContext(sp))
 	rc, execErr := runArmedSession(firstExec, arm, o)
 	if !arm.detach() {
 		select {} // the signal arm is ending this launch; never race it
@@ -3693,6 +3696,8 @@ func (o *Options) attachExisting(cname, rt, targetCmd string, cfg *jsonx.Ordered
 	// returns, before the arm lets go.
 	o.registerHerdrAgent(view.staged.packs, o.Args)
 	sp := o.Perf.Span("attach.exec")
+	// THE ATTACH'S TRACE CARRIER: that actual span, or the explicit empty carrier (traceenv.go).
+	runCmd = o.withTraceEnv(runCmd, cname, o.keeperTraceContext(sp))
 	rc, err := runArmedSession(runCmd, arm, o)
 	sp.End()
 	o.releaseHerdrAgent()
