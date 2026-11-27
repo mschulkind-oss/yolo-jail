@@ -257,6 +257,9 @@ func (f *Floor) refresh(ctx context.Context, p Program, st Status) (Status, Outc
 	if p.Install.Kind == packdecl.InstallKindSource {
 		return st, Current, nil
 	}
+	if !f.ManualUpdate && f.HoldRefresh != nil && f.HoldRefresh() {
+		return st, Current, nil
+	}
 	rec := st.Record
 	selectedChanged := false
 	invalidatedCapture := false

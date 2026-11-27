@@ -218,7 +218,7 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 	// which is the user's own copy of it (HP-DIR4) and keys its composition the same way.
 	cmd0 := filepath.Base(cmd[0])
 	progs := floorPrograms(packs)
-	var todo []hostfloor.Program
+	var todo, patched []hostfloor.Program
 	for _, p := range progs {
 		switch p.Install.Kind {
 		case "npm", "native", packdecl.InstallKindSource:
@@ -231,8 +231,16 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 			// to run it (HNR-D5).
 			continue
 		}
+		// A source program's check is quick and is where a refusal is found (a patch series that
+		// does not apply), so it goes first: the slow optional refreshes behind it (an npm poll, a
+		// capture past DefaultCaptureRefreshAge) then run only when nothing already refuses the launch.
+		if p.Install.Kind == packdecl.InstallKindSource {
+			patched = append(patched, p)
+			continue
+		}
 		todo = append(todo, p)
 	}
+	todo = append(patched, todo...)
 	if len(todo) == 0 {
 		return r, 0
 	}
@@ -249,6 +257,10 @@ func hostReadinessAct(packs []*packload.Pack, cmd []string, errw io.Writer, act 
 	// still on the floor, so the missing-program hatch — "start without it" — would not start without
 	// it, and only the refusal's own hatch (YOLO_USE_INSTALLED) runs it.
 	updateFailure := false
+	// REFUSE EARLY: once one of those is known the launch is refused, so no other program's
+	// optional refresh starts. A program with no usable copy is still installed, so the one
+	// refusal reports it too.
+	floor.HoldRefresh = func() bool { return patchFailure || updateFailure }
 	for _, p := range todo {
 		if floor.OutsideTheFloor(p) {
 			continue
