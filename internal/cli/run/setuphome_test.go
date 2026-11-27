@@ -132,10 +132,9 @@ func TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome(t *testing.T) {
 	}
 }
 
-// TestALaunchWhileAJailRunsKeepsTheLegacyHome (SUP-D9/SUP-D21): with a jail of the project running,
-// the legacy home stays where it is and this launch binds it, so two jails never split one home; and
-// the launch creates no setup home beside it (SUP-D21's entry condition, 6a-ii review m8), so a
-// printed manual move never lands inside one. A jail runs in each of three ways the probe must see
+// TestALaunchWhileAJailRunsLeavesTheLegacyHomeAndBindsItsSlice (SUP-D9, UHP-D7): with a jail of the project running,
+// the legacy home stays where it is and this launch binds its own setup's slice (SUP-D21's "keep
+// using the legacy home" is superseded); the remainder is adopted by a later launch. A jail runs in each of three ways the probe must see
 // (6a-ii review M1): a keeper, a keeperless macos-user session record (JL-D42), and a container of
 // the workspace's name whose keeper died. Red if selectHome stops asking o.projectJails, or
 // projectJails drops any of the three.
@@ -143,7 +142,7 @@ func TestLaunchMovesTheLegacyHomeAndBindsTheSetupsHome(t *testing.T) {
 // The running jail is ANOTHER setup's (6a-iii): a jail under the legacy name refuses the launch
 // before any move (SUP-D10, TestALegacyJailRunningRefusesTheLaunchBeforeAnyMove), so the jail the
 // move must wait for is one of a setup with state under .yolo/setups (projectJailNames, SUP-D43).
-func TestALaunchWhileAJailRunsKeepsTheLegacyHome(t *testing.T) {
+func TestALaunchWhileAJailRunsLeavesTheLegacyHomeAndBindsItsSlice(t *testing.T) {
 	other := func(t *testing.T, ws, name string) string {
 		t.Helper()
 		if err := os.MkdirAll(paths.SetupStateDir(ws, name), 0o755); err != nil {
@@ -194,14 +193,12 @@ func TestALaunchWhileAJailRunsKeepsTheLegacyHome(t *testing.T) {
 			if _, err := os.Stat(filepath.Join(paths.LegacyHomeState(ws), marker)); err != nil {
 				t.Errorf("the legacy home moved while a jail of the project ran: %v\nstderr:\n%s", err, stderr.String())
 			}
-			if got.overlay.Sidecar != paths.LegacyHomeState(ws) {
-				t.Errorf("the launch was handed home %q, want the legacy home it is still attributed to", got.overlay.Sidecar)
+			// UHP-D7 supersedes SUP-D21: the deferred launch binds its own setup's slice.
+			if got.overlay.Sidecar != launchHome(t, o) {
+				t.Errorf("the launch was handed home %q, want its setup's own %q", got.overlay.Sidecar, launchHome(t, o))
 			}
-			if v, _ := got.packEnv.Get(paths.HomeStateEnv); v != "home" {
-				t.Errorf("the session's %s = %v, want the legacy home it was bound", paths.HomeStateEnv, v)
-			}
-			if _, err := os.Lstat(launchHome(t, o)); !os.IsNotExist(err) {
-				t.Errorf("the launch created the setup's home %s beside the unmoved legacy home (err %v)", launchHome(t, o), err)
+			if v, _ := got.packEnv.Get(paths.HomeStateEnv); v != "setups/"+o.SetupName+"/home" {
+				t.Errorf("the session's %s = %v, want the setup's home it was bound", paths.HomeStateEnv, v)
 			}
 			if !strings.Contains(stderr.String(), "a jail of this project is running") {
 				t.Errorf("the deferral does not say a jail runs:\n%s", stderr.String())

@@ -20,6 +20,11 @@ type Source struct {
 	Label string   // "podman-self", "legacy"
 	Root  *os.Root // the home, opened beneath a no-link chain
 	Dirs  []string // home-relative state directories to read: both spellings, ".claude" and "claude"
+	// Stay are paths, relative to each of Dirs and slash separated, that are never moved out of
+	// the source: a generated file, an install, a pack's carve-out. A name equal to one stays
+	// whole; a directory that is a proper prefix of one is merged child by child. Nothing that
+	// stays is counted as left: it was never the merge's to move.
+	Stay []string
 }
 
 // Options tunes a merge.
@@ -53,6 +58,10 @@ type merger struct {
 	label  string
 	rep    Report
 	errs   []error
+	// stay and base are Source.Stay and the source directory being walked, which a path's
+	// Stay-relative spelling is cut from.
+	stay []string
+	base string
 }
 
 // Merge merges the state directories src.Dirs of one home into dstDir beneath dst. It deletes
@@ -62,7 +71,7 @@ type merger struct {
 // Every descriptor is opened with O_NOFOLLOW relative to its parent, so no link is ever
 // followed; the source tree is its own worklist, so a rerun after a crash continues.
 func Merge(dst *os.Root, dstDir string, src Source, o Options) (Report, error) {
-	m := &merger{rename: o.Rename, label: src.Label}
+	m := &merger{rename: o.Rename, label: src.Label, stay: src.Stay}
 	if m.rename == nil {
 		m.rename = defaultRename
 	}
@@ -105,11 +114,12 @@ func Merge(dst *os.Root, dstDir string, src Source, o Options) (Report, error) {
 			}
 		}
 		if dstFd < 0 {
-			if dstFd, err = ensureDir(dstRoot, dstDir); err != nil {
+			if dstFd, err = openDestination(dstRoot, dstDir); err != nil {
 				unix.Close(sfd)
 				return m.rep, errors.Join(append(m.errs, fmt.Errorf("open the destination %s: %w", dstDir, err))...)
 			}
 		}
+		m.base = d
 		m.level(sfd, dstFd, d)
 		unix.Close(sfd)
 	}
@@ -145,6 +155,7 @@ func (m *merger) levelOnly(sfd, dfd int, rel string, only map[string]bool) {
 		}
 		srcE = kept
 	}
+	srcE = m.applyStay(sfd, dfd, rel, srcE)
 	dstE, err := list(dfd)
 	if err != nil {
 		m.fail(rel, err)
@@ -215,6 +226,33 @@ func (m *merger) levelOnly(sfd, dfd int, rel string, only map[string]bool) {
 			m.recurse(sfd, dfd, st.Name, p)
 		}
 	}
+}
+
+// applyStay drops from srcE every child Source.Stay keeps in the source, and merges a directory that
+// is only a prefix of a stay path child by child (it is made at the destination first, so the
+// plan never renames it whole, carrying what stays along).
+func (m *merger) applyStay(sfd, dfd int, rel string, srcE []Entry) []Entry {
+	if len(m.stay) == 0 {
+		return srcE
+	}
+	kept := make([]Entry, 0, len(srcE))
+	for _, e := range srcE {
+		p := path.Join(rel, e.Name)
+		exact, prefix := matchStays(strings.TrimPrefix(p, m.base+"/"), m.stay)
+		switch {
+		case exact:
+		case prefix && e.Kind == KindDir:
+			if err := unix.Mkdirat(dfd, e.Name, 0o755); err != nil && !isExist(err) {
+				m.fail(p, err)
+				continue
+			}
+			m.recurse(sfd, dfd, e.Name, p)
+		case prefix:
+		default:
+			kept = append(kept, e)
+		}
+	}
+	return kept
 }
 
 // recurse merges the child directory name of sfd into the one of dfd.
@@ -317,6 +355,14 @@ func rootFd(r *os.Root) (int, error) {
 	}
 	defer f.Close()
 	return unix.FcntlInt(f.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+}
+
+// openDestination opens dir beneath root, making it; "." is the root itself (a whole home).
+func openDestination(root int, dir string) (int, error) {
+	if dir == "." {
+		return unix.FcntlInt(uintptr(root), unix.F_DUPFD_CLOEXEC, 0)
+	}
+	return ensureDir(root, dir)
 }
 
 func openDirAt(parent int, name string) (int, error) {

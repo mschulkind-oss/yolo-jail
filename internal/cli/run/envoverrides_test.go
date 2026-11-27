@@ -55,7 +55,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/loopholes"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
 const (
@@ -737,7 +736,7 @@ func TestAttachCredentialRefusalLeavesTheLiveFileAlone(t *testing.T) {
 // and returns its path and bytes.
 func seedLiveChannelFile(t *testing.T, o *Options) (string, []byte) {
 	t.Helper()
-	envFile := filepath.Join(paths.LegacyHomeState(o.Workspace), "yolo-user-env.sh")
+	envFile := filepath.Join(o.homeDir(), "yolo-user-env.sh")
 	if err := os.MkdirAll(filepath.Dir(envFile), 0o755); err != nil {
 		t.Fatal(err)
 	}

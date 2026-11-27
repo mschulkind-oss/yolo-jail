@@ -18,7 +18,6 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/jsonx"
 	"github.com/mschulkind-oss/yolo-jail/internal/macosuser"
 	"github.com/mschulkind-oss/yolo-jail/internal/packload"
-	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
@@ -457,7 +456,7 @@ func TestAppleContainerAttachRevokesADeselectedAgentsFile(t *testing.T) {
 	packs := []*packload.Pack{officialPack(t, "claude"), officialPack(t, "bedrock"), officialPack(t, "pi"), officialPack(t, "zai")}
 	o, cfg, channel, stderr := attachFixture(t, currentJailEnv, packs, awsAndZaiKeys(),
 		func(o *Options, _ *jsonx.OrderedMap) { o.UseProfiles = map[string]string{"pi": "zai"} })
-	ws := paths.LegacyHomeState(o.Workspace)
+	ws := o.homeDir()
 	deliverChannel(ws, "container", "", channel) // the fresh launch
 	pi := filepath.Join(ws, entrypoint.AgentEnvDirRel, "pi.sh")
 	if _, err := os.Stat(pi); err != nil {

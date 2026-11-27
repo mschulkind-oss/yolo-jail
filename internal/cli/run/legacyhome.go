@@ -42,6 +42,7 @@ import (
 	yoloruntime "github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
+	"github.com/mschulkind-oss/yolo-jail/internal/unifiedhome"
 )
 
 // projectJails is what the runtime can say about every jail of a project: the legacy name and
@@ -219,20 +220,20 @@ func adoptLegacyHomeStep(r legacyHomeRequest, commit bool) (legacyHomeResult, st
 			why = "yolo could not ask the container runtime whether a jail of this project is running"
 		}
 		return legacyHomeDeferred, fmt.Sprintf("This project's home %s moves to %s once no jail of "+
-			"the project runs; %s, so the %s setup keeps using it until then. Run `yolo stop` "+
-			"and launch again to move it.", src, dest, why, r.Setup.Name)
+			"the project runs; %s, so this launch binds the %s setup's own home meanwhile and the "+
+			"old home's sessions join the shared home then. Run `yolo stop` and launch again to move it.",
+			src, dest, why, r.Setup.Name)
 	}
 
 	if !commit {
-		// What the commit would meet, read without touching anything: a destination holding
-		// something, and a home that is its own mount (a rename cannot cross it).
-		if fi, err := os.Lstat(dest); err == nil {
-			if entries, rerr := os.ReadDir(dest); !fi.IsDir() || rerr != nil || len(entries) != 0 {
-				return left("%s already holds something, so this project's home %s was left in place. "+
-					"To give the %s setup the old home, move what is there aside and launch again with "+
-					"no jail of the project running: `%s`", dest, src, r.Setup.Name,
-					shquote.JoinDisplay([]string{"mv", "-n", dest, dest + ".aside"}))
-			}
+		// What the commit would meet, read without touching anything: a destination that is not a
+		// directory, and a home that is its own mount (a rename cannot cross it). A destination
+		// holding something is no obstacle: the remainder is merged into it (UHP-D7).
+		if fi, err := os.Lstat(dest); err == nil && !fi.IsDir() {
+			return left("%s is not a directory, so this project's home %s was left in place. "+
+				"To give the %s setup the old home, move what is there aside and launch again with "+
+				"no jail of the project running: `%s`", dest, src, r.Setup.Name,
+				shquote.JoinDisplay([]string{"mv", "-n", dest, dest + ".aside"}))
 		}
 		var parent unix.Stat_t
 		if err := unix.Fstat(yolo, &parent); err == nil && parent.Dev != st.Dev {
@@ -268,7 +269,10 @@ func adoptLegacyHomeStep(r legacyHomeRequest, commit bool) (legacyHomeResult, st
 	}
 	switch err := unix.Unlinkat(dirfd, "home", unix.AT_REMOVEDIR); {
 	case err == nil, errors.Is(err, unix.ENOENT):
-	case errors.Is(err, unix.ENOTEMPTY), errors.Is(err, unix.EEXIST), errors.Is(err, unix.ENOTDIR):
+	case errors.Is(err, unix.ENOTEMPTY), errors.Is(err, unix.EEXIST):
+		// The slice is populated (a deferred launch made it): merge the remainder into it (UHP-D7).
+		return mergeLegacyRemainder(r, yolo, dirfd)
+	case errors.Is(err, unix.ENOTDIR):
 		return destTaken()
 	default:
 		return left("%s could not be cleared (%v), so this project's home %s was left in place. "+
@@ -290,7 +294,8 @@ func adoptLegacyHomeStep(r legacyHomeRequest, commit bool) (legacyHomeResult, st
 	case errors.Is(err, unix.ENOENT):
 		return legacyHomeAbsent, ""
 	case errors.Is(err, unix.EEXIST), errors.Is(err, unix.ENOTEMPTY):
-		return destTaken()
+		// Another launch filled the slice between the rmdir and the rename.
+		return mergeLegacyRemainder(r, yolo, dirfd)
 	case errors.Is(err, unix.EXDEV):
 		return left("This project's home %s is its own mount, so yolo cannot rename it and left "+
 			"it in place. Move it yourself while no jail of the project runs: `%s`", src, manual)
@@ -302,6 +307,45 @@ func adoptLegacyHomeStep(r legacyHomeRequest, commit bool) (legacyHomeResult, st
 		return left("Moving this project's home %s to %s failed (%v), so it was left in place. "+
 			"Move it yourself while no jail of the project runs: `%s`", src, dest, err, manual)
 	}
+}
+
+// mergeLegacyRemainder is step 2 of the legacy home (§9.3) when the setup's slice is already
+// populated, so no rename can take the home whole (UHP-D7): the union primitive merges the home into
+// the slice, every name in the slice winning ties by keeping both (`<name>.from-legacy`), and
+// nothing is deleted or overwritten. The mountpoint record and the capture store beside the home move
+// only where the slice has none (a rename that refuses to replace). yolo is `.yolo` and setupDir the
+// open setup directory, both held by the caller.
+func mergeLegacyRemainder(r legacyHomeRequest, yolo, setupDir int) (legacyHomeResult, string) {
+	src := paths.LegacyHomeState(r.Workspace)
+	dest := paths.SetupHomeState(r.Workspace, r.Setup.Name)
+	left := func(format string, a ...any) (legacyHomeResult, string) {
+		return legacyHomeLeft, fmt.Sprintf(format, a...)
+	}
+	srcRoot, err := paths.OpenWorkspaceHomeRoot(r.Workspace, src)
+	if err != nil {
+		return left("This project's home %s could not be opened (%v), so it was left in place. Fix that and "+
+			"launch again with no jail of the project running.", src, err)
+	}
+	defer srcRoot.Close()
+	dstRoot, err := paths.OpenWorkspaceHomeRoot(r.Workspace, dest)
+	if err != nil {
+		return left("The %s setup's home %s could not be opened (%v), so this project's home %s was left in "+
+			"place. Fix that and launch again with no jail of the project running.", r.Setup.Name, dest, err, src)
+	}
+	defer dstRoot.Close()
+	rep, err := unifiedhome.Merge(dstRoot, ".", unifiedhome.Source{
+		Label: "legacy", Root: srcRoot, Dirs: []string{"."}}, unifiedhome.Options{Rename: legacyHomeRename})
+	_ = renameNoReplaceBetween(yolo, packFilesMountpointManifestName, setupDir, packFilesMountpointManifestName)
+	_ = renameNoReplaceBetween(yolo, "prism", setupDir, "prism")
+	if err != nil {
+		return left("Merging this project's home %s into %s did not finish (%v). What moved is in place and "+
+			"nothing was lost; launch again with no jail of the project running to continue.", src, dest, err)
+	}
+	if rep.Moved == 0 {
+		return legacyHomeAbsent, ""
+	}
+	return legacyHomeMoved, fmt.Sprintf("Merged %d files of this project's home %s into %s: each setup keeps its own home now.",
+		rep.Moved, src, dest)
 }
 
 // legacyHomeAccountUID is the yolo account's uid (macosuser.SandboxUID), which owns the home a
@@ -416,16 +460,13 @@ func (o *Options) homeDir() string {
 	return o.currentHome()
 }
 
-// currentHome is the home a launch of the selected setup binds now, which is what the move left
-// (SUP-D21): the legacy home while it is still in place as a real directory and attributed to this
-// setup, the setup's own home otherwise. It moves nothing and creates nothing.
+// currentHome is the home a launch of the selected setup binds now: the setup's own slice, always
+// (UHP-D7, superseding SUP-D21's "keep using the legacy home until it has moved"). A legacy home
+// that is deferred, left or another setup's is no longer bound: its shared children merge into the
+// unified home (unifyhome.go) and its remainder is adopted by this setup's slice once no jail runs,
+// by a rename when the slice is absent or empty and by a merge when it is populated. It moves
+// nothing and creates nothing.
 func (o *Options) currentHome() string {
-	legacy := paths.LegacyHomeState(o.Workspace)
-	if readsLegacyHome(o.Setup) {
-		if fi, err := os.Lstat(legacy); err == nil && fi.IsDir() && legacyHomeIsLaidFor(o.Setup, legacy) {
-			return legacy
-		}
-	}
 	return paths.SetupHomeState(o.Workspace, o.Setup.Name)
 }
 
@@ -544,17 +585,6 @@ func (o *Options) jailStatus(cname string) jailAnswer {
 // projectContainerRuntimes are the container runtimes a jail of a project can run in: podman's
 // and Apple Container's `container`.
 var projectContainerRuntimes = []string{"podman", "container"}
-
-// legacyHomeIsLaidFor reports whether the legacy home src is one the setup s can read, which is
-// what attributes it to s (the guard adoptLegacyHome applies, spelled once for currentHome): an
-// Apple Container setup reads the dotted layout and not a Podman-laid home, unless an Apple
-// Container signal says it laid it too; every other setup reads all but an Apple-Container-laid one.
-func legacyHomeIsLaidFor(s setup.Setup, src string) bool {
-	if s.Confinement == setup.ConfinementAppleContainer {
-		return appleContainerLaidHome(src) || !podmanLaidHome(src)
-	}
-	return !appleContainerLaidHome(src)
-}
 
 // podmanBindSourceDirs are the undotted directories every Podman launch makes at the root of a
 // home (preparePodmanBindSources: the core overlay's bind sources). They are Podman's layout

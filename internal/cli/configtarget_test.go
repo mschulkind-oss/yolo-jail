@@ -523,13 +523,14 @@ func TestTheJailStoreIsWhereThePrismTwinsPutIt(t *testing.T) {
 		t.Errorf("the boot's store = %q, want the verb's %q", got, want)
 	}
 
-	// While the legacy home is still bound (SUP-D21), its store is the legacy one.
+	// A legacy home still in place is no longer bound (UHP-D7): the launch binds the setup's slice,
+	// so the verb reads the setup's store. A boot told the legacy home reads the legacy one.
 	if err := os.MkdirAll(paths.LegacyHomeState(ws), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	legacy := filepath.Join(paths.WorkspaceStateDir(ws), "prism")
-	if got := jailConfigTarget(ws, "the cwd").sidecarDir(); got != legacy {
-		t.Errorf("with the legacy home bound, the store = %q, want %q", got, legacy)
+	if got := jailConfigTarget(ws, "the cwd").sidecarDir(); got != want {
+		t.Errorf("with a legacy home in place, the store = %q, want the setup's %q", got, want)
 	}
 	if got := render.Jail(paths.Home(), ws, nil).WithHomeState("home").SidecarDir(); got != legacy {
 		t.Errorf("the boot's store with the legacy home bound = %q, want %q", got, legacy)

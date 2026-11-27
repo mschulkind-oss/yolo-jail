@@ -2142,6 +2142,14 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	wsState := o.prepareWsState(cfg, loadedPacks, rt)
 	sp.End()
 
+	// THE UNIFIED WORKSPACE HOME (unifyhome.go, UHP-D6): after prepareWsState, which makes the
+	// slice's state directories real and copies old overlays into them, so a link laid earlier
+	// would be replaced, and before anything else reads the slice. It merges the workspace's other
+	// homes when none runs and composes this slice; it never refuses the launch.
+	sp = o.Perf.Span("launch.unify_home")
+	o.unifyHome(cfg, wsState, loadedPacks, rt)
+	sp.End()
+
 	// yolo-user-env.sh (frozen writer) and the per-agent env files, both from the ONE
 	// credential gate's answer (deliverChannel, OQ-CN6): the shared file carries what every
 	// process may see, each profiled agent's file what only it receives. The map is the
