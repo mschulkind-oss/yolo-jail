@@ -138,6 +138,9 @@ type captureAct struct {
 	// sessionStderr, when set, routes the capture command's stderr to its caller. nil preserves a
 	// typed `yolo capture`'s existing process-stderr behavior.
 	sessionStderr io.Writer
+	// jailStderr is where the capture jail's own stderr goes, as jailStdout is for its stdout: nil is this
+	// process's stderr, raw; the host floor names it through progress.Guard (hostJailStdout).
+	jailStderr io.Writer
 }
 
 // captureBusyStatus is `yolo capture`'s status when another capture of the program holds its lock:
@@ -258,8 +261,8 @@ func captureHostWith(args []string, out, errw io.Writer, color bool, act capture
 
 	pr.Printf("[bold]capture[/bold] [cyan]%s[/cyan]  [dim]%s[/dim]", bin, target.URL)
 	runJail := func() int {
-		return runCaptureJail(staging, bin, captureJailArgv(bin), nil,
-			captureStreams{out: out, errw: errw, jailOut: act.jailStdout,
+		return runCaptureJail(staging, bin, captureJailArgv(bin), &captureSeal{installer: true},
+			captureStreams{out: out, errw: errw, jailOut: act.jailStdout, jailErr: act.jailStderr,
 				sessionOut: act.jailStdout, sessionErr: act.sessionStderr}, color,
 			captureAct{runtime: arm.runtime})
 	}
@@ -749,8 +752,9 @@ func captureJailArgv(bin string) []string {
 // only thing this changes is the workspace and the command — argv, captureJailArgv(bin) for an
 // installer — and, for a FORK'S BUILD, the seal (docs/design/forked-programs-as-packs.md FP-D9):
 // the pipeline withholds every host crossing (run.Options.Sealed) and narrows the pack selection to
-// the packs the seal names. seal nil is the installer capture's jail, unchanged: the design scopes
-// the seal to the fork route.
+// the packs the seal names. An INSTALLER capture's seal (captureSeal.installer) is the same seal over
+// the whole selection: the script it runs is unpinned, so its jail gets no credential, host service
+// or host file. seal nil is no seal at all, which no production caller asks for.
 //
 // ONE WITHHOLDING REACHES BOTH KINDS, sealed or not: the user config's `mise_tools`
 // (docs/design/forked-programs-as-packs.md FP-D19). The pipeline reads the suppressed store below
@@ -812,9 +816,9 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 	// property is unrepresentable instead of conditional: there is nothing in that jail to
 	// resolve a capture against.
 	opts.CapturesDir = func() string { return "" }
-	// A non-nil seal identifies a fork-build capture: a fork's, plain or patched, or a patched
+	// A fork-build seal identifies a fork-build capture: a fork's, plain or patched, or a patched
 	// extension's (seal.tree), whose seal.build may be "" and which still needs provenance.
-	if seal != nil {
+	if seal.forkBuild() {
 		// The actual runtime is selected inside the ordinary pipeline, where confinement, backend
 		// validation and automatic fallback are all applied. Persist that answer before its backend
 		// starts; a PATH-based prediction here could name a different owner of this staging tree.
@@ -896,7 +900,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 		//
 		// Every seal names its build's id; a fork's names its build line too, which a tree's may omit
 		// (PPX-D3): a fork's build with no line has nothing to run, and would be admitted as one.
-		if seal != nil && (seal.id == "" || (seal.tree == "" && seal.build == "")) {
+		if seal.forkBuild() && (seal.id == "" || (seal.tree == "" && seal.build == "")) {
 			// Only a caller of yolo's makes such a seal, so the line says so.
 			fmt.Fprintf(errw, "yolo capture: the build jail of %s on macos-user was handed no build line or id\n", bin)
 			fmt.Fprintf(errw, "  That is yolo's to wire. A podman jail builds and runs it today: "+
@@ -923,7 +927,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 		if jailStdout != nil || s.sessionErr != nil {
 			deps.Run = macosuser.RunStreamsTo(jailStdout, s.sessionErr)
 		}
-		if seal != nil {
+		if seal.forkBuild() {
 			// A FORK'S BUILD, SEALED, FOR THIS MAC (FP-D24; a patched fork's too, PF-D97; a patched
 			// extension's, PPX-D5): the capture act running the build line in a staging tree keyed by the
 			// build, the checkout in workspace/src (a patched fork's with its series replayed by buildFork)
@@ -951,7 +955,7 @@ func runCaptureJail(workspace, bin string, argv []string, seal *captureSeal, s c
 		}, filepath.Join(workspace, captureOutLeaf), dryRun)
 	}
 	rc := captureRunPipeline(opts)
-	if seal != nil {
+	if seal.forkBuild() {
 		// This host-side witness is outside the jail's writable workspace. A signal arm exits the
 		// process directly and therefore cannot create it; the caller must not infer teardown from
 		// an ordinary-looking 128+signal status.

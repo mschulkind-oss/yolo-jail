@@ -344,7 +344,7 @@ func (f *callbackFixture) Status(name string) string {
 
 func (f *callbackFixture) statusRecord(record *callbackRun) string {
 	share := mcpauth.Share{Version: 1, Once: []mcpauth.OnceServer{{Name: "configured-alias", URL: "https://mcp.fixture.invalid/mcp", Transport: "http"}}, SignIn: record.plan.LaunchInputMCP.SignIn}
-	rows := mcpauthdaemon.ReadHostStatus(filepath.Join(f.home, ".local/share/yolo-jail/state/mcp-auth-broker"), share)
+	rows := mcpauthdaemon.ReadHostStatus(filepath.Join(f.home, ".local/share/yolo-jail/state/mcp-auth-broker"), share, "configured-alias")
 	if len(rows) != 1 {
 		f.t.Fatal(rows)
 	}

@@ -242,6 +242,14 @@ func ComputeFreshness(m Model, now time.Time, o Options) Freshness {
 	return f
 }
 
+// horizonNote is the store's own horizon sentence for an --ended listing (BB-D113 condition 3).
+func horizonNote(h string) string {
+	if h == "" {
+		return ""
+	}
+	return " Past records come from yolo's store: " + h
+}
+
 // droppedNote is the history's eviction claim (request-history-and-privacy.md §7): nothing
 // when no entry was evicted, else "; N older entries dropped".
 func droppedNote(n int) string {
@@ -302,7 +310,7 @@ func Publish(m Model, now time.Time, o Options) Published {
 		Dropped: m.Dropped,
 		Note: "Observed since this queue started at " + stamp(m.StartedAt, loc) +
 			", kept in memory only, never saved, newest " + fmt.Sprint(HistoryCap) +
-			" entries" + droppedNote(m.Dropped) + ". It is not a complete history; `yolo audit` is the record.",
+			" entries" + droppedNote(m.Dropped) + ". It is not a complete history; `yolo audit` is the record." + horizonNote(m.Horizon),
 		Gaps:    []string{},
 		Entries: []HistoryOut{},
 	}

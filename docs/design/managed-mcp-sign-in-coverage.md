@@ -6,19 +6,19 @@ stage: DECIDED
 next: "Complete candidate gates and independent review, then obtain separate native/rootless/Mac/provider witnesses before claiming runtime success"
 depends-on: [managed-mcp-sign-in.md, managed-mcp-sign-in-plan.md]
 tags: [mcp, testing, acceptance, verification]
-summary: "A1–A32 executable caller inventory for the retained synthetic candidate, separating source/fixture evidence from native plugin, callback and provider behavior still unverified."
+summary: "A1–A32 executable caller inventory for the landed synthetic implementation, separating source/fixture evidence from native plugin, callback and provider behavior still unverified."
 ---
 
 # Managed MCP sign-in: synthetic acceptance coverage
 
-**Boundary:** this is an implementation inventory, not a native success claim or landing authorization.
+**Boundary:** this is an implementation inventory, not a native success claim. The candidate landed in squash `492dab7fa` (2026-11-18).
 The [accepted scenarios](managed-mcp-sign-in.md#12-acceptance-scenarios) remain authoritative.
 Tasks 1–8 are serial commits through `99130ff312b064b31f78fb46a907519d40037ec4`; Task 9 adds
 real account-free jail regressions and repairs the caller gaps they exposed. Final command outcomes,
 source-at-probe stamp and retained failures belong to the Task 9 continuation report and ignored
 candidate evidence directory `.yolo/durable/managed-mcp-evidence`. Compile/short skips are not
-container acceptance; later greens do not erase earlier failures. Independent HIGH review,
-combined landing/full slow suite and the native witnesses below remain separately owned.
+container acceptance; later greens do not erase earlier failures. An independent review of
+the landed code and the native witnesses below remain owed.
 
 ## A1–A32 caller inventory
 
@@ -84,8 +84,8 @@ success assumptions; the Task 6/7 reports retain their mislabelled and ordinary 
   canonical-only refresh and legitimate compatible same-grant writeback remain available.
 - Repair receipts under `.yolo/durable/managed-mcp-evidence/review-repairs` retain actual REDs and restored
   independent deletion controls. Earlier fixture/compile failures and the incorrect byte-normalization
-  hypothesis remain failures, not acceptance REDs. These are synthetic repair checks; independent
-  rereview, full combined landing and native/rootless/plugin/provider witnesses remain parent-owned.
+  hypothesis remain failures, not acceptance REDs. These are synthetic repair checks; an independent
+  review of the landed code and native/rootless/plugin/provider witnesses remain owed.
 
 ## Task 9 caller repairs and controls
 

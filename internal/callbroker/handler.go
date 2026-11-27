@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -50,6 +51,9 @@ type CLIHandler struct {
 	timers holdTimers
 	// lifetimes are the jails this broker served, whose pending requests Main closes at stop.
 	lifetimes brokercore.Lifetimes
+	// declaration is the selected declaration the last currentAuthority proved equal to
+	// the launch's pinned hash; routedContextFor reads its context block from it.
+	declaration atomic.Pointer[loopholedecl.CallBroker]
 }
 
 // newCLIHandler consumes the private selected launch input, not a jail frame or
@@ -190,7 +194,20 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 		auditReason = "classification-unknown"
 		return Verdict{Verdict: "refused", Next: "This is a bug in the selected pack's classifier, so running the call again fails the same way: report it to the pack's author"}, CLIResult{}, errors.New("call broker classifier returned no operation")
 	}
+	// Routing is chosen from the host user config as it is now, after classification and
+	// before any decision, and never from anything the jail sent (design 7.2).
+	rc, ctxErr := h.routedContextFor(call)
+	if ctxErr != nil {
+		auditReason = "context-unavailable"
+		return Verdict{Verdict: "refused", Rule: "execution context unavailable", Next: ctxErr.Error()}, CLIResult{}, nil
+	}
+	call.contextDigest = rc.digest()
+	ctx = withRoutedContext(ctx, rc)
 	q := callRequest(h.input.Source, h.workspace, jail, h.start, h.bound.LaunchID, call, stdin)
+	if rc != nil {
+		q.ContextName, q.ContextDigest = rc.Name, rc.Digest
+		q.Digest = brokerstore.CommandDigest(q)
+	}
 	auditDigest = q.Digest
 	_, _, working, now, err := h.store.InspectContext(ctx)
 	if err != nil {
@@ -269,6 +286,10 @@ func (h *CLIHandler) serveCLI(ctx context.Context, op, jail string, argv []strin
 	err = h.snapshotReadTransaction(ctx, func(ctx context.Context) error {
 		if err := h.validateSnapshotReadRoots(call); err != nil {
 			return err
+		}
+		// The route is selected again at dispatch; an edit since the decision stops the call.
+		if current, err := h.routedContextFor(call); err != nil || !sameContext(current, rc) {
+			return errors.New("the execution route or context changed during this call; retry it")
 		}
 		var err error
 		result, err = h.program.run(ctx, call, stdin)

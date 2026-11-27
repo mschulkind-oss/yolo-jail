@@ -22,24 +22,27 @@ func homeProcess(t *testing.T, deps Deps, home string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
-	awaitProcessHome(t, cmd.Process.Pid)
+	awaitProcessHome(t, cmd.Process.Pid, home)
 	if err := os.WriteFile(deps.PIDFilePath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
 
-// awaitProcessHome waits until pid's environment names a HOME. Start returns once the child's
+// awaitProcessHome waits until pid's environment names HOME=want. Start returns once the child's
 // exec has passed its point of no return, which is before the kernel has laid out the new
-// program's environment, so a read straight after it can find none; a copy an older yolo left
-// running has long been past that.
-func awaitProcessHome(t *testing.T, pid int) {
+// program's environment, so a read straight after it can find none, or the environment the
+// child had before the exec (it is cloned sharing the test's memory), whose HOME is the test's
+// own. Waiting for any HOME is therefore not enough: only the HOME the child was given is the
+// event that its new environment is readable. A copy an older yolo left running has long been
+// past that.
+func awaitProcessHome(t *testing.T, pid int, want string) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-		if _, ok := processHome(pid); ok {
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		if got, ok := processHome(pid); ok && got == want {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Skipf("pid %d's environment cannot be read here (/proc/%d/environ)", pid, pid)
+			t.Skipf("pid %d's environment never read HOME=%s (/proc/%d/environ)", pid, want, pid)
 		}
 	}
 }

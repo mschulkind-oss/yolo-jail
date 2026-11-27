@@ -47,15 +47,26 @@ func TestTheFloorsCaptureJailWritesItsOutputToTheLaunchsStderr(t *testing.T) {
 	if err := f.Capture("probetool"); err != nil {
 		t.Fatalf("the floor's capture: %v\n%s", err, floorOut.String())
 	}
-	if seen.JailStdout != io.Writer(os.Stderr) || seen.SessionStdout != io.Writer(os.Stderr) {
+	if seen.JailStdout != hostJailStdout() || seen.SessionStdout != hostJailStdout() {
 		t.Errorf("the floor's capture jail writes its stdout to %s and its session's to %s, want this "+
 			"process's stderr for both", writerName(seen.JailStdout), writerName(seen.SessionStdout))
+	}
+
+	// THE JAIL'S STDERR AND ITS SESSION'S TOO (through progress.Guard, as the stdout is): they
+	// default to the raw process stderr, which lands on a live readiness line's row.
+	if seen.JailStderr != hostJailStdout() || seen.SessionStderr != hostJailStdout() {
+		t.Errorf("the floor's capture jail writes its stderr to %s and its session's to %s, want the guarded "+
+			"process stderr for both", writerName(seen.JailStderr), writerName(seen.SessionStderr))
 	}
 
 	seen = run.Options{}
 	var out, errw bytes.Buffer
 	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("yolo capture: rc %d\n%s", rc, errw.String())
+	}
+	if seen.JailStderr != nil || seen.SessionStderr != nil {
+		t.Errorf("a typed `yolo capture` sends its jail's stderr to %s and its session's to %s, want unset",
+			writerName(seen.JailStderr), writerName(seen.SessionStderr))
 	}
 	if seen.JailStdout != nil || seen.SessionStdout != nil {
 		t.Errorf("a typed `yolo capture` sends its jail's stdout to %s and its session's to %s, want "+
@@ -121,7 +132,7 @@ func writerName(w io.Writer) string {
 		return "nothing (this process's stdout)"
 	case io.Writer(os.Stdout):
 		return "os.Stdout"
-	case io.Writer(os.Stderr):
+	case io.Writer(os.Stderr), hostJailStdout():
 		return "os.Stderr"
 	}
 	return fmt.Sprintf("a %T", w)
@@ -149,15 +160,29 @@ func TestTheFloorsForkBuildJailWritesItsOutputToTheLaunchsStderr(t *testing.T) {
 	runs := 0
 	build := forkFloorBuildJail(t, &runs, true)
 	var jailStdout io.Writer
-	withFakeCaptureJail(t, func(o run.Options) int { jailStdout = o.SessionStdout; return build(o) })
+	// The jail's own stderr (o.JailStderr) is teed into the build's log, so it is judged by what a
+	// line written to it does on a terminal with a live line: it must not land on the line's row.
+	readStderr := swapStderr(t)
+	withFakeCaptureJail(t, func(o run.Options) int {
+		jailStdout = o.SessionStdout
+		line := liveLineOn(os.Stderr)
+		_, _ = io.WriteString(o.JailStderr, "yolo: the build jail's own stderr line\n")
+		line.Abandon()
+		return build(o)
+	})
 	captureHostExec(t)
 
 	errw.Reset()
 	if rc := hostExec(nil, []string{"forkcli"}, io.Discard, &errw, nil); rc != 0 || runs != 1 {
 		t.Fatalf("rc=%d builds=%d, want the floor's one build\n%s", rc, runs, errw.String())
 	}
-	if terminalHalf(jailStdout) != io.Writer(os.Stderr) {
+	if terminalHalf(jailStdout) != hostJailStdout() {
 		t.Errorf("the floor's build jail runs its session with its stdout on %s, want this process's stderr", writerName(jailStdout))
+	}
+	if got := readStderr(); !strings.Contains(got, "yolo: the build jail's own stderr line\n") {
+		t.Errorf("the build jail's stderr line did not reach this process's stderr whole:\n%q", got)
+	} else {
+		assertNoGluedRow(t, got, "Checking the programs packs declare")
 	}
 }
 
@@ -176,7 +201,7 @@ func TestTheHostsAdvanceBuildJailWritesItsOutputToTheLaunchsStderr(t *testing.T)
 	if rc := hostExec(nil, []string{"tool"}, io.Discard, &errw, nil); rc != 0 || len(fx.builds) != 1 {
 		t.Fatalf("rc=%d builds=%d, want the advance's one build\n%s", rc, len(fx.builds), errw.String())
 	}
-	if terminalHalf(jailStdout) != io.Writer(os.Stderr) {
+	if terminalHalf(jailStdout) != hostJailStdout() {
 		t.Errorf("the advance's build jail runs its session with its stdout on %s, want this process's stderr", writerName(jailStdout))
 	}
 }

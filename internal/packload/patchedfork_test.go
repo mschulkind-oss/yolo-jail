@@ -98,7 +98,7 @@ func TestAPatchedForkFootprintNamesTheSeries(t *testing.T) {
 			t.Errorf("the claim's detail lacks %q: %s", w, claim.Detail)
 		}
 	}
-	if s := claim.DisclosureSentence(); !strings.Contains(s, "checked at most hourly") || strings.Contains(s, "pinned") {
+	if s := claim.DisclosureSentence(); !strings.Contains(s, "checked at every launch") || strings.Contains(s, "hourly") || strings.Contains(s, "pinned") {
 		t.Errorf("the disclosure says a patched fork is pinned, or not that it follows: %s", s)
 	}
 }

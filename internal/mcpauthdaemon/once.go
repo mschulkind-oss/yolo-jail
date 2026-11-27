@@ -135,6 +135,9 @@ func (b *broker) runOnce(stop <-chan struct{}) {
 		immediate = b.poll.queue
 	}
 	pass := func() {
+		// Deliberate: stop does not cancel an in-flight pass (the plan's "cancellation-independent
+		// durable commit", docs/design/managed-mcp-sign-in-plan.md; 492dab7fa dropped the earlier
+		// stop-cancels context). A refresh that began must commit; the 30s bound ends it.
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := b.passAll(ctx, once, sources); err != nil {

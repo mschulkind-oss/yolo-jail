@@ -63,6 +63,13 @@ func selectedOnceFixtureWith(t *testing.T, standing, initialRead, timed bool) *o
 // skipFixtureBind leaves the launch unbound, for a test whose real daemon process binds it.
 var skipFixtureBind bool
 
+// onceFixtureTOML, when set, replaces the fixture's JSONC declaration with this TOML one.
+var onceFixtureTOML string
+
+// onceFixtureProgram, when set, replaces the fixture's fake host `tasks` program; it is
+// given the fixture home and the write-marker path.
+var onceFixtureProgram func(home, marker string) string
+
 func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liveApply bool, beforeBind ...func(*onceFixture)) *onceFixture {
 	t.Helper()
 	old, inputPath, marker, _ := testCallHandler(t)
@@ -81,7 +88,12 @@ func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liv
 			`{"name":"change","tables":["working_set","all"],"max_for":"8h"},{"name":"rename","tables":["all"],"max_for":"1h"}`, 1)
 		allowCells = `"all.change", "all.rename"`
 	}
-	if err := os.WriteFile(filepath.Join(moduleDir, "manifest.jsonc"), []byte(manifest), 0600); err != nil {
+	manifestName := "manifest.jsonc"
+	if onceFixtureTOML != "" {
+		// A declaration key that only TOML carries (a context block) needs a TOML manifest.
+		manifest, manifestName = onceFixtureTOML, "loophole.toml"
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, manifestName), []byte(manifest), 0600); err != nil {
 		t.Fatal(err)
 	}
 	packDir := filepath.Dir(filepath.Dir(moduleDir))
@@ -131,6 +143,9 @@ func selectedOnceFixtureForApply(t *testing.T, standing, initialRead, timed, liv
 		t.Fatal(err)
 	}
 	program := "#!/bin/sh\ncase \"$1\" in lookup) printf 'LOOKUP\\n' >> '" + filepath.Join(home, "lookup-effects") + "'; printf '{\"project\":\"team:alpha\"}';; update-pr|update) cat > '" + filepath.Join(home, "stdin-received") + "'; printf 'WRITE\\n' >> '" + marker + "'; if grep -q 'oversized-response' '" + filepath.Join(home, "stdin-received") + "'; then printf 'OVER_CAP_PRIVATE_SENTINEL'; head -c 33554433 /dev/zero | tr '\\000' x; fi;; read|read-beta) printf 'READ\\n' >> '" + filepath.Join(home, "read-effects") + "'; printf '{\"ok\":true}';; error) exit 13;; *) exit 13;; esac\n"
+	if onceFixtureProgram != nil {
+		program = onceFixtureProgram(home, marker)
+	}
 	if err := os.WriteFile(old.program.path, []byte(program), 0700); err != nil {
 		t.Fatal(err)
 	}

@@ -47,7 +47,9 @@ func (h *CLIHandler) resolveAndRun(ctx context.Context, q brokerstore.Request, b
 	if err != nil {
 		return CLIResult{}, nil, err
 	}
-	// The answer covers the fact and any asking candidate, never a refusal.
+	// The answer covers the fact and any asking candidate, never a refusal. It was filed
+	// under this request's execution context, which the resolved call runs in too (ctx).
+	resolved.contextDigest = q.ContextDigest
 	covered := *resolved
 	covered.Operations = nil
 	for _, op := range resolved.Operations {

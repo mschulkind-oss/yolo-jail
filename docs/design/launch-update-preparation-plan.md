@@ -280,11 +280,13 @@ outer jail's Podman is rootful (`podman info --format '{{.Host.Security.Rootless
 | Launch materialization | `~/.npm-global/bin/chrome-devtools-mcp` links into an identity-named payload directory under `~/.local/lib/yolo-npm/`. The probe printed `1.13.0`, the release the resolution recorded | pass |
 | Timer progress without a launch | After an explicit stop, the resolution record's `CheckedAt` was moved back two hours to make it due. `yolo pack prepare start` then ran a sealed resolve with no workspace jail running. The check sequence advanced and status moved to `unchanged` | pass; the due time was simulated, and no newer release existed to admit |
 | Binary replacement | A launch by a newer bundle replaced the older bundle's worker with a new incarnation | pass |
-| `--update` | Each run did a fresh check (the sequence advanced) and reused the unchanged admitted entry, with no rebuild. The in-jail refresh ran before the target | pass; the `⚡ Executing` line prints before that refresh |
+| `--update` | Each run did a fresh check (the sequence advanced) and reused the unchanged admitted entry, with no rebuild. The in-jail refresh ran before the target | pass; the `⚡ Executing` line printed before that refresh, fixed in `639090ef8` |
 | `--update` on attach | Refused, naming `yolo stop` then a fresh launch. An ordinary attach still entered | pass |
 | `agent_updates = false` | The launch reused the admitted entry, made no check, and deactivated the subscription. `yolo pack prepare start` started nothing, while `--update` still ran a fresh check | pass after fixes |
 | Policy back on | The command the status names re-enabled it, and the next launch re-registered it as pending work | pass after fixes |
 | Status output | Each record shows its phase, admitted entry, update time and log. The worker line shows the incarnation, or says it is not running and names the next step | pass after fixes |
+
+The run also found two status-wording leftovers, both fixed in `639090ef8`: the `⚡ Executing` line printed before the in-jail refresh under `--update`, and the status headings said "Tree preparation worker" and "built-tree preparations" though the worker covers ordinary programs.
 
 The run found four defects. Each got a failing test first, then the fix:
 
@@ -301,7 +303,8 @@ Darwin, Apple Container and Seatbelt were not run. The registry had no newer
 `chrome-devtools-mcp`, so the run saw no timer admission of a new generation between launches.
 It also did not exercise concurrent launches, Ctrl-C or crash recovery, patched or tree forks,
 `yolo host`, or a failed check. Synthetic tests cover those; real runtime evidence is still
-outstanding. Elapsed times are single samples on a shared machine, not the controlled
+outstanding: concurrent launches, Ctrl-C and crash recovery, a failed check, a timer-admitted
+newer release, controlled cold/warm timing, and rootless, Darwin and Apple Container runs. Elapsed times are single samples on a shared machine, not the controlled
 cold/warm measurements the design asks for.
 
 After source stability, run the full landing gate and the slow integration suite once on the

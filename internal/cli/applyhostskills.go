@@ -577,7 +577,8 @@ func printSkillResult(pr richtext.Printer, survey *hostApplySurvey, r hostskills
 	fate, counted := skillFateOf(r.Action)
 	survey.note(skillResultTier(r.Action, fate, counted), string(packdecl.KindSkills),
 		r.Name, r.Path, r.WouldChange)
-	if counted {
+	if counted && !r.Folder {
+		// A markerless folder is delivered but is not a skill, so it never enters the census.
 		// BY NAME, not by destination. One skill reaching five agent dirs is five results
 		// here and ONE fact — and counting the results instead is most of why the measured
 		// roll-up said "76 would change" about six files and fourteen skills

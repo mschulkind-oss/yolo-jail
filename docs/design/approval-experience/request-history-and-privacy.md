@@ -3,7 +3,7 @@ title: "Four partial records of past requests, none complete: what a view may sh
 date: 2026-11-09
 status: draft
 stage: DESIGN
-next: "Build BB-D113's opt-in `yolo approve --json --ended` flag and show its ended records in the queue's history; run the real-browser masking checks"
+next: "Show the built `yolo approve --json --ended` records in the queue's history; run the real-browser masking checks"
 depends-on:
   - README.md
 tags: [design, approvals, history, privacy, audit, queue]
@@ -17,8 +17,8 @@ summary: "The request-history-and-privacy sibling of the approval-experience con
 `62b8bbda3`; the eviction count ([RH-D3](#RH-D3)) and the last-seen request detail
 ([RH-D6](#RH-D6)) are built since. The original CLI evidence was read and recorded 2026-11-09 from `04f300a9e` in a
 throwaway home (sanitized: workspace `/home/example/code/app`, repositories `example/app` and
-`git.example.test/example/app`). Comprehensive host history is not implemented; its surface was ruled 2026-11-13
-([BB-D113](../boundary-broker.md#BB-D113)), and the `--ended` flag is the next build. [§12](#12-what-done-looks-like) separates delivery from
+`git.example.test/example/app`). Comprehensive host history is built in the CLI: its surface was ruled 2026-11-13
+([BB-D113](../boundary-broker.md#BB-D113)) and `yolo approve --json --ended` is built (`848810707`); the queue does not read it yet. [§12](#12-what-done-looks-like) separates delivery from
 remaining acceptance work.
 
 > **In short.** No surface yolo has today can answer "what happened to every request" for a
@@ -323,7 +323,7 @@ change is ruled where the surface is owned. [OQ-BB24](../boundary-broker.md#OQ-B
 [`boundary-broker.md`'s past-requests section](../boundary-broker.md#past-requests-what-the-surface-does-not-list)
 put candidates A, B and C of [§8.2](#82-candidate-extensions) to the owner, who delegated it;
 it was ruled 2026-11-13 **A, then B** ([BB-D113](../boundary-broker.md#BB-D113)). An opt-in
-`--ended` flag on `yolo approve --json` is the next build; audit events follow as a separate
+`--ended` flag on `yolo approve --json` is built (`848810707`) and the queue's use of it is the next build; audit events follow as a separate
 audit-completeness item that does not block it. The flag is additive within schema 1, leaves the
 default output unchanged, carries each ended record's workspace, and states its 7-day horizon and
 that a record a live grant or working-set entry references can be kept longer. Its build first
@@ -423,9 +423,36 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 - Exercise Show/Hide (pending and history), tab-switch re-masking and restart behavior in a
   real browser against the real host path; the [umbrella's runtime evidence gaps](README.md#54-the-read-only-queue-as-built-yolo-approve---web)
   remain open.
-- Comprehensive history needs the `yolo approve --json --ended` flag
-  [BB-D113](../boundary-broker.md#BB-D113) ruled, which is not built; the queue must not work
+- Comprehensive history comes from the `yolo approve --json --ended` flag
+  [BB-D113](../boundary-broker.md#BB-D113) ruled, which is built but not yet consumed by the queue; the queue must not work
   around it by reading store or audit files.
+
+**Real-browser witness (2026-11-27), fixtures only.** The queue web UI, started with
+`--ended` and fed by the fake yolo (`approve-json-populated.json`, `approve-json-ended.json`), was
+driven in headless Chromium through the Chrome DevTools protocol. Reproduce: start
+`YOLO_QUEUE_WITNESS_DIR=<dir> YOLO_QUEUE_WITNESS_PORT=8931 go test -count=1 -short=false -run TestServeForBrowserWitness ./internal/approvalqueue`
+(it writes the link to `<dir>/link` and runs until `<dir>/stop` exists), then open the link.
+Observed:
+
+- Pending Show/Hide: the `--body` value of a pending request showed as `[hidden: 53 characters,
+  sha256 a292bde4]` with a Show button; Show revealed the raw value and the button became Hide.
+- History Show/Hide: expanding the denied ended request's "as last seen" card showed its body
+  masked; Show revealed it, Hide masked it again, and the pending and history reveal keys were
+  independent.
+- Re-masking: dispatching `visibilitychange` with `document.hidden` true masked every revealed
+  value, pending and history. **Limit:** headless Chromium never hides a tab (a second
+  foreground page left the first `visible`), so this exercised the page's handler with a
+  synthetic event, not a real tab switch.
+- Reload and restart: after a reload the values were masked again and neither `sessionStorage`
+  nor `localStorage` held a secret. After the queue process was restarted the old session got
+  "This link was used or expired"; the new link showed the pending and ended entries masked.
+- Ended records: the denied request (with its denial note), the ended grant and the revoked
+  working entry appeared in history with the store's 7-day horizon sentence, and none appeared
+  among the pending requests.
+
+**Still open:** T1, T2 and L4 (the real host path and the real desktop opener) were not
+exercised, since the queue read a fake yolo. A real tab switch in a headed browser is also
+unverified.
 
 ## Decision Ledger
 
@@ -435,5 +462,5 @@ per-workspace record is the broker writing a new, redacted event ([`jail-history
 | <a id="RH-D2"></a>RH-D2 | Pending requests in full, except values after `summaryArgv`'s flags, masked with length and hash and revealed per value by click; digests always visible; re-mask when hidden (proposed change to the lead's ruling) | 2026-11-09 | [§6.1](#61-the-display-ruling-tested) | Yes: pending display/masking; real-browser proof outstanding |
 | <a id="RH-D3"></a>RH-D3 | Observed history in queue memory only, 200 entries, oldest evicted and counted; nothing persisted by queue or browser | 2026-11-09 | [§5](#5-retention) | Yes: memory, cap, eviction and dropped count |
 | <a id="RH-D4"></a>RH-D4 | The queue makes only the claims in the may-say table; never complete history, never inferred outcomes, never execution from use | 2026-11-09 | [§7](#7-honest-completeness-claims) | Observed-outcome labels and gap disclaimers built |
-| <a id="RH-D5"></a>RH-D5 | Comprehensive host history needs a CLI extension, routed 2026-11-13 to boundary-broker.md as [OQ-BB24](../boundary-broker.md#OQ-BB24) and ruled there the same day, delegated by the owner to Fable 5.2: an opt-in `yolo approve --json --ended` first, audit events second as a separate item ([BB-D113](../boundary-broker.md#BB-D113)) | 2026-11-09 | [§8.3](#83-routed-to-boundary-brokermd) | No: the `--ended` flag is the next build |
+| <a id="RH-D5"></a>RH-D5 | Comprehensive host history needs a CLI extension, routed 2026-11-13 to boundary-broker.md as [OQ-BB24](../boundary-broker.md#OQ-BB24) and ruled there the same day, delegated by the owner to Fable 5.2: an opt-in `yolo approve --json --ended` first, audit events second as a separate item ([BB-D113](../boundary-broker.md#BB-D113)) | 2026-11-09 | [§8.3](#83-routed-to-boundary-brokermd) | CLI flag built (`848810707`); the queue does not consume it yet |
 | <a id="RH-D6"></a>RH-D6 | *Implementation decision* for [§6.2](#62-the-rest-of-the-display-rules)'s last-seen rule: a request entry holds a copy of the newest request object the queue saw for its id (the filing or deciding event's, a newer snapshot's while it is still pending, or the last snapshot's when it vanishes); an update the history ranking rejects keeps the entry's copy. It is published through the same function as pending detail, so the masking cannot drift, and drawn by the same card under reveal keys of its own. Grant entries carry none | 2026-11-13 | [§6.2](#62-the-rest-of-the-display-rules) | Yes: `internal/approvalqueue/model`, `web/app.js` |

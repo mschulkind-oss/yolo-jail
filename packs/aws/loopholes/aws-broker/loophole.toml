@@ -36,6 +36,18 @@ nesting = "segment"
 separator = "/"
 anchors = ["s3://", "ce://"]
 
+# A route in user config (`[scopes.<alias>] context = "<name>"`) runs a call in a context:
+# `profile` sets AWS_PROFILE, and the three static credential names are unset on that call
+# only, because they would otherwise win over the profile and pick the wrong identity
+# silently. Only S3 scopes are routable; Cost Explorer is not. The profile name is a
+# selector into the host's own AWS configuration, never a verified account binding.
+[call_broker.context]
+unset = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
+route_anchors = ["s3://"]
+
+[call_broker.context.fields]
+profile = "AWS_PROFILE"
+
 [[call_broker.resource]]
 type = "location"
 

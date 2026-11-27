@@ -88,8 +88,15 @@ func TestStatusHandlerStrictLayersAndNoEffects(t *testing.T) {
 			if mode == "header only" && (!strings.Contains(reply.stdout, `"record"`) || !strings.Contains(reply.stdout, `"delivery"`) || !strings.Contains(reply.stdout, `"refresher"`)) {
 				t.Fatal("header-only layers absent")
 			}
-			if mode == "orphan" && !strings.Contains(reply.stdout, "retained, unused") {
-				t.Fatal("configuration orphan disappeared")
+			if mode == "orphan" {
+				if strings.Contains(reply.stdout, "retained, unused") || strings.Contains(reply.stdout, `"slack"`) {
+					t.Fatalf("a jail's status lists a record its share does not name: %s", reply.stdout)
+				}
+				host := ReadHostStatus(f.b.canonical.Dir, f.b.share)
+				data, _ := json.Marshal(host)
+				if !strings.Contains(string(data), "retained, unused") {
+					t.Fatalf("host status lost the orphan row: %s", data)
+				}
 			}
 		})
 	}

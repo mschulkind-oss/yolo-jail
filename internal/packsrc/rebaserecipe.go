@@ -60,17 +60,29 @@ type RebaseRecipe struct {
 	// PatchBranchRepo and PatchBranchRef are a PATCH BRANCH's repository and branch (patchbranch.go), "" for a series: a
 	// patch branch is repaired by merging the target into its branch, in its own repository, and pushing.
 	PatchBranchRepo, PatchBranchRef string
+	// LocalClone is the directory of the LOCAL CLONE the patch branch was read from (PatchBranchResolved.Checkout
+	// when its Copy is "local"), "" when it was read from the repository itself. The branch that failed to merge
+	// is that clone's, which may differ from the remote's, so the recipe repairs it there.
+	LocalClone string
 }
 
 // PatchBranchRecipeLead is RecipeLead for a patch branch, which a merge repairs rather than a rebase.
 const PatchBranchRecipeLead = "merge the upstream into the patch branch with git, yourself or with an agent; the next check fetches it:"
+
+// LocalCloneRecipeLead is PatchBranchRecipeLead for a patch branch read from a local clone, which the next launch
+// reads again, so nothing is fetched.
+const LocalCloneRecipeLead = "merge the upstream into the patch branch in your local clone with git, yourself or with an agent; the next launch reads that clone:"
 
 // Repair is the recipe for rebasing the series onto target as lines: lead, then the steps
 // indented under it, each line prefixed with indent. A patch branch's takes PatchBranchRecipeLead in RecipeLead's
 // place.
 func (r RebaseRecipe) Repair(target ListEntry, lead, indent string) []string {
 	if r.PatchBranchRepo != "" {
-		lead = strings.Replace(lead, RecipeLead, PatchBranchRecipeLead, 1)
+		patchLead := PatchBranchRecipeLead
+		if r.LocalClone != "" {
+			patchLead = LocalCloneRecipeLead
+		}
+		lead = strings.Replace(lead, RecipeLead, patchLead, 1)
 	}
 	out := []string{indent + lead}
 	for _, l := range r.Lines(target) {
@@ -86,6 +98,17 @@ func (r RebaseRecipe) Lines(target ListEntry) []string {
 	if strings.HasPrefix(r.Repo, NpmSourcePrefix) {
 		return []string{"the upstream is an npm package, which has no git history to rebase onto: rework the series " +
 			"against version " + target.Label() + "'s published files and export it with `git format-patch --base`"}
+	}
+	if r.PatchBranchRepo != "" && r.LocalClone != "" {
+		// A PATCH BRANCH READ FROM A LOCAL CLONE: the branch that failed is the clone's own, so it is repaired
+		// there; cloning the repository would repair the remote's, which a launch does not read.
+		c := q(r.LocalClone)
+		return []string{
+			"  git -C " + c + " checkout " + q(r.PatchBranchRef),
+			"  git -C " + c + " fetch " + q(r.Repo) + " " + target.Commit + " && git -C " + c + " merge " + target.Commit,
+			"resolve each conflict (edit, git add, git commit, all in " + r.LocalClone + "); nothing more is needed, " +
+				"and pushing the branch to its remote is optional",
+		}
 	}
 	if r.PatchBranchRepo != "" {
 		// A PATCH BRANCH: the target merged into the branch, in the patch branch's own repository, and pushed —

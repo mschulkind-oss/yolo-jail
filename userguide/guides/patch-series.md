@@ -115,7 +115,7 @@ If you keep your changes on a branch that you merge the upstream into, name that
 
 - **The branch must contain upstream history.** Start it from an upstream commit and merge the
   upstream into it. Never rebase it.
-- **yolo checks a branch at a URL when it checks the upstream**, at most hourly. A branch in a clone
+- **yolo checks a branch at a URL when it checks the upstream**, at every launch. A branch in a clone
   on this machine is checked at every launch (see below). When you push to the
   branch, the next check rebuilds. `yolo pack update` checks now.
 - **When the branch does not merge**, the launch stops and names the conflicting files. It also

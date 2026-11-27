@@ -298,11 +298,11 @@ yolo ships or an address for one from elsewhere. In a legacy JSONC config the li
             "git+ssh://git@github.com/org/repo//subdir?ref=v1"]
 
 The next launch fetches a git pack it has never fetched, and refreshes a branch-following
-one at most hourly; a tag or a commit pin is how to freeze a pack. Run ` + "`yolo pack install`" + `
+one at every launch; a tag or a commit pin is how to freeze a pack. Run ` + "`yolo pack install`" + `
 to fetch everything now instead of at the next launch.
 
 A pack's ` + "`program via npm`" + ` no longer updates itself. Its launcher installs the tool on
-first use and afterwards only REPORTS, at most hourly, that a newer version exists —
+first use and afterwards only REPORTS, once per jail start, that a newer version exists —
 nothing changes a binary between two invocations with nobody present. ` + "`yolo pack update`" + `,
 run inside the jail, is the act that resolves the new version.
 

@@ -55,10 +55,11 @@ type Run struct {
 
 // Script is what the fake does. The nth call of a mode uses entry n, the last entry repeating.
 type Script struct {
-	Record   string `json:"record,omitempty"`   // jsonl file: one {mode,args,env} per call
-	Counters string `json:"counters,omitempty"` // directory for per-mode call counters
-	JSON     []Run  `json:"json,omitempty"`     // "approve --json"
-	Watch    []Run  `json:"watch,omitempty"`    // "approve --watch --json"
+	Record    string `json:"record,omitempty"`     // jsonl file: one {mode,args,env} per call
+	Counters  string `json:"counters,omitempty"`   // directory for per-mode call counters
+	JSON      []Run  `json:"json,omitempty"`       // "approve --json"
+	JSONEnded []Run  `json:"json_ended,omitempty"` // "approve --json --ended"
+	Watch     []Run  `json:"watch,omitempty"`      // "approve --watch --json"
 }
 
 // Call is one recorded invocation.
@@ -98,6 +99,8 @@ func play(s Script, args []string) int {
 	switch {
 	case len(args) == 2 && args[0] == "approve" && args[1] == "--json":
 		mode, runs = "json", s.JSON
+	case len(args) == 3 && args[0] == "approve" && args[1] == "--json" && args[2] == "--ended":
+		mode, runs = "json-ended", s.JSONEnded
 	case len(args) == 3 && args[0] == "approve" && args[1] == "--watch" && args[2] == "--json":
 		mode, runs = "watch", s.Watch
 	default:

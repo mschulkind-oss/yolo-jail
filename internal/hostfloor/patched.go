@@ -23,7 +23,7 @@ import (
 // floor, as a plain fork's is the build at its pin (built.go).
 //
 // The terms are the design's, defined there: the GOOD BUILD; the ADVANCE, the act that checks the
-// upstream (at most hourly), replays the series down the walk's list, builds the newest fit in the
+// upstream (at every launch, LPC-D6), replays the series down the walk's list, builds the newest fit in the
 // sealed capture jail and moves the good build once that build is admitted; and HELD, what runs not
 // following. This package runs none of it: the caller hands the floor the advance (Floor.Advance)
 // and an offline read of the good build (Floor.Patched), as it hands a plain fork's pin and build.
@@ -38,8 +38,8 @@ import (
 //     that can build runs it, outside the floor's lock and before the floor decides anything, so a
 //     launch waits for it as a jail launch does (PF-D25: bounded, and a Ctrl-C ends it on the good
 //     build). Only a current entry under `agent_updates` off skips it — the refresh arm's
-//     UpdatesAllowed, asked for the fork pack and its base (PF-D19) — and the advance runs no git
-//     inside its own hourly throttle (P4).
+//     UpdatesAllowed, asked for the fork pack and its base (PF-D19) — and the advance now probes at every launch (LPC-D6), with no
+//     throttle (P4 is retired).
 //   - A NEWER UPSTREAM THAT FAILS LEAVES THE INSTALLED COPY IN PLACE BUT STOPS THE LAUNCH (PF-D8,
 //     superseded for what runs by OQ-PPX3, 2026-10-16): the advance leaves the good build where it
 //     was and hands the failure, which refuses unless a recovery hatch runs the installed copy or

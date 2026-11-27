@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"slices"
@@ -38,12 +39,30 @@ func (o *Options) prepareMCPCallbacks(in *assembleInput) {
 		declared = append(declared, pyStrCoerce(value))
 	}
 	facts.Callbacks = mcpsignin.PlanCallbacks(facts, in.rt, o.IsLinux && !o.IsMacOS, bridge, declared)
+	reasons := map[int]string{}
+	// Callback publications are disjoint from forward_host_ports (the opposite direction): a
+	// forward already binds that jail-side port.
+	_, forwards := briefingReadablePortsFor("bridge", in.cfg, cfgMap(in.cfg, "providers"))
+	if parsed, err := ParsePortForwards(forwards, nil); err == nil {
+		for i := range facts.Callbacks {
+			row := &facts.Callbacks[i]
+			if row.Disposition != "publication pending" {
+				continue
+			}
+			for _, forward := range parsed {
+				if forward.LocalPort == row.Port {
+					row.Disposition = "port busy"
+					reasons[i] = fmt.Sprintf("port %d is also a forward_host_ports entry; change that forward or the MCP server's callback port to publish it", row.Port)
+				}
+			}
+		}
+	}
 	if o.DryRun {
 		return
 	}
 	eligible := slices.ContainsFunc(facts.Callbacks, func(row mcpsignin.Callback) bool { return row.Disposition == "publication pending" })
 	if !eligible {
-		o.reportMCPCallbacks(facts.Callbacks)
+		o.reportMCPCallbacks(facts.Callbacks, reasons)
 		return
 	}
 	generation := rand.Text()
@@ -56,16 +75,21 @@ func (o *Options) prepareMCPCallbacks(in *assembleInput) {
 		}
 		if o.launchLock == nil || o.launchLock.isClosed() {
 			row.Disposition = "unavailable"
+			reasons[i] = "this launch's launch lock is not held"
 			continue
 		}
 		release, owned := o.callbackLifecycleExclusion(in.cname, in.cname)
 		if !owned {
 			row.Disposition = "unavailable"
+			reasons[i] = "the launch lock " + launchLockPath(in.cname) + " is not a regular file you own, or others can write it; fix its owner and mode"
 			continue
 		}
 		release()
 		lease := mcpsignin.CallbackLease{Version: 1, Port: row.Port, Launch: in.cname, Runtime: in.rt, Generation: generation}
 		row.Disposition, row.Owner = o.acquireCallbackLease(lease)
+		if row.Disposition == "unavailable" {
+			reasons[i] = "the callback lease state under " + o.callbackRoot() + " could not be read or written privately; fix that directory's owner and mode"
+		}
 		if row.Disposition != "publication pending" {
 			continue
 		}
@@ -76,8 +100,10 @@ func (o *Options) prepareMCPCallbacks(in *assembleInput) {
 		free, known := probe(row.Port)
 		if !free {
 			row.Disposition = "unavailable"
+			reasons[i] = "yolo could not check whether the port is free"
 			if known {
 				row.Disposition = "port busy"
+				delete(reasons, i)
 			}
 			o.releaseCallbackLease(lease) // no create has been attempted
 			row.Owner = ""
@@ -96,21 +122,25 @@ func (o *Options) prepareMCPCallbacks(in *assembleInput) {
 			if facts.Callbacks[i].Disposition == "publication pending" {
 				facts.Callbacks[i].Disposition = "unavailable"
 				facts.Callbacks[i].Owner = ""
+				reasons[i] = "the launch receipt could not be written under " + o.callbackRoot() + "; fix that directory's owner and mode"
 			}
 		}
 	}
 	in.callbacks = slices.Clone(o.mcpCallbackLeases)
-	o.reportMCPCallbacks(facts.Callbacks)
+	o.reportMCPCallbacks(facts.Callbacks, reasons)
 }
 
-func (o *Options) reportMCPCallbacks(rows []mcpsignin.Callback) {
-	for _, row := range rows {
+func (o *Options) reportMCPCallbacks(rows []mcpsignin.Callback, reasons map[int]string) {
+	for i, row := range rows {
 		if row.Disposition == "not requested" {
 			continue
 		}
 		disposition := row.Disposition
 		if disposition == "held" {
 			disposition += " by " + row.Owner
+		}
+		if reason := reasons[i]; reason != "" {
+			disposition += " (" + reason + ")"
 		}
 		o.pr(o.Stderr).printf("MCP native callback for %s (%s): %s; IPv4 loopback TCP port %d only. If browser redirect does not complete, paste the full callback URL into the agent's prompt.", row.Server, row.Agent, disposition, row.Port)
 	}

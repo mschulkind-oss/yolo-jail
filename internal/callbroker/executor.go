@@ -146,7 +146,10 @@ func (p pinnedCLI) run(ctx context.Context, canonical Classification, originalSt
 	}
 	cmd := exec.Command(p.path, canonical.Argv...)
 	cmd.Dir = "/"
-	cmd.Env = append([]string(nil), p.env...)
+	// A routed call runs on a copy of the captured environment with its declared edit
+	// applied; the pinned environment itself is never mutated (design 7.1).
+	rc := routedContextOf(ctx)
+	cmd.Env = rc.environment(p.env)
 	cmd.Stdin = bytes.NewReader(originalStdin)
 	var stdout, stderr boundedResponse
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -161,8 +164,9 @@ func (p pinnedCLI) run(ctx context.Context, canonical Classification, originalSt
 	if stdout.tooLarge || stderr.tooLarge {
 		return CLIResult{}, completedExecutionError{errors.New("host CLI response exceeded 32 MiB; narrow the requested output and retry")}
 	}
-	redactedOut, errOut := redactBounded(stdout.Bytes(), p.secrets)
-	redactedErr, errErr := redactBounded(stderr.Bytes(), p.secrets)
+	secrets := rc.redactions(p.secrets)
+	redactedOut, errOut := redactBounded(stdout.Bytes(), secrets)
+	redactedErr, errErr := redactBounded(stderr.Bytes(), secrets)
 	if errOut != nil || errErr != nil {
 		return CLIResult{}, completedExecutionError{errors.New("host CLI redacted response exceeded 32 MiB; narrow the requested output and retry")}
 	}

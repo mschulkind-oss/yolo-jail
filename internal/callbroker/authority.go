@@ -157,6 +157,7 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 				return brokerscope.File{}, nil, errors.New("approved HTTP origin or credential binding changed; run yolo config apply and relaunch")
 			}
 			matched++
+			h.declaration.Store(b)
 		}
 	}
 	if matched != 1 {
@@ -197,10 +198,6 @@ func (h *CLIHandler) currentAuthority() (brokerscope.File, *jsonx.OrderedMap, er
 // revalidate runs under the store's transaction, including from yolo approve.
 // The classifier sees only the recorded hash, never retained stdin or facts.
 func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, error) {
-	// A context has no execution path yet; reads and withheld candidates are replayed below.
-	if q.ContextDigest != "" || q.ContextName != "" {
-		return brokerstore.Policy{}, errors.New("scoped operation execution is not active; retry the supported selected write path")
-	}
 	sf, user, err := h.currentAuthority()
 	if err != nil {
 		return brokerstore.Policy{}, err
@@ -219,6 +216,17 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 		return brokerstore.Policy{}, errors.New("current classifier refused this call; retry the original call")
 	}
 	call := *answer.Classification
+	// The route is selected again from the host user config, and its identity must be the
+	// one this request was filed under: an edited route or context, or a changed unset
+	// rule, is not the answer given (design 7.4). A default-context request names none.
+	rc, err := h.routedContextFor(call)
+	if err != nil {
+		return brokerstore.Policy{}, fmt.Errorf("execution context is unavailable (%v); retry the original call", err)
+	}
+	if rc.digest() != q.ContextDigest || (rc == nil) != (q.ContextName == "") || rc != nil && rc.Name != q.ContextName {
+		return brokerstore.Policy{}, errors.New("the execution route or context changed since this request; retry the original call")
+	}
+	call.contextDigest = rc.digest()
 	working, now, _ := q.WorkingState()
 	policy, err := h.operationPolicy(len(call.Reads) != 0)
 	if err != nil {
@@ -231,6 +239,7 @@ func (h *CLIHandler) revalidate(q brokerstore.Request) (brokerstore.Policy, erro
 	expected := callRequest(h.input.Source, q.Workspace, q.Jail, q.Start, q.LaunchID, call, nil)
 	expected.StdinDigest = q.StdinDigest
 	expected.OriginalArgv = slices.Clone(q.OriginalArgv)
+	expected.ContextName, expected.ContextDigest = q.ContextName, q.ContextDigest
 	expected = bundleSubjects(expected, call, decided)
 	if expected.Digest != q.Digest || !reflect.DeepEqual(expected.Argv, q.Argv) || !reflect.DeepEqual(expected.OriginalArgv, q.OriginalArgv) || !reflect.DeepEqual(expected.CallWrites, q.CallWrites) || !reflect.DeepEqual(expected.CallReads, q.CallReads) {
 		return brokerstore.Policy{}, errors.New("current canonical command, ordered operations or resources changed; retry the original call")

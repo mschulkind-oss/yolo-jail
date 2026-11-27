@@ -220,10 +220,14 @@ func TestAPatchBranchConflictRefusesNamingThePaths(t *testing.T) {
 	var block bytes.Buffer
 	writePatchFailure(&block, pf, fx.fork(t), packsrc.PatchBypass{}, "")
 	for _, w := range []string{"patch branch does not merge into upstream v1.1.0", "Conflict: f.txt",
-		"\nRepair:\n", "git checkout mine", "git merge " + pf.Target.Commit, "git push origin mine"} {
+		"\nRepair:\n", " checkout mine", " merge " + pf.Target.Commit, "pushing the branch to its remote is optional"} {
 		if !strings.Contains(block.String(), w) {
 			t.Errorf("the error block lacks %q:\n%s", w, block.String())
 		}
+	}
+	// The fixture's patch branch is read from a local clone, so the repair runs in that clone.
+	if strings.Contains(block.String(), "git clone") || strings.Contains(block.String(), "git push origin mine") {
+		t.Errorf("the repair clones or pushes instead of repairing the local clone:\n%s", block.String())
 	}
 }
 

@@ -270,6 +270,12 @@ type Floor struct {
 	// ManualUpdate is set only for an explicit launch-scoped --update request. It bypasses automatic
 	// policy and timing holds without bypassing declared pins, provisioner ownership or platform rules.
 	ManualUpdate bool
+	// HoldRefresh, when it answers true, makes Ensure skip the OPTIONAL refresh of a program that
+	// already has a usable copy (the registry poll and the capture older than
+	// CaptureRefreshAge): the caller already knows the launch will be refused, so that work would
+	// be spent on a launch that does not happen. A program with no usable copy is still installed,
+	// and a ManualUpdate is never held. nil => never held.
+	HoldRefresh func() bool
 	// AllowPatchFailures is the one explicit host foreground bypass, asked for the program whose patch
 	// failure it would pass; it never creates a build.
 	AllowPatchFailures func(p Program) bool

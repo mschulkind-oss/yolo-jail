@@ -93,9 +93,10 @@ package run
 // which a build needs for its dependencies and which the launch discloses. The user config's
 // `mise_tools` were on that list until FP-D19 (2026-10-05): no pack a build selects declares one,
 // a build that leaned on one would build on no other machine, and its private /mise made every
-// build install each again. They now reach no capture jail at all, the unsealed one `yolo
-// capture` runs an installer in included, so that row of the table above is the one not keyed on
-// the seal.
+// build install each again. They reach no capture jail at all (the installer capture's too, which
+// is sealed but keeps its whole selection: a vendor installer script is unpinned
+// code, so it is handed no credential either), and that row of the table above is the one the
+// capture mark answers (CapturesDir) rather than the seal alone.
 //
 // The selection is narrowed as well (Options.OnlyPacks): every other selected pack's loopholes and
 // machine-scope directories are channels the build does not need. And the jail is told it is a
@@ -222,7 +223,8 @@ func sealedStores(workspace string) (cacheDir, miseDir string, err error) {
 func (o *Options) selectionNarrowed() bool { return o.OnlyPacks != nil }
 
 // captureJail reports whether this launch is a CAPTURE JAIL: the throwaway jail `yolo capture`
-// runs an installer program in, or a sealed build's (internal/cli's runCaptureJail makes both). The
+// runs an installer program in, or a fork's or extension's build (internal/cli's runCaptureJail makes
+// both, and seals both). The
 // switch is the one noteForkPins, notePatchedTrees, forkDeliveriesFor and
 // autoCaptureInstallerPrograms read, Options.CapturesDir returning "", which only that act sets; a
 // sealed launch is always one, so the seal answers too.

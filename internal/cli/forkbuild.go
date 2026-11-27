@@ -56,6 +56,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
@@ -710,7 +711,7 @@ func (t *jailTail) tee(s captureStreams) captureStreams {
 		s.jailOut = os.Stdout
 	}
 	if s.jailErr == nil {
-		s.jailErr = os.Stderr
+		s.jailErr = progress.Guard(os.Stderr)
 	}
 	return captureStreams{
 		out:        io.MultiWriter(s.out, t.writer(tailLaunchOut)),
@@ -1098,7 +1099,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		if kept := openBuildJailOutput(staging, fmt.Sprintf("%s at %s", f.Key(), shortSHA(b.Commit))); kept != nil {
 			defer kept.close()
 			streams.jailOut = kept.tee(streams.jailOut, os.Stdout)
-			streams.jailErr = kept.tee(streams.jailErr, os.Stderr)
+			streams.jailErr = kept.tee(streams.jailErr, progress.Guard(os.Stderr))
 			streams.sessionOut = kept.tee(streams.sessionOut, os.Stdout)
 			pr.Printf("[dim]  its build jail's output is in %s as it runs[/dim]", richtext.Escape(kept.path))
 		}
@@ -1836,11 +1837,13 @@ func forkBuildPlatform(rt string) string {
 	return captureJailPlatform()
 }
 
-// captureSeal is what makes a capture jail a fork build's: the seal, and the packs entries the
-// selection is narrowed to — and, for a patched extension's build, the extension's name (tree),
-// which the jail is told (run.Options.SealedTree). nil for `yolo capture` of an installer, whose
-// jail is unsealed and keeps the whole selection, but is still a capture jail, so it too is handed
-// none of the user's `mise_tools` (FP-D19, run.Options.captureJail).
+// captureSeal is what makes a capture jail SEALED (run.Options.Sealed, run/seal.go): a fork
+// build's, whose selection is narrowed to the packs entries in only — and, for a patched
+// extension's build, to the extension's name (tree), which the jail is told
+// (run.Options.SealedTree) — or an INSTALLER capture's (installer), which runs a vendor script
+// fetched unpinned from the internet and so gets no credential, host service or host file either.
+// An installer capture keeps the whole selection (only nil) and is no build: it has no build line,
+// id or tree, and its macos-user arm is the installer act.
 //
 // build and id are a build's line and its build's id — a plain fork's (FP-D24), a patched fork's,
 // whose series buildFork has replayed into the checkout first (PF-D97), or a patched extension's,
@@ -1850,4 +1853,10 @@ type captureSeal struct {
 	only      []string
 	tree      string
 	build, id string
+	installer bool
 }
+
+// forkBuild reports whether s is a build's seal (a fork's or a patched extension's): not nil, and
+// not an installer capture's. Those are the capture jails whose host act records the build's
+// runtime and whose macos-user arm is the build act.
+func (s *captureSeal) forkBuild() bool { return s != nil && !s.installer }

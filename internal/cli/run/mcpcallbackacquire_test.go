@@ -4,11 +4,43 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/mschulkind-oss/yolo-jail/internal/mcpsignin"
 )
+
+// A restrictive umask makes the launch lock 0600 or 0640, not 0644. The lifecycle gate must
+// still be granted: it demands an owned regular file nobody else can write, not one exact mode.
+func TestManagedMCPCallbackLifecycleGateAcceptsLockCreatedUnderRestrictiveUmask(t *testing.T) {
+	packHome(t)
+	for _, umask := range []int{0o077, 0o027} {
+		old := syscall.Umask(umask)
+		func() {
+			defer syscall.Umask(old)
+			root := filepath.Join(t.TempDir(), "leases")
+			o := callbackLeaseOptions(t, root, true, "")
+			prev := mcpsignin.CallbackLease{Version: 1, Port: 3118, Launch: "umask-previous", Runtime: "podman", Generation: "old"}
+			if disposition, _ := o.acquireCallbackLease(prev); disposition != "publication pending" {
+				t.Fatalf("umask %o: first lease: %s", umask, disposition)
+			}
+			next := prev
+			next.Launch, next.Generation = "umask-next", "new"
+			if disposition, _ := o.acquireCallbackLease(next); disposition != "publication pending" {
+				t.Fatalf("umask %o: other owner's gate refused a private lock: %s", umask, disposition)
+			}
+			o.holdLaunchLock(next.Launch)
+			defer o.releaseLaunchLock()
+			same := next
+			same.Generation = "same-cname-new"
+			if disposition, _ := o.acquireCallbackLease(same); disposition != "publication pending" {
+				t.Fatalf("umask %o: own held lock refused: %s", umask, disposition)
+			}
+		}()
+	}
+}
 
 func TestManagedMCPCallbackAcquireReclamationHoldsPreviousLifecycleAndOwnCname(t *testing.T) {
 	packHome(t)
@@ -146,5 +178,35 @@ func TestManagedMCPCallbackAcquireCannotStealPendingLaunchBeforeRuntimeCreate(t 
 	first := f.Start("pending-owner", false, false, false)
 	if !entered || first.rc != 0 {
 		t.Fatal("pending owner did not continue after controlled window", entered, first.rc)
+	}
+}
+
+// An unavailable callback row says why, so the user can fix it or paste the URL.
+func TestManagedMCPCallbackUnavailableRowCarriesAReason(t *testing.T) {
+	f := callbackMCPLaunchFixture(t)
+	f.tune = func(_ *callbackRun, o *Options) { o.holdLaunchLock("not-this-launch") }
+	run := f.Start("wrong-gate-reason", false, false, false)
+	if !strings.Contains(run.errs.String(), "launch lock") {
+		t.Fatalf("unavailable callback row has no reason: %s", run.errs.String())
+	}
+}
+
+// Callback publications are disjoint from forward_host_ports: a forward already binds
+// that jail-side port, so the callback is skipped with a line naming the next step.
+func TestManagedMCPCallbackSkipsAPortThatForwardHostPortsUses(t *testing.T) {
+	f := callbackMCPLaunchFixture(t)
+	path := filepath.Join(f.home, ".config/yolo-jail/config.toml")
+	config, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config = append(config, []byte("\n[[machine.forward]]\njail=3118\nhost=3118\n")...)
+	if err := os.WriteFile(path, config, 0644); err != nil {
+		t.Fatal(err)
+	}
+	run := f.Start("forward-overlap", false, false, false)
+	out := run.errs.String()
+	if run.rc != 0 || len(run.plan.CallbackLeases) != 0 || !strings.Contains(out, "forward") || !strings.Contains(out, "full callback URL") {
+		t.Fatalf("callback port overlapping a forward was published or unexplained: rc=%d leases=%v %s", run.rc, run.plan.CallbackLeases, out)
 	}
 }

@@ -8,11 +8,26 @@ tags: [backlog, packs, composed-config]
 
 # Backlog — the one implementable list
 
+## Trace recording under a symlinked home
+
+`perf.openStoreRoot` (`internal/perf/tracestore.go`) declines a trace root that has any
+symlinked ancestor, so a user whose home sits under a link (Fedora Silverblue's `/home` →
+`/var/home`, or macOS's `/var` → `/private/var` for a temporary home) records no startup
+trace, with one dim warning as the only sign. The no-symlink rule protects the directories
+yolo creates; it does not need to refuse links above the user's home. Check only the
+components below the home, with a test that mints the home behind a link.
+
+## Restart readiness test waits on a time budget
+
+`TestARestartThatNeverBecomesReadyCountsAsADeath` (`internal/cli/run/hostdaemonsupervise_test.go`)
+gives the first start a 5-second `ServiceReadyTimeout` that it must beat, because one field
+governs both the first start and the restarts. Give the first start its own readiness event
+so the test waits on it rather than on a budget.
+
 ## Git sourced skills and AWS verification
 
 The [follow-up verification owner](git-skills-aws-verification.md) carries native Mac
-witnesses on main, rootless-host evidence, N7 memory/repeated-read measurement and
-source-only P2 reproduction work. Start with the runnable native witnesses; do not
+witnesses on main and rootless-host evidence. Start with the runnable native witnesses; do not
 mistake nested Podman or synthetic AWS evidence for native/provider compatibility.
 Canonical behavior lives in [Git sourced skills](../reference/git-sourced-skills.md)
 and [AWS operations](../reference/aws-operation-broker/README.md). No agent discovery,
@@ -1062,15 +1077,6 @@ are under `.yolo/durable/fanout-20261113/` (`briefing-t5/census-run2.log` and
 - `TestBackgroundSelectionDefersAFetchedPackWhoseCheckoutLockIsHeld` (`internal/cli`).
 - `TestOwnedChildEarlySignalCleanupReapsChild` (`internal/ttyproxy`): timed out after 10 s
   waiting for its marker.
-
-### <a id="launch-prep-runtime-leftovers"></a>🔧 **Two status-wording leftovers from the launch-preparation runtime run**
-
-Found by [the 2026-11-13 nested run](../design/launch-update-preparation-plan.md#runtime-2026-11-13):
-
-- Under `--update`, the "⚡ Executing" line prints before the in-jail refresh; the refresh still
-  finishes before the command runs.
-- The status headings still say "Tree preparation worker" and "built-tree preparations", though the
-  worker now covers ordinary programs too.
 
 ### <a id="program-capture-record-platform"></a>🔧 **A program capture still judges an existing entry's platform by its manifest**
 
