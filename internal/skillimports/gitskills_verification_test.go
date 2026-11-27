@@ -112,6 +112,7 @@ func TestSourcedSkillComposedReadCountsAndNestedRecordRoot(t *testing.T) {
 	remote := payloadOrigin(t, size)
 	store := &packsrc.Store{Dir: t.TempDir(), Env: append(testsupport.HermeticGitEnv(packsrc.CleanGitEnv(os.Environ())),
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@e", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@e")}
+	testsupport.UnsealOnCleanup(t, store.Dir)
 	lock := filepath.Join(t.TempDir(), packsrc.SkillsLockName)
 	opts := packsrc.SkillResolveOptions{LockPath: lock, Now: func() time.Time { return time.Unix(1800000000, 0) }}
 	source := "git+file://" + remote + "//skills/chosen?ref=main"

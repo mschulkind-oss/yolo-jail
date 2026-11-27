@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 )
 
 const measureFiles = 16
@@ -140,6 +142,7 @@ func TestSkillPayloadWholePayloadReadCounts(t *testing.T) {
 	gitIn(t, remote, "add", "--all")
 	gitIn(t, remote, "commit", "-m", "payload")
 	s := &Store{Dir: t.TempDir(), Env: gitTestEnv()}
+	testsupport.UnsealOnCleanup(t, s.Dir)
 	lock := filepath.Join(t.TempDir(), SkillsLockName)
 	opts := SkillResolveOptions{LockPath: lock, Now: func() time.Time { return time.Unix(1800000000, 0) }}
 	rows := []SkillRequest{{Label: "measure/skills[0]", Source: "git+file://" + remote + "//skills/chosen?ref=skills-main"}}
