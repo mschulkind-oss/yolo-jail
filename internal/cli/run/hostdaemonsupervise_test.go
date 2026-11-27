@@ -437,10 +437,14 @@ func TestLaunchLogOnlyTakesTheLogHalfAlone(t *testing.T) {
 func TestARestartThatNeverBecomesReadyCountsAsADeath(t *testing.T) {
 	f := newSupervisedFixture(t)
 	fastHostDaemonRestarts(t, 5*time.Millisecond, 10*time.Second, 2)
-	f.o.ServiceReadyTimeout = 150 * time.Millisecond
+	// ONE budget serves the first start and every restart (the supervisor reads the field at each
+	// wait, and a write after the first start would race it). The first start must be ready, and
+	// does so the moment its socket appears, so under load only a budget it can never use up keeps
+	// it from being abandoned; a restart that never serves necessarily waits the whole budget out.
+	f.o.ServiceReadyTimeout = 5 * time.Second
 	// The first spawn serves and dies; every later one lives on without ever serving.
 	h := f.spawnScript("neverready", `echo $$ >> "$PIDS"; if [ "$(wc -l < "$PIDS")" -eq 1 ]; then : > "$1"; sleep 0.1; rm -f "$1"; exit 3; fi; exec sleep 30`, nil)
-	if !ended(h, 20*time.Second) {
+	if !ended(h, 2*time.Minute) {
 		t.Fatalf("supervision never gave up on restarts that never became ready; host log:\n%s", hostLog("neverready"))
 	}
 	if n := len(f.spawned()); n != 3 {
@@ -452,7 +456,7 @@ func TestARestartThatNeverBecomesReadyCountsAsADeath(t *testing.T) {
 		}
 	}
 	log := hostLog("neverready")
-	if !strings.Contains(log, "(its restart did not become reachable within 150ms) after 2 restarts in a row; giving up") {
+	if !strings.Contains(log, "(its restart did not become reachable within 5s) after 2 restarts in a row; giving up") {
 		t.Errorf("the host log does not give up on the failed readiness wait as the death:\n%s", log)
 	}
 }
