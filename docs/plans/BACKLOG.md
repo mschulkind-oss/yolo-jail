@@ -11,8 +11,7 @@ tags: [backlog, packs, composed-config]
 ## Git sourced skills and AWS verification
 
 The [follow-up verification owner](git-skills-aws-verification.md) carries native Mac
-witnesses on main, rootless-host evidence, N7 memory/repeated-read measurement and
-source-only P2 reproduction work. Start with the runnable native witnesses; do not
+witnesses on main and rootless-host evidence. Start with the runnable native witnesses; do not
 mistake nested Podman or synthetic AWS evidence for native/provider compatibility.
 Canonical behavior lives in [Git sourced skills](../reference/git-sourced-skills.md)
 and [AWS operations](../reference/aws-operation-broker/README.md). No agent discovery,

@@ -52,8 +52,9 @@ needs a ruling or a Mac sits in the others.
    after a jail start. Built, slices 0-6: the jail-start record, the npm, native and pnpm launchers, the server
    and pre-launch refreshes, and the docs. Remaining: slice 7, the Mac witnesses (two macos-user sessions of one
    home share the later id; `set -o noclobber` is exclusive under `/bin/bash` 3.2), which need the owner's Mac. Follow-up
-   under the same ruling, not yet designed: the host floor's evergreen poll (`hostfloor.DefaultUpdateInterval`,
-   `internal/hostfloor/floor.go:205`), since `yolo host` has no jail start.
+   under the same ruling: the host floor's evergreen poll, since `yolo host` has no jail start, is designed in
+   [Host floor update cadence](../design/host-floor-update-cadence.md); its [OQ-HF1](../design/host-floor-update-cadence.md#OQ-HF1) and
+   [OQ-HF2](../design/host-floor-update-cadence.md#OQ-HF2) need the owner's rulings.
 
 4. [Direct user-level scoped TOML pack imports](../design/toml-scoped-pack-imports-plan.md) —
    next by the owner's explicit priority: selected upstream skills must reach every project
