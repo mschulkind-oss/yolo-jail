@@ -52,10 +52,21 @@ func TestTheFloorsCaptureJailWritesItsOutputToTheLaunchsStderr(t *testing.T) {
 			"process's stderr for both", writerName(seen.JailStdout), writerName(seen.SessionStdout))
 	}
 
+	// THE JAIL'S STDERR AND ITS SESSION'S TOO (through progress.Guard, as the stdout is): they
+	// default to the raw process stderr, which lands on a live readiness line's row.
+	if seen.JailStderr != hostJailStdout() || seen.SessionStderr != hostJailStdout() {
+		t.Errorf("the floor's capture jail writes its stderr to %s and its session's to %s, want the guarded "+
+			"process stderr for both", writerName(seen.JailStderr), writerName(seen.SessionStderr))
+	}
+
 	seen = run.Options{}
 	var out, errw bytes.Buffer
 	if rc := captureHost([]string{"probetool"}, &out, &errw, false); rc != 0 {
 		t.Fatalf("yolo capture: rc %d\n%s", rc, errw.String())
+	}
+	if seen.JailStderr != nil || seen.SessionStderr != nil {
+		t.Errorf("a typed `yolo capture` sends its jail's stderr to %s and its session's to %s, want unset",
+			writerName(seen.JailStderr), writerName(seen.SessionStderr))
 	}
 	if seen.JailStdout != nil || seen.SessionStdout != nil {
 		t.Errorf("a typed `yolo capture` sends its jail's stdout to %s and its session's to %s, want "+
@@ -149,7 +160,16 @@ func TestTheFloorsForkBuildJailWritesItsOutputToTheLaunchsStderr(t *testing.T) {
 	runs := 0
 	build := forkFloorBuildJail(t, &runs, true)
 	var jailStdout io.Writer
-	withFakeCaptureJail(t, func(o run.Options) int { jailStdout = o.SessionStdout; return build(o) })
+	// The jail's own stderr (o.JailStderr) is teed into the build's log, so it is judged by what a
+	// line written to it does on a terminal with a live line: it must not land on the line's row.
+	readStderr := swapStderr(t)
+	withFakeCaptureJail(t, func(o run.Options) int {
+		jailStdout = o.SessionStdout
+		line := liveLineOn(os.Stderr)
+		_, _ = io.WriteString(o.JailStderr, "yolo: the build jail's own stderr line\n")
+		line.Abandon()
+		return build(o)
+	})
 	captureHostExec(t)
 
 	errw.Reset()
@@ -158,6 +178,11 @@ func TestTheFloorsForkBuildJailWritesItsOutputToTheLaunchsStderr(t *testing.T) {
 	}
 	if terminalHalf(jailStdout) != hostJailStdout() {
 		t.Errorf("the floor's build jail runs its session with its stdout on %s, want this process's stderr", writerName(jailStdout))
+	}
+	if got := readStderr(); !strings.Contains(got, "yolo: the build jail's own stderr line\n") {
+		t.Errorf("the build jail's stderr line did not reach this process's stderr whole:\n%q", got)
+	} else {
+		assertNoGluedRow(t, got, "Checking the programs packs declare")
 	}
 }
 

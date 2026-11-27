@@ -809,14 +809,14 @@ func floorForkPins(progs []hostfloor.Program) map[string]packload.ForkPin {
 // test can stand in for the jail it boots and still drive the floor's own Capture wiring; nothing
 // but a test reassigns it.
 var hostFloorCaptureAct = func(args []string, out, errw io.Writer, color bool) int {
-	return captureHostWith(args, out, errw, color, captureAct{jailStdout: hostJailStdout()})
+	return captureHostWith(args, out, errw, color, captureAct{jailStdout: hostJailStdout(), jailStderr: hostJailStdout(), sessionStderr: hostJailStdout()})
 }
 
 // hostFloorCaptureActOn is the capture act under a runtime its caller names for this act alone
 // (captureAct.runtime): the Mac floor's, on macos-user (HP-D2), its jail's stdout on this process's
 // stderr as hostFloorCaptureAct's is. A var for hostFloorCaptureAct's reason.
 var hostFloorCaptureActOn = func(rt string, args []string, out, errw io.Writer, color bool) int {
-	return captureHostWith(args, out, errw, color, captureAct{runtime: rt, jailStdout: hostJailStdout()})
+	return captureHostWith(args, out, errw, color, captureAct{runtime: rt, jailStdout: hostJailStdout(), jailStderr: hostJailStdout(), sessionStderr: hostJailStdout()})
 }
 
 // hostJailStdout is where a jail a host verb boots writes its OWN stdout (captureAct.jailStdout):
