@@ -96,10 +96,6 @@ needs a ruling or a Mac sits in the others.
      patched forks have become slow, and ruled the same day: complete [its plan sketch](../design/startup-tracing-plan.md)
      against the tree, then build the trace directory and the text summary first, since they rank what to speed up.
 
-8. [A workspace-layer `repo_instructions` is silently inert at the host](../reference/workspace-instruction-files.md#per-setup-behavior):
-   `yolo host --` reads the user scope alone, so a project's mode changes nothing there and no launch line says so. Name it
-   in a line that gives the next step.
-
 ## Independent design review
 
 [A local startup-message gallery](../design/startup-message-gallery.md) — after the broker/MCP
