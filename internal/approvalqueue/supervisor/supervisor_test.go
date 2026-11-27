@@ -485,3 +485,26 @@ func TestShutdownKillsARunningSnapshotChild_M1(t *testing.T) {
 		t.Fatalf("snapshot child %d outlived shutdown", pid)
 	}
 }
+
+// BB-D113 condition 1: the ended listing is opt-in. The default snapshot is still plain
+// "approve --json", and Config.Ended adds exactly "--ended". The fake exits 2 on any other
+// spelling, so deleting the call site's "--ended" fails this test.
+func TestSnapshotPassesEndedOnlyWhenOptedIn(t *testing.T) {
+	for _, c := range []struct {
+		ended bool
+		want  string
+	}{{false, "approve --json"}, {true, "approve --json --ended"}} {
+		rec := filepath.Join(t.TempDir(), "rec.jsonl")
+		fake := fakeyolo.Install(t, fakeyolo.Script{Record: rec,
+			JSON:      []fakeyolo.Run{{Stdout: td("approve-json-final.json")}},
+			JSONEnded: []fakeyolo.Run{{Stdout: td("approve-json-final.json")}}})
+		s := New(Config{Yolo: fake, Ended: c.ended, Now: func() time.Time { return base }}, func(model.Input) {})
+		if _, ok := s.Snapshot(ctxGuard(t)).Input.(model.SnapshotOK); !ok {
+			t.Fatalf("ended=%v: snapshot failed", c.ended)
+		}
+		calls := fakeyolo.Calls(t, rec)
+		if len(calls) != 1 || strings.Join(calls[0].Args, " ") != c.want {
+			t.Fatalf("ended=%v: argv = %v, want %q", c.ended, calls, c.want)
+		}
+	}
+}

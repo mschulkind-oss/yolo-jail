@@ -27,6 +27,7 @@ const StoreReadFailure = "reading the store failed"
 // Config is the supervisor's tunables; zero values take the documented defaults.
 type Config struct {
 	Yolo              string        // the yolo executable (name on PATH or a path)
+	Ended             bool          // snapshots add "--ended" (BB-D113, opt-in); the watch never does
 	Reconcile         time.Duration // snapshot interval, default 15 s
 	SnapshotTimeout   time.Duration // per "--json" run, default 60 s
 	BackoffInit       time.Duration // watch restart delay, default 1 s
@@ -127,7 +128,11 @@ func (s *Supervisor) Snapshot(ctx context.Context) Result {
 	start := s.cfg.Now()
 	runCtx, cancel := context.WithTimeout(ctx, s.cfg.SnapshotTimeout)
 	defer cancel()
-	cmd := s.command(runCtx, "approve", "--json")
+	args := []string{"approve", "--json"}
+	if s.cfg.Ended {
+		args = append(args, "--ended")
+	}
+	cmd := s.command(runCtx, args...)
 	out := &capBuf{max: s.cfg.MaxLine}
 	errb := &headBuf{max: s.cfg.StderrKeep}
 	cmd.Stdout, cmd.Stderr = out, errb

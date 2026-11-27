@@ -109,6 +109,7 @@ func run(ctx context.Context, env Env) error {
 	listen := fs.String("listen", "127.0.0.1:0", "address to listen on; loopback only")
 	reconcile := fs.Duration("reconcile", 15*time.Second, "how often to take a full snapshot")
 	noOpen := fs.Bool("no-open", false, "do not open a browser; use the printed link")
+	ended := fs.Bool("ended", false, "also list requests, grants and working-set entries ended within the store's 7 days (yolo approve --json --ended); history stays in memory only")
 	assets := fs.String("assets", "", "serve the page's files from this directory (development)")
 	if err := fs.Parse(env.Args); err != nil {
 		return &usageError{"bad flags; see --help"}
@@ -130,7 +131,7 @@ func run(ctx context.Context, env Env) error {
 	logger := log.New(env.Stderr, "queue: ", log.Ltime)
 	h := hub.New(model.Options{Reconcile: *reconcile, Loc: time.Local}, time.Now)
 	sup := supervisor.New(supervisor.Config{
-		Yolo: yoloPath, Reconcile: *reconcile, NoInitialSnapshot: true,
+		Yolo: yoloPath, Reconcile: *reconcile, NoInitialSnapshot: true, Ended: *ended,
 		Logf: func(f string, a ...any) { logger.Printf(f, a...) },
 	}, h.Apply)
 

@@ -33,6 +33,7 @@ type RequestView struct {
 	Expires       time.Time  `json:"expires"`
 	Decided       *time.Time `json:"decided,omitempty"`
 	State         string     `json:"state"`
+	DenialNote    string     `json:"denial_note,omitempty"`
 	HookFailure   string     `json:"hook_failure,omitempty"`
 	HookOutput    string     `json:"hook_output,omitempty"`
 	NeedsApproval []string   `json:"needs_approval,omitempty"`
@@ -77,6 +78,10 @@ type WorkingView struct {
 	Added        time.Time `json:"added,omitzero"`
 	Expires      time.Time `json:"expires,omitzero"`
 	File         string    `json:"file,omitempty"`
+	// Ended, EndReason and State are set only on an --ended listing's ended entries.
+	Ended     *time.Time `json:"ended,omitempty"`
+	EndReason string     `json:"end_reason,omitempty"`
+	State     string     `json:"state,omitempty"`
 }
 
 // SourceView labels each listed source.
@@ -90,13 +95,18 @@ type SourceView struct {
 // StateView is one snapshot: the output of "yolo approve --json", or the "state" line that
 // opens a watch.
 type StateView struct {
-	Schema      int           `json:"schema"`
-	Event       string        `json:"event,omitempty"`
-	Sources     []SourceView  `json:"sources,omitempty"`
-	Diagnostics []string      `json:"diagnostics,omitempty"`
-	Requests    []RequestView `json:"requests"`
-	Grants      []GrantView   `json:"grants"`
-	Working     []WorkingView `json:"working"`
+	Schema int    `json:"schema"`
+	Event  string `json:"event,omitempty"`
+	// IncludesEnded, HorizonDays and HorizonNote are present only on "yolo approve --json
+	// --ended" (BB-D113): Requests, Grants and Working then also hold ended records.
+	IncludesEnded bool          `json:"includes_ended,omitempty"`
+	HorizonDays   int           `json:"horizon_days,omitempty"`
+	HorizonNote   string        `json:"horizon_note,omitempty"`
+	Sources       []SourceView  `json:"sources,omitempty"`
+	Diagnostics   []string      `json:"diagnostics,omitempty"`
+	Requests      []RequestView `json:"requests"`
+	Grants        []GrantView   `json:"grants"`
+	Working       []WorkingView `json:"working"`
 }
 
 // EventView is one watch event.
