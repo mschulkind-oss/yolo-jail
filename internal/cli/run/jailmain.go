@@ -311,11 +311,6 @@ type launchSignalArm struct {
 	terminating bool
 }
 
-// armLaunchSignals installs the arm.
-func armLaunchSignals(onTerminate func()) *launchSignalArm {
-	return armLaunchSignalsWith(onTerminate, launchArmExit)
-}
-
 // launchArmExit is how every arm the pipeline installs ends the process: os.Exit. A var so a test
 // that drives a whole launch to a signal can see the exit without ending the test binary.
 var launchArmExit = os.Exit
@@ -345,7 +340,7 @@ func endingOnAHangup() bool {
 	return ending && sig == syscall.SIGHUP
 }
 
-// armLaunchSignalsWith is armLaunchSignals with the process exit as a parameter: for an arm whose
+// armLaunchSignalsWith installs the arm, with the process exit as a parameter: for an arm whose
 // exit writes the launch's machine-wide line first (interruptedArmExit, launchrecord.go), and so a
 // test can drive the arm to its end without ending the test binary.
 func armLaunchSignalsWith(onTerminate func(), exit func(int)) *launchSignalArm {
