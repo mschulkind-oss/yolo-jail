@@ -2,13 +2,13 @@
 title: "CLI visual polish — color to guide the eye"
 status: accepted
 stage: DESIGN
-next: "Group C is done (color 2026-11-12, glyphs and status column 2026-11-13); the cross-cutting passes and the startup banner remain; the frozen run progress lines wait on OQ-VP1"
+next: "Everything but the frozen `yolo run` progress lines is done; those wait on OQ-VP1"
 tags: [plan, cli, color, polish]
 ---
 
 # Plan: CLI visual polish — color to guide the eye
 
-**Status:** 2026-10-08 — in progress. **Group A is done as of 2026-10-01**: `yolo loopholes
+**Status:** in progress; only the frozen run progress lines remain. **Group A is done as of 2026-10-01**: `yolo loopholes
 status` and then `yolo loopholes list` color through `Deps.Color` and a `richtext.Printer` now,
 `ps` having landed earlier. Before 2026-10-01 no item had moved since 2026-07-21 (re-checked
 2026-09-24, when this doc's line-number anchors were replaced by symbol names because they had
@@ -23,8 +23,8 @@ through the renderer (bold headers, cyan command names); `config render
 colored (dim/red/yellow, bold header, TTY-gated, byte-parity locked). `check`
 keeps its own richer private ANSI (background/inverse badges richtext lacks) —
 left as-is per the palette-gaps note. Config help and `init`/`init-user-config`
-status lines are now colored additively (2026-10-08), the Group C color halves (2026-11-12), and Group C's glyphs and status column (2026-11-13); the remaining candidates are
-listed below, with run-boot frozen lines still needing sign-off. The invariant's `NO_COLOR` clause, unbuilt until then, is
+status lines are now colored additively (2026-10-08), the Group C color halves (2026-11-12), and Group C's glyphs and status column (2026-11-13); the one remaining candidate
+is the run-boot frozen lines, still needing sign-off. The invariant's `NO_COLOR` clause, unbuilt until then, is
 enforced by one gate since 2026-09-26 — see
 [Implementation decisions](#implementation-decisions--no_color-2026-09-26), which also names
 the one gap left. This is the *content* follow-on to the color-*rendering*
@@ -245,7 +245,7 @@ Highest value, low risk (text stays byte-identical after strip).
   `command_test.go` and `command_nocolor_test.go`) and
   `internal/macosuser/testdata/runas_account_argvs.golden.json` pin these exact
   bytes, so this is a deliberate golden update, waiting on [OQ-VP1](#OQ-VP1).
-- [ ] **`yolo` startup banner** — **Impact: low-med · Effort: low.** Fully
+- [x] **DONE (`eb9697b77`): `yolo` startup banner** — **Impact: low-med · Effort: low.** Fully
   monochrome. It is now TWO lines from two renderers, so this item is two edits:
   `internal/banner`'s `Startup` (the `yolo-jail <version> | <platform> |
   host|in-jail` line every subcommand writes, emitted by
@@ -304,17 +304,16 @@ commit.
 
 ## Cross-cutting
 
-- [ ] **Colorize resource PATHS consistently** across the state commands —
+- [x] **DONE: colorize resource PATHS consistently** across the state commands —
   dim or cyan the path portion of `label: /some/path` lines so the label/value
   boundary is visible (host-daemon pid-file/socket, check storage/config paths,
   config-ref file paths; the builder conf paths went with `yolo builder`).
-  Host-daemon sockets and check's pass-line paths are done (Group C above);
-  config-ref's file paths are left.
-- [ ] **Consolidate tag→ANSI renderers.** Three-plus parallel tables exist:
+  Host-daemon sockets, check's pass-line paths and config-ref's file paths are all done.
+- [x] **DONE: consolidate tag→ANSI renderers.** Three-plus parallel tables exist:
   richtext's `ansiForTag`, configref.go's `tagReplacer`, cli/markup.go's
   `markupANSI`. `richtext.ansiForTag` already covers the full palette. Route the
   plain surfaces onto `internal/richtext` rather than growing a fourth table
-  (also unblocks init's missing-red gap). Natural intersection with
+  (also unblocks init's missing-red gap). Only `richtext.ansiForTag` remains. Natural intersection with
   `module-consolidation-and-cleanup.md` (retired; `git log -- docs/plans/module-consolidation-and-cleanup.md`).
 
 ## Enforcement / tests
@@ -339,8 +338,8 @@ golden update — call it out for human sign-off, don't fold it in silently.
    2026-10-08.
 4. ~~init status lines~~ — colored additively through richtext (2026-10-08).
 5. ~~Group C polish~~: color done 2026-11-12, glyphs and the status column 2026-11-13; the
-   cross-cutting passes remain.
-6. Frozen-byte surfaces (run sub-steps, banner) last, each with human sign-off.
+   cross-cutting passes are done too.
+6. ~~Banner~~ done; the run sub-steps are the one frozen-byte surface left, waiting on [OQ-VP1](#OQ-VP1).
 
 ## Open Questions
 

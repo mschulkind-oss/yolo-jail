@@ -1053,15 +1053,6 @@ are under `.yolo/durable/fanout-20261113/` (`briefing-t5/census-run2.log` and
 - `TestOwnedChildEarlySignalCleanupReapsChild` (`internal/ttyproxy`): timed out after 10 s
   waiting for its marker.
 
-### <a id="launch-prep-runtime-leftovers"></a>🔧 **Two status-wording leftovers from the launch-preparation runtime run**
-
-Found by [the 2026-11-13 nested run](../design/launch-update-preparation-plan.md#runtime-2026-11-13):
-
-- Under `--update`, the "⚡ Executing" line prints before the in-jail refresh; the refresh still
-  finishes before the command runs.
-- The status headings still say "Tree preparation worker" and "built-tree preparations", though the
-  worker now covers ordinary programs too.
-
 ### <a id="program-capture-record-platform"></a>🔧 **A program capture still judges an existing entry's platform by its manifest**
 
 The capture store's [record-platform rule](../reference/install-capture.md#record-platform) makes
