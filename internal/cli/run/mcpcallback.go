@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -190,7 +189,6 @@ func (o *Options) releaseGoneMCPCallbacks(cname, runtime string) {
 				o.releaseCallbackLease(lease)
 			}
 		}
-		o.removeCallbackReceiptFiles(o.mcpCallbackGeneration)
 		return
 	}
 	fd, err := syscall.Open(o.callbackRoot(), syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
@@ -223,22 +221,6 @@ func (o *Options) releaseGoneMCPCallbacks(cname, runtime string) {
 		lease, err := mcpsignin.ReadCallbackLease(o.callbackRoot(), port)
 		if err == nil && lease.Launch == cname && lease.Runtime == runtime {
 			o.releaseCallbackLease(lease)
-			o.removeCallbackReceiptFiles(lease.Generation)
 		}
-	}
-}
-
-// removeCallbackReceiptFiles deletes a retired launch's receipt and its failure notes, which
-// would otherwise accumulate one set per launch. The caller has proved the runtime gone; a
-// generation that is not a valid key names no path.
-func (o *Options) removeCallbackReceiptFiles(generation string) {
-	path := mcpsignin.CallbackReceiptPath(o.callbackRoot(), generation)
-	if path == "" {
-		return
-	}
-	_ = os.Remove(path)
-	notes, _ := filepath.Glob(path + ".failure-*")
-	for _, note := range notes {
-		_ = os.Remove(note)
 	}
 }
