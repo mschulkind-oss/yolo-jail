@@ -1435,6 +1435,23 @@ topic now. They are listed by area, in no priority order; nothing here is ranked
   never decides whether the doc is right. From `further-roadmap-ideas.md` (its I1b), deleted
   2026-10-16. Owner:
   [keeping this corpus honest](README.md#keeping-this-corpus-honest--the-checks-so-they-are-re-runnable).
+- **Keeper left a jail unkept after its stop (flake, 2026-11-27).** One nested run (rootful inner
+  podman, slirp4netns) of `TestUnifiedHomeLaunchComposesItsSliceAndTheNextLaunchFindsTheSession`
+  failed its first launch with rc 1: the keeper logged `is still there after its stop` 37 s after
+  `the last session ... left` (10:58:14 to 10:58:51), then `selected MCP final harvest is
+  unconfirmed`; three later runs passed. Evidence: the log carries no `removed the stopped
+  container ... its --rm left behind` line, so `confirmGone` (`internal/cli/run/keeper.go`) never
+  saw the container stopped and then removed. The 37 s is the stop (`-t 5`, 10 s exec bound) plus
+  `confirmGone`'s `keeperGoneAttempts` (75) polls, a TIMED budget, not an event. The keeper log the
+  run named lived in the test's temp dir and was deleted. Ranked hypotheses: (1) `podman stop`
+  returned or timed out with the container still running or stopping (slow conmon exit file),
+  and the poll budget ran out first; (2) the container was seen stopped but `rm --force` plus the
+  existence probe did not answer "gone" once (JL-D82 allows one try); (3) probes returned
+  unknown (10 s timeouts) so no iteration could act. Smallest next step: make the keeper log a
+  per-iteration probe answer (running id, existing id, known flags) and the `stop`/`rm` exit
+  codes when `confirmGone` gives up, and have the integration helper copy the keeper log into the
+  failure output; the next red then says which of the three. Do not change the budget until it
+  does. No fix was written: nothing here is provable from the surviving log.
 - **`yolo check`'s Running Jails section says nothing about the host when run in a jail.** Inside
   a jail it reports only the nested runtime's view, such as "No jails currently running", without
   saying the host may have some. Give it the same host-fact note the NVIDIA section now prints.
