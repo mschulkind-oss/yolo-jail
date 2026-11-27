@@ -2,6 +2,8 @@ package model
 
 import (
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -92,6 +94,9 @@ type Model struct {
 	// (request-history-and-privacy.md RH-D3).
 	Dropped int
 	Gaps    []Gap
+	// Horizon is the store's own statement of how far back an --ended listing reaches
+	// (BB-D113 condition 3); empty until one arrives.
+	Horizon string
 }
 
 // New is the model of a queue that started at t and has loaded nothing.
@@ -203,6 +208,10 @@ func appendGap(g []Gap, add Gap) []Gap {
 
 func reduceSnapshot(m Model, in SnapshotOK) Model {
 	st := in.State
+	var ended []HistoryEntry
+	if st.IncludesEnded {
+		st, ended = splitEnded(st)
+	}
 	if st.Requests == nil {
 		st.Requests = []RequestView{}
 	}
@@ -217,6 +226,12 @@ func reduceSnapshot(m Model, in SnapshotOK) Model {
 	if m.AsOf.IsZero() || !in.FetchStart.Before(m.AsOf) {
 		m = noteVanished(m, st, in.FetchStart)
 		m = refreshDetail(m, st.Requests)
+		for _, e := range ended {
+			m = record(m, e)
+		}
+		if in.State.IncludesEnded {
+			m.Horizon = in.State.HorizonNote
+		}
 		m.State, m.AsOf, m.Loaded = st, in.FetchStart, true
 	}
 	m.SnapshotErr, m.SnapshotErrKind, m.WatchWarn = "", "", ""
@@ -228,6 +243,68 @@ func reduceSnapshot(m Model, in SnapshotOK) Model {
 		}
 	}
 	return m
+}
+
+// splitEnded separates an --ended snapshot into the live state the queue shows as current and
+// the ended records, as history entries oldest first. A decided request takes the same
+// last-seen masking as a pending one (RH-D6) because it is published from the same copy.
+func splitEnded(st StateView) (StateView, []HistoryEntry) {
+	var out []HistoryEntry
+	reqs := []RequestView{}
+	for _, r := range st.Requests {
+		if r.State == "pending" {
+			reqs = append(reqs, r)
+			continue
+		}
+		e := HistoryEntry{Key: r.ID, Kind: "request", Source: r.Source, Workspace: r.Workspace, Jail: r.Jail, Label: r.Headline,
+			Observed: true, Time: r.Filed, Request: copyRequest(r), Detail: r.DenialNote}
+		if r.Decided != nil {
+			e.Time = *r.Decided
+		}
+		switch r.State {
+		case StDenied, StRefused, StAllowed, StExpired:
+			e.Status = r.State
+		default:
+			e.Status = StAllowed
+			e.Detail = strings.TrimSpace("state " + r.State + " " + r.DenialNote)
+		}
+		out = append(out, e)
+	}
+	grants := []GrantView{}
+	for _, g := range st.Grants {
+		if g.State != "ended" && g.Ended == nil {
+			grants = append(grants, g)
+			continue
+		}
+		e := HistoryEntry{Key: g.ID, Kind: "grant", Source: g.Source, Workspace: g.Workspace, Jail: g.Jail, Label: "grant for " + g.Request,
+			Status: StEnded, Detail: g.EndReason, Observed: true, Time: g.Expires}
+		if g.Ended != nil {
+			e.Time = *g.Ended
+		}
+		if g.EndReason == "revoked" {
+			e.Status = StRevoked
+		}
+		out = append(out, e)
+	}
+	work := []WorkingView{}
+	for _, w := range st.Working {
+		if w.State != "ended" && w.Ended == nil {
+			work = append(work, w)
+			continue
+		}
+		e := HistoryEntry{Key: w.ID, Kind: "working", Source: w.Source, Workspace: w.Workspace, Label: "working entry " + w.Repo + " " + w.Resource,
+			Status: StEnded, Detail: w.EndReason, Observed: true, Time: w.Added}
+		if w.Ended != nil {
+			e.Time = *w.Ended
+		}
+		if w.EndReason == "revoked" {
+			e.Status = StRevoked
+		}
+		out = append(out, e)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Time.Before(out[j].Time) })
+	st.Requests, st.Grants, st.Working = reqs, grants, work
+	return st, out
 }
 
 // noteVanished records, for every pending request or live grant the new snapshot no longer
@@ -488,8 +565,14 @@ func (e HistoryEntry) Describe() string {
 		s = "grant used"
 	case StEnded:
 		s = "grant ended"
+		if e.Kind == "working" {
+			s = "working entry ended"
+		}
 	case StRevoked:
 		s = "grant revoked"
+		if e.Kind == "working" {
+			s = "working entry revoked"
+		}
 	default:
 		s = e.Status
 	}
