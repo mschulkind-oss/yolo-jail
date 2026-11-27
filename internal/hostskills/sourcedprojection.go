@@ -64,12 +64,17 @@ func printSkillProjection(pr richtext.Printer, packs []*packload.Pack, inspectio
 				if directory == "" {
 					directory = s.Path
 				}
-				if commit == "" {
-					commit = p.Projection.Commit
-				}
 				if s.Sourced {
+					// A manifest-sourced row has its own repository and revision. The
+					// enclosing pack's commit is never a stand-in for it.
 					address, _ := packsrc.Parse(row.By.Source)
 					source, directory = address.Repo, address.Path
+					commit = row.Outcome.Commit
+					if commit == "" {
+						commit = "unresolved (ref " + address.Ref + ", payload not published)"
+					}
+				} else if commit == "" {
+					commit = p.Projection.Commit
 				}
 				pr.Printf("    row %s → %s: kind=%s marker=%s; carrier=%s; source root=%s directory=%q commit=%s; audience=%s", richtext.Escape(s.Name), richtext.Escape(name), s.Kind, s.MarkerState, carrier, richtext.Escape(source), directory, commit, richtext.Escape(rowAudience(row)))
 				if s.Kind == "directory" {
