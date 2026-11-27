@@ -112,6 +112,14 @@ func TestEveryShippedLoopholeIsTOMLAndDecodesToWhatItAlwaysDid(t *testing.T) {
 					want.CallBroker.Cells = append(want.CallBroker.Cells, loopholedecl.CallBrokerCell{Name: name, Kind: "read"})
 				}
 			}
+			// U9 adds the AWS declaration's execution context (design 7.3) and nothing else.
+			if key == "aws-s3__aws-s3-broker" {
+				want.CallBroker.Context = &loopholedecl.CallBrokerContext{
+					Fields:       map[string]string{"profile": "AWS_PROFILE"},
+					Unset:        []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"},
+					RouteAnchors: []string{"s3://"},
+				}
+			}
 			if key == "circleci__circleci-broker" {
 				want.CallBroker.Cells = append(want.CallBroker.Cells, loopholedecl.CallBrokerCell{Name: "list_runs", Kind: "read"})
 			}

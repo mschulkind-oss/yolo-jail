@@ -119,7 +119,7 @@ func (b bundleDecision) resolving() bool {
 // timedCovers reports a live timed answer for the operation. A read is covered by its
 // read role; a known write by a known or a candidate entry (the answer to a withheld
 // request still covers the cell the fact later resolves to); a candidate by its own role.
-func timedCovers(entry brokerstore.WorkingEntry, now time.Time, workspace, source string, op brokerpolicy.Operation, candidate bool) bool {
+func timedCovers(entry brokerstore.WorkingEntry, now time.Time, workspace, source, contextDigest string, op brokerpolicy.Operation, candidate bool) bool {
 	if !entry.Timed() || !entry.LiveAt(now) || !brokerstore.SameWorkspace(entry.Workspace, workspace) || entry.Repo != source {
 		return false
 	}
@@ -138,7 +138,7 @@ func timedCovers(entry brokerstore.WorkingEntry, now time.Time, workspace, sourc
 		chain[i] = brokerstore.CallResource{Type: resource.Type, ID: resource.ID}
 	}
 	for _, role := range roles {
-		if key, err := brokerstore.OperationResourceKey(role, brokerstore.CallResourceKey(chain), ""); err == nil && entry.Kind == brokerstore.WorkingCallPrefix+cell && entry.Resource == key {
+		if key, err := brokerstore.OperationResourceKey(role, brokerstore.CallResourceKey(chain), contextDigest); err == nil && entry.Kind == brokerstore.WorkingCallPrefix+cell && entry.Resource == key {
 			return true
 		}
 	}
@@ -160,7 +160,7 @@ func decideBundle(policy brokerpolicy.Policy, call Classification, working []bro
 	decided := policy.Decide(call.Operations, brokerstore.ResolveWorkspace(workspace), workingMembers(working, now))
 	covered := func(op brokerpolicy.Operation, candidate bool) bool {
 		return slices.ContainsFunc(working, func(entry brokerstore.WorkingEntry) bool {
-			return timedCovers(entry, now, workspace, source, op, candidate)
+			return timedCovers(entry, now, workspace, source, call.contextDigest, op, candidate)
 		})
 	}
 	out := bundleDecision{Verdict: Verdict{Verdict: "runs", Rule: "every write is covered"}}

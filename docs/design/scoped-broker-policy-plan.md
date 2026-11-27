@@ -2,7 +2,7 @@
 title: "Implementation plan: scoped operation-broker policy"
 status: accepted
 stage: DECIDED
-next: "U7 and U8 are built for the generic CLI and HTTP fronts (bundle decisions, hold, lifecycle through the real Main, 100 s connection budget); declaration-owned scope rows (H1–H5, H8, H12, A2d) and the scoped-ask producer that lets a real-Main process carry scoped asks remain (U9, U12), as do the GitHub-dependent rows (C7c, C7i–C7k, H17, H18a, H18b, with U11); next unit is U9"
+next: "U7 and U8 are built for the generic CLI and HTTP fronts (bundle decisions, hold, lifecycle through the real Main, 100 s connection budget); U9 (declaration-owned contexts and AWS routes) is built for the CLI front; declaration-owned scope rows (H1–H5, H8, H12, A2d) and the scoped-ask producer that lets a real-Main process carry scoped asks remain (U12), as do the GitHub-dependent rows (C7c, C7i–C7k, H17, H18a, H18b, with U11); next unit is U10"
 depends-on:
   - scoped-broker-policy.md
   - pack-brokers.md
@@ -311,6 +311,8 @@ No runner emission, AWS grammar-row correspondence or HTTP schema was verified b
 **Gates:** `go test -short ./internal/callbroker ./internal/brokercore ./internal/brokerhook ./internal/approvalwait ./internal/cli`; production Main deletion controls required. **Commit:** `feat(callbroker): match native approval lifecycle and hold budgets`.
 
 ### U9 — declaration-owned contexts and AWS routes (after U3/U4/U6; 3–5 h)
+
+**Status (shipped, CLI front):** the AWS declaration carries the context block (`profile`→`AWS_PROFILE`, unset of the three static credential names, `route_anchors=["s3://"]`). `config.CurrentBrokerRouting` rereads host user config through the `yolo config check` load path (user-only, workspace never read); `callbroker/context.go` selects one context per call (`selectRoutedContext`: most specific route by the shared order, different or routed-versus-default contexts refuse, a broken matched context fails with no default retry), binds its identity (`brokerstore.ContextIdentity` over source and declaration hash, scope bytes, name and values) into the request digest, `Request.ContextName/ContextDigest` and timed keys, re-selects it in `revalidate` and before a read's dispatch, and `pinnedCLI.run` applies the edit to a per-call copy of the captured environment and adds the values to redaction. A declaration without a context block never reads user config here. Tests: `TestDeclaredExecutionContexts/F1–F15` (`context_f_test.go`, `internal/awsclassify/context_test.go` for F5), `context_test.go`, `context_handler_test.go` (a real selected handler with a TOML declaration), `context_aws_test.go`, `internal/config/scopedbrokerpolicyroutes_test.go`, `internal/loopholedecl/awscontext_test.go`. **Remains:** declared lookups still run in the default context (AWS declares none); a call whose operations share a context name but win different scopes binds the sorted set of those scopes; production routing reads user config per call, not a published snapshot (U12 producer); `aws-auth` and `reportAWSCredentialBypass` are untouched.
 
 **Settled:** design [§7](scoped-broker-policy.md#7-execution-contexts-and-routing-proposed); routing is not permission, one context per bundle, no default fallback, profile selector is not account verification.
 
