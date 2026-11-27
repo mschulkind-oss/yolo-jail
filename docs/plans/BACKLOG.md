@@ -1012,11 +1012,21 @@ a lane's run and then passed alone. These remain:
   earlier tests left installed, such as the launch that `runContainer` parks in `select {}` once
   its arm has taken a signal. They hold no test up, so they are not the hang; the running test's
   own duration in the dump's `running tests:` line is what tells a hang from slowness.
+  **Fixed (the 15 s waits):** the 15 s was `restartPollAttempts` x `restartPollInterval` (75 x 200 ms),
+  the bound `awaitContainerGone` and the keeper's `confirmGone` wait for a container to be gone, which
+  every fixture that leaves a container listed waited out in full (the Apple Container attach tests,
+  the managed-MCP callback tests, `TestSelectedKeeperFailedServiceTeardownOverridesSignalStatus`).
+  `TestMain` now sets `restartPollInterval` to 1 ms and keeps the attempt count; the one test that
+  measures against the production interval (`TestAStoppedContainerItsRemovalLeftBehindIsRemovedAtOnce`)
+  restores it. Under load the package still spends minutes in tests that run real bash stage scripts
+  (`TestTheContainerScriptHonorsNoColor`, `TestLegacyConfigsLaunchUnchanged`); those are CPU-bound, not
+  waits.
 
 - `TestPackCLIClassifierDeadlineBoundsEachInvocationNotLookups` and
-  `TestHTTPClassifierDeadlineBoundsEachInvocationNotLookups` (`internal/callbroker`) still need each
-  classifier run to beat a 1 s or 2 s deadline; a combined `go test -short` run on 2026-11-13 failed
-  once in `internal/callbroker` at a load average near 28, and its failing test was not captured.
+  `TestHTTPClassifierDeadlineBoundsEachInvocationNotLookups` (`internal/callbroker`): **already fixed
+  by `d7bd68337`**, which bounds each fixture classifier process at `fixtureClassifierDeadline` (2 min)
+  instead of the production 2 s. What remains is the lookup's own check that more than 2 s of the 30 s
+  `classificationBudget` is left, which only a 28 s stall could fail.
 
 Fixed from this list:
 

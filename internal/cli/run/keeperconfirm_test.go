@@ -285,6 +285,10 @@ func TestARefusedBootIsNotStoppedAgain(t *testing.T) {
 // detached remover waited out its own minute too. It removes the leftover at once, by force, and
 // judges by whether the container is gone (JL-D82).
 func TestAStoppedContainerItsRemovalLeftBehindIsRemovedAtOnce(t *testing.T) {
+	// The test compares against the bound at the production interval; TestMain shortens it.
+	savedInterval := restartPollInterval
+	restartPollInterval = 200 * time.Millisecond
+	t.Cleanup(func() { restartPollInterval = savedInterval })
 	var session *sessionLock
 	f := startKeeperFixture(t, true, func(p *keeperPlan) {
 		lock, _, err := takeSessionLock(p.Cname)

@@ -120,6 +120,11 @@ func TestMain(m *testing.M) {
 	// the pinned host yolo and never from os.Executable(), so a fixture that execs one is given a
 	// pin whose file is this test binary.
 	releasePin := installSharedTestPin()
+	// A WAIT FOR A CONTAINER TO BE GONE POLLS THE RUNTIME, NOT THE CLOCK: restartPollAttempts x
+	// restartPollInterval is 15 s in production, and every fixture that leaves a container listed
+	// (or answers "gone" only after N polls) waited the whole bound. The attempt count, which is
+	// what those fixtures count, is kept; only the pause between polls shrinks.
+	restartPollInterval = time.Millisecond
 	code := m.Run()
 	// EVERY SIGNAL ARM STOPS THE PROCESS'S NIX (launchSignalArm.terminate), and that stop is
 	// permanent: a test that drove an arm to its exit on the process's own set refused every later
