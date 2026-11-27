@@ -3,7 +3,7 @@ title: "One home per workspace, shared by every setup, with a small slice for wh
 date: 2026-11-23
 status: accepted
 stage: DECIDED
-next: "Slice 1 (container setups) is built. Plan and build slice 2, the guest joins; the Mac agent runs W-UH1, W-UH5 and W-UH6 against main, and W-UH2 and W-UH3 before the alias slice is built"
+next: "Slice 1 (container setups) is built. Build slice 2, the guest joins ([its plan](unified-workspace-home-guest-plan.md)); the Mac agent runs W-UH1, W-UH5 and W-UH6 against main, and W-UH2 and W-UH3 before the alias slice is built"
 tags: [design, setups, home, sessions, concurrency, migration, macos-user]
 summary: "Every setup of a workspace shares one unified home under .yolo for sessions, history, plugins and every other state an agent keeps; each setup keeps a small slice (installs, the files yolo generates at boot, yolo's own state) at the path it has today. A setup's state directory becomes a real directory in its slice whose children link into the unified home. One container setup plus one guest may run together; two container setups are refused; stranded and legacy homes are merged, never lost. Sessions are never shared with the host, nor across workspaces unless the owner declares a set."
 vantage:
@@ -188,7 +188,7 @@ thin shell applies it.
 | :--- | :--- | :--- |
 | Podman | the slice's `claude/` bound at `~/.claude`, as today | `/workspace/.yolo/unified-home/.claude/projects` |
 | Apple Container | the whole slice bound at `/home/agent` | the same absolute path (the workspace is at `/workspace`) |
-| Guest | the slice is `HOME` | the real workspace path |
+| Guest | the slice is `HOME` | relative to the link's own directory (`../../../../unified-home/.claude/projects`), so a moved workspace keeps it ([UHG-D2](unified-workspace-home-guest-plan.md#UHG-D2)) |
 
 Links, not mounts: Apple Container has a mount-count limit and the guest has no mounts, so a link is the one mechanism
 all three hold ([fill the matrix](../reference/fill-the-matrix-principle.md)). Podman keeps binding the composed
@@ -537,13 +537,14 @@ Smallest finished first; each lands alone.
 1. **Merge and composition for container setups, with the exclusion rule:** the pure merge, the unified home,
    composition for Podman and Apple Container, the stranded-home migration, the project lock for every launch, the
    two-container refusal and the host guard test. It gives the owner's first want. Mac: W-UH1, W-UH5, W-UH6.
-2. **The guest joins:** links with real-path targets, container plus guest allowed, the yolo-account gate. Mac: W-UH4, W-UH5.
+2. **The guest joins:** links with relative targets, container plus guest allowed, the yolo-account gate. Mac: W-UH4, W-UH5, W-UH7 to W-UH10. Built by [its plan](unified-workspace-home-guest-plan.md).
 3. **The alias set** ([OQ-UH4](#OQ-UH4)), gated on W-UH2 and W-UH3.
 4. **Workspace sets** ([§11](#11-workspace-sets-a-later-slice)).
 5. **Retire the stale prose** of [§12](#12-rulings-this-amends); graduate this document to a reference.
 
 Generated settings files stay per setup ([OQ-UH5](#OQ-UH5)); no slice moves them. The build hand-off for slice 1 is
-[`unified-workspace-home-plan.md`](unified-workspace-home-plan.md); slices 2 to 5 have no plan yet.
+[`unified-workspace-home-plan.md`](unified-workspace-home-plan.md) and for slice 2
+[`unified-workspace-home-guest-plan.md`](unified-workspace-home-guest-plan.md); slices 3 to 5 have no plan yet.
 
 ## Decision Ledger
 
@@ -557,7 +558,7 @@ Generated settings files stay per setup ([OQ-UH5](#OQ-UH5)); no slice moves them
 | <a id="UH-D1"></a>UH-D1 | **The unified home is `<workspace>/.yolo/unified-home`; the slice stays at `.yolo/setups/<name>/home`.** A design decision: a new name cannot be mistaken for the legacy `.yolo/home`, which is recognized by name, never by sniffing, and the unchanged slice path moves no install tree. | 2026-11-23 | [§2](#2-words-used-here), [§3](#3-the-target-model) | Built (slice 1): `paths.UnifiedHome` |
 | <a id="UH-D2"></a>UH-D2 | **`scope = "workspace"` means the unified home; generated paths are the slice; `scope = "machine"` is unchanged.** A design decision: no shipped manifest changes, and yolo already knows every generated path. | 2026-11-23 | [§6.1](#61-what-scope--workspace-now-means) | Built (slice 1): `stayPaths` reads each selected pack's declarations |
 | <a id="UH-D3"></a>UH-D3 | **The unified home is dotted and mirrors the in-jail path; slices keep their backend's layout.** A design decision: only links cross the boundary and they are named for the child. | 2026-11-23 | [§5.1](#51-the-dotted-and-undotted-split-settled) | Built (slice 1) |
-| <a id="UH-D4"></a>UH-D4 | **A setup reaches the unified home by links inside a composed directory,** an absolute `/workspace` target in containers and the real path in the guest; Podman binds the composed directory. A design decision: one mechanism all three backends hold, with no extra mounts. | 2026-11-23 | [§5.2](#52-composition-what-a-launch-does-to-its-own-slice) | Built for container setups (slice 1); the guest's real-path link is slice 2 |
+| <a id="UH-D4"></a>UH-D4 | **A setup reaches the unified home by links inside a composed directory,** an absolute `/workspace` target in containers and a relative target in the guest ([UHG-D2](unified-workspace-home-guest-plan.md#UHG-D2)); Podman binds the composed directory. A design decision: one mechanism all three backends hold, with no extra mounts. | 2026-11-23 | [§5.2](#52-composition-what-a-launch-does-to-its-own-slice) | Built for container setups (slice 1); the guest's relative link is slice 2 |
 | <a id="UH-D5"></a>UH-D5 | **At most one container setup per workspace; container plus guest allowed; same-setup attach unchanged.** The owner's UH-R5 words, built on `jailRuns` with the witness class and the project lock for every fresh launch; no lock file in `.yolo`. | 2026-11-23 | [§7.1](#71-the-rule), [§7.2](#72-where-it-runs) | Container refusal built (slice 1): `refuseContainerPeer`; a running guest does not refuse a container launch, and the guest launch itself is slice 2 |
 | <a id="UH-D6"></a>UH-D6 | **A peer that cannot be asked refuses the launch, naming the command that settles it.** A design decision, relaxed by [OQ-UH3](#OQ-UH3) for a runtime that cannot be asked when the keeper evidence says not running. | 2026-11-23 | [§7.2](#72-where-it-runs) | Built (slice 1): `decidePeers` |
 | <a id="UH-D7"></a>UH-D7 | **A database is carved out until a measurement shows two kernels can share it.** A design decision: a SQLite store across a VM boundary has unmeasured lock behavior. | 2026-11-23 | [§6.3](#63-the-carve-out-key) | Built (slice 1): the `per_setup_state` pack key; `pi`, `copilot` and `omp` declare it |
@@ -619,18 +620,39 @@ forward. Setup for all: a fresh workspace under `/Users/Shared/yolo/uh`, the ins
   laid for the guest, start `claude` once in `seatbelt-self`, run `/resume`, and report whether a container's session
   shows; clear a project and report whether the link survived. Settles the gate of [OQ-UH4](#OQ-UH4) and the `plugins`
   row of [§4](#4-what-goes-where).
-- **W-UH4 (slice 2), the yolo account and the unified home.** Settles [UH-D13](#decision-ledger). Run in sequence (the
-  pair is refused together, [OQ-UH1](#OQ-UH1)):
+- **W-UH4 (slice 2), the yolo account and the unified home.** Settles [UH-D13](#decision-ledger). The yolo account's
+  launch is not joined until this passes, so it cannot be asked to write through `~/.claude/projects`; the check
+  writes the unified home by its absolute path instead, from each user in turn (the pair is refused together,
+  [OQ-UH1](#OQ-UH1), so run them in sequence). In `/Users/Shared/yolo/uh`, after one `seatbelt-self` launch has made
+  `.yolo/unified-home/.claude/projects`:
 
   ```text
-  yolo --setup seatbelt-yolo-account -- sh -c 'echo a > ~/.claude/projects/w-uh4-a'
+  yolo --setup seatbelt-yolo-account -- sh -c 'echo a > "$YOLO_HOST_DIR/.yolo/unified-home/.claude/projects/w-uh4-a"'
   ```
 
   ```text
-  yolo --setup seatbelt-self -- sh -c 'cat ~/.claude/projects/w-uh4-a && echo s >> ~/.claude/projects/w-uh4-a'
+  cat .yolo/unified-home/.claude/projects/w-uh4-a && echo u >> .yolo/unified-home/.claude/projects/w-uh4-a
   ```
 
-  Report both outputs and `ls -le .yolo/unified-home/.claude/projects`.
+  ```text
+  yolo --setup seatbelt-yolo-account -- sh -c 'cat "$YOLO_HOST_DIR/.yolo/unified-home/.claude/projects/w-uh4-a" && echo a2 >> "$YOLO_HOST_DIR/.yolo/unified-home/.claude/projects/w-uh4-a"'
+  ```
+
+  Then the move composition makes, by hand, on a directory the account made:
+
+  ```text
+  yolo --setup seatbelt-yolo-account -- sh -c 'mkdir -p ~/.claude/probe && echo f > ~/.claude/probe/f'
+  ```
+
+  and, as yourself:
+
+  ```text
+  mv -n .yolo/setups/seatbelt-yolo-account/home/.claude/probe .yolo/unified-home/.claude/probe && ln -s ../../../../unified-home/.claude/probe .yolo/setups/seatbelt-yolo-account/home/.claude/probe
+  ```
+
+  Expected: every command succeeds. Report each output, `ls -le .yolo/unified-home/.claude/projects`, and
+  `ls -lde .yolo/setups/seatbelt-yolo-account/home/.claude`. A pass opens the gate with a one-line commit
+  ([UHG-D8](unified-workspace-home-guest-plan.md#UHG-D8)).
 - **W-UH5 (slices 1 and 2), the pairing rule.** Settles [§7.1](#71-the-rule) and [OQ-UH3](#OQ-UH3). Terminal 1:
 
   ```text
