@@ -292,6 +292,9 @@ func newKeeper(plan *keeperPlan, seams KeeperSeams, progress, lifeline, lock *os
 	o.streamTTY = func() bool { return color }
 	recording := plan.PerfRecording
 	o.PerfLoggingConfig = func() bool { return recording }
+	// THE PLAN'S GATE ALONE decides recording: the ambient YOLO_TIMING/YOLO_VERBOSE of the
+	// keeper's own environment never turn the legacy log or the trace on.
+	o.recordingPinned, o.recordingPin = true, recording
 	if capture := seams.CaptureOnTerminate; capture != nil {
 		o.CaptureOnTerminate = func(workspace, home, rt string) {
 			capture(workspace, home, rt, func(msg string) { k.sink.logf("Warning: %s", msg) })
@@ -398,7 +401,12 @@ func (k *keeper) run() int {
 	// Every end before the container's start lets the jail's reserved ports go too.
 	defer k.releaseReservedPorts()
 	k.pid = o.Getpid()
+	// THE KEEPER'S TRACE LIFETIME closes on every return below: this defer is registered before
+	// any init or later defer, so it runs last, after the real cleanup (invocationtrace.go).
+	o.InvocationScope = NewInvocationScope()
+	defer o.InvocationScope.Finalize()
 	o.initPerf(p.Cname)
+	o.initKeeperTrace(p)
 	scope, line := o.moveKeeperIntoScope(p.Cname, p.ResourceGroupSlice)
 	k.scope = scope
 

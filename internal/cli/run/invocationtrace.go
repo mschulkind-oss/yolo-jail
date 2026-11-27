@@ -40,9 +40,12 @@ type InvocationScope struct {
 	// attempted: acquisition has been tried (whatever it came to), so a second Run borrowing
 	// this scope never re-acquires.
 	attempted bool
-	warn      func(string)
-	warned    atomic.Bool
-	start     int64 // the original collector start, in unix nanoseconds
+	// keeper marks the scope of a keeper process: it joined a launcher's trace through its own
+	// claim, so it never publishes and its Finalize only ends its lifetime and releases.
+	keeper bool
+	warn   func(string)
+	warned atomic.Bool
+	start  int64 // the original collector start, in unix nanoseconds
 
 	store  *perf.TraceStore
 	claim  *perf.TraceClaim
@@ -203,6 +206,11 @@ func (s *InvocationScope) Finalize() {
 			s.releaseLocked()
 			return
 		}
+		if s.keeper {
+			s.root.End()
+			s.releaseLocked()
+			return
+		}
 		if s.committed == "" && !s.frozen {
 			s.committed = traceKindIncomplete
 			jail := invocationBranchUnknown
@@ -229,5 +237,88 @@ func (s *InvocationScope) releaseLocked() {
 	if s.store != nil {
 		_ = s.store.Close()
 		s.store = nil
+	}
+}
+
+// keeperTraceContext is the traceparent the launch hands its keeper through the private plan: the
+// context of sp, the launch's ACTUAL waiting span, already started, and only when this launch's
+// trace was acquired and the span has a valid context. "" says the keeper records no trace: never
+// a guessed root, an ambient carrier or a span that has not started.
+func (o *Options) keeperTraceContext(sp *perf.Span) string {
+	s := o.InvocationScope
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	acquired := s.claim != nil && s.root != nil
+	s.mu.Unlock()
+	if !acquired {
+		return ""
+	}
+	ctx, ok := sp.Context()
+	if !ok {
+		return ""
+	}
+	return ctx.String()
+}
+
+// frozenRecording is the recording gate as the launcher froze it at its collector's construction:
+// a collector exists exactly when the gate was on then. The keeper plan carries this, never a
+// fresh read of the ambient flags.
+func (o *Options) frozenRecording() bool { return o.Perf != nil }
+
+// initKeeperTrace joins the launcher's trace for a keeper, after initPerf and before the keeper's
+// first ordinary event. It acts only when the keeper's own collector exists (the plan's gate), the
+// plan carries a valid context, and the store admits an independent claim on that trace; every
+// other case leaves the keeper recording no trace, with no mint, no fallback and no ambient
+// adoption. It never publishes and never borrows the launcher's claim.
+func (o *Options) initKeeperTrace(plan *keeperPlan) {
+	s := o.InvocationScope
+	if s == nil || o.Perf == nil || plan.TraceContext == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.attempted {
+		return
+	}
+	s.attempted, s.keeper = true, true
+	s.warn = func(msg string) { o.pr(o.Stderr).printf("[dim]yolo: %s[/dim]", richtext.Escape(msg)) }
+	ctx, ok := perf.ParseContext(plan.TraceContext)
+	if !ok {
+		s.warnOnce("trace joining declined: the launch handed the keeper no valid trace context")
+		return
+	}
+	store, err := perf.OpenTraceStore(paths.TracesDir(), paths.TraceSourcesDir())
+	if err != nil {
+		s.warnOnce(err.Error())
+		return
+	}
+	claim, err := store.Join(ctx.Trace.String())
+	if err != nil {
+		_ = store.Close()
+		s.warnOnce(err.Error())
+		return
+	}
+	tr := ctx.Join()
+	sink, writer, err := perf.AdmittedTraceSink(claim, "keeper", tr, s.warnOnce)
+	if err != nil {
+		_ = claim.Close()
+		_ = store.Close()
+		s.warnOnce(err.Error())
+		return
+	}
+	if !o.Perf.InstallIndependentTrace(tr, sink) {
+		_ = writer.Close()
+		_ = claim.Close()
+		_ = store.Close()
+		s.warnOnce("trace joining declined: the keeper's collector could not install the trace sink")
+		return
+	}
+	root := o.Perf.IndependentProcessSpan("keeper")
+	s.store, s.claim, s.writer, s.root = store, claim, writer, root
+	if root == nil {
+		s.releaseLocked()
+		s.warnOnce("trace joining declined: the keeper lifetime could not start")
 	}
 }

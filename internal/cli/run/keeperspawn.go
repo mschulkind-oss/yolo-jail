@@ -268,7 +268,7 @@ func (o *Options) keeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string, staged 
 		SocketsDir: socketsDir, RunCmd: runCmd, ImageRef: in.imageRef, Skeleton: in.homeSkeleton,
 		LaunchInputMCP: o.frozenLaunchMCPForKeeper(), MCPTeardownID: teardownID,
 		CallbackLeases: slices.Clone(o.mcpCallbackLeases),
-		ScratchVolumes: o.scratchVolumes, PerfRecording: o.timingRecording(), Sealed: o.Sealed,
+		ScratchVolumes: o.scratchVolumes, PerfRecording: o.frozenRecording(), Sealed: o.Sealed,
 		// THE JAIL'S GRANT (jailgrant.go): its NAMES, for the start record an attach reads. Its
 		// values never ride the plan: the launch wrote them into the jail's grant file
 		// (stageJailGrant), which the argv binds (ES-D37).
@@ -1364,7 +1364,7 @@ func (o *Options) macosUserKeeperPlanFor(cfg *jsonx.OrderedMap, rt, cname string
 		Color:         o.streamColor(), Config: raw, PackTree: staged.root, Packs: names, Services: services,
 		Payload: payload, ApprovedScopes: o.approvedScopes, CallBrokerCells: cloneCallBrokerCells(o.callBrokerCells), CallBrokerDelivered: cloneDeliveredAsks(o.callBrokerDelivered), ApprovedHTTPBindings: cloneHTTPBindings(o.approvedHTTPBindings), PrivateClientEntrypoints: slices.Clone(o.privateClientEntrypoints), ApprovedGrants: o.approvedGrants, ReadWithoutScope: o.readWithoutScope,
 		ApprovedLoopholeGrants: o.approvedLoopholeGrants,
-		PerfRecording:          o.timingRecording(),
+		PerfRecording:          o.frozenRecording(),
 		Settings:               o.frozenLoopholeSettings(), SettingsPrepared: o.settingsPrepared,
 		Sealed: o.Sealed, Notch: o.macosUserKeeperNotch(), Command: o.macosUserCommandName(),
 		CallerTokens: o.callerTokens,
@@ -1519,6 +1519,7 @@ func (o *Options) startMacosUserKeeper(arm *MacosUserArm, cfg *jsonx.OrderedMap,
 	}
 	o.recordKeyedSession(m.key, true)
 	sp := o.Perf.Span("launch.start_keeper")
+	plan.TraceContext = o.keeperTraceContext(sp)
 	kp, err := o.startKeeper(plan)
 	if err != nil {
 		sp.End()
