@@ -70,11 +70,12 @@ only the legacy home a launch moves from (`paths.LegacyHomeState`). The passages
 `.yolo/home` as the per-workspace overlay source are owed a re-verification against
 [named setups](../design/named-setups.md).
 
-**Since the unified home's first slice:** on Podman and Apple Container a launch also composes
+**Since the unified home's first two slices:** on Podman, Apple Container and `seatbelt-self` a launch also composes
 the setup's agent-state directories into `<workspace>/.yolo/unified-home`, one real copy that every
 container setup of the workspace shares, and each of those directories in the setup's home becomes a
-link into it (`paths.UnifiedHome`). Installs, generated files and databases stay in the setup's home.
-A guest setup (`macos-user`) is not part of it yet. The passages below that call the setup's home
+link into it (`paths.UnifiedHome`); a guest's links are relative, so a moved workspace keeps them.
+Installs, generated files and databases stay in the setup's home.
+`seatbelt-yolo-account` keeps a private home until a Mac check of its access to the shared home passes. The passages below that call the setup's home
 the per-workspace state describe the layout before that; the
 [design](../design/unified-workspace-home.md#4-what-goes-where) says what goes where.
 

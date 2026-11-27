@@ -1257,6 +1257,9 @@ func (o *Options) refuseRosterContract(key, rt, cname string, rec keeperRecord) 
 // to name and `yolo stop` to signal; kept says it is a session of the key's keeper. A record that
 // cannot be written is said, and changes nothing else: the session lock is the count.
 func (o *Options) recordKeyedSession(key string, kept bool) {
+	// The record is what a peer's jailStatus reads, so once this returns (written or not) a peer
+	// that takes the project lock next can see this session (UHG-D4).
+	defer o.releaseHomeLock()
 	f, err := openKeyedSessionRecord(key, o.Getpid(), o.Now(), kept)
 	if err != nil {
 		o.pr(o.Stderr).printf("[dim]Warning: could not record this macos-user session (%s), so `yolo stop` "+

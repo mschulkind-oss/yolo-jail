@@ -372,10 +372,10 @@ documented halves:
   Container the whole directory is the home, so its entries carry their dotted home names
   and none of podman's bind sources exist. **The contents are pack data**, not a fixed
   list: which state dirs exist follows from which packs are selected. **Since the unified
-  home's first slice** the layout above is each setup's slice at `.yolo/setups/<name>/home`
-  (`paths.SetupHomeState`), and on a container setup its agent-state directories are links into
-  **`.yolo/unified-home/`**, the one copy of sessions and history every container setup of the
-  workspace shares (`paths.UnifiedHome`;
+  home's first two slices** the layout above is each setup's slice at `.yolo/setups/<name>/home`
+  (`paths.SetupHomeState`), and on a container setup or `seatbelt-self` its agent-state directories are links into
+  **`.yolo/unified-home/`**, the one copy of sessions and history every such setup of the
+  workspace shares (`seatbelt-yolo-account` stays private for now) (`paths.UnifiedHome`;
   [what goes where](../design/unified-workspace-home.md#4-what-goes-where)). `yolo prune`'s
   agent-log sweep reads both.
 - **Logs and per-launch config** — `config-assembled.json` and `config-boot.json` as

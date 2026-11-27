@@ -784,6 +784,13 @@ func Run(opts Options) (rc int) {
 		if !o.DryRun && !o.commitHome() {
 			return 1
 		}
+		// THE UNIFIED WORKSPACE HOME (unifyhome.go, UHG-D5): straight after commitHome, so a refused
+		// launch wrote nothing, and before the first host write into the slice (the credential view,
+		// the env files). A sealed build returned above and composes nothing; unifyHome itself skips
+		// a dry run. It never refuses the launch.
+		unifySpan := o.Perf.Span("launch.unify_home")
+		o.unifyHome(cfg, o.homeDir(), staged.packs, rt)
+		unifySpan.End()
 		arm, disarm := o.armMacosUser()
 		defer disarm()
 		// THIS ARM'S TIMING REPORT (docs/reference/perf-logging.md): once the backend has

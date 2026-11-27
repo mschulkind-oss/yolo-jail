@@ -374,11 +374,10 @@ func (o *Options) selectHome() {
 	o.homeState = ""
 	o.homeMovePending = false
 	legacy := paths.LegacyHomeState(o.Workspace)
-	// EVERY CONTAINER LAUNCH takes the project lock, with or without a legacy home (UHP-D4), so two
-	// launches of different setups cannot both pass the exclusion check (containerpeer.go).
-	// EVERY CONTAINER LAUNCH takes the project lock, with or without a legacy home (UHP-D4), so two
-	// launches of different setups cannot both pass the exclusion check (containerpeer.go).
-	if runsAsContainer(o.Setup) {
+	// EVERY CONTAINER OR GUEST LAUNCH takes the project lock, with or without a legacy home (UHP-D4,
+	// UHG-D4), so two launches of different setups cannot both pass the exclusion check
+	// (containerpeer.go).
+	if joinsUnifiedHome(o.Setup) {
 		o.holdHomeLock()
 	}
 	if _, err := os.Lstat(legacy); err == nil && readsLegacyHome(o.Setup) {
@@ -422,7 +421,7 @@ func (o *Options) legacyHomeRequest() legacyHomeRequest {
 // cannot rename, a race) returns false with the line naming the manual move: the readers that ran
 // since selectHome took the setup's path, and the launch must not start on the other one.
 func (o *Options) commitHome() bool {
-	if o.refuseContainerPeer() {
+	if o.refusePeer() {
 		return false
 	}
 	if !o.homeMovePending {

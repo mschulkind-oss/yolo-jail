@@ -204,23 +204,6 @@ func TestAJailRunningDefersTheMergeOfOtherHomesButNotTheOwnSlice(t *testing.T) {
 	}
 }
 
-// TestAGuestSourceIsLeftAndNamed (UHP-D3): a guest's slice is HOME and is not composed yet, so
-// merging its sessions out would strand them; it stays, and the line says the guest joins later.
-func TestAGuestSourceIsLeftAndNamed(t *testing.T) {
-	f := newUnifyFixture(t, "podman-self")
-	putUnify(t, f.home("seatbelt-self"), ".claude/projects/g.jsonl", "g")
-	f.unify(t, "podman")
-
-	if _, err := os.Lstat(filepath.Join(f.home("seatbelt-self"), ".claude", "projects", "g.jsonl")); err != nil {
-		t.Errorf("a guest's session left its home: %v", err)
-	}
-	for _, want := range []string{"seatbelt-self", "later release"} {
-		if !strings.Contains(f.stderr.String(), want) {
-			t.Errorf("the line does not say %q:\n%s", want, f.stderr.String())
-		}
-	}
-}
-
 // TestUnifyHomeDeclinesOnAReadonlyYolo: a `workspace_readonly` entry covering .yolo means the jail
 // could not use a link into it as a writable home, so nothing is composed or merged, one line says
 // so, and the launch goes on.

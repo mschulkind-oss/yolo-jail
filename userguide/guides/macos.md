@@ -211,6 +211,11 @@ The account-management commands are `yolo yolo-account create`, `remove`, `share
 The `seatbelt-yolo-account` setup needs the account; the `seatbelt-self` setup does not. Run
 `yolo setup list` to see which setups are available on this Mac and which is selected.
 
+`seatbelt-self` shares your agent sessions with the project's container setups through links in
+the project's `.yolo/unified-home/`, and may run beside one container setup; a second Seatbelt
+setup of the same project is refused with the `yolo stop --setup <name>` that frees it.
+`seatbelt-yolo-account` keeps a private home for now, and says so at launch.
+
 The `setup` key and `[setups.<name>]` tables belong in your user config only. For example, to make
 Seatbelt-as-you the default for your launches, run:
 

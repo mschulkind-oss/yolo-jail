@@ -36,8 +36,10 @@ needs a ruling or a Mac sits in the others.
    ([OQ-UH1](../design/unified-workspace-home.md#OQ-UH1) to [OQ-UH5](../design/unified-workspace-home.md#OQ-UH5),
    2026-11-24). Slice 1, the container setups, is built ([its plan](../design/unified-workspace-home-plan.md), U1 to U8):
    Podman and Apple Container share the unified home, stranded homes merge at a launch, and two container setups are
-   refused. Next is slice 2, the guest joins, with a [build plan](../design/unified-workspace-home-guest-plan.md) (UG1 to UG6);
-   the later slices and the Mac witnesses W-UH1, W-UH5 and W-UH6 follow the
+   refused. Slice 2, the guest joins, is built too ([its plan](../design/unified-workspace-home-guest-plan.md), UG1 to UG6): `seatbelt-self` shares the home
+   by relative links, one container plus one guest may run together and a second guest is refused; `seatbelt-yolo-account` stays
+   private until the Mac witness W-UH4 passes. Unbuilt backlog: a `host_files` destination beneath a shared state child is
+   refused on macos-user with a remedy the next launch undoes. The later slices and the Mac witnesses W-UH1, W-UH4 to W-UH10 follow the
    [design's slices](../design/unified-workspace-home.md#14-slices).
 
 2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): the hourly

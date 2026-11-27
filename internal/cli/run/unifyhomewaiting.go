@@ -11,8 +11,8 @@ import (
 )
 
 // UnifiedHomeWait is `yolo check`'s read-only plan of the merge a launch would make
-// (docs/design/unified-workspace-home.md §9.4): the container-setup homes of the workspace that
-// still hold shared state a launch would move into the unified home, and whether a jail of the
+// (docs/design/unified-workspace-home.md §9.4): the container and guest homes of the workspace
+// (the yolo account's only once UHG-D8's gate opens) that still hold shared state a launch would move into the unified home, and whether a jail of the
 // project is running, which is what makes them wait.
 type UnifiedHomeWait struct {
 	Homes   []string // labels ("legacy", a setup's name), in WorkspaceHomeStates order
@@ -39,8 +39,8 @@ func UnifiedHomeWaiting(workspace string, packs []*packload.Pack,
 	for _, home := range paths.WorkspaceHomeStates(workspace) {
 		label := homeLabel(workspace, home)
 		if label != "legacy" {
-			if s, err := setup.Lookup(label, user); err == nil && !runsAsContainer(s) {
-				continue // a guest's home joins the shared home in a later release
+			if s, err := setup.Lookup(label, user); err == nil && isYoloAccountSetup(s) && !unifiedHomeJoinsYoloAccount {
+				continue // the gated account's home stays private (UHG-D8)
 			}
 		}
 		root, err := paths.OpenWorkspaceHomeRoot(workspace, home)

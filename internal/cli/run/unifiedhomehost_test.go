@@ -37,10 +37,12 @@ func walkEntries(t *testing.T, root string) []string {
 
 // TestHostSetupNeverReachesTheUnifiedHome (unified-workspace-home.md §10: host and jail never share a
 // home), over every built-in setup, through the launch's own merge-and-compose and not a callee:
-//   - a host or guest setup yields no unified home and moves nothing, however much its slice holds;
+//   - a host setup (and the yolo account while UHG-D8's gate is closed) yields no unified home and
+//     moves nothing, however much its slice holds;
 //   - a guest's HOME is its own slice under .yolo/setups, never the invoking user's home;
 //   - every link a container setup's slice is given points at the in-jail unified home, and resolves
-//     (as the jail resolves /workspace) to a file under paths.UnifiedHome.
+//     (as the jail resolves /workspace) to a file under paths.UnifiedHome; a guest's is relative and
+//     resolves, by the kernel, under paths.UnifiedHome.
 func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 	for _, s := range setup.BuiltIns() {
 		t.Run(s.Name, func(t *testing.T) {
@@ -60,19 +62,22 @@ func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 			if s.Confinement == setup.ConfinementAppleContainer {
 				rt, dir = "container", ".claude"
 			}
+			if s.Kind() == setup.KindGuest {
+				rt, dir = "macos-user", ".claude"
+			}
 			putUnify(t, slice, dir+"/projects/-workspace/w.jsonl", "session")
 			before := walkEntries(t, slice)
 
 			f.o.unifyHome(jsonx.NewOrderedMap(), slice, packsFixture(t, "claude"), rt)
 
-			if s.Kind() != setup.KindJail {
+			if s.Kind() == setup.KindHost || (isYoloAccountSetup(s) && !unifiedHomeJoinsYoloAccount) {
 				if _, err := os.Lstat(paths.UnifiedHome(f.ws)); err == nil {
 					t.Errorf("%s (%s) made %s", s.Name, s.Kind(), paths.UnifiedHome(f.ws))
 				}
 				if after := walkEntries(t, slice); strings.Join(after, "\n") != strings.Join(before, "\n") {
 					t.Errorf("%s (%s) changed its slice:\nbefore %v\nafter  %v", s.Name, s.Kind(), before, after)
 				}
-				if f.stderr.Len() != 0 {
+				if f.stderr.Len() != 0 && s.Kind() == setup.KindHost {
 					t.Errorf("%s (%s) printed a unified-home line:\n%s", s.Name, s.Kind(), f.stderr.String())
 				}
 				return
@@ -85,7 +90,15 @@ func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 					continue
 				}
 				links++
-				got := resolveInJail(t, f.ws, p)
+				var got string
+				if s.Kind() == setup.KindGuest {
+					var err error
+					if got, err = filepath.EvalSymlinks(p); err != nil {
+						t.Fatalf("%s does not resolve: %v", p, err)
+					}
+				} else {
+					got = resolveInJail(t, f.ws, p)
+				}
 				if !strings.HasPrefix(got, paths.UnifiedHome(f.ws)+string(filepath.Separator)) {
 					t.Errorf("%s -> %s resolves to %s, outside %s", p, mustReadlink(t, p), got, paths.UnifiedHome(f.ws))
 				}
@@ -97,9 +110,10 @@ func TestHostSetupNeverReachesTheUnifiedHome(t *testing.T) {
 	}
 }
 
-// TestLaunchCallsUnifyHome pins the call site no unit harness reaches: the only caller of unifyHome in
-// the package's non-test code is runContainer, and it calls it, so deleting that call (which no
-// callee test notices) fails here. The guest and host launch paths never name it.
+// TestLaunchCallsUnifyHome pins the call sites no unit harness reaches: the callers of unifyHome in
+// the package's non-test code are exactly runContainer once and Run once, so deleting either call
+// (which no callee test notices) fails here. Run's call sits in the macos-user arm after commitHome
+// (a refused launch writes nothing) and before armMacosUser (UHG-D5).
 func TestLaunchCallsUnifyHome(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -129,7 +143,33 @@ func TestLaunchCallsUnifyHome(t *testing.T) {
 			})
 		}
 	}
-	if len(callers) != 1 || callers["runContainer"] != 1 {
-		t.Errorf("unifyHome must be called once, by runContainer; callers: %v", callers)
+	if len(callers) != 2 || callers["runContainer"] != 1 || callers["Run"] != 1 {
+		t.Fatalf("unifyHome must be called once by runContainer and once by Run; callers: %v", callers)
+	}
+	calls := funcCalls(t, "run.go", "Run")
+	unify, commit, arm := calls["unifyHome"], calls["commitHome"], calls["armMacosUser"]
+	if len(unify) != 1 || len(arm) != 1 || len(commit) == 0 {
+		t.Fatalf("Run's calls: unifyHome %d, armMacosUser %d, commitHome %d", len(unify), len(arm), len(commit))
+	}
+	if !(commit[len(commit)-1] < unify[0] && unify[0] < arm[0]) {
+		t.Errorf("Run must call unifyHome after the macos-user arm's commitHome and before armMacosUser")
+	}
+}
+
+// TestSealedAndDryGuestLaunchesComposeNothing (UHG-D5): a sealed guest build is a throwaway home
+// and composes nothing, and a dry run composes nothing.
+func TestSealedAndDryGuestLaunchesComposeNothing(t *testing.T) {
+	if n := len(funcCalls(t, "seal.go", "runSealedMacosUser")["unifyHome"]); n != 0 {
+		t.Errorf("runSealedMacosUser calls unifyHome %d times", n)
+	}
+	f := newUnifyFixture(t, "seatbelt-self")
+	putUnify(t, f.o.homeDir(), ".claude/projects/-w/w.jsonl", "s")
+	f.o.DryRun = true
+	f.unify(t, "macos-user")
+	if _, err := os.Lstat(paths.UnifiedHome(f.ws)); err == nil {
+		t.Error("a dry run made the unified home")
+	}
+	if _, err := os.Readlink(filepath.Join(f.o.homeDir(), ".claude", "projects")); err == nil {
+		t.Error("a dry run composed the slice")
 	}
 }

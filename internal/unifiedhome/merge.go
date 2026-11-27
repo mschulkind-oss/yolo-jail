@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -14,6 +15,20 @@ import (
 
 	"golang.org/x/sys/unix"
 )
+
+// LinkForm is one spelling of the link composition lays: an absolute one (HomePath, the unified
+// home as the jail sees it) or a relative one (FromSliceRoot, the unified home as seen from the
+// slice root). Exactly one is set. It is the one place both spellings are built.
+type LinkForm struct{ HomePath, FromSliceRoot string }
+
+// Target is the link target at a position: depth is the number of directories between the slice
+// root and the link, and unifiedPath is "<unified dir>/<rel>/<name>".
+func (f LinkForm) Target(depth int, unifiedPath string) string {
+	if f.FromSliceRoot != "" {
+		return strings.Repeat("../", depth) + f.FromSliceRoot + "/" + unifiedPath
+	}
+	return path.Join(f.HomePath, unifiedPath)
+}
 
 // Source is one home to read from, labeled for .from- names.
 type Source struct {
@@ -32,8 +47,13 @@ type Options struct {
 	// Rename moves old in oldDir to new in newDir and must fail with EEXIST rather than replace.
 	// Nil means the platform's refuse-to-replace rename.
 	Rename func(oldDir int, old string, newDir int, new string) error
-	// OwnerUID, when set, leaves a source state directory that another user owns.
-	OwnerUID *uint32
+	// OwnerUIDs, when non-empty, leaves a source state directory that none of these users owns.
+	// Nil means unchecked.
+	OwnerUIDs []uint32
+	// Laid are the spellings of a link a launch lays into a slice (Compose). A source link whose
+	// target is exactly what one of them lays at its position is yolo's own, not the user's: it is
+	// neither moved nor counted, so a composed slice re-merges as a no-op.
+	Laid []LinkForm
 	// Symlink makes the link Compose lays: target, the directory descriptor, the name. Nil means
 	// symlinkat(2). A test injects the failure of a slice that cannot hold links.
 	Symlink func(target string, dirFd int, name string) error
@@ -62,16 +82,19 @@ type merger struct {
 	// Stay-relative spelling is cut from.
 	stay []string
 	base string
+	// laid and dstDir recognize a link yolo laid: dstDir is the unified directory the walk merges into.
+	laid   []LinkForm
+	dstDir string
 }
 
 // Merge merges the state directories src.Dirs of one home into dstDir beneath dst. It deletes
 // and overwrites nothing: every step is a rename that refuses to replace, or a skip. A source
-// directory that is a link, owned by another user (Options.OwnerUID), or a child that cannot be
+// directory that is a link, owned by another user (Options.OwnerUIDs), or a child that cannot be
 // moved is left and counted; a failed rename is also returned (joined) so the caller can say so.
 // Every descriptor is opened with O_NOFOLLOW relative to its parent, so no link is ever
 // followed; the source tree is its own worklist, so a rerun after a crash continues.
 func Merge(dst *os.Root, dstDir string, src Source, o Options) (Report, error) {
-	m := &merger{rename: o.Rename, label: src.Label, stay: src.Stay}
+	m := &merger{rename: o.Rename, label: src.Label, stay: src.Stay, laid: o.Laid, dstDir: dstDir}
 	if m.rename == nil {
 		m.rename = defaultRename
 	}
@@ -105,9 +128,9 @@ func Merge(dst *os.Root, dstDir string, src Source, o Options) (Report, error) {
 			m.fail(d, err)
 			continue
 		}
-		if o.OwnerUID != nil {
+		if len(o.OwnerUIDs) > 0 {
 			var st unix.Stat_t
-			if err := unix.Fstat(sfd, &st); err != nil || st.Uid != *o.OwnerUID {
+			if err := unix.Fstat(sfd, &st); err != nil || !slices.Contains(o.OwnerUIDs, st.Uid) {
 				unix.Close(sfd)
 				m.leave(d, "not owned by the user")
 				continue
@@ -155,6 +178,7 @@ func (m *merger) levelOnly(sfd, dfd int, rel string, only map[string]bool) {
 		}
 		srcE = kept
 	}
+	srcE = m.dropLaid(sfd, rel, srcE)
 	srcE = m.applyStay(sfd, dfd, rel, srcE)
 	dstE, err := list(dfd)
 	if err != nil {
@@ -226,6 +250,39 @@ func (m *merger) levelOnly(sfd, dfd int, rel string, only map[string]bool) {
 			m.recurse(sfd, dfd, st.Name, p)
 		}
 	}
+}
+
+// dropLaid drops from srcE every link whose target is exactly what a launch lays at that position.
+// The link is read, never followed.
+func (m *merger) dropLaid(sfd int, rel string, srcE []Entry) []Entry {
+	if len(m.laid) == 0 {
+		return srcE
+	}
+	depth := len(strings.Split(rel, "/"))
+	within := strings.TrimPrefix(strings.TrimPrefix(rel, m.base), "/")
+	kept := srcE[:0]
+	for _, e := range srcE {
+		if e.Kind == KindLink && m.isLaid(sfd, e.Name, depth, path.Join(m.dstDir, within, e.Name)) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	return kept
+}
+
+func (m *merger) isLaid(sfd int, name string, depth int, unifiedPath string) bool {
+	buf := make([]byte, 4096)
+	n, err := unix.Readlinkat(sfd, name, buf)
+	if err != nil || n >= len(buf) {
+		return false
+	}
+	got := string(buf[:n])
+	for _, f := range m.laid {
+		if (f.HomePath != "") != (f.FromSliceRoot != "") && f.Target(depth, unifiedPath) == got {
+			return true
+		}
+	}
+	return false
 }
 
 // applyStay drops from srcE every child Source.Stay keeps in the source, and merges a directory that
