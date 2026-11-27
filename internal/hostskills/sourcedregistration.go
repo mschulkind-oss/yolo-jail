@@ -138,6 +138,10 @@ func writeSourcedRegistrations(dir string, l Layer, req ComposeRequest, preOwned
 			continue
 		}
 		result := Result{Name: name, Path: dest, Action: wroteAction(observe), Detail: "invoke as /" + name + "; whole repository is supporting data, not activation", WouldChange: true}
+		if row.Plan.MarkerState == "absent" {
+			result.Folder = true
+			result.Detail = "folder, no SKILL.md, delivered but not a discoverable skill; whole repository is supporting data, not activation"
+		}
 		if occupied && !registrationChanged(dest, files, links) {
 			result.Action = ActionUnchanged
 			result.WouldChange = false

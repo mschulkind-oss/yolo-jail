@@ -30,16 +30,18 @@ The implemented mechanisms are described in the [four-page reference](../referen
 The design and this plan are retained rather than retired: their accepted rulings and acceptance
 scenarios must not disappear while the following work remains.
 
-- **Markerless host reporting:** `writeSourcedRegistrations` and the host-apply roll-up still count
-  markerless directories and advertise invocation. Preserve absent-marker delivery; carry
-  discoverability into registration results, label folders and exclude them from the actual
-  host-apply census. Verify a mixed marked/markerless caller, not just the projection printer.
-- **Unpublished sourced commit attribution:** the inspection printer can fall back to the
-  enclosing pack's commit for a manifest-sourced repository whose payload is not materialized.
-  Report the sourced outcome's known commit without substituting the enclosing commit; verify
-  two distinct repositories and absent published payload through Explain/Check.
-- **Inspection audience:** scoped inspection bypasses audience formatting. Print retained
-  audience through the actual Explain/Check paths; metadata retention alone is not output proof.
+- **Markerless host reporting (fixed):** a markerless folder is delivered unchanged, labeled
+  "folder, no SKILL.md" instead of "invoke as /name", and `hostskills.Result.Folder` keeps it out of
+  the host-apply skill census. Pinned through `applyHostSurveyed` with a mixed marked/markerless
+  import (`applyhostskillsfolder_test.go`).
+- **Unpublished sourced commit attribution (fixed):** the inspection row of a manifest-sourced
+  skill shows that source's own repository and resolved commit, or "unresolved (ref …, payload not
+  published)"; it never shows the enclosing pack's commit. Pinned through the check section with a
+  cached enclosing pack and a distinct unfetched repository (`scopedpackpresentation_test.go`).
+  Not covered: two distinct materialized sourced repositories.
+- **Inspection audience (fixed):** reproduced through the check path; the `row ...` line omitted
+  audience while delivery rows printed it. Both now print one `rowAudience` spelling
+  (`audience=<agents>` or `all selected destinations`). The Explain path shares the printer.
 - **Full launch-suite safety and acceptance:** the current harness selects shipped NPM programs
   even with readiness and auto-capture suppressed. Its ordinary host preparation still resolves
   those programs. Establish permanent private inert producer/registry fixtures that preserve
@@ -52,9 +54,8 @@ scenarios must not disappear while the following work remains.
   integration remain unmeasured. The pre-existing preparation startup/probe `worker.lock` race
   is not repaired by the test-observer synchronization and remains outside this feature.
 
-The three presentation defects above are deferred from this integration, not approved changes
-to the accepted behavior. Close them with actual caller regressions in a subsequent bounded
-repair. Keep this live planning owner and its roadmap route until the remaining scope is honest.
+The three presentation defects above are closed by bounded repairs with caller regressions.
+Keep this live planning owner and its roadmap route until the remaining scope is honest.
 
 ## Preconditions and operating fence
 

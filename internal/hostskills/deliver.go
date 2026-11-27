@@ -179,6 +179,9 @@ type Result struct {
 	// describe the absence of a write. An archive, a clear and a migration are all true: they
 	// move content out of the home, which is a change even though nothing is copied in.
 	WouldChange bool
+	// Folder marks a delivered directory with no SKILL.md: it is delivered but is not a
+	// discoverable skill, so no surface advertises an invocation for it or counts it as one.
+	Folder bool
 }
 
 // Request is one pack's delivery into one skills dir.
