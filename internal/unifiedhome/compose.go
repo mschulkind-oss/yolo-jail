@@ -126,7 +126,9 @@ type ComposeSpec struct {
 	Label string
 	// HomePath is the ABSOLUTE path the jail sees the unified home at ("/workspace/.yolo/unified-home").
 	// Every link target is built from it and the unified directory, so none can point elsewhere.
-	HomePath string
+	// FromSliceRoot is the relative spelling: the unified home as seen from the slice root
+	// ("../../../unified-home"), a guest's. Exactly one of the two is set.
+	HomePath, FromSliceRoot string
 	// Generated and Carved are paths relative to the composed directory that stay real in the
 	// slice (see PlanCompose).
 	Generated, Carved []string
@@ -147,6 +149,7 @@ type composer struct {
 	m       *merger
 	spec    ComposeSpec
 	udir    string
+	sdir    string
 	symlink func(string, int, string) error
 	rep     ComposeReport
 	stop    bool
@@ -159,15 +162,21 @@ type composer struct {
 // never adopted, followed or rewritten. A slice directory that is absent or a link is left.
 // A slice that cannot hold links is a Declined result, not an error; an error is a failed move.
 func Compose(slice *os.Root, sliceDir string, unified *os.Root, unifiedDir string, s ComposeSpec, o Options) (ComposeReport, error) {
-	c := &composer{m: &merger{rename: o.Rename, label: s.Label}, spec: s, udir: unifiedDir, symlink: o.Symlink}
+	c := &composer{m: &merger{rename: o.Rename, label: s.Label}, spec: s, udir: unifiedDir, sdir: path.Clean(sliceDir), symlink: o.Symlink}
 	if c.m.rename == nil {
 		c.m.rename = defaultRename
 	}
 	if c.symlink == nil {
 		c.symlink = func(target string, dir int, name string) error { return unix.Symlinkat(target, dir, name) }
 	}
-	if !path.IsAbs(s.HomePath) || path.Clean(s.HomePath) != s.HomePath {
+	if (s.HomePath == "") == (s.FromSliceRoot == "") {
+		return ComposeReport{}, fmt.Errorf("a compose names the unified home by exactly one of HomePath (%q) and FromSliceRoot (%q)", s.HomePath, s.FromSliceRoot)
+	}
+	if s.HomePath != "" && (!path.IsAbs(s.HomePath) || path.Clean(s.HomePath) != s.HomePath) {
 		return ComposeReport{}, fmt.Errorf("the unified home's path %q is not a clean absolute path", s.HomePath)
+	}
+	if s.FromSliceRoot != "" && (path.IsAbs(s.FromSliceRoot) || path.Clean(s.FromSliceRoot) != s.FromSliceRoot) {
+		return ComposeReport{}, fmt.Errorf("the unified home's relative path %q is not a clean relative path", s.FromSliceRoot)
 	}
 	sroot, err := rootFd(slice)
 	if err != nil {
@@ -275,7 +284,12 @@ func (c *composer) recurse(sfd, ufd int, rel, name, p string, generated, carved 
 }
 
 func (c *composer) link(sfd int, rel, name, p string) {
-	target := path.Join(c.spec.HomePath, c.udir, rel, name)
+	// The link sits in sliceDir (one level per component) plus one level per component of rel.
+	depth := len(strings.Split(c.sdir, "/"))
+	if rel != "" {
+		depth += len(strings.Split(rel, "/"))
+	}
+	target := LinkForm{HomePath: c.spec.HomePath, FromSliceRoot: c.spec.FromSliceRoot}.Target(depth, path.Join(c.udir, rel, name))
 	err := c.symlink(target, sfd, name)
 	switch {
 	case err == nil:

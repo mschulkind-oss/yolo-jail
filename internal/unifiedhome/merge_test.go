@@ -355,7 +355,7 @@ func TestMergeLeavesASourceNotOwnedByTheUser(t *testing.T) {
 	dst, src := tree(t), tree(t)
 	put(t, src, ".claude/projects/a.jsonl", "a")
 	other := uint32(os.Getuid() + 1)
-	rep, err := Merge(open(t, dst), ".claude", Source{Label: "x", Root: open(t, src), Dirs: []string{".claude"}}, Options{OwnerUID: &other})
+	rep, err := Merge(open(t, dst), ".claude", Source{Label: "x", Root: open(t, src), Dirs: []string{".claude"}}, Options{OwnerUIDs: []uint32{other}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,5 +402,58 @@ func TestPlanLevelIsPureAndNamesFreeSuffixes(t *testing.T) {
 	}
 	if fmt.Sprint(steps) != fmt.Sprint(want) {
 		t.Fatalf("steps = %v, want %v", steps, want)
+	}
+}
+
+func TestMergeLeavesASourceOwnedByNeitherUID(t *testing.T) {
+	dst, src := tree(t), tree(t)
+	put(t, src, ".claude/projects/a.jsonl", "a")
+	me := uint32(os.Getuid())
+	other := me + 1
+	rep, err := Merge(open(t, dst), ".claude", Source{Label: "x", Root: open(t, src), Dirs: []string{".claude"}}, Options{OwnerUIDs: []uint32{other, other + 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Left) != 1 || rep.Moved != 0 || read(t, src, ".claude/projects/a.jsonl") != "a" {
+		t.Fatalf("report = %+v, want the source left whole", rep)
+	}
+	rep, err = Merge(open(t, dst), ".claude", Source{Label: "x", Root: open(t, src), Dirs: []string{".claude"}}, Options{OwnerUIDs: []uint32{other, me}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Moved != 1 || read(t, dst, ".claude/projects/a.jsonl") != "a" {
+		t.Fatalf("a source owned by a listed uid must move: %+v", rep)
+	}
+}
+
+// red before the change: Merge moved both laid links into dst as projects.from-x.
+func TestMergeSkipsALinkYoloLaidAndMovesAUserLink(t *testing.T) {
+	dst, src := tree(t), tree(t)
+	put(t, dst, ".claude/projects/a.jsonl", "a")
+	for _, d := range []string{"claude", ".claude"} {
+		if err := os.MkdirAll(filepath.Join(src, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	laidAbs := "/workspace/.yolo/unified-home/.claude/projects"
+	laidRel := "../../../../unified-home/.claude/projects"
+	for p, target := range map[string]string{"claude/projects": laidAbs, ".claude/projects": laidRel, "claude/notes": "/elsewhere"} {
+		if err := os.Symlink(target, filepath.Join(src, p)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := Merge(open(t, dst), ".claude", Source{Label: "x", Root: open(t, src), Dirs: []string{"claude", ".claude"}},
+		Options{Laid: []LinkForm{{HomePath: "/workspace/.yolo/unified-home"}, {FromSliceRoot: "../../../unified-home"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists(dst, ".claude/projects.from-x") || exists(dst, ".claude/projects.from-x.2") {
+		t.Fatal("a link yolo laid was carried into the unified home")
+	}
+	if linkTarget(t, src, "claude/projects") != laidAbs || linkTarget(t, src, ".claude/projects") != laidRel {
+		t.Fatal("a laid link left its slice")
+	}
+	if linkTarget(t, dst, ".claude/notes") != "/elsewhere" || rep.Moved != 1 || rep.KeptBoth != 0 {
+		t.Fatalf("a user's link must still move as a link: moved %d, kept %d", rep.Moved, rep.KeptBoth)
 	}
 }

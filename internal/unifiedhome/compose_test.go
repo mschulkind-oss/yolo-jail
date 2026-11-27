@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -229,5 +230,67 @@ func TestPlanComposeNamesEveryStep(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("steps = %+v\nwant   %+v", got, want)
+	}
+}
+
+func (f composeFixture) relative(t *testing.T, sliceDir, unifiedDir string, spec ComposeSpec) (ComposeReport, error) {
+	t.Helper()
+	spec.Label = "seatbelt-self"
+	spec.FromSliceRoot = "../../../unified-home"
+	return Compose(open(t, f.slice), sliceDir, open(t, f.unified), unifiedDir, spec, Options{})
+}
+
+func TestComposeLaysARelativeLinkFromTheSliceRoot(t *testing.T) {
+	f := newCompose(t)
+	put(t, f.slice, ".claude/projects/a.jsonl", "a")
+	put(t, f.slice, ".pi/agent/sessions/s.jsonl", "s")
+	if _, err := f.relative(t, ".claude", ".claude", ComposeSpec{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkTarget(t, f.slice, ".claude/projects"); got != "../../../../unified-home/.claude/projects" {
+		t.Errorf("projects links to %q", got)
+	}
+	if _, err := f.relative(t, ".pi", ".pi", ComposeSpec{Carved: []string{"agent/npm"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := linkTarget(t, f.slice, ".pi/agent/sessions"); got != "../../../../../unified-home/.pi/agent/sessions" {
+		t.Errorf("agent/sessions links to %q", got)
+	}
+	for _, spec := range []ComposeSpec{{}, {HomePath: homePath, FromSliceRoot: "../x"}} {
+		spec.Label = "x"
+		_, err := Compose(open(t, f.slice), ".claude", open(t, f.unified), ".claude", spec, Options{})
+		if err == nil || !strings.Contains(err.Error(), "HomePath") || !strings.Contains(err.Error(), "FromSliceRoot") {
+			t.Errorf("spec %+v: err = %v, want one naming both fields", spec, err)
+		}
+	}
+}
+
+func TestComposeRelativeLinkResolvesToTheUnifiedDirectory(t *testing.T) {
+	root := tree(t)
+	slice := filepath.Join(root, ".yolo/setups/s/home")
+	unified := filepath.Join(root, ".yolo/unified-home")
+	put(t, slice, ".claude/projects/a.jsonl", "a")
+	put(t, slice, ".pi/agent/sessions/s.jsonl", "s")
+	if err := os.MkdirAll(unified, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{".claude", ".pi"} {
+		spec := ComposeSpec{Label: "s", FromSliceRoot: "../../../unified-home"}
+		if d == ".pi" {
+			spec.Carved = []string{"agent/npm"}
+		}
+		if _, err := Compose(open(t, slice), d, open(t, unified), d, spec, Options{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, want := range map[string]string{
+		".claude/projects":   ".claude/projects",
+		".pi/agent/sessions": ".pi/agent/sessions",
+	} {
+		got, err := filepath.EvalSymlinks(filepath.Join(slice, link))
+		wantAbs, _ := filepath.EvalSymlinks(filepath.Join(unified, want))
+		if err != nil || got != wantAbs {
+			t.Errorf("%s resolves to %q (%v), want %q", link, got, err, wantAbs)
+		}
 	}
 }

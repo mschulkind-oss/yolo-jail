@@ -3,7 +3,7 @@ title: "Plan: build slice 2 of the unified workspace home (the guest joins)"
 date: 2026-11-27
 status: accepted
 stage: DECIDED
-next: "Build UG1 (the pure package: relative links, laid-link recognition, several owners) and UG2 (the rule and the lock for guest launches) in parallel worktrees; then UG3, UG4, UG5, UG6"
+next: "UG1 built (pure package: relative links, laid-link recognition, several owners). Build UG2 (the rule and the lock for guest launches), then UG3 (which passes Laid and fixes the projects.from-<setup> defect in the launch), UG4, UG5, UG6"
 depends-on: []
 tags: [plan, setups, home, sessions, macos-user, concurrency]
 summary: "The build hand-off for slice 2 of the unified workspace home: a guest (seatbelt-self; seatbelt-yolo-account behind a gate) composes its slice into the unified home with relative links, merges stranded guest homes, is checked by the one-container-plus-one-guest rule, and takes the project lock. Six units, each one commit, tests first; Mac witnesses W-UH4 (amended), W-UH5, W-UH7 to W-UH10 are owed to the owner's Mac agent."
@@ -79,6 +79,7 @@ Mechanism choices the design leaves open, decided here. None contradicts a rulin
 | <a id="UHG-D10"></a>UHG-D10 | The "a guest's home joins later" skips in `mergeOtherHomes` (`unifyhome.go:281`) and `UnifiedHomeWaiting` (`unifyhomewaiting.go:42`) are removed; a guest slice is an ordinary source, waiting while its jail runs (`projectJails` already asks the guest keys). Supersedes [UHP-D3](unified-workspace-home-plan.md#UHP-D3)'s "a guest's slice is LEFT". | The design's migration reads every home on disk. |
 | <a id="UHG-D11"></a>UHG-D11 | Composing the launching guest's own slice is allowed while another session of the SAME setup runs. There is no refusal and no new probe. | macos-user has no attach (`AcquireWorkspaceLockFor`'s comment), so a second terminal of one setup always launches. Every composition step is a rename that refuses to replace or an `rmdir` that fails on a non-empty directory; an open file follows its inode and a path through the new link reaches the same place. |
 | <a id="UHG-D12"></a>UHG-D12 | The gated account's launch line reads: `This setup keeps a private home: the yolo account's access to this workspace's shared home is not verified yet, so its sessions are not shared with the workspace's other setups. A later release shares them.` The source line reads the same facts with the setup's name: `The seatbelt-yolo-account setup's home stays private until the yolo account's access to the shared home is verified, so its sessions stay where they are.` | Both name who can act (a later release) and no user step, because there is none: [the happy path](../reference/happy-path-principle.md) allows "names who can". |
+| <a id="UHG-D13"></a>UHG-D13 | Built in UG1: a link's depth is the component count of `sliceDir` plus those of the level beneath it (`Compose`) or of the walked source path (`Merge`'s `dropLaid`); `Compose` refuses an absolute or unclean `FromSliceRoot`; a `LinkForm` with both or neither field set recognizes nothing; a laid link is read with `readlinkat` and compared whole (a target of 4096 bytes or more is never laid). The `projects.from-<setup>` defect is fixed in the package by UG1 and in the launch only when UG3 passes `Options.Laid`. | One answer each; none changes a ruling. |
 
 ## Map
 

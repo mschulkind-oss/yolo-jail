@@ -330,7 +330,7 @@ func (o *Options) mergeOneHome(unified, root *os.Root, home, label string, dirs 
 		return
 	}
 	uid := uint32(unifyHomeUID())
-	opts := unifiedhome.Options{Rename: legacyHomeRename, OwnerUID: &uid}
+	opts := unifiedhome.Options{Rename: legacyHomeRename, OwnerUIDs: []uint32{uid}}
 	moved := 0
 	var foreign bool
 	for _, dir := range dirs {
