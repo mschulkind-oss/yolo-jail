@@ -159,7 +159,7 @@ const (
 	// where later wins by pack order as it does for every overlay (AutonomyPosture.Config).
 	KindAutonomy Kind = "autonomy"
 	// KindInstructions: which instruction files an agent reads from the repository, and the ONE
-	// mechanism that stops it (instructions.go; docs/design/workspace-instruction-files.md IF-D7).
+	// mechanism that stops it (instructions.go; docs/reference/workspace-instruction-files.md IF-D7).
 	// It is a declaration the `repo_instructions` mode selects over, so it does nothing in a launch
 	// that keeps the files. One per agent per pack; never origin-gated, since it reads nothing on the
 	// host and mounts nothing: yolo never masks a workspace file (IF-D14).

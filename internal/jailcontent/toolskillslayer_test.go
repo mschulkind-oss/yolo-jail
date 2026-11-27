@@ -1,6 +1,6 @@
 package jailcontent
 
-// toolskillslayer_test.go pins the host's TOOL-SKILLS layer (docs/design/mise-tool-skills.md
+// toolskillslayer_test.go pins the host's TOOL-SKILLS layer (docs/reference/mise-tool-skills.md
 // slice 4). The CALL-SITE half, that a launch and an attach hand the layer to the composition, is
 // internal/cli/run/toolskillslayer_test.go.
 

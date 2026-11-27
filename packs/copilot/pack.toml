@@ -59,7 +59,7 @@ into = ".copilot/copilot-instructions.md"
 
 # UNSUPPORTED for ignore and replace: `--no-custom-instructions` drops every custom-instruction
 # source, the personal ~/.copilot/copilot-instructions.md (the briefing) included, and nothing
-# re-delivers it (docs/design/workspace-instruction-files.md, Appendix A). The launch continues and
+# re-delivers it (docs/reference/workspace-instruction-files.md, Appendix A). The launch continues and
 # says copilot still reads these files.
 [[instructions]]
 agent = "copilot"

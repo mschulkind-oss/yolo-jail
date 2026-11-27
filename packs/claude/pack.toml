@@ -116,7 +116,7 @@ agents = ["claude"]
 from = "briefing/claude.md"
 
 # Which repository instruction files claude reads, and the one setting that stops it
-# (docs/design/workspace-instruction-files.md, IF-D7). `claudeMdExcludes` takes absolute-path
+# (docs/reference/workspace-instruction-files.md, IF-D7). `claudeMdExcludes` takes absolute-path
 # globs and is merged across settings layers, `--settings` included (the design's Appendix A), so
 # the entries are anchored at the workspace and never match the briefing under the home. The user's
 # own entries survive: this is appended to, never replaced.

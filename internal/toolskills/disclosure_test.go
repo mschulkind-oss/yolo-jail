@@ -9,7 +9,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/shquote"
 )
 
-// The in-jail lines of docs/design/mise-tool-skills.md section 6.2, one test per row, through the
+// The in-jail lines of docs/reference/mise-tool-skills.md section 6.2, one test per row, through the
 // real RunStep (the call `yolo internal tool-skills` makes). A row that prints nothing is pinned
 // too: the step says a change once, and never when the host already delivered it.
 

@@ -12,7 +12,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 )
 
-// toolskills.go is the host half of mise tool skills (docs/design/mise-tool-skills.md, slice 1):
+// toolskills.go is the host half of mise tool skills (docs/reference/mise-tool-skills.md, slice 1):
 // the ALLOWLIST of tools whose skills a launch may deliver, and the SNAPSHOT TOKEN guarding the
 // snapshot a jail writes (MS-D1, MS-D9).
 

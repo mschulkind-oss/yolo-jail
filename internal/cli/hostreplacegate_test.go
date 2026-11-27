@@ -1,7 +1,7 @@
 package cli
 
 // hostreplacegate_test.go pins `repo_instructions` replace at the host through the launch gate
-// (docs/design/workspace-instruction-files.md IF-D13): `yolo host -- <agent>` auto-applies a changed
+// (docs/reference/workspace-instruction-files.md IF-D13): `yolo host -- <agent>` auto-applies a changed
 // render before it starts the agent, so the replacement text must reach the real home's briefing
 // through the gate alone, follow the replacement file's content, and leave when the mode goes back.
 

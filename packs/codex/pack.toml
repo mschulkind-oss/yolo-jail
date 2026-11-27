@@ -75,7 +75,7 @@ agent = "codex"
 into = ".codex/AGENTS.md"
 
 # `project_doc_max_bytes = 0` stops codex loading a project's AGENTS.md; its global
-# ~/.codex/AGENTS.md, the briefing, loads separately (docs/design/workspace-instruction-files.md).
+# ~/.codex/AGENTS.md, the briefing, loads separately (docs/reference/workspace-instruction-files.md).
 [[instructions]]
 agent = "codex"
 bin = "codex"

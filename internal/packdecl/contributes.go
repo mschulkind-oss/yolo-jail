@@ -1204,7 +1204,7 @@ type Contribution struct {
 	// base's, since the fork supplies the bytes (packload.forkedProgram; ML-D14).
 	ReadsSharedModels bool `json:"reads_shared_models,omitempty"`
 
-	// --- instructions (docs/design/workspace-instruction-files.md, IF-D7; instructions.go) ---
+	// --- instructions (docs/reference/workspace-instruction-files.md, IF-D7; instructions.go) ---
 	// Reads are the workspace-relative name patterns the agent (this contribution's `agent`) loads,
 	// Ignore is the one mechanism that stops it, and Redeliver gives back the user-level file that
 	// mechanism also drops. An agent with no Ignore is unsupported.

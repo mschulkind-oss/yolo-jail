@@ -241,7 +241,7 @@ var hostAtLaunch = map[packdecl.Kind]string{
 	packdecl.KindAdapter: "an adapter's address is composed into the providers table a launch " +
 		"carries, so `yolo host -- <program>` points its agent there, starting the pack service " +
 		"that answers it when one does; `yolo host apply` writes it into no file",
-	// docs/design/workspace-instruction-files.md IF-D13 and IF-D16.
+	// docs/reference/workspace-instruction-files.md IF-D13 and IF-D16.
 	packdecl.KindInstructions: "an agent's way of ignoring a repository's instruction files is a flag " +
 		"for the one launch: `yolo host -- <program>` hands it, for the user scope's `repo_instructions` " +
 		"mode, and `yolo host apply` writes no per-workspace setting into the home every workspace shares " +

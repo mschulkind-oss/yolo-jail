@@ -1,7 +1,7 @@
 package cli
 
 // hostrepoinstructions.go is `repo_instructions` at the unconfined notch
-// (docs/design/workspace-instruction-files.md IF-D13, IF-D16): `yolo host -- <agent>` reads the USER
+// (docs/reference/workspace-instruction-files.md IF-D13, IF-D16): `yolo host -- <agent>` reads the USER
 // scope's mode (the launch composes from user scope alone), hands the loaded packs the selection with
 // Host set, and so each agent's pack hands its own flag through the one launch-flag fold, where a
 // jail renders a per-workspace file the unconfined path does not have. `yolo host apply` writes the

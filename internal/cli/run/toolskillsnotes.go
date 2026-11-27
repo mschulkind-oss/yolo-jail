@@ -7,7 +7,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 )
 
-// noteToolSkills is the HOST half of the mise tool-skills disclosure (docs/design/mise-tool-skills.md
+// noteToolSkills is the HOST half of the mise tool-skills disclosure (docs/reference/mise-tool-skills.md
 // section 6.2): one line per skill the layer did not deliver, each naming its next step. It runs
 // from refreshJailBriefings, so a launch and every attach say it, to stderr as noteWorkspaceSkills
 // does (an attach's stdout belongs to its "Attaching" line and the command after).

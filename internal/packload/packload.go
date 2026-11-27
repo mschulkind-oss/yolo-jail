@@ -113,7 +113,7 @@ type Pack struct {
 	// is (packsrc.PackReference).
 	AcceptNamesStep, BareStep string
 	// Instructions is what this launch resolved about repo_instructions
-	// (docs/design/workspace-instruction-files.md), handed to every loaded pack by whoever loads
+	// (docs/reference/workspace-instruction-files.md), handed to every loaded pack by whoever loads
 	// the set (ApplyInstructions). nil, like the mode "keep", means the launch does nothing about
 	// the repository's instruction files; the pack's `instructions` declaration is then inert.
 	// It is per launch state like LaunchName, never read from a manifest.

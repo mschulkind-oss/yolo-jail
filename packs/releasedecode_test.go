@@ -210,7 +210,7 @@ var knownReleaseBreaks = []knownReleaseBreak{
 		guard: guardNoRestageOnAttach, pinnedBy: pinAttachLeavesAnOlderJailsTree,
 		repair: dropKey("per_setup_state")},
 	// Measured against v0.19.0 on 2026-11-24: every agent pack declares which repository
-	// instruction files its agent reads (docs/design/workspace-instruction-files.md, IF-D7), a
+	// instruction files its agent reads (docs/reference/workspace-instruction-files.md, IF-D7), a
 	// kind v0.19.0 skips. Skipping it only leaves repo_instructions unrendered in an older jail,
 	// which keeps its staged tree on attach; a fresh launch uses this tree's binaries.
 	{release: "v0.19.0", pack: "claude", problem: `unknown kind "instructions"`,

@@ -1,7 +1,7 @@
 package run
 
 // repoinstructions.go is the launch's half of `repo_instructions`
-// (docs/design/workspace-instruction-files.md): resolve the mode once above the dispatch, hand it to
+// (docs/reference/workspace-instruction-files.md): resolve the mode once above the dispatch, hand it to
 // every staged pack, and say what it did. The rendering is the packs' (their `instructions`
 // declaration, through the surface fold and the launch-flag fold) and the replacement text joins the
 // briefing through the user block (prepare.go); this file owns neither.

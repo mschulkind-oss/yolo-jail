@@ -1,6 +1,6 @@
 package jailcontent
 
-// The TOOL-SKILLS LAYER (docs/design/mise-tool-skills.md, slice 4): the skills a mise tool the user
+// The TOOL-SKILLS LAYER (docs/reference/mise-tool-skills.md, slice 4): the skills a mise tool the user
 // named in their own `install.mise` declares, which the jail snapshotted into
 // <workspace>/.yolo/tool-skills (internal/toolskills) and the host composes here as the LOWEST
 // layer of every destination — below the packs, the built-ins, yolo's LSP plugin and the

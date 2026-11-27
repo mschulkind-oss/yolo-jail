@@ -10,7 +10,7 @@ const JailMainDir = "/run/yolo/main"
 // tool-skills snapshot, as mise-install.lock serializes their installs.
 const ToolSkillsLockName = "tool-skills.lock"
 
-// StepToolSkills is the mise tool-skills refresh (docs/design/mise-tool-skills.md §4 step 2): the
+// StepToolSkills is the mise tool-skills refresh (docs/reference/mise-tool-skills.md §4 step 2): the
 // snapshot of the skills the user's own mise tools declare, written after `mise install` so the
 // bytes are there to read. It belongs after StepMiseInstall in a stage and nowhere else.
 //

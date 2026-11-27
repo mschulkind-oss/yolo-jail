@@ -1,6 +1,6 @@
 package toolskills
 
-// snapshot.go is the snapshot writer (docs/design/mise-tool-skills.md MS-D4, MS-D6, MS-D9; slice 3).
+// snapshot.go is the snapshot writer (docs/reference/mise-tool-skills.md MS-D4, MS-D6, MS-D9; slice 3).
 //
 // It copies the skills Select kept into a content-addressed directory under
 // <workspace>/.yolo/tool-skills/ and points `current` at it:

@@ -1,7 +1,7 @@
 package entrypoint
 
 // repoinstructions_test.go is the BEHAVIORAL proof of the jail's half of `repo_instructions`
-// (docs/design/workspace-instruction-files.md): the boot reads YOLO_REPO_INSTRUCTIONS, hands it to
+// (docs/reference/workspace-instruction-files.md): the boot reads YOLO_REPO_INSTRUCTIONS, hands it to
 // every pack LoadJailPacks loads, and the agent's own file is the one that carries the setting. Each
 // test reads the file the agent would read, or the flags its launcher would carry. Deleting
 // LoadJailPacks' ApplyInstructions call, or the Collect pass that places the declaration, fails them.

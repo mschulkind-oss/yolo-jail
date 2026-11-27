@@ -27,7 +27,7 @@ var sessionInputNames = []string{
 // digest it just published, and says "arrives with the next session" only when they differ.
 const toolSkillsDeliveredEnv = "YOLO_TOOL_SKILLS_DELIVERED"
 
-// toolSkillInputs are the session inputs of mise tool skills (docs/design/mise-tool-skills.md
+// toolSkillInputs are the session inputs of mise tool skills (docs/reference/mise-tool-skills.md
 // MS-D1, MS-D7, MS-D9): the allowlist of the user scope's mise tools, the workspace's snapshot
 // token, and the digest of the snapshot this entry delivered. The zero value is the sealed,
 // capture and nested answer: an empty list, no token and no digest.

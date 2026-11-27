@@ -2,7 +2,7 @@ package packdecl
 
 // instructions.go is the `instructions` contribution kind: which instruction files an agent reads
 // from the repository, and the ONE mechanism that stops it, declared by the pack that installs the
-// agent so core names no agent (docs/design/workspace-instruction-files.md IF-D7).
+// agent so core names no agent (docs/reference/workspace-instruction-files.md IF-D7).
 //
 // THERE IS NO MASK, by the owner's ruling (IF-D14): nothing here, and nothing built from it, binds a
 // file over a workspace path. An agent whose pack declares no mechanism is UNSUPPORTED, and the

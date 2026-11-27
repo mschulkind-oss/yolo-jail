@@ -2539,10 +2539,10 @@ with no `ignore` is an **unsupported** agent: nothing changes for it and the lau
 > [!WARNING]
 > **There is no mask, and no kind will ever carry one.** Binding an empty file over a workspace
 > path shows git an emptied file and blocks `git checkout` and `git pull`; the owner ruled it out
-> for every agent ([IF-D14](../design/workspace-instruction-files.md#10-decision-ledger)).
+> for every agent ([IF-D14](workspace-instruction-files.md#why-its-this-way)).
 
 `TestEveryAgentPackDeclaresItsInstructionFiles` requires a declaration from every pack that delivers
-a briefing to an agent. The design is [workspace-instruction-files.md](../design/workspace-instruction-files.md).
+a briefing to an agent. The system is described in [workspace-instruction-files.md](workspace-instruction-files.md).
 
 #### `autonomy`
 
