@@ -135,6 +135,11 @@ type keeperPlan struct {
 	// PerfRecording is the launch's timing recording gate (timingRecording): the keeper records
 	// its own spans, Window A among them, into the same host-perf.log.
 	PerfRecording bool `json:"perf_recording,omitempty"`
+	// TraceContext is the launcher's actual waiting span as a traceparent (perf.Context.String), set
+	// only when the launcher's trace was acquired and that span started: the keeper joins it, and
+	// "" (absent, OFF, unavailable) means the keeper records no trace. Private to this plan file,
+	// which is 0600 and read once; never a log, a metadata key or an attribute.
+	TraceContext string `json:"trace_context,omitempty"`
 	// ResourceGroupSlice is the agent child slice (batch-yolo-agent.slice) the launch placed itself
 	// in under resource_groups, "" when it is in none. The keeper's transient scope names it as its
 	// Slice, so the host services' I/O is charged to the same group.
