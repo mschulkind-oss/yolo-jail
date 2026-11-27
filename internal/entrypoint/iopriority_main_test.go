@@ -7,7 +7,16 @@ import (
 
 	"github.com/mschulkind-oss/yolo-jail/internal/testsupport"
 	"github.com/mschulkind-oss/yolo-jail/internal/testtmp"
+	"github.com/mschulkind-oss/yolo-jail/internal/testutil"
 )
+
+// TestThisPackageLinksYoloOnce fails if TestMain stops opting in (the call site of
+// testutil.ShareYoloBinary): every launcher test would then relink yolo again.
+func TestThisPackageLinksYoloOnce(t *testing.T) {
+	if !testutil.YoloBinarySharing() {
+		t.Fatal("TestMain must call testutil.ShareYoloBinary, or each launcher test links yolo itself")
+	}
+}
 
 // TestMain lets the test binary play the entrypoint for
 // TestIOPriorityReachesEveryThreadAfterOneReexec: the apply re-executes the process, which
@@ -37,7 +46,11 @@ func TestMain(m *testing.M) {
 	// TestMain again and exits, execs away or is killed before its own removals run, so its
 	// directories and t.TempDirs go in a private TMPDIR this process removes.
 	releaseTmp := testtmp.Isolate()
+	// ONE LINK OF yolo FOR THE PACKAGE (testutil.ShareYoloBinary): hundreds of launcher tests
+	// and subtests ask for it, and a link is not cached.
+	releaseBin := testutil.ShareYoloBinary()
 	code := runWithStandInImageBins(m)
+	releaseBin()
 	os.Exit(releaseTmp(code))
 }
 
