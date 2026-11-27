@@ -1,5 +1,5 @@
 // Package toolskills discovers the agent skills the user's own mise tools declare
-// (docs/design/mise-tool-skills.md, slice 2). It is the discovery half only: it runs
+// (docs/reference/mise-tool-skills.md, slice 2). It is the discovery half only: it runs
 // `mise skills ls --json`, parses and filters the answer, and reports what it dropped. It copies
 // nothing, writes nothing and prints nothing; the snapshot writer and the provisioning step
 // (slice 3) call it and decide what the user reads.

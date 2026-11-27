@@ -31,10 +31,6 @@ needs a ruling or a Mac sits in the others.
 
 ## Buildable now by an agent
 
-1. [Tool skills](../design/mise-tool-skills.md) — the owner's request (2026-11-23): deliver the skills
-   the user's own mise tools declare as one more skills layer. Built, all six slices; next is graduating it to a
-   system doc.
-
 2. [Every launch checks the latest](../design/local-pack-clones.md) — the owner's request (2026-11-23): the hourly
    refresh throttle for packs and the patched-fork upstream check is dropped (a probe per remote, in parallel, under a
    short deadline), and a pack's own clone can run, working tree included. Built, slices 1-7: the probe, the parallel
@@ -376,6 +372,9 @@ agent runs its witnesses on main; no branch or real account probe is implied.
     and the upstream reports drafted with the VM-local design, on [VZ's virtio-fs cache policy](../research/apple-container-file-cost.md#21-per-file-cost-not-bandwidth)
     and [VZ keeping freed guest memory](../research/macos-vm-runtime-comparison.md#42-adding-a-balloon-to-apple-container-ourselves)
     — last, since only Apple can ship either fix.
+
+14. The owner's Mac clears [tool skills' macOS witnesses](../reference/mise-tool-skills.md#unverified-on-macos): macos-user's
+    confined provisioning stage writing the snapshot in both modes, and Apple Container delivering it on the next launch.
 
 ## Boundaries
 

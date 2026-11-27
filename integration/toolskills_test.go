@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// toolskills_test.go is slice 6 of docs/design/mise-tool-skills.md: the tool-skills path end to end,
+// toolskills_test.go is slice 6 of docs/reference/mise-tool-skills.md: the tool-skills path end to end,
 // slices 1 to 5 together, with no agent and no network.
 //
 // THE SHAPE. The allowlist is the USER scope's `install.mise` keys (`jq`, at version "system" so

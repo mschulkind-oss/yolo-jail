@@ -280,7 +280,7 @@ func (o *Options) refreshJailBriefingsMode(cname string, cfg *jsonx.OrderedMap, 
 		in, extra = sealedBriefingInput(in), ""
 	}
 	hadAppliedFacts := facts != nil && facts.Briefing.Mechanism != ""
-	// THE TOOL-SKILLS LAYER (docs/design/mise-tool-skills.md slice 4), the lowest skills layer. It
+	// THE TOOL-SKILLS LAYER (docs/reference/mise-tool-skills.md slice 4), the lowest skills layer. It
 	// is read FRESH on every call, launch and attach alike, and never from an attach's applied
 	// snapshot: the jail writes the snapshot after the launch's composition ran, and the next
 	// attach is what delivers it. Its report (wsSkills.ToolSkills) is said below (noteToolSkills).

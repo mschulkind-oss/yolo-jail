@@ -139,7 +139,7 @@ type WorkspaceSkillsReport struct {
 	// withheld (skills.go), one per entry and reason.
 	PackNotices []PackSkillNotice
 	// ToolSkills is what the tool-skills layer did, nil when it composed none. It is not part of
-	// Empty: its lines are slice 5's (docs/design/mise-tool-skills.md section 6.2).
+	// Empty: its lines are slice 5's (docs/reference/mise-tool-skills.md section 6.2).
 	ToolSkills *ToolSkillsReport
 }
 
