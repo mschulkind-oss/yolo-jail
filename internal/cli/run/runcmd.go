@@ -172,6 +172,10 @@ type Options struct {
 	// read rather than a read of a file on every call site. Unexported because it
 	// is derived state: a caller sets the seam, never this.
 	perfLoggingOn bool
+
+	// recordingPinned makes timingRecording answer recordingPin and nothing else: a keeper's gate
+	// is its plan's (the launcher's frozen one), never its own environment's.
+	recordingPinned, recordingPin bool
 	// Invocation is yolo's argv as typed (os.Args[1:]), for the launch log's header alone
 	// (launchlog.go's writeHeader, launchcontext.go's formatInvocation): nothing decides
 	// anything from it. Set by the front door (internal/cli's runRun); nil for a launch yolo
@@ -1056,6 +1060,9 @@ func (o *Options) captureConfigOnTerminate(rt string) {
 // Pure, so the gate is table-testable without launching anything; called through
 // Getenv so injected environments behave exactly like real ones.
 func (o *Options) timingRecording() bool {
+	if o.recordingPinned {
+		return o.recordingPin // a keeper: its plan's gate, whatever its environment says
+	}
 	return o.timingReporting() || o.perfLoggingOn ||
 		o.Getenv(paths.TimingEnv) != "" || o.Getenv(paths.VerboseEnv) != ""
 }

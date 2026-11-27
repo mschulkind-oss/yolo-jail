@@ -2800,6 +2800,7 @@ func (o *Options) runContainer(cfg *jsonx.OrderedMap, rt, repoRoot, cname string
 	// boot never wrote is never recorded as this launch's.
 	jailPerf := o.snapshotJailPerf(rt)
 	sp = o.Perf.Span("launch.run_with_proxy")
+	plan.TraceContext = o.keeperTraceContext(sp)
 	kp, err := o.startKeeper(plan)
 	if errors.Is(err, errLaunchEnded) {
 		select {} // the launch guard is ending this launch, with what it made; never race it
