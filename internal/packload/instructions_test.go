@@ -26,7 +26,7 @@ func TestEveryAgentPackDeclaresItsInstructionFiles(t *testing.T) {
 			if c.Kind == packdecl.KindBriefing && c.Into != "" && c.Agent != "" && !declared[c.Agent] {
 				t.Errorf("pack %s delivers a briefing to agent %q and declares no `instructions` for it: "+
 					"add an [[instructions]] table naming the files the agent reads, with the setting or flag "+
-					"that stops it or none (docs/design/workspace-instruction-files.md)", p.Name, c.Agent)
+					"that stops it or none (docs/reference/workspace-instruction-files.md)", p.Name, c.Agent)
 			}
 		}
 	}

@@ -1,7 +1,7 @@
 package run
 
 // repoinstructions_test.go pins the launch half of `repo_instructions`
-// (docs/design/workspace-instruction-files.md): the mode is resolved once and handed to the staged
+// (docs/reference/workspace-instruction-files.md): the mode is resolved once and handed to the staged
 // packs, the replacement joins the briefing's user block, the mode crosses to the jail on the
 // session-input channel, and the disclosure reaches stderr whatever YOLO_NO_BANNER says, naming the
 // way back for an agent that cannot honor it. There is no test for a mount, because nothing builds

@@ -1,6 +1,6 @@
 // Package repoinstr resolves the `repo_instructions` config table for one launch: the mode, the
 // replacement text, the selection every pack is handed, the one-line wire form that carries it into
-// a jail, and the disclosure a launch prints (docs/design/workspace-instruction-files.md).
+// a jail, and the disclosure a launch prints (docs/reference/workspace-instruction-files.md).
 //
 // THERE IS NO MASK, by the owner's ruling (IF-D14). Nothing in this package, or anything built on
 // it, binds, replaces or hides a workspace file; an agent whose pack declares no mechanism is

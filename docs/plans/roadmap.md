@@ -96,12 +96,9 @@ needs a ruling or a Mac sits in the others.
      patched forks have become slow, and ruled the same day: complete [its plan sketch](../design/startup-tracing-plan.md)
      against the tree, then build the trace directory and the text summary first, since they rank what to speed up.
 
-8. [Repository instruction files: keep, ignore or replace](../design/workspace-instruction-files.md) — the owner's
-   request (2026-11-24), ruled the same day: stop an agent reading a repository's `AGENTS.md` and kin, per user or
-   workspace, through each agent's own setting. yolo never masks a workspace file, and an agent with no setting
-   keeps running and is named in a launch line. Built; next is graduating it to a system doc, and its Mac cells
-   wait on the owner's Mac ([its seed](../design/workspace-instruction-files-plan.md)).
-
+8. [A workspace-layer `repo_instructions` is silently inert at the host](../reference/workspace-instruction-files.md#per-setup-behavior):
+   `yolo host --` reads the user scope alone, so a project's mode changes nothing there and no launch line says so. Name it
+   in a line that gives the next step.
 
 ## Independent design review
 
@@ -372,6 +369,10 @@ agent runs its witnesses on main; no branch or real account probe is implied.
     and the upstream reports drafted with the VM-local design, on [VZ's virtio-fs cache policy](../research/apple-container-file-cost.md#21-per-file-cost-not-bandwidth)
     and [VZ keeping freed guest memory](../research/macos-vm-runtime-comparison.md#42-adding-a-balloon-to-apple-container-ourselves)
     — last, since only Apple can ship either fix.
+
+15. The owner's Mac clears [repository instruction files' macOS cells](../reference/workspace-instruction-files.md#unverified-on-macos):
+    the `repo_instructions` mode rendering at macos-user and Apple Container, `yolo host -- claude` reading `--settings` on a Mac,
+    and a real agent session honoring a setting inside a jail.
 
 14. The owner's Mac clears [tool skills' macOS witnesses](../reference/mise-tool-skills.md#unverified-on-macos): macos-user's
     confined provisioning stage writing the snapshot in both modes, and Apple Container delivering it on the next launch.

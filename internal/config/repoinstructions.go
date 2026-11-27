@@ -2,7 +2,7 @@ package config
 
 // repoinstructions.go is the `repo_instructions` table: what a launch does about the instruction
 // files a repository carries (AGENTS.md, CLAUDE.md and their kin) for the agents it selects.
-// docs/design/workspace-instruction-files.md is the authority; the resolved value a launch uses is
+// docs/reference/workspace-instruction-files.md is the authority; the resolved value a launch uses is
 // internal/repoinstr's.
 //
 //	[repo_instructions]

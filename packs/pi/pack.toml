@@ -170,7 +170,7 @@ from = "briefing/pi.md"
 
 # pi's `--no-context-files` also drops the agent-dir AGENTS.md, which is the briefing, so the
 # briefing file is handed back through `--append-system-prompt`, which takes a file's contents
-# (docs/design/workspace-instruction-files.md, IF-D8). The `.pi/` files are not covered.
+# (docs/reference/workspace-instruction-files.md, IF-D8). The `.pi/` files are not covered.
 [[instructions]]
 agent = "pi"
 bin = "pi"

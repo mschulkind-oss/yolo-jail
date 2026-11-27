@@ -1,7 +1,7 @@
 package packoverlay
 
 // instructions_test.go pins the `instructions` kind's two config mechanisms through Collect
-// (docs/design/workspace-instruction-files.md): the list lands appended after every other entry
+// (docs/reference/workspace-instruction-files.md): the list lands appended after every other entry
 // and anchored at the workspace, the set lands as an overlay, a keep or host selection places
 // nothing, and an ownerless target is reported rather than rendered. Each test fails if
 // placeInstructions' call site in Collect is deleted.

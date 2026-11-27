@@ -10,7 +10,7 @@ import (
 
 // `yolo config set|unset|why repo_instructions.*` is the path every piece of advice about the key
 // names (the validator, the disclosure, the refusals), so it must exist for both keys and round-trip
-// through the loader (docs/design/workspace-instruction-files.md §3.1).
+// through the loader (docs/reference/workspace-instruction-files.md §3.1).
 func TestRepoInstructionsSetUnsetRoundTripsThroughTheLoader(t *testing.T) {
 	user, ws := genericFixture(t, "# keep user\n", configdoc.TOML, "# keep project\n")
 	rc, out, errs := runConfigVerb(t, "set", "repo_instructions.mode", "replace", "--user")
