@@ -135,7 +135,11 @@ func (f sealFixture) launchStreams(t *testing.T, sealed bool) (argv []string, ws
 	// starts: the keeper starts every host service before the container, and its teardown removes
 	// the dir, so that moment is the one a whole launch shows a started service at.
 	script := "#!/bin/sh\nif [ \"$1\" = run ]; then printf '%s\\n' \"$@\" > '" + argvFile + "'; " +
-		"if [ -e '" + hostServiceSocketsDir(cname, false) + "' ]; then : > '" + servicesAtRun(ws) + "'; fi; fi\nexit 3\n"
+		"if [ -e '" + hostServiceSocketsDir(cname, false) + "' ]; then : > '" + servicesAtRun(ws) + "'; fi; " +
+		// And what the jail's per-agent env files hold as it starts: the launch's teardown removes
+		// them once the (fake) container is gone, so this moment is the only one that sees them.
+		"if [ -d '" + filepath.Join(runtimeHome(ws, "podman"), "agent-env") + "' ]; then cp -R '" +
+		filepath.Join(runtimeHome(ws, "podman"), "agent-env") + "' '" + agentEnvAtRun(ws) + "'; fi; fi\nexit 3\n"
 	if err := os.WriteFile(filepath.Join(bin, "podman"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -301,6 +305,10 @@ const sealTestDevice = "/dev/sealtest0"
 // servicesAtRun is the file the fixture's fake runtime leaves in ws when the jail's host-services
 // dir existed as its container started.
 func servicesAtRun(ws string) string { return filepath.Join(ws, ".sealtest-services-at-run") }
+
+// agentEnvAtRun is the copy the fixture's fake runtime makes, in ws, of the jail's per-agent env
+// directory as its container starts (absent when the launch wrote none).
+func agentEnvAtRun(ws string) string { return filepath.Join(ws, ".sealtest-agent-env-at-run") }
 
 // sealedLaunchBound bounds one fixture launch, which takes well under a second when it works.
 const sealedLaunchBound = 90 * time.Second
