@@ -138,6 +138,9 @@ type captureAct struct {
 	// sessionStderr, when set, routes the capture command's stderr to its caller. nil preserves a
 	// typed `yolo capture`'s existing process-stderr behavior.
 	sessionStderr io.Writer
+	// jailStderr is where the capture jail's own stderr goes, as jailStdout is for its stdout: nil is this
+	// process's stderr, raw; the host floor names it through progress.Guard (hostJailStdout).
+	jailStderr io.Writer
 }
 
 // captureBusyStatus is `yolo capture`'s status when another capture of the program holds its lock:
@@ -259,7 +262,7 @@ func captureHostWith(args []string, out, errw io.Writer, color bool, act capture
 	pr.Printf("[bold]capture[/bold] [cyan]%s[/cyan]  [dim]%s[/dim]", bin, target.URL)
 	runJail := func() int {
 		return runCaptureJail(staging, bin, captureJailArgv(bin), &captureSeal{installer: true},
-			captureStreams{out: out, errw: errw, jailOut: act.jailStdout,
+			captureStreams{out: out, errw: errw, jailOut: act.jailStdout, jailErr: act.jailStderr,
 				sessionOut: act.jailStdout, sessionErr: act.sessionStderr}, color,
 			captureAct{runtime: arm.runtime})
 	}

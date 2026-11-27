@@ -56,6 +56,7 @@ import (
 	"github.com/mschulkind-oss/yolo-jail/internal/paths"
 	"github.com/mschulkind-oss/yolo-jail/internal/perf"
 	"github.com/mschulkind-oss/yolo-jail/internal/pidlock"
+	"github.com/mschulkind-oss/yolo-jail/internal/progress"
 	"github.com/mschulkind-oss/yolo-jail/internal/richtext"
 	"github.com/mschulkind-oss/yolo-jail/internal/runtime"
 	"github.com/mschulkind-oss/yolo-jail/internal/setup"
@@ -710,7 +711,7 @@ func (t *jailTail) tee(s captureStreams) captureStreams {
 		s.jailOut = os.Stdout
 	}
 	if s.jailErr == nil {
-		s.jailErr = os.Stderr
+		s.jailErr = progress.Guard(os.Stderr)
 	}
 	return captureStreams{
 		out:        io.MultiWriter(s.out, t.writer(tailLaunchOut)),
@@ -1098,7 +1099,7 @@ func buildForkUnderLock(b forkBuild, mode buildMode, store *capture.Store, pr ri
 		if kept := openBuildJailOutput(staging, fmt.Sprintf("%s at %s", f.Key(), shortSHA(b.Commit))); kept != nil {
 			defer kept.close()
 			streams.jailOut = kept.tee(streams.jailOut, os.Stdout)
-			streams.jailErr = kept.tee(streams.jailErr, os.Stderr)
+			streams.jailErr = kept.tee(streams.jailErr, progress.Guard(os.Stderr))
 			streams.sessionOut = kept.tee(streams.sessionOut, os.Stdout)
 			pr.Printf("[dim]  its build jail's output is in %s as it runs[/dim]", richtext.Escape(kept.path))
 		}

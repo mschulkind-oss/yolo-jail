@@ -12,7 +12,7 @@ package packsrc
 // A HOST LAUNCH FETCHES (maintainer ruling, 2026-09-25). Before it, fetching happened
 // only in `yolo pack install`/`update` and a launch resolved strictly from the store.
 // Now a launch runs Refresh first (refresh.go): a never-fetched pack is fetched, a
-// branch is re-fetched at most hourly, and a tag or full commit SHA is never re-fetched
+// branch is probed at every launch (LPC-D1), and a tag or full commit SHA is never re-fetched
 // — "the ref decides" what moves. Resolve itself is still offline; the network
 // happens in fetchMirror and fetchPinnedCommits, which Sync and Refresh call, and in a
 // checkout's fetch of the files it needs (prefetchBlobs, checkoutTree). No other git run

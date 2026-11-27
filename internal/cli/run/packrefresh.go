@@ -140,7 +140,7 @@ func (o *Options) refreshPacks() {
 	refreshConfiguredPacks(
 		func(line string) { o.pr(o.Stderr).print(line) },
 		func(line string) { o.pr(o.Stderr).print("[yellow]Warning: " + line + "[/yellow]") },
-		// A fetch runs at most hourly per branch pack, but when it does it is a
+		// A fetch (a probe per branch pack at every launch) is a
 		// network round trip bounded at a minute, so it gets a progress line. The
 		// lock-wait notice goes THROUGH the line, so it cannot tear it.
 		func() (func(string), packsrc.TailOpener, func()) {
