@@ -940,6 +940,7 @@ func discloseRefresh(out io.Writer, rep Report, allowlist []string, delivered st
 		fmt.Fprintf(out, "yolo: mise skills: %s declares skills that are not installed (%s). Run `mise install` in the workspace, then start a new session.\n",
 			w.Tool, w.Line)
 	}
+	discloseSkips(out, rep)
 	snap := rep.Snapshot
 	if snap == nil || snap.Digest == delivered || snap.Digest == snap.Previous {
 		return
