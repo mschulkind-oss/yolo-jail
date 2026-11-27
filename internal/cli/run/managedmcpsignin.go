@@ -190,7 +190,9 @@ func (o *Options) freezeDeliveredMCPSignIn(staging string, packs []*packload.Pac
 	addManagedRecordUsability(o.launchInputMCP.SignIn, servers)
 	share := mcpauth.Share{Version: 1, Once: servers, Sources: sources, SignIn: o.launchInputMCP.SignIn}
 	for _, row := range mcpauthdaemon.ReadHostStatus(loopholes.StateDirFor(selectedMCPHostService), share) {
-		if row["diagnosis"] == "ready" {
+		// Another launch's retained record is not this launch's to announce; the host
+		// status verb lists it.
+		if row["diagnosis"] == "ready" || row["state"] == "retained, unused" {
 			continue
 		}
 		if step, ok := row["next_step"].(string); ok && step != "" {
