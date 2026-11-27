@@ -110,7 +110,7 @@ Two terms, both coined for this mode:
 
 A forked agent is an **agent dependency**
 ([program-delivery.md §3.5](../design/program-delivery.md#35-the-second-axis-who-the-dependency-serves-amendment-2026-09-03)),
-whose ruled policy is *latest*, refreshed at most hourly, with no pin and a receipt for its record
+whose ruled policy is *latest*, refreshed at every launch (LPC-D6; no hourly throttle), with no pin and a receipt for its record
 ([OQ-PD11, OQ-PD12](../design/program-delivery.md#decision-ledger)). A patched fork takes that rule
 whole, except that its trigger is the notch's readiness act (a fresh jail launch, or the host
 floor's install) rather than the agent's own invocation, because a jail mounts the capture store

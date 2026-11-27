@@ -678,7 +678,7 @@ other reason still leaves its doorway answering with the reason
 > facts that size the risk are the ref rule a host launch fetches by
 > ([`OQ-PF1`](pack-system.md#oq-pf1)): a tag or commit pin is never re-fetched by a launch, so it
 > moves only at an explicit `yolo pack install` or `yolo pack update`, while a branch is
-> re-fetched at most hourly. Every move
+> re-fetched at every fresh launch (LPC-D1 retired the hourly throttle). Every move
 > prints `Updated pack <name>: <ref> <old> → <new>` on the launch that made it.
 
 ## The crossing enumeration
