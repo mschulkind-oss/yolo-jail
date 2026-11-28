@@ -19,7 +19,9 @@ package packsrc
 //   - WHICH COPY. No local branch: the remote tip. Equal: either. The local branch behind: the remote tip,
 //     and the local branch is said to be stale. Ahead: the local branch, with its unpushed commits counted.
 //     Diverged: the local branch, warned loudly with both commits and counts and the push that repairs a
-//     rebase. A fetch that failed never refuses: the local branch, else the newer (by ancestry; diverged, the
+//     rebase; unless the local tip WAS ONCE the remote's (the checkout's reflog of its tracking ref, or yolo's
+//     own record of fetched tips: patchbranchtips.go), when the remote was rewritten elsewhere, nothing local is
+//     unpushed, the remote tip builds and the line names `git branch -f` (PF-D99, 2026-11-27). A fetch that failed never refuses: the local branch, else the newer (by ancestry; diverged, the
 //     tracking ref) of the remote tip yolo last fetched and the checkout's own refs/remotes/<remote>/<ref>,
 //     so the `git fetch` the line suggests is what builds next, else the plain order (resolvePatchBranchRef),
 //     said "not verified" with the last good fetch's age and the fetch to run by hand. A fetch that succeeded
@@ -202,6 +204,9 @@ func (s *Store) pickCopy(b budget, c Addr, p *checkoutPlan, mirror string, r *Pa
 				return refUnresolved, "", "", err
 			}
 		}
+		if r.Verified && mirrorTip != "" {
+			s.recordSeenTip(p.url, name, mirrorTip) // the tips this remote showed, for wasRemoteTip
+		}
 		fromMirror := func() { remoteTip, remoteRepo, remoteRef = mirrorTip, p.url, "refs/heads/"+name }
 		fromTracking := func() { remoteTip, remoteRepo, remoteRef = trackTip, "", tracking }
 		switch {
@@ -264,6 +269,12 @@ func (s *Store) pickCopy(b budget, c Addr, p *checkoutPlan, mirror string, r *Pa
 	if r.Verified && ahead == 0 && behind > 0 {
 		return useRemote()
 	}
+	if r.Verified && ahead > 0 && behind > 0 && remoteRepo != "" && s.wasRemoteTip(p.dir, p.remote, p.url, name, local) {
+		// DIVERGED, BUT THE LOCAL TIP WAS ONCE THE REMOTE'S: the remote was rewritten elsewhere and the local
+		// branch holds nothing unpushed (PF-D99, 2026-11-27). The remote tip builds.
+		r.Rewritten = true
+		return useRemote()
+	}
 	return useLocal()
 }
 
@@ -293,7 +304,7 @@ func (s *Store) aheadBehind(b budget, mirror, remoteRepo, local, remote string) 
 }
 
 // Diverged reports a local branch and a remote tip that each hold commits the other lacks.
-func (r *PatchBranchResolved) Diverged() bool { return r.Ahead > 0 && r.Behind > 0 }
+func (r *PatchBranchResolved) Diverged() bool { return r.Ahead > 0 && r.Behind > 0 && !r.Rewritten }
 
 // NotVerified reports a checkout whose remote this resolution could not fetch.
 func (r *PatchBranchResolved) NotVerified() bool {
@@ -305,7 +316,7 @@ func (r *PatchBranchResolved) NotVerified() bool {
 // the URL and was not used (CloneSkipped), or one reached through the local clone map whose remote deleted the
 // branch, so its local branch builds a pack that names the URL (PF-D104; a pack's own checkout stays quiet).
 func (r *PatchBranchResolved) Loud() bool {
-	return r.Diverged() || r.NotVerified() || (r.RemoteGone && r.Local == "") ||
+	return r.Diverged() || r.Rewritten || r.NotVerified() || (r.RemoteGone && r.Local == "") ||
 		(r.Checkout == "" && r.CloneSkipped != "") || (r.RemoteGone && r.CloneVia != "")
 }
 
@@ -368,6 +379,11 @@ func (r *PatchBranchResolved) relation() string {
 		return "not on " + r.Remote
 	case r.Local == r.RemoteTip:
 		return "equal to " + r.Remote
+	case r.Rewritten:
+		return fmt.Sprintf("local branch is stale, %s was rewritten (local %s was once %s's tip; the rewrite drops %d old %s "+
+			"and adds %d) — `%s` resets it, after you switch off %s if it is checked out", r.Remote, shortCommit(r.Local),
+			r.Remote, r.Ahead, plural(r.Ahead, "commit", "commits"), r.Behind,
+			shquote.JoinDisplay([]string{"git", "-C", r.Checkout, "branch", "-f", "--", r.Branch, r.Remote + "/" + r.Branch}), r.Branch)
 	case r.Diverged():
 		return fmt.Sprintf("diverged from %s: local %s has %d %s %s lacks, %s %s has %d the local branch lacks — "+
 			"`%s` (if you rebased)", r.Remote, shortCommit(r.Local), r.Ahead, plural(r.Ahead, "commit", "commits"),

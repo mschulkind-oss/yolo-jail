@@ -212,7 +212,9 @@ tracked change or untracked-not-ignored file, from `git status` run with `GIT_OP
 | Ahead | clean or dirty | working tree | `N unpushed` |
 | Behind | clean | **origin's tip** (yolo's mirror) | `clone is N behind origin and clean` and `git -C <clone> pull` |
 | Behind | dirty | working tree, warned | `behind origin by N and has uncommitted changes — git -C <clone> pull` |
-| Diverged | any | working tree, warned | both counts and PF-D99's `push --force-with-lease` (if you rebased) |
+| Diverged, the clone's tip was never origin's | any | working tree, warned | both counts and PF-D99's `push --force-with-lease` (if you rebased) |
+| Diverged, the clone's tip **was once origin's** (origin was rewritten; LPC-D17) | clean | **origin's tip**, warned | `clone is stale: its tip was once origin's tip and origin was rewritten`, and `git -C <clone> reset --hard <remote>/<ref>` |
+| Diverged, the clone's tip **was once origin's** (LPC-D17) | dirty | working tree, warned | `origin was rewritten`, and `git -C <clone> stash`, `reset --hard <remote>/<ref>`, `stash pop` to move the changes onto origin; never the force-push |
 | Fetch failed or timed out | any | working tree | `not verified`, the age of the last fetch, and `yolo pack update` |
 | Origin deleted the branch | any | working tree, warned | `not on origin`, PF-D99's push that restores it |
 | Clone absent | n/a | origin's tip | `no local clone at <path>` |
@@ -339,6 +341,7 @@ setup the launching account can read the owner's clone path. Neither is measured
 | LPC-D14 | A per-pack launch record is the one place the copy decision lives; `ResolvePack` reads it; the lockfile pins only origin's copy | 2026-11-23 | [§6.5](#65-where-the-decision-lives) | Built `ff591e8fd` (the record), `371026c48` (the pin) |
 | LPC-D15 | A `local` path registers its clone in the local clone map | 2026-11-23 | [§6.5](#65-where-the-decision-lives) | Built `f131c6083` |
 | LPC-D16 | Owner's "drop the hourly throttle entirely" reaches scoped `skill_imports` and a pack's skill payload, both checked at every fresh launch under the same probe and deadline; the background retry delays are failure backoff and stay; the in-jail launchers are another design's | 2026-11-23 | [§10](#10-what-this-does-not-change) | Built `c985aabc5` (`skill_imports`), `f763457b3` (the skill payload) |
+| LPC-D17 | A diverged clone whose tip was once origin's tip holds nothing unpushed (origin was rewritten elsewhere): clean runs origin's tip, dirty keeps the working tree (uncommitted edits are the owner's); the advice is the reset onto origin, never a blind force-push. "Once origin's tip" is [PF-D99](../reference/patched-forks.md)'s one check (the clone's reflog of its tracking ref, or yolo's own record of fetched tips) | 2026-11-27 | [§6.3](#63-the-rule) | Owner, "yes, that all sounds right", accepting that a local branch is stale when its tip was once the remote's; built |
 
 ## 12. Slices, smallest first
 

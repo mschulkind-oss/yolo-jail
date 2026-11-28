@@ -134,6 +134,10 @@ type PatchBranchResolved struct {
 	// never pushed): RemoteTip is then "", and with no local branch Commit is the checkout's stale
 	// refs/remotes/<remote>/<ref>.
 	RemoteGone bool `json:"remote_gone,omitempty"`
+	// Rewritten is true when the local branch and the remote tip diverged and the local branch's tip WAS ONCE the
+	// remote's (PF-D99, 2026-11-27): the remote was rewritten elsewhere, the local branch holds nothing
+	// unpushed, and the remote tip builds.
+	Rewritten bool `json:"rewritten,omitempty"`
 }
 
 // PatchBranchDigest is a patch branch's SERIES DIGEST: the sha256, in hex, of the JSON array ["patch_branch", commit].

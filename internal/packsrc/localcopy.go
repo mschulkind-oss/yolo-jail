@@ -57,6 +57,7 @@ const (
 	relUnusable   = "unusable"
 	relUnverified = "unverified"
 	relOriginGone = "origin-gone"
+	relRewritten  = "rewritten"
 )
 
 // LocalCopyDecision is one launch's answer for one `local` pack. It is also the pack's launch record
@@ -102,7 +103,10 @@ type localFacts struct {
 	// OriginCommit and CloneCommit are the two tips; Ahead and Behind the clone's relation to origin's.
 	OriginCommit, CloneCommit string
 	Ahead, Behind             int
-	Changed, Untracked        int
+	// Rewritten: diverged, and the clone's tip WAS ONCE origin's (PF-D99, 2026-11-27) — origin was rewritten
+	// elsewhere and the clone holds nothing unpushed.
+	Rewritten          bool
+	Changed, Untracked int
 	// Files is the working tree's file set (workingtree.go) and Scope the in-repo directory the pack, and so the
 	// dirty count and the file set, is limited to ("" for the whole repository).
 	Files  int
@@ -218,6 +222,14 @@ func decideLocalCopy(f localFacts) LocalCopyDecision {
 		return working(relUnverified, true, unverifiedLine(f, describe))
 	case f.CloneCommit == f.OriginCommit:
 		return working(relEqual, false, describe("equal to origin"))
+	case f.Ahead > 0 && f.Behind > 0 && f.Rewritten:
+		reset := git("reset", "--hard", remote+"/"+f.Ref)
+		if d.Dirty {
+			return working(relRewritten, true, describe("origin was rewritten, so the clone is stale: its tip was once origin's tip, "+
+				"nothing in it is unpushed")+" — to move your changes onto origin: "+git("stash")+", "+reset+", "+git("stash", "pop"))
+		}
+		return origin(relRewritten, "clone "+f.shown()+" is stale: its tip was once origin's tip and origin was rewritten, "+
+			"so nothing in it is unpushed — "+reset, true)
 	case f.Ahead > 0 && f.Behind > 0:
 		return working(relDiverged, true, fmt.Sprintf("local %s (working tree%s) has diverged from origin: %d unpushed, %d behind — %s (if you rebased)",
 			f.shown(), f.fileCount(), f.Ahead, f.Behind, push("--force-with-lease")))
@@ -276,6 +288,9 @@ func (s *Store) localCopyFor(it refreshItem, originCommit string, fetchErr error
 		f.Tag = true
 	} else {
 		s.readLocalClone(b, it.addr, &f)
+	}
+	if f.Verified && originCommit != "" {
+		s.recordSeenTip(it.addr.Repo, f.Ref, originCommit) // the tips origin showed, for wasRemoteTip
 	}
 	d := decideLocalCopy(f)
 	return &d
@@ -365,6 +380,7 @@ func (s *Store) readLocalClone(b budget, a Addr, f *localFacts) {
 			f.NotUsed = "it could not be compared with origin (" + oneLine(err) + ")"
 			return
 		}
+		f.Rewritten = f.Verified && f.Ahead > 0 && f.Behind > 0 && s.wasRemoteTip(f.Path, f.Remote, a.Repo, f.Ref, f.CloneCommit)
 	}
 	// Dirty is the PACK's: limited to its directory, as the staged file set is.
 	statusArgs := []string{"status", "--porcelain=v1", "-z", "--untracked-files=normal"}
