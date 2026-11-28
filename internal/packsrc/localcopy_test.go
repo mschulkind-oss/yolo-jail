@@ -124,6 +124,31 @@ func TestTheCopyDecisionOverRealClones(t *testing.T) {
 				return f.source, f.clone
 			},
 			lines: []string{"diverged from origin", "1 unpushed", "1 behind", "push --force-with-lease -- origin main", "(if you rebased)"}},
+		{name: "origin rewritten, clone was once origin's tip", copy: CopyOrigin, warn: true, rel: "rewritten",
+			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
+				f.push(t, "theirs.md")
+				gitIn(t, f.clone, "fetch", "-q", "origin") // the clone's own fetch: its tracking ref's reflog holds the tip
+				gitIn(t, f.clone, "merge", "-q", "--ff-only", "origin/main")
+				gitIn(t, f.pusher, "reset", "-q", "--hard", "HEAD~1")
+				commitFile(t, f.pusher, "rewritten.md", "rewritten")
+				gitIn(t, f.pusher, "push", "-q", "--force", "origin", "main")
+				return f.source, f.clone
+			},
+			lines: []string{"origin main %O (clone %C is stale: its tip was once origin's tip and origin was rewritten",
+				"nothing in it is unpushed — git -C %Q reset --hard origin/main)"}},
+		{name: "origin rewritten, clone dirty runs the working tree", copy: CopyWorkingTree, warn: true, rel: "rewritten",
+			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
+				f.push(t, "theirs.md")
+				gitIn(t, f.clone, "fetch", "-q", "origin")
+				gitIn(t, f.clone, "merge", "-q", "--ff-only", "origin/main")
+				gitIn(t, f.pusher, "reset", "-q", "--hard", "HEAD~1")
+				commitFile(t, f.pusher, "rewritten.md", "rewritten")
+				gitIn(t, f.pusher, "push", "-q", "--force", "origin", "main")
+				write(t, filepath.Join(f.clone, "wip.md"), "wip")
+				return f.source, f.clone
+			},
+			lines: []string{"working tree", "origin was rewritten", "1 file uncommitted",
+				"git -C %Q stash, git -C %Q reset --hard origin/main, git -C %Q stash pop"}},
 		{name: "clone absent", copy: CopyOrigin, rel: "absent",
 			setup: func(t *testing.T, f *localCopyFixture) (string, string) {
 				return f.source, filepath.Join(f.root, "nowhere", "tillr")
