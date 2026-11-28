@@ -2092,6 +2092,18 @@
       mine = "~/dotfiles/packs"
     The "~/" is expanded against your home at load, so ONE config can name one pack
     tree on machines whose homes differ (/home/you vs /Users/you).
+    `local = "<path>"` on a `{ git = URL, ref = "<branch>" }` entry names your own
+    clone of that repository.  Every fresh launch runs the clone's working tree,
+    uncommitted edits included, when it is at least as new as the remote's branch,
+    and the remote's copy otherwise, and says which copy ran.  A missing or
+    unusable clone runs the remote's copy and never stops the launch.  `local`
+    needs a branch `ref`, is read from your user config only, and cannot be combined
+    with `skills`.
+      Example (~/.config/yolo-jail/config.toml):
+        packs = [
+          { git = "https://github.com/acme/agent-pack", ref = "main",
+            local = "~/src/agent-pack" },
+        ]
     [bold]Every name an agent sees for a pack starts with its NAMESPACE[/bold]: the source key
     for `<source>/<name>` (skill `review` of "mine/review" reaches agents as
     `mine-review`), the folder name for `local/<name>`, the repository's last segment

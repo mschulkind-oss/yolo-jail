@@ -126,8 +126,8 @@ type PackEntry struct {
 	BareStep        string `json:"bareStep,omitempty"`
 
 	// Local is the entry's `local` key: the user's clone of this repository, `~` expanded and absolute
-	// (docs/design/local-pack-clones.md §6.1, LPC-D7). Empty when unset. Slice 5's copy rule reads it; nothing
-	// acts on it yet. json:"-": a host path never crosses into the jail through YOLO_PACKS.
+	// (docs/design/local-pack-clones.md §6.1, LPC-D7). Empty when unset. The per-launch copy rule
+	// (packsrc decideLocalCopy) reads it. json:"-": a host path never crosses into the jail through YOLO_PACKS.
 	Local string `json:"-"`
 
 	// AllowDefaultRef carries the authored omitted-ref state into the resolver and the
