@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,4 +81,35 @@ func TestARealUnpushedRebaseStillBuildsTheLocalBranchAndOffersThePush(t *testing
 		t.Fatalf("resolved = %+v, want the local %s, diverged and not rewritten", r, local)
 	}
 	wantLine(t, r, f.now, "diverged from origin", "push --force-with-lease -- origin mine` (if you rebased)")
+}
+
+// Launches that record tips at once each replace the record whole: it stays a list of tips, every one a tip
+// some launch recorded, and no temporary file is left beside it.
+func TestConcurrentTipRecordsNeverMix(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	var wg sync.WaitGroup
+	tips := map[string]bool{}
+	for i := 0; i < 16; i++ {
+		tip := strings.Repeat(string(rune('a'+i)), 40)
+		tips[tip] = true
+		wg.Add(1)
+		go func() { defer wg.Done(); s.recordSeenTip("https://example.invalid/r", "patch/x", tip) }()
+	}
+	wg.Wait()
+	got := s.readSeenTips("https://example.invalid/r", "patch/x")
+	if len(got) == 0 {
+		t.Fatal("no tips recorded")
+	}
+	for _, g := range got {
+		if !tips[g] {
+			t.Errorf("record holds %q, which no launch recorded", g)
+		}
+	}
+	ents, err := os.ReadDir(filepath.Dir(s.seenTipsPath("https://example.invalid/r", "patch/x")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ents) != 1 {
+		t.Errorf("tips dir holds %d entries, want only the record", len(ents))
+	}
 }

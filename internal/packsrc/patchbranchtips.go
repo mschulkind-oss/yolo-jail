@@ -51,11 +51,20 @@ func (s *Store) recordSeenTip(remoteURL, name, tip string) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(tips, "\n")+"\n"), 0o644); err != nil {
+	// A temporary file of its own, so two launches recording at once each rename a whole file: the record
+	// may keep either one's tips, never a mix of both.
+	f, err := os.CreateTemp(filepath.Dir(p), "."+filepath.Base(p)+".*")
+	if err != nil {
 		return
 	}
-	_ = os.Rename(tmp, p)
+	_, werr := f.WriteString(strings.Join(tips, "\n") + "\n")
+	if cerr := f.Close(); werr != nil || cerr != nil {
+		_ = os.Remove(f.Name())
+		return
+	}
+	if err := os.Rename(f.Name(), p); err != nil {
+		_ = os.Remove(f.Name())
+	}
 }
 
 // wasRemoteTip reports whether commit was once the tip of the remote's branch, by either witness: yolo's record
