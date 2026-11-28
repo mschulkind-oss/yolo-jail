@@ -188,10 +188,9 @@ func (l *Line) redrawTail() {
 	l.draw()
 }
 
-// tailRows is the tail's rows under the status row: with one stream speaking,
-// its latest TailLines lines; with several, each gets its share (at least one
-// line) and its name in front, in the order the streams were opened. Callers
-// hold mu.
+// tailRows is the tail's rows under the status row: each stream speaking shows
+// its latest TailLines lines, in the order the streams were opened, and with
+// several each row has its stream's name in front. Callers hold mu.
 func (l *Line) tailRows() []string {
 	var active []*Tail
 	for _, t := range l.tails {
@@ -207,9 +206,6 @@ func (l *Line) tailRows() []string {
 	}
 	per := l.tailSize()
 	named := len(active) > 1
-	if named {
-		per = max(1, per/len(active))
-	}
 	w := l.width() - 1
 	var rows []string
 	for _, t := range active {

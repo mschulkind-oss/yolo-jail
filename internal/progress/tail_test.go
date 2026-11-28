@@ -226,8 +226,8 @@ func TestAClosedStreamLeavesNoStaleRows(t *testing.T) {
 	fmt.Fprint(a, "a1\na2\n")
 	fmt.Fprint(b, "b1\nb2\n")
 	l.Tick()
-	if got := w.screen(); len(got) != 3 {
-		t.Fatalf("two streams, one line each: screen = %q", got)
+	if got := w.screen(); len(got) != 5 {
+		t.Fatalf("two streams, two lines each: screen = %q", got)
 	}
 	a.Close()
 	b.Close()
@@ -308,7 +308,7 @@ func TestLiveRenderingWithoutATailIsUnchanged(t *testing.T) {
 // and the screen at the end is the result line alone.
 func TestConcurrentStreamsShareOneRegionWithoutTearing(t *testing.T) {
 	cfg, clk := tailCfg()
-	cfg.TailLines = 6
+	cfg.TailLines = 2
 	w := &termTee{}
 	l := startShown(cfg, clk, w)
 	names := []string{"a", "b", "c"}
@@ -326,7 +326,7 @@ func TestConcurrentStreamsShareOneRegionWithoutTearing(t *testing.T) {
 	wg.Wait()
 	l.Tick()
 	got := w.screen()
-	// Three streams with six lines each: two rows apiece, the latest two, named.
+	// Three streams with a two-line tail: two rows apiece, the latest two, named.
 	want := []string{"Building… (2s)",
 		"  [a] a line 49", "  [a] a line 50",
 		"  [b] b line 49", "  [b] b line 50",
@@ -338,6 +338,25 @@ func TestConcurrentStreamsShareOneRegionWithoutTearing(t *testing.T) {
 	if got := w.screen(); len(got) != 1 {
 		t.Errorf("screen after Done = %q", got)
 	}
+}
+
+// Each running build gets the whole tail, not a share of it: two builds at the default show
+// three rows apiece, in the order their streams were opened.
+func TestEachStreamGetsTheFullTail(t *testing.T) {
+	cfg, clk := tailCfg()
+	w := &termTee{}
+	l := startShown(cfg, clk, w)
+	a, b := l.Tail("a"), l.Tail("b")
+	fmt.Fprint(a, "a1\na2\na3\na4\n")
+	fmt.Fprint(b, "b1\nb2\nb3\nb4\n")
+	l.Tick()
+	want := []string{"Building… (2s)",
+		"  [a] a2", "  [a] a3", "  [a] a4",
+		"  [b] b2", "  [b] b3", "  [b] b4"}
+	if got := w.screen(); strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("screen = %q, want %q", got, want)
+	}
+	l.Done("")
 }
 
 func TestNilTailIsANoOp(t *testing.T) {
